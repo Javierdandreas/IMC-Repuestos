@@ -1,27 +1,33 @@
-import { pool } from "@/utils/database";
+import { getCategorias, getMarcas, getProveedores, getSubcategorias } from "@/lib/repos/catalogos";
+import { getPiezasBusqueda } from "@/lib/repos/piezas";
 
 export type ProductMeta = {
   marcas: { id: number; descripcion: string }[];
   categorias: { id: number; descripcion: string }[];
   subcategorias: { id: number; descripcion: string; id_categoria: number }[];
   proveedores: { id: number; descripcion: string }[];
+  piezas: {
+    id: number;
+    codigo_pieza: number;
+    descripcion: string;
+    medida?: string;
+    id_categoria: number;
+    categoria: string;
+    id_subcategoria: number;
+    subcategoria: string;
+    originales: string[];
+    equivalentes: string[];
+  }[];
 };
 
 export async function getProductMeta(): Promise<ProductMeta> {
-  const [marcasRes, categoriasRes, subcategoriasRes, proveedoresRes] =
-    await Promise.all([
-      pool.query(`SELECT id, descripcion FROM marcas ORDER BY descripcion ASC`),
-      pool.query(`SELECT id, descripcion FROM categoria ORDER BY descripcion ASC`),
-      pool.query(
-        `SELECT id, descripcion, id_categoria FROM subcategoria ORDER BY descripcion ASC`
-      ),
-      pool.query(`SELECT id, descripcion FROM proveedores ORDER BY descripcion ASC`),
-    ]);
+  const [marcas, categorias, subcategorias, proveedores, piezas] = await Promise.all([
+    getMarcas(),
+    getCategorias(),
+    getSubcategorias(),
+    getProveedores(),
+    getPiezasBusqueda(),
+  ]);
 
-  return {
-    marcas: marcasRes.rows,
-    categorias: categoriasRes.rows,
-    subcategorias: subcategoriasRes.rows,
-    proveedores: proveedoresRes.rows,
-  };
+  return { marcas, categorias, subcategorias, proveedores, piezas };
 }

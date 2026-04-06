@@ -1,27 +1,26 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Navbar } from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import { Toaster } from "sonner";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Next.js 15 App",
-  description: "Aplicación creada con Next.js 15",
+  title: "IMC Productos",
+  description: "Panel interno de productos, piezas y catálogos",
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html suppressHydrationWarning>
+    <html lang="es">
       <body className={inter.className}>
-        <Navbar />
-        <main>{children}</main>
-        <Toaster />
+        <AppShell>{children}</AppShell>
+        <Toaster richColors position="top-right" />
       </body>
     </html>
   );

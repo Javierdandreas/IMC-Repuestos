@@ -1,36 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pool } from "@/utils/database";
+import { createSubcategoria, getSubcategoriasConCategoria } from "@/lib/repos/catalogos";
+import { requireApiSession } from "@/lib/api-auth";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  await requireApiSession(request);
   try {
-    const { rows } = await pool.query(`
-      SELECT
-        s.id,
-        s.descripcion,
-        s.id_categoria,
-        c.descripcion AS categoria
-      FROM subcategoria s
-      JOIN categoria c ON c.id = s.id_categoria
-      ORDER BY c.descripcion ASC, s.descripcion ASC
-    `);
-
+    const rows = await getSubcategoriasConCategoria();
     return NextResponse.json(rows);
   } catch (error: any) {
-    return NextResponse.json({ message: error.message }, { status: 400 });
+    return NextResponse.json({ message: error.message || "No se pudieron obtener las subcategorías" }, { status: error.status || 400 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  await requireApiSession(request);
   try {
-    const { descripcion, id_categoria } = await request.json();
-
-    const { rows } = await pool.query(
-      `INSERT INTO subcategoria (descripcion, id_categoria) VALUES ($1, $2) RETURNING *`,
-      [descripcion, id_categoria]
-    );
-
-    return NextResponse.json(rows[0]);
+    const body = await request.json();
+    const result = await createSubcategoria(body.descripcion, body.id_categoria);
+    return NextResponse.json(result);
   } catch (error: any) {
-    return NextResponse.json({ message: error.message }, { status: 400 });
+    return NextResponse.json({ message: error.message || "No se pudo crear la subcategoría" }, { status: error.status || 400 });
   }
 }

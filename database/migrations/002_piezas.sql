@@ -1,0 +1,7 @@
+-- 002_piezas.sql
+-- Crear maestro técnico de piezas y referencias.
+-- Pegá acá la migración que ya ejecutaste para:
+--   - pieza
+--   - codigo_referencia
+--   - pieza_codigo_referencia
+-- Si ya la aplicaste en tu base, este archivo queda como histórico/versionado.

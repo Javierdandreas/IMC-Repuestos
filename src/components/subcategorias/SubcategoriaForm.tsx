@@ -12,6 +12,8 @@ type Categoria = {
 type Props = {
   categorias: Categoria[];
   initialCategoriaId?: string;
+  initialDescripcion?: string;
+  subcategoriaId?: number;
   onSuccess?: () => void;
   onCancel?: () => void;
 };
@@ -19,11 +21,13 @@ type Props = {
 export function SubcategoriaForm({
   categorias,
   initialCategoriaId = "",
+  initialDescripcion = "",
+  subcategoriaId,
   onSuccess,
   onCancel,
 }: Props) {
   const router = useRouter();
-  const [descripcion, setDescripcion] = useState("");
+  const [descripcion, setDescripcion] = useState(initialDescripcion.toUpperCase());
   const [idCategoria, setIdCategoria] = useState(initialCategoriaId);
   const [loading, setLoading] = useState(false);
 
@@ -31,13 +35,22 @@ export function SubcategoriaForm({
     setIdCategoria(initialCategoriaId);
   }, [initialCategoriaId]);
 
+  useEffect(() => {
+    setDescripcion(initialDescripcion.toUpperCase());
+  }, [initialDescripcion]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const res = await fetch("/api/subcategorias", {
-        method: "POST",
+      const url = subcategoriaId
+        ? `/api/subcategorias/${subcategoriaId}`
+        : "/api/subcategorias";
+      const method = subcategoriaId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           descripcion,
@@ -48,10 +61,14 @@ export function SubcategoriaForm({
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.message || "Error al crear la subcategoría");
+        throw new Error(data.message || "Error al guardar la subcategoría");
       }
 
-      toast.success("Subcategoría creada correctamente");
+      toast.success(
+        subcategoriaId
+          ? "Subcategoría actualizada correctamente"
+          : "Subcategoría creada correctamente"
+      );
 
       if (onSuccess) {
         onSuccess();
@@ -69,15 +86,6 @@ export function SubcategoriaForm({
 
   return (
     <form onSubmit={handleSubmit}>
-      <label className="block mb-2 font-medium">Descripción</label>
-      <input
-        type="text"
-        value={descripcion}
-        onChange={(e) => setDescripcion(e.target.value)}
-        className="w-full border rounded-md p-3 mb-6"
-        placeholder="Ingresar subcategoría"
-        required
-      />
 
       <label className="block mb-2 font-medium">Categoría</label>
       <select
@@ -93,6 +101,16 @@ export function SubcategoriaForm({
           </option>
         ))}
       </select>
+
+      <label className="block mb-2 font-medium">Descripción</label>
+      <input
+        type="text"
+        value={descripcion}
+        onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
+        className="w-full border rounded-md p-3 mb-6 uppercase"
+        placeholder="Ingresar subcategoría"
+        required
+      />
 
       <div className="flex items-center justify-end gap-3">
         {onCancel && (
@@ -110,7 +128,7 @@ export function SubcategoriaForm({
           disabled={loading}
           className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
         >
-          {loading ? "Guardando..." : "Guardar"}
+          {loading ? "Guardando..." : subcategoriaId ? "Actualizar" : "Guardar"}
         </button>
       </div>
     </form>

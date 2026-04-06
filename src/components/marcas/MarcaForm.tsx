@@ -7,11 +7,18 @@ import { toast } from "sonner";
 type Props = {
   onSuccess?: () => void;
   onCancel?: () => void;
+  initialDescripcion?: string;
+  marcaId?: number;
 };
 
-export function MarcaForm({ onSuccess, onCancel }: Props) {
+export function MarcaForm({
+  onSuccess,
+  onCancel,
+  initialDescripcion = "",
+  marcaId,
+}: Props) {
   const router = useRouter();
-  const [descripcion, setDescripcion] = useState("");
+  const [descripcion, setDescripcion] = useState(initialDescripcion.toUpperCase());
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -19,8 +26,11 @@ export function MarcaForm({ onSuccess, onCancel }: Props) {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/marcas", {
-        method: "POST",
+      const url = marcaId ? `/api/marcas/${marcaId}` : "/api/marcas";
+      const method = marcaId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: {
           "Content-Type": "application/json",
         },
@@ -30,10 +40,12 @@ export function MarcaForm({ onSuccess, onCancel }: Props) {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.message || "Error al crear la marca");
+        throw new Error(data.message || "Error al guardar la marca");
       }
 
-      toast.success("Marca creada correctamente");
+      toast.success(
+        marcaId ? "Marca actualizada correctamente" : "Marca creada correctamente"
+      );
 
       if (onSuccess) {
         onSuccess();
@@ -55,8 +67,8 @@ export function MarcaForm({ onSuccess, onCancel }: Props) {
       <input
         type="text"
         value={descripcion}
-        onChange={(e) => setDescripcion(e.target.value)}
-        className="w-full border rounded-md p-3 mb-6"
+        onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
+        className="w-full border rounded-md p-3 mb-6 uppercase"
         placeholder="Ingresar marca"
         required
       />
@@ -77,7 +89,7 @@ export function MarcaForm({ onSuccess, onCancel }: Props) {
           disabled={loading}
           className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
         >
-          {loading ? "Guardando..." : "Guardar"}
+          {loading ? "Guardando..." : marcaId ? "Actualizar" : "Guardar"}
         </button>
       </div>
     </form>

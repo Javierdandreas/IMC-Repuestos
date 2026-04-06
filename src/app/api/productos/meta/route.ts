@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
+import { getProductMeta } from "@/lib/productos-meta";
 import { pool } from "@/utils/database";
+import { requireApiSession } from "@/lib/api-auth";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  await requireApiSession(request);
   try {
-    const [marcas, categorias, subcategorias, proveedores, tipoTable] = await Promise.all([
-      pool.query("SELECT id, descripcion FROM marcas ORDER BY descripcion"),
-      pool.query("SELECT id, descripcion FROM categoria ORDER BY descripcion"),
-      pool.query("SELECT id, id_categoria, descripcion FROM subcategoria ORDER BY descripcion"),
-      pool.query("SELECT id, descripcion FROM proveedores ORDER BY descripcion"),
+    const [meta, tipoTable] = await Promise.all([
+      getProductMeta(),
       pool.query("SELECT to_regclass('public.tipo_producto') AS table_name"),
     ]);
 
@@ -17,10 +17,7 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      marcas: marcas.rows,
-      categorias: categorias.rows,
-      subcategorias: subcategorias.rows,
-      proveedores: proveedores.rows,
+      ...meta,
       tipos: tipos.rows,
     });
   } catch (error: any) {

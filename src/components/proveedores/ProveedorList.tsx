@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { ProveedorForm } from "@/components/proveedores/ProveedorForm";
+import { PencilButton } from "@/components/ui/PencilButton";
+import { TrashButton } from "@/components/ui/TrashButton";
 
 type Proveedor = {
   id: number;
@@ -16,27 +19,52 @@ type Props = {
 
 export function ProveedorList({ proveedores }: Props) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [openNew, setOpenNew] = useState(false);
+  const [editingProveedor, setEditingProveedor] = useState<Proveedor | null>(null);
+  const [deletingProveedor, setDeletingProveedor] = useState<Proveedor | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deletingProveedor) return;
+
+    try {
+      setIsDeleting(true);
+      const response = await fetch(`/api/proveedores/${deletingProveedor.id}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.message || "No se pudo borrar el proveedor");
+      }
+
+      setDeletingProveedor(null);
+      router.refresh();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "No se pudo borrar el proveedor");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <>
-      <div className="bg-white p-6 rounded-lg shadow-md">
+      <div className="bg-white p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Proveedores</h1>
 
           <button
             type="button"
-            onClick={() => setOpen(true)}
+            onClick={() => setOpenNew(true)}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md"
           >
             Nuevo proveedor
           </button>
         </div>
 
-        <div className="border rounded-md overflow-hidden">
-          <div className="grid grid-cols-[100px_1fr] bg-slate-600 text-white font-semibold">
+        <div className="rounded-md overflow-hidden border border-slate-300 border border-slate-300">
+          <div className="grid grid-cols-[100px_1fr_120px] bg-slate-600 text-white font-semibold">
             <div className="p-3 border-r">ID</div>
-            <div className="p-3">Descripción</div>
+            <div className="p-3 border-r">DESCRIPCIÓN</div>
+            <div className="p-3 text-center">ACCIONES</div>
           </div>
 
           {proveedores.length === 0 ? (
@@ -45,10 +73,21 @@ export function ProveedorList({ proveedores }: Props) {
             proveedores.map((proveedor) => (
               <div
                 key={proveedor.id}
-                className="grid grid-cols-[100px_1fr] border-t bg-white"
+                className="grid grid-cols-[100px_1fr_120px] border-t-2 border-slate-300 bg-slate-50"
               >
                 <div className="p-3 border-r">{proveedor.id}</div>
-                <div className="p-3">{proveedor.descripcion}</div>
+                <div className="p-3 border-r">{proveedor.descripcion}</div>
+                <div className="p-2 flex items-center justify-center gap-2">
+                  <PencilButton
+                    label={`Editar proveedor ${proveedor.descripcion}`}
+                    onClick={() => setEditingProveedor(proveedor)}
+                  />
+                  <TrashButton
+                    label={`Borrar proveedor ${proveedor.descripcion}`}
+                    onClick={() => setDeletingProveedor(proveedor)}
+                    disabled={isDeleting && deletingProveedor?.id === proveedor.id}
+                  />
+                </div>
               </div>
             ))
           )}
@@ -57,17 +96,46 @@ export function ProveedorList({ proveedores }: Props) {
 
       <Modal
         title="Nuevo proveedor"
-        open={open}
-        onClose={() => setOpen(false)}
+        open={openNew}
+        onClose={() => setOpenNew(false)}
       >
         <ProveedorForm
           onSuccess={() => {
-            setOpen(false);
+            setOpenNew(false);
             router.refresh();
           }}
-          onCancel={() => setOpen(false)}
+          onCancel={() => setOpenNew(false)}
         />
       </Modal>
+
+      <Modal
+        title="Editar proveedor"
+        open={!!editingProveedor}
+        onClose={() => setEditingProveedor(null)}
+      >
+        <ProveedorForm
+          proveedorId={editingProveedor?.id}
+          initialDescripcion={editingProveedor?.descripcion ?? ""}
+          onSuccess={() => {
+            setEditingProveedor(null);
+            router.refresh();
+          }}
+          onCancel={() => setEditingProveedor(null)}
+        />
+      </Modal>
+
+      <ConfirmDeleteModal
+        open={!!deletingProveedor}
+        title="Borrar proveedor"
+        description={
+          deletingProveedor
+            ? `¿Seguro que querés borrar el proveedor "${deletingProveedor.descripcion}"? Esta acción no se puede deshacer.`
+            : ""
+        }
+        loading={isDeleting}
+        onConfirm={handleDelete}
+        onClose={() => setDeletingProveedor(null)}
+      />
     </>
   );
 }

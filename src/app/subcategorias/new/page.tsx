@@ -1,12 +1,5 @@
 import { SubcategoriaForm } from "@/components/subcategorias/SubcategoriaForm";
-import { pool } from "@/utils/database";
-
-async function getCategorias() {
-  const { rows } = await pool.query(
-    `SELECT id, descripcion FROM categoria ORDER BY descripcion ASC`
-  );
-  return rows;
-}
+import { getCategorias } from "@/lib/repos/catalogos";
 
 export default async function NewSubcategoriaPage({
   searchParams,

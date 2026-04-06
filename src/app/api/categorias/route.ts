@@ -1,29 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pool } from "@/utils/database";
+import { createCategoria, getCategorias } from "@/lib/repos/catalogos";
+import { requireApiSession } from "@/lib/api-auth";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  await requireApiSession(request);
   try {
-    const { rows } = await pool.query(
-      `SELECT id, descripcion FROM categoria ORDER BY descripcion ASC`
-    );
-
+    const rows = await getCategorias();
     return NextResponse.json(rows);
   } catch (error: any) {
-    return NextResponse.json({ message: error.message }, { status: 400 });
+    return NextResponse.json({ message: error.message || "No se pudieron obtener las categorías" }, { status: error.status || 400 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  await requireApiSession(request);
   try {
-    const { descripcion } = await request.json();
-
-    const { rows } = await pool.query(
-      `INSERT INTO categoria (descripcion) VALUES ($1) RETURNING *`,
-      [descripcion]
-    );
-
-    return NextResponse.json(rows[0]);
+    const body = await request.json();
+    const result = await createCategoria(body.descripcion);
+    return NextResponse.json(result);
   } catch (error: any) {
-    return NextResponse.json({ message: error.message }, { status: 400 });
+    return NextResponse.json({ message: error.message || "No se pudo crear la categoría" }, { status: error.status || 400 });
   }
 }

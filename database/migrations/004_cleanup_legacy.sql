@@ -1,0 +1,7 @@
+-- 004_cleanup_legacy.sql
+-- NO ejecutar todavía si la app sigue usando partes legacy.
+-- Objetivo futuro:
+--   - quitar id_codigo_original de productos
+--   - quitar id_equivalencia de productos
+--   - borrar tablas legacy si ya no se usan
+-- Ejecutar solo cuando el flujo con piezas esté 100% estable.

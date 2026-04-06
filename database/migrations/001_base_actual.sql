@@ -1,0 +1,4 @@
+-- 001_base_actual.sql
+-- Documentación del punto de partida histórico.
+-- Guardá acá el SQL/base original si querés preservar una foto del estado previo.
+-- Este archivo puede quedar como referencia documental y no necesariamente ejecutarse.

@@ -7,11 +7,18 @@ import { toast } from "sonner";
 type Props = {
   onSuccess?: () => void;
   onCancel?: () => void;
+  initialDescripcion?: string;
+  categoriaId?: number;
 };
 
-export function CategoriaForm({ onSuccess, onCancel }: Props) {
+export function CategoriaForm({
+  onSuccess,
+  onCancel,
+  initialDescripcion = "",
+  categoriaId,
+}: Props) {
   const router = useRouter();
-  const [descripcion, setDescripcion] = useState("");
+  const [descripcion, setDescripcion] = useState(initialDescripcion.toUpperCase());
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -19,8 +26,11 @@ export function CategoriaForm({ onSuccess, onCancel }: Props) {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/categorias", {
-        method: "POST",
+      const url = categoriaId ? `/api/categorias/${categoriaId}` : "/api/categorias";
+      const method = categoriaId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: {
           "Content-Type": "application/json",
         },
@@ -30,10 +40,14 @@ export function CategoriaForm({ onSuccess, onCancel }: Props) {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.message || "Error al crear la categoría");
+        throw new Error(data.message || "Error al guardar la categoría");
       }
 
-      toast.success("Categoría creada correctamente");
+      toast.success(
+        categoriaId
+          ? "Categoría actualizada correctamente"
+          : "Categoría creada correctamente"
+      );
 
       if (onSuccess) {
         onSuccess();
@@ -55,8 +69,8 @@ export function CategoriaForm({ onSuccess, onCancel }: Props) {
       <input
         type="text"
         value={descripcion}
-        onChange={(e) => setDescripcion(e.target.value)}
-        className="w-full border rounded-md p-3 mb-6"
+        onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
+        className="w-full border rounded-md p-3 mb-6 uppercase"
         placeholder="Ingresar categoría"
         required
       />
@@ -77,7 +91,7 @@ export function CategoriaForm({ onSuccess, onCancel }: Props) {
           disabled={loading}
           className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
         >
-          {loading ? "Guardando..." : "Guardar"}
+          {loading ? "Guardando..." : categoriaId ? "Actualizar" : "Guardar"}
         </button>
       </div>
     </form>

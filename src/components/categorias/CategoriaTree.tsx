@@ -3,8 +3,12 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { CategoriaForm } from "@/components/categorias/CategoriaForm";
 import { SubcategoriaForm } from "@/components/subcategorias/SubcategoriaForm";
+import { PencilButton } from "@/components/ui/PencilButton";
+import { TrashButton } from "@/components/ui/TrashButton";
+import { PlusButton } from "@/components/ui/PlusButton";
 
 type Subcategoria = {
   id: number;
@@ -21,11 +25,24 @@ type Props = {
   categorias: Categoria[];
 };
 
+type DeleteTarget =
+  | { type: "categoria"; id: number; descripcion: string }
+  | { type: "subcategoria"; id: number; descripcion: string }
+  | null;
+
 export function CategoriaTree({ categorias }: Props) {
   const router = useRouter();
   const [openCategoria, setOpenCategoria] = useState(false);
   const [openSubcategoria, setOpenSubcategoria] = useState(false);
   const [selectedCategoriaId, setSelectedCategoriaId] = useState<string>("");
+  const [editingCategoria, setEditingCategoria] = useState<Categoria | null>(null);
+  const [editingSubcategoria, setEditingSubcategoria] = useState<{
+    id: number;
+    descripcion: string;
+    id_categoria: string;
+  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const categoriasOptions = useMemo(
     () => categorias.map((cat) => ({ id: cat.id, descripcion: cat.descripcion })),
@@ -37,9 +54,38 @@ export function CategoriaTree({ categorias }: Props) {
     setOpenSubcategoria(true);
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+
+    try {
+      setIsDeleting(true);
+      const basePath = deleteTarget.type === "categoria" ? "categorias" : "subcategorias";
+      const response = await fetch(`/api/${basePath}/${deleteTarget.id}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            `No se pudo borrar la ${deleteTarget.type === "categoria" ? "categoría" : "subcategoría"}`
+        );
+      }
+
+      setDeleteTarget(null);
+      router.refresh();
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : `No se pudo borrar la ${deleteTarget.type === "categoria" ? "categoría" : "subcategoría"}`
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <>
-      <div className="bg-white p-6 rounded-lg shadow-md">
+      <div className="bg-white p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Categorías</h1>
 
@@ -62,10 +108,10 @@ export function CategoriaTree({ categorias }: Props) {
           </div>
         </div>
 
-        <div className="border rounded-md overflow-hidden">
-          <div className="grid grid-cols-[1fr_220px] bg-slate-600 text-white font-semibold">
-            <div className="p-3 border-r">Categoría</div>
-            <div className="p-3 text-center">Acciones</div>
+        <div className="rounded-md overflow-hidden border border-slate-300 border border-slate-300">
+          <div className="grid grid-cols-[1fr_260px] bg-slate-600 text-white font-semibold">
+            <div className="p-3 border-r">CATEGORÍAS</div>
+            <div className="p-3 text-center">ACCIONES</div>
           </div>
 
           {categorias.length === 0 ? (
@@ -73,19 +119,32 @@ export function CategoriaTree({ categorias }: Props) {
           ) : (
             categorias.map((categoria) => (
               <div key={categoria.id} className="border-t">
-                <div className="grid grid-cols-[1fr_220px] bg-gray-100">
+                <div className="grid grid-cols-[1fr_260px] bg-gray-100">
                   <div className="p-3 font-semibold uppercase">
                     {categoria.descripcion}
                   </div>
 
-                  <div className="p-2 flex items-center justify-center">
-                    <button
-                      type="button"
+                  <div className="p-2 flex items-center justify-end gap-2">
+                    <PlusButton
+                      label={`Nueva subcategoría para ${categoria.descripcion}`}
                       onClick={() => openNewSubcategoria(categoria.id)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm"
-                    >
-                      Nueva subcategoría
-                    </button>
+                    />
+
+                    <PencilButton
+                      label={`Editar categoría ${categoria.descripcion}`}
+                      onClick={() => setEditingCategoria(categoria)}
+                    />
+                    <TrashButton
+                      label={`Borrar categoría ${categoria.descripcion}`}
+                      onClick={() =>
+                        setDeleteTarget({
+                          type: "categoria",
+                          id: categoria.id,
+                          descripcion: categoria.descripcion,
+                        })
+                      }
+                      disabled={isDeleting && deleteTarget?.type === "categoria" && deleteTarget.id === categoria.id}
+                    />
                   </div>
                 </div>
 
@@ -93,19 +152,39 @@ export function CategoriaTree({ categorias }: Props) {
                   categoria.subcategorias.map((subcategoria) => (
                     <div
                       key={subcategoria.id}
-                      className="grid grid-cols-[1fr_220px] border-t bg-white"
+                      className="grid grid-cols-[1fr_260px] border-t-2 border-slate-300 bg-slate-50"
                     >
                       <div className="p-3 pl-8 text-gray-700">
                         • {subcategoria.descripcion}
                       </div>
 
-                      <div className="p-3 text-center text-gray-400 text-sm">
-                        —
+                      <div className="p-2 flex items-center justify-end gap-2">
+                        <PencilButton
+                          label={`Editar subcategoría ${subcategoria.descripcion}`}
+                          onClick={() =>
+                            setEditingSubcategoria({
+                              id: subcategoria.id,
+                              descripcion: subcategoria.descripcion,
+                              id_categoria: String(categoria.id),
+                            })
+                          }
+                        />
+                        <TrashButton
+                          label={`Borrar subcategoría ${subcategoria.descripcion}`}
+                          onClick={() =>
+                            setDeleteTarget({
+                              type: "subcategoria",
+                              id: subcategoria.id,
+                              descripcion: subcategoria.descripcion,
+                            })
+                          }
+                          disabled={isDeleting && deleteTarget?.type === "subcategoria" && deleteTarget.id === subcategoria.id}
+                        />
                       </div>
                     </div>
                   ))
                 ) : (
-                  <div className="grid grid-cols-[1fr_220px] border-t bg-white">
+                  <div className="grid grid-cols-[1fr_260px] border-t-2 border-slate-300 bg-slate-50">
                     <div className="p-3 pl-8 text-gray-400 italic">
                       Sin subcategorías
                     </div>
@@ -133,6 +212,22 @@ export function CategoriaTree({ categorias }: Props) {
       </Modal>
 
       <Modal
+        title="Editar categoría"
+        open={!!editingCategoria}
+        onClose={() => setEditingCategoria(null)}
+      >
+        <CategoriaForm
+          categoriaId={editingCategoria?.id}
+          initialDescripcion={editingCategoria?.descripcion ?? ""}
+          onSuccess={() => {
+            setEditingCategoria(null);
+            router.refresh();
+          }}
+          onCancel={() => setEditingCategoria(null)}
+        />
+      </Modal>
+
+      <Modal
         title="Nueva subcategoría"
         open={openSubcategoria}
         onClose={() => setOpenSubcategoria(false)}
@@ -147,6 +242,37 @@ export function CategoriaTree({ categorias }: Props) {
           onCancel={() => setOpenSubcategoria(false)}
         />
       </Modal>
+
+      <Modal
+        title="Editar subcategoría"
+        open={!!editingSubcategoria}
+        onClose={() => setEditingSubcategoria(null)}
+      >
+        <SubcategoriaForm
+          categorias={categoriasOptions}
+          subcategoriaId={editingSubcategoria?.id}
+          initialDescripcion={editingSubcategoria?.descripcion ?? ""}
+          initialCategoriaId={editingSubcategoria?.id_categoria ?? ""}
+          onSuccess={() => {
+            setEditingSubcategoria(null);
+            router.refresh();
+          }}
+          onCancel={() => setEditingSubcategoria(null)}
+        />
+      </Modal>
+
+      <ConfirmDeleteModal
+        open={!!deleteTarget}
+        title={deleteTarget?.type === "categoria" ? "Borrar categoría" : "Borrar subcategoría"}
+        description={
+          deleteTarget
+            ? `¿Seguro que querés borrar la ${deleteTarget.type === "categoria" ? "categoría" : "subcategoría"} "${deleteTarget.descripcion}"? Esta acción no se puede deshacer.`
+            : ""
+        }
+        loading={isDeleting}
+        onConfirm={handleDelete}
+        onClose={() => setDeleteTarget(null)}
+      />
     </>
   );
 }
