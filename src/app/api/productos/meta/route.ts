@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getProductMeta } from "@/lib/productos-meta";
 import { pool } from "@/utils/database";
 import { requireApiSession } from "@/lib/api-auth";

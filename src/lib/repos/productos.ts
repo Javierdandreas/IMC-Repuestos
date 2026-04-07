@@ -204,7 +204,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
     pieza_categoria?: string;
     pieza_id_subcategoria?: number;
     pieza_subcategoria?: string;
-    codigo_pieza?: number | string;
+    codigo_pieza?: string;
     pieza_descripcion?: string;
     pieza_medida?: string;
   };
@@ -219,7 +219,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
   if (product.id_pieza) {
     product.pieza = {
       id: product.id_pieza,
-      codigo_pieza: Number(row.codigo_pieza) || 0,
+      codigo_pieza: row.codigo_pieza ?? "",
       descripcion: row.pieza_descripcion ?? "",
       medida: row.pieza_medida ?? "",
       id_categoria: row.pieza_id_categoria ?? 0,

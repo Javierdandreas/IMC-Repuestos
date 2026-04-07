@@ -3,6 +3,7 @@ import { deleteProveedor, updateProveedor } from "@/lib/repos/catalogos";
 import { requireApiSession } from "@/lib/api-auth";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  await requireApiSession(request);
   try {
     const { id } = await params;
     const body = await request.json();
@@ -13,7 +14,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  await requireApiSession(request);
   try {
     const { id } = await params;
     await deleteProveedor(id);

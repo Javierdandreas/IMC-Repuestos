@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const result = await createPieza({
+      codigo_pieza: String(body.codigo_pieza ?? ""),
       descripcion: String(body.descripcion ?? ""),
       medida: String(body.medida ?? ""),
       id_subcategoria: Number(body.id_subcategoria),

@@ -3,9 +3,10 @@ import { deleteProducto, getProductoById, updateProducto } from "@/lib/repos/pro
 import { requireApiSession } from "@/lib/api-auth";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await requireApiSession(request);
   try {
     const { id } = await params;
     const product = await getProductoById(id);
@@ -24,6 +25,7 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await requireApiSession(request);
   try {
     const { id } = await params;
     const body = await request.json();
@@ -35,9 +37,10 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await requireApiSession(request);
   try {
     const { id } = await params;
     await deleteProducto(id);

@@ -3,9 +3,10 @@ import { deletePieza, getPiezaById, updatePieza } from "@/lib/repos/piezas";
 import { requireApiSession } from "@/lib/api-auth";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await requireApiSession(request);
   try {
     const { id } = await params;
     const pieza = await getPiezaById(id);
@@ -33,6 +34,7 @@ export async function PUT(
     const body = await request.json();
 
     const result = await updatePieza(id, {
+      codigo_pieza: String(body.codigo_pieza ?? ""),
       descripcion: String(body.descripcion ?? ""),
       medida: String(body.medida ?? ""),
       id_subcategoria: Number(body.id_subcategoria),
@@ -50,9 +52,10 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await requireApiSession(request);
   try {
     const { id } = await params;
     await deletePieza(id);

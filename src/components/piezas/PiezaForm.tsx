@@ -15,7 +15,7 @@ type Props = {
 };
 
 const initialState: Pieza = {
-  codigo_pieza: undefined,
+  codigo_pieza: "",
   descripcion: "",
   medida: "",
   id_categoria: null,
@@ -43,11 +43,10 @@ function codesToText(codes: string[]): string {
 export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categorias, subcategorias }: Props) {
   const router = useRouter();
   const descripcionRef = useRef<HTMLTextAreaElement | null>(null);
-  const isEditMode = Boolean(piezaId);
   const [pieza, setPieza] = useState<Pieza>({
     ...initialState,
     ...initialPieza,
-    codigo_pieza: initialPieza?.codigo_pieza,
+    codigo_pieza: initialPieza?.codigo_pieza?.toUpperCase() ?? "",
     descripcion: initialPieza?.descripcion?.toUpperCase() ?? "",
     medida: initialPieza?.medida?.toUpperCase() ?? "",
     id_categoria:
@@ -59,8 +58,6 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
   });
   const [originalesTexto, setOriginalesTexto] = useState(codesToText(initialPieza?.originales ?? []));
   const [equivalentesTexto, setEquivalentesTexto] = useState(codesToText(initialPieza?.equivalentes ?? []));
-  const [nextCodigoPieza, setNextCodigoPieza] = useState(String(initialPieza?.codigo_pieza ?? ""));
-  const [loadingCodigo, setLoadingCodigo] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -69,40 +66,6 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     textarea.style.height = "0px";
     textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 72), 150)}px`;
   }, [pieza.descripcion]);
-
-  useEffect(() => {
-    if (isEditMode) {
-      setNextCodigoPieza(String(initialPieza?.codigo_pieza ?? ""));
-      return;
-    }
-
-    let active = true;
-    setLoadingCodigo(true);
-
-    fetch("/api/piezas/next-codigo", { cache: "no-store" })
-      .then(async (response) => {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(data.message || "No se pudo obtener el próximo número de pieza");
-        }
-        if (active) {
-          setNextCodigoPieza(String(data.codigo_pieza ?? 1000));
-        }
-      })
-      .catch((error: any) => {
-        if (active) {
-          setNextCodigoPieza("");
-          toast.error(error.message || "No se pudo obtener el próximo número de pieza");
-        }
-      })
-      .finally(() => {
-        if (active) setLoadingCodigo(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [isEditMode, initialPieza?.codigo_pieza]);
 
   const subcategoriasFiltradas = useMemo(() => {
     if (!pieza.id_categoria) return [];
@@ -130,11 +93,12 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
       const equivalentes = splitCodes(equivalentesTexto);
 
       const payload = {
+        codigo_pieza: pieza.codigo_pieza.trim().toUpperCase(),
         descripcion: pieza.descripcion.trim().toUpperCase(),
         medida: pieza.medida.trim().toUpperCase(),
         id_subcategoria: pieza.id_subcategoria,
         originales,
-        equivalentes
+        equivalentes,
       };
 
       const url = piezaId ? `/api/piezas/${piezaId}` : "/api/piezas";
@@ -149,12 +113,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || "No se pudo guardar la pieza");
 
-      const codigoGenerado = String(data.codigo_pieza ?? nextCodigoPieza ?? "");
-      toast.success(
-        piezaId
-          ? `Pieza ${codigoGenerado || ""} actualizada correctamente`.trim()
-          : `Pieza creada correctamente · N° ${codigoGenerado || "-"}`
-      );
+      toast.success(piezaId ? "Pieza actualizada correctamente" : "Pieza creada correctamente");
       if (data.warning) {
         toast.warning(data.warning);
       }
@@ -185,16 +144,19 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     </span>
   );
 
-  const codigoMostrado = isEditMode ? String(pieza.codigo_pieza ?? "") : nextCodigoPieza;
-
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="grid gap-4 xl:grid-cols-[220px_1fr_1fr]">
         <div>
           <label className="mb-2 block text-sm font-semibold text-slate-700">Código de pieza</label>
-          <div className="flex h-11 w-full items-center rounded-xl border border-slate-300 bg-slate-50 px-4 text-sm font-semibold uppercase tracking-[0.02em] text-slate-700 shadow-sm">
-            {loadingCodigo ? "Cargando..." : codigoMostrado || "Se asignará al guardar"}
-          </div>
+          <input
+            type="text"
+            value={pieza.codigo_pieza}
+            onChange={(e) => setPieza((prev) => ({ ...prev, codigo_pieza: e.target.value.toUpperCase() }))}
+            className="h-11 w-full rounded-xl border border-slate-300 px-4 uppercase shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            placeholder="Ej. 1043"
+            required
+          />
         </div>
 
         <div>
@@ -297,12 +259,8 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
         {onCancel && (
           <button type="button" onClick={onCancel} className="rounded-lg border border-gray-300 px-5 py-2.5 text-gray-700 transition hover:bg-gray-50">Cancelar</button>
         )}
-        <button
-          type="submit"
-          disabled={loading || loadingCodigo}
-          className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loading ? "Guardando..." : "Guardar"}
+        <button type="submit" disabled={loading} className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50">
+          {loading ? "Guardando..." : piezaId ? "Actualizar pieza" : "Guardar pieza"}
         </button>
       </div>
     </form>

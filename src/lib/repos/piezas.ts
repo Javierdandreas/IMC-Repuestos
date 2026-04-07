@@ -6,12 +6,12 @@ import type { PiezaBusqueda } from "@/interfaces/productos";
 export type DbClient = Pick<PoolClient, "query">;
 export type ConflictRow = {
   codigo: string;
-  codigo_pieza: number;
+  codigo_pieza: string;
   tipo: string;
 };
 
 type PiezaInput = {
-  codigo_pieza?: number | null;
+  codigo_pieza: string;
   descripcion: string;
   medida?: string;
   id_subcategoria: number;
@@ -19,16 +19,8 @@ type PiezaInput = {
   equivalentes?: string[];
 };
 
-export function sanitizeCodigoPieza(value: unknown) {
-  const normalized = String(value ?? "").trim();
-  if (!normalized) return null;
-
-  const parsed = Number(normalized);
-  if (!Number.isInteger(parsed) || parsed < 1000) {
-    throw new Error("El código de pieza debe ser un número válido");
-  }
-
-  return parsed;
+export function sanitizeCodigoPieza(value: string) {
+  return value.toUpperCase().trim();
 }
 
 function sanitizeText(value: unknown) {
@@ -49,7 +41,7 @@ export function sanitizeCodes(values: unknown): string[] {
 
 function sanitizePiezaInput(input: PiezaInput) {
   return {
-    codigoPieza: sanitizeCodigoPieza(input.codigo_pieza),
+    codigoPieza: sanitizeCodigoPieza(String(input.codigo_pieza ?? "")),
     descripcion: sanitizeText(input.descripcion),
     medida: sanitizeText(input.medida),
     idSubcategoria: Number(input.id_subcategoria),
@@ -59,25 +51,18 @@ function sanitizePiezaInput(input: PiezaInput) {
 }
 
 function validatePiezaInput(payload: ReturnType<typeof sanitizePiezaInput>) {
+  if (!payload.codigoPieza) throw new Error("El código de pieza es obligatorio");
   if (!payload.descripcion) throw new Error("La descripción es obligatoria");
   if (!Number.isInteger(payload.idSubcategoria) || payload.idSubcategoria <= 0) {
     throw new Error("La subcategoría es obligatoria");
   }
 }
 
-export async function getNextCodigoPieza(): Promise<number> {
-  const { rows } = await pool.query(`
-    SELECT COALESCE(MAX(codigo_pieza), 999) + 1 AS next_codigo
-    FROM pieza
-  `);
-  return Number(rows[0]?.next_codigo ?? 1000);
-}
-
 export async function findOrCreateCodigo(client: DbClient, codigo: string) {
   const codigoBuscado = sanitizeText(codigo);
 
   const existing = await client.query(
-    `SELECT id FROM codigo_referencia WHERE codigo = $1 LIMIT 1`,
+    `SELECT id FROM codigo_referencia WHERE UPPER(TRIM(codigo)) = $1 LIMIT 1`,
     [codigoBuscado]
   );
 
@@ -119,7 +104,7 @@ export async function findCodeConflicts(
       WHERE UPPER(TRIM(cr.codigo)) = ANY($1)
         AND pcr.tipo = $2
         ${excludeSql}
-      ORDER BY codigo_pieza
+      ORDER BY p.codigo_pieza
     `,
     params
   );
@@ -166,17 +151,6 @@ async function attachCodigosToPieza(
   }
 }
 
-async function cleanupUnusedCodigos(client: DbClient) {
-  await client.query(`
-    DELETE FROM codigo_referencia cr
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM pieza_codigo_referencia pcr
-      WHERE pcr.id_codigo_referencia = cr.id
-    )
-  `);
-}
-
 async function replacePiezaCodigos(
   client: DbClient,
   pieceId: number | string,
@@ -186,7 +160,6 @@ async function replacePiezaCodigos(
   await client.query(`DELETE FROM pieza_codigo_referencia WHERE id_pieza = $1`, [pieceId]);
   await attachCodigosToPieza(client, pieceId, "ORIGINAL", originales);
   await attachCodigosToPieza(client, pieceId, "EQUIVALENTE", equivalentes);
-  await cleanupUnusedCodigos(client);
 }
 
 export async function getPiezasListado(): Promise<PiezaListado[]> {
@@ -215,13 +188,11 @@ export async function getPiezasListado(): Promise<PiezaListado[]> {
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.id_subcategoria, s.descripcion, c.descripcion
-    ORDER BY codigo_pieza ASC
+    ORDER BY p.codigo_pieza ASC
   `);
 
   return rows as PiezaListado[];
 }
-
-
 
 export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {
   const { rows } = await pool.query(`
@@ -248,7 +219,7 @@ export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, c.id, c.descripcion, s.id, s.descripcion
-    ORDER BY codigo_pieza ASC
+    ORDER BY p.codigo_pieza ASC
   `);
 
   return rows as PiezaBusqueda[];
@@ -297,16 +268,14 @@ export async function createPieza(input: PiezaInput) {
 
     await client.query("BEGIN");
 
-    if (payload.codigoPieza !== null) {
-      const duplicate = await client.query(
-        `SELECT id FROM pieza WHERE codigo_pieza = $1 LIMIT 1`,
-        [payload.codigoPieza]
-      );
-      if (duplicate.rows[0]) {
-        const err = new Error("Ya existe una pieza con ese código");
-        (err as Error & { status?: number }).status = 409;
-        throw err;
-      }
+    const duplicate = await client.query(
+      `SELECT id FROM pieza WHERE UPPER(TRIM(codigo_pieza)) = $1 LIMIT 1`,
+      [payload.codigoPieza]
+    );
+    if (duplicate.rows[0]) {
+      const err = new Error("Ya existe una pieza con ese código");
+      (err as Error & { status?: number }).status = 409;
+      throw err;
     }
 
     const originalConflicts = await findCodeConflicts(client, payload.originales, "ORIGINAL");
@@ -320,23 +289,14 @@ export async function createPieza(input: PiezaInput) {
 
     const equivalenteConflicts = await findCodeConflicts(client, payload.equivalentes, "EQUIVALENTE");
 
-    const piezaResult = payload.codigoPieza !== null
-      ? await client.query(
-          `
-            INSERT INTO pieza (codigo_pieza, descripcion, medida, id_subcategoria)
-            VALUES ($1, $2, $3, $4)
-            RETURNING *
-          `,
-          [payload.codigoPieza, payload.descripcion, payload.medida || null, payload.idSubcategoria]
-        )
-      : await client.query(
-          `
-            INSERT INTO pieza (descripcion, medida, id_subcategoria)
-            VALUES ($1, $2, $3)
-            RETURNING *
-          `,
-          [payload.descripcion, payload.medida || null, payload.idSubcategoria]
-        );
+    const piezaResult = await client.query(
+      `
+        INSERT INTO pieza (codigo_pieza, descripcion, medida, id_subcategoria)
+        VALUES ($1, $2, $3, $4)
+        RETURNING *
+      `,
+      [payload.codigoPieza, payload.descripcion, payload.medida || null, payload.idSubcategoria]
+    );
 
     const pieza = piezaResult.rows[0];
     await attachCodigosToPieza(client, pieza.id, "ORIGINAL", payload.originales);
@@ -366,6 +326,15 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
 
     await client.query("BEGIN");
 
+    const duplicate = await client.query(
+      `SELECT id FROM pieza WHERE UPPER(TRIM(codigo_pieza)) = $1 AND id <> $2 LIMIT 1`,
+      [payload.codigoPieza, id]
+    );
+    if (duplicate.rows[0]) {
+      const err = new Error("Ya existe una pieza con ese código");
+      (err as Error & { status?: number }).status = 409;
+      throw err;
+    }
 
     const originalConflicts = await findCodeConflicts(client, payload.originales, "ORIGINAL", numericId);
     if (originalConflicts.length > 0) {
@@ -381,13 +350,14 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
     const updateResult = await client.query(
       `
         UPDATE pieza
-        SET descripcion = $1,
-            medida = $2,
-            id_subcategoria = $3
-        WHERE id = $4
+        SET codigo_pieza = $1,
+            descripcion = $2,
+            medida = $3,
+            id_subcategoria = $4
+        WHERE id = $5
         RETURNING *
       `,
-      [payload.descripcion, payload.medida || null, payload.idSubcategoria, id]
+      [payload.codigoPieza, payload.descripcion, payload.medida || null, payload.idSubcategoria, id]
     );
 
     if ((updateResult.rowCount ?? 0) === 0) {
@@ -425,7 +395,6 @@ export async function deletePieza(id: string | number) {
   try {
     await client.query("BEGIN");
     await client.query(`DELETE FROM pieza_codigo_referencia WHERE id_pieza = $1`, [id]);
-    await cleanupUnusedCodigos(client);
     const result = await client.query(`DELETE FROM pieza WHERE id = $1`, [id]);
     await client.query("COMMIT");
     return { deleted: (result.rowCount ?? 0) > 0 };

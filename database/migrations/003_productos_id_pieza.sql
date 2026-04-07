@@ -1,3 +1,0 @@
--- 003_productos_id_pieza.sql
--- Agregar productos.id_pieza y poblar relación con pieza.
--- Guardá acá el ALTER TABLE y el backfill que ya ejecutaste.

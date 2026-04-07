@@ -1,7 +1,15 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
-export async function updateSession(request: NextRequest) {
+type MiddlewareSessionResult = {
+  response: NextResponse;
+  authUserId: string | null;
+  usuarioId: number | null;
+  rol: string | null;
+  activo: boolean;
+};
+
+export async function updateSession(request: NextRequest): Promise<MiddlewareSessionResult> {
   let supabaseResponse = NextResponse.next({
     request: {
       headers: request.headers,
@@ -28,9 +36,41 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  // Hacemos una llamada a auth.getUser() para que si el token expiró,
-  // reciba uno nuevo y lo guarde usando el setAll que declaramos arriba.
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  return supabaseResponse;
+  if (!user) {
+    return {
+      response: supabaseResponse,
+      authUserId: null,
+      usuarioId: null,
+      rol: null,
+      activo: false,
+    };
+  }
+
+  const { data: usuarioAuth, error } = await supabase
+    .from("usuario_auth")
+    .select("usuario_id, rol, activo")
+    .eq("auth_user_id", user.id)
+    .maybeSingle();
+
+  if (error || !usuarioAuth || usuarioAuth.activo !== true) {
+    return {
+      response: supabaseResponse,
+      authUserId: user.id,
+      usuarioId: null,
+      rol: null,
+      activo: false,
+    };
+  }
+
+  return {
+    response: supabaseResponse,
+    authUserId: user.id,
+    usuarioId: usuarioAuth.usuario_id ?? null,
+    rol: usuarioAuth.rol ?? null,
+    activo: true,
+  };
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionCookieName, verifySessionToken } from "@/lib/auth";
+import { updateSession } from "@/utils/supabase/middleware";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout"];
 
@@ -18,15 +18,18 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const { response, authUserId, usuarioId, activo } = await updateSession(request);
+
   if (isPublicPath(pathname)) {
-    return NextResponse.next();
+    if (pathname === "/login" && authUserId && usuarioId && activo) {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    return response;
   }
 
-  const token = request.cookies.get(getSessionCookieName())?.value;
-  const session = await verifySessionToken(token);
-
-  if (session) {
-    return NextResponse.next();
+  if (authUserId && usuarioId && activo) {
+    return response;
   }
 
   if (pathname.startsWith("/api/")) {

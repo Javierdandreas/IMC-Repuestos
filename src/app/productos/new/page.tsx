@@ -14,7 +14,7 @@ export default async function NewProductPage({ searchParams }: Props) {
 
   const piezaCodigo = (piezaCodigoRaw ?? "").toString().trim().toUpperCase();
   const piezaSeleccionada = piezaCodigo
-    ? meta.piezas.find((pieza) => String(pieza.codigo_pieza).toUpperCase() === piezaCodigo) ?? null
+    ? meta.piezas.find((pieza) => pieza.codigo_pieza === piezaCodigo) ?? null
     : null;
 
   const initialProduct = piezaSeleccionada

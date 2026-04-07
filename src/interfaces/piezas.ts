@@ -18,7 +18,7 @@ export type CategoriaTreeNode = {
 
 export type Pieza = {
   id?: number;
-  codigo_pieza?: number;
+  codigo_pieza: string;
   descripcion: string;
   medida?: string;
   id_categoria: number | null;
@@ -29,7 +29,7 @@ export type Pieza = {
 
 export type PiezaListado = {
   id: number;
-  codigo_pieza: number;
+  codigo_pieza: string;
   descripcion: string;
   medida?: string;
   id_subcategoria: number;

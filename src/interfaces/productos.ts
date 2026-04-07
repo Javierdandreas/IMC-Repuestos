@@ -16,7 +16,7 @@ export type ProveedorProducto = {
 
 export type PiezaBusqueda = {
   id: number;
-  codigo_pieza: number;
+  codigo_pieza: string;
   descripcion: string;
   medida?: string;
   id_categoria: number;
@@ -49,7 +49,7 @@ export type ProductoListado = {
   descripcion: string;
   cod_barra: string;
   stock: number;
-  codigo_pieza?: number | null;
+  codigo_pieza?: string | null;
   pieza_descripcion?: string | null;
   marca?: string | null;
   categoria?: string | null;

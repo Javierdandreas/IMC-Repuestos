@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getCategoriasTree } from "@/lib/repos/catalogos";
 import { requireApiSession } from "@/lib/api-auth";
 

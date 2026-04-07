@@ -8,7 +8,7 @@ export type ProductMeta = {
   proveedores: { id: number; descripcion: string }[];
   piezas: {
     id: number;
-    codigo_pieza: number;
+    codigo_pieza: string;
     descripcion: string;
     medida?: string;
     id_categoria: number;
