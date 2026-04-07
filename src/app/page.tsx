@@ -2,11 +2,14 @@ import { ProductList } from "@/components/products/ProductList";
 import { getProductMeta } from "@/lib/productos-meta";
 import { getProductosListado } from "@/lib/repos/productos";
 import Link from "next/link";
+import { getServerInternalUser } from "@/lib/auth";
+import { canManageContent } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [products, meta] = await Promise.all([getProductosListado(), getProductMeta()]);
+  const [products, meta, session] = await Promise.all([getProductosListado(), getProductMeta(), getServerInternalUser()]);
+  const canManage = canManageContent(session?.rol);
 
   return (
     <div className="min-h-screen bg-white p-8">
@@ -16,12 +19,14 @@ export default async function Home() {
               <h1 className="text-3xl font-bold text-gray-900">Productos</h1>
             </div>
 
-            <Link
-              href="/productos/new"
-              className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
-            >
-              Crear producto
-            </Link>
+            {canManage ? (
+              <Link
+                href="/productos/new"
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                Crear producto
+              </Link>
+            ) : null}
         </div>
 
         {products.length === 0 ? (

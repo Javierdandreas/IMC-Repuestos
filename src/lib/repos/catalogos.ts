@@ -1,6 +1,7 @@
-import { pool } from "@/utils/database";
+import { query, withTransaction } from "@/lib/db-utils";
 import type { CatalogoItem, Subcategoria } from "@/interfaces/productos";
 import type { CategoriaOption, CategoriaTreeNode, SubcategoriaOption } from "@/interfaces/piezas";
+import { sanitizeRequiredString as cleanDescripcion } from "@/utils/sanitization";
 
 type CatalogTable = 'marcas' | 'proveedores' | 'categoria';
 type FkCheck = { table: string, column: string, message: string };
@@ -13,12 +14,9 @@ const FK_CHECKS: Record<CatalogTable, FkCheck> = {
 
 const ENTITY_NAMES: Record<CatalogTable, string> = { marcas: 'marca', proveedores: 'proveedor', categoria: 'categoría' };
 
-function cleanDescripcion(value: unknown) {
-  return String(value ?? "").trim();
-}
 
 async function getCatalogo(table: CatalogTable): Promise<CatalogoItem[]> {
-  const { rows } = await pool.query(`SELECT id, descripcion FROM ${table} ORDER BY descripcion ASC`);
+  const { rows } = await query(`SELECT id, descripcion FROM ${table} ORDER BY descripcion ASC`);
   return rows as CatalogoItem[];
 }
 
@@ -26,68 +24,74 @@ async function createCatalogo(table: CatalogTable, descripcion: unknown): Promis
   const clean = cleanDescripcion(descripcion);
   if (!clean) throw new Error("La descripción es obligatoria");
 
-  const entityName = ENTITY_NAMES[table];
-  const duplicate = await pool.query(
-    `SELECT 1 FROM ${table} WHERE LOWER(TRIM(descripcion)) = LOWER(TRIM($1)) LIMIT 1`,
-    [clean]
-  );
-  if (duplicate.rows.length > 0) {
-    const error = new Error(`Ya existe una ${entityName} con esa descripción`);
-    (error as Error & { status?: number }).status = 409;
-    throw error;
-  }
+  return await withTransaction(async (client) => {
+    const entityName = ENTITY_NAMES[table];
+    const duplicate = await client.query(
+      `SELECT 1 FROM ${table} WHERE LOWER(TRIM(descripcion)) = LOWER(TRIM($1)) LIMIT 1`,
+      [clean]
+    );
+    if (duplicate.rows.length > 0) {
+      const error = new Error(`Ya existe una ${entityName} con esa descripción`);
+      (error as Error & { status?: number }).status = 409;
+      throw error;
+    }
 
-  const { rows } = await pool.query(
-    `INSERT INTO ${table} (descripcion) VALUES ($1) RETURNING *`,
-    [clean]
-  );
-  return rows[0] as CatalogoItem;
+    const { rows } = await client.query(
+      `INSERT INTO ${table} (descripcion) VALUES ($1) RETURNING *`,
+      [clean]
+    );
+    return rows[0] as CatalogoItem;
+  });
 }
 
 async function updateCatalogo(table: CatalogTable, id: string | number, descripcion: unknown): Promise<CatalogoItem> {
   const clean = cleanDescripcion(descripcion);
   if (!clean) throw new Error("La descripción es obligatoria");
 
-  const entityName = ENTITY_NAMES[table];
-  const duplicate = await pool.query(
-    `SELECT 1 FROM ${table} WHERE LOWER(TRIM(descripcion)) = LOWER(TRIM($1)) AND id <> $2 LIMIT 1`,
-    [clean, id]
-  );
-  if (duplicate.rows.length > 0) {
-    const error = new Error(`Ya existe una ${entityName} con esa descripción`);
-    (error as Error & { status?: number }).status = 409;
-    throw error;
-  }
+  return await withTransaction(async (client) => {
+    const entityName = ENTITY_NAMES[table];
+    const duplicate = await client.query(
+      `SELECT 1 FROM ${table} WHERE LOWER(TRIM(descripcion)) = LOWER(TRIM($1)) AND id <> $2 LIMIT 1`,
+      [clean, id]
+    );
+    if (duplicate.rows.length > 0) {
+      const error = new Error(`Ya existe una ${entityName} con esa descripción`);
+      (error as Error & { status?: number }).status = 409;
+      throw error;
+    }
 
-  const { rows, rowCount } = await pool.query(
-    `UPDATE ${table} SET descripcion = $1 WHERE id = $2 RETURNING *`,
-    [clean, id]
-  );
-  if (!rowCount) {
-    const error = new Error(`${entityName.charAt(0).toUpperCase() + entityName.slice(1)} no encontrada`);
-    (error as Error & { status?: number }).status = 404;
-    throw error;
-  }
-  return rows[0] as CatalogoItem;
+    const { rows, rowCount } = await client.query(
+      `UPDATE ${table} SET descripcion = $1 WHERE id = $2 RETURNING *`,
+      [clean, id]
+    );
+    if (!rowCount) {
+      const error = new Error(`${entityName.charAt(0).toUpperCase() + entityName.slice(1)} no encontrada`);
+      (error as Error & { status?: number }).status = 404;
+      throw error;
+    }
+    return rows[0] as CatalogoItem;
+  });
 }
 
 async function deleteCatalogo(table: CatalogTable, id: string | number): Promise<void> {
   const fkCheck = FK_CHECKS[table];
   const entityName = ENTITY_NAMES[table];
 
-  const uso = await pool.query(`SELECT COUNT(*)::int AS total FROM ${fkCheck.table} WHERE ${fkCheck.column} = $1`, [id]);
-  if (uso.rows[0]?.total > 0) {
-    const error = new Error(fkCheck.message);
-    (error as Error & { status?: number }).status = 409;
-    throw error;
-  }
+  return await withTransaction(async (client) => {
+    const uso = await client.query(`SELECT COUNT(*)::int AS total FROM ${fkCheck.table} WHERE ${fkCheck.column} = $1`, [id]);
+    if (uso.rows[0]?.total > 0) {
+      const error = new Error(fkCheck.message);
+      (error as Error & { status?: number }).status = 409;
+      throw error;
+    }
 
-  const result = await pool.query(`DELETE FROM ${table} WHERE id = $1 RETURNING *`, [id]);
-  if (!result.rowCount) {
-    const error = new Error(`${entityName.charAt(0).toUpperCase() + entityName.slice(1)} no encontrada`);
-    (error as Error & { status?: number }).status = 404;
-    throw error;
-  }
+    const result = await client.query(`DELETE FROM ${table} WHERE id = $1 RETURNING *`, [id]);
+    if (!result.rowCount) {
+      const error = new Error(`${entityName.charAt(0).toUpperCase() + entityName.slice(1)} no encontrada`);
+      (error as Error & { status?: number }).status = 404;
+      throw error;
+    }
+  });
 }
 
 // ==========================================
@@ -140,7 +144,7 @@ export async function getCategoriasOptions(): Promise<CategoriaOption[]> {
 }
 
 export async function getCategoriasTree(): Promise<CategoriaTreeNode[]> {
-  const { rows } = await pool.query(`
+  const { rows } = await query(`
     SELECT
       c.id AS categoria_id,
       c.descripcion AS categoria_descripcion,
@@ -186,7 +190,7 @@ export async function deleteCategoria(id: string | number) {
 // SUBCATEGORIAS (Aplica lógica semi-custom)
 // ==========================================
 export async function getSubcategorias(): Promise<Subcategoria[]> {
-  const { rows } = await pool.query(`SELECT id, descripcion, id_categoria FROM subcategoria ORDER BY descripcion ASC`);
+  const { rows } = await query(`SELECT id, descripcion, id_categoria FROM subcategoria ORDER BY descripcion ASC`);
   return rows as Subcategoria[];
 }
 
@@ -195,7 +199,7 @@ export async function getSubcategoriasOptions(): Promise<Subcategoria[]> {
 }
 
 export async function getSubcategoriasConCategoria(): Promise<SubcategoriaOption[]> {
-  const { rows } = await pool.query(`
+  const { rows } = await query(`
     SELECT
       s.id,
       s.descripcion,
@@ -213,21 +217,23 @@ export async function createSubcategoria(descripcion: unknown, id_categoria: unk
   const idCategoria = Number(id_categoria);
   if (!clean || !idCategoria) throw new Error("Descripción y categoría son obligatorias");
 
-  const duplicate = await pool.query(
-    `SELECT 1 FROM subcategoria WHERE id_categoria = $1 AND LOWER(TRIM(descripcion)) = LOWER(TRIM($2)) LIMIT 1`,
-    [idCategoria, clean]
-  );
-  if (duplicate.rows.length > 0) {
-    const error = new Error("Ya existe una subcategoría con esa descripción dentro de la categoría seleccionada");
-    (error as Error & { status?: number }).status = 409;
-    throw error;
-  }
+  return await withTransaction(async (client) => {
+    const duplicate = await client.query(
+      `SELECT 1 FROM subcategoria WHERE id_categoria = $1 AND LOWER(TRIM(descripcion)) = LOWER(TRIM($2)) LIMIT 1`,
+      [idCategoria, clean]
+    );
+    if (duplicate.rows.length > 0) {
+      const error = new Error("Ya existe una subcategoría con esa descripción dentro de la categoría seleccionada");
+      (error as Error & { status?: number }).status = 409;
+      throw error;
+    }
 
-  const { rows } = await pool.query(
-    `INSERT INTO subcategoria (descripcion, id_categoria) VALUES ($1, $2) RETURNING *`,
-    [clean, idCategoria]
-  );
-  return rows[0] as Subcategoria;
+    const { rows } = await client.query(
+      `INSERT INTO subcategoria (descripcion, id_categoria) VALUES ($1, $2) RETURNING *`,
+      [clean, idCategoria]
+    );
+    return rows[0] as Subcategoria;
+  });
 }
 
 export async function updateSubcategoria(id: string | number, descripcion: unknown, id_categoria: unknown) {
@@ -235,40 +241,44 @@ export async function updateSubcategoria(id: string | number, descripcion: unkno
   const idCategoria = Number(id_categoria);
   if (!clean || !idCategoria) throw new Error("Descripción y categoría son obligatorias");
 
-  const duplicate = await pool.query(
-    `SELECT 1 FROM subcategoria WHERE id_categoria = $1 AND LOWER(TRIM(descripcion)) = LOWER(TRIM($2)) AND id <> $3 LIMIT 1`,
-    [idCategoria, clean, id]
-  );
-  if (duplicate.rows.length > 0) {
-    const error = new Error("Ya existe una subcategoría con esa descripción dentro de la categoría seleccionada");
-    (error as Error & { status?: number }).status = 409;
-    throw error;
-  }
+  return await withTransaction(async (client) => {
+    const duplicate = await client.query(
+      `SELECT 1 FROM subcategoria WHERE id_categoria = $1 AND LOWER(TRIM(descripcion)) = LOWER(TRIM($2)) AND id <> $3 LIMIT 1`,
+      [idCategoria, clean, id]
+    );
+    if (duplicate.rows.length > 0) {
+      const error = new Error("Ya existe una subcategoría con esa descripción dentro de la categoría seleccionada");
+      (error as Error & { status?: number }).status = 409;
+      throw error;
+    }
 
-  const { rows, rowCount } = await pool.query(
-    `UPDATE subcategoria SET descripcion = $1, id_categoria = $2 WHERE id = $3 RETURNING *`,
-    [clean, idCategoria, id]
-  );
-  if (!rowCount) {
-    const error = new Error("Subcategoría no encontrada");
-    (error as Error & { status?: number }).status = 404;
-    throw error;
-  }
-  return rows[0] as Subcategoria;
+    const { rows, rowCount } = await client.query(
+      `UPDATE subcategoria SET descripcion = $1, id_categoria = $2 WHERE id = $3 RETURNING *`,
+      [clean, idCategoria, id]
+    );
+    if (!rowCount) {
+      const error = new Error("Subcategoría no encontrada");
+      (error as Error & { status?: number }).status = 404;
+      throw error;
+    }
+    return rows[0] as Subcategoria;
+  });
 }
 
 export async function deleteSubcategoria(id: string | number) {
-  const dependencias = await pool.query(`SELECT COUNT(*)::int AS total FROM productos WHERE id_subcategoria = $1`, [id]);
-  if (dependencias.rows[0]?.total > 0) {
-    const error = new Error("No se puede borrar la subcategoría porque está asociada a uno o más productos");
-    (error as Error & { status?: number }).status = 409;
-    throw error;
-  }
+  return await withTransaction(async (client) => {
+    const dependencias = await client.query(`SELECT COUNT(*)::int AS total FROM productos WHERE id_subcategoria = $1`, [id]);
+    if (dependencias.rows[0]?.total > 0) {
+      const error = new Error("No se puede borrar la subcategoría porque está asociada a uno o más productos");
+      (error as Error & { status?: number }).status = 409;
+      throw error;
+    }
 
-  const result = await pool.query(`DELETE FROM subcategoria WHERE id = $1 RETURNING *`, [id]);
-  if (!result.rowCount) {
-    const error = new Error("Subcategoría no encontrada");
-    (error as Error & { status?: number }).status = 404;
-    throw error;
-  }
+    const result = await client.query(`DELETE FROM subcategoria WHERE id = $1 RETURNING *`, [id]);
+    if (!result.rowCount) {
+      const error = new Error("Subcategoría no encontrada");
+      (error as Error & { status?: number }).status = 404;
+      throw error;
+    }
+  });
 }

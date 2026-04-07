@@ -1,17 +1,15 @@
-import { pool } from "@/utils/database";
-import type { PoolClient } from "pg";
+import { query, withTransaction } from "@/lib/db-utils";
+import type { DbClient } from "@/lib/db-utils";
 import type { Pieza, PiezaListado } from "@/interfaces/piezas";
 import type { PiezaBusqueda } from "@/interfaces/productos";
-
-export type DbClient = Pick<PoolClient, "query">;
+import { sanitizeUppercaseString as sanitizeText, sanitizeCodes } from "@/utils/sanitization";
 export type ConflictRow = {
   codigo: string;
-  codigo_pieza: string;
+  codigo_pieza: number;
   tipo: string;
 };
 
 type PiezaInput = {
-  codigo_pieza: string;
   descripcion: string;
   medida?: string;
   id_subcategoria: number;
@@ -19,29 +17,9 @@ type PiezaInput = {
   equivalentes?: string[];
 };
 
-export function sanitizeCodigoPieza(value: string) {
-  return value.toUpperCase().trim();
-}
-
-function sanitizeText(value: unknown) {
-  return String(value ?? "").toUpperCase().trim();
-}
-
-export function sanitizeCodes(values: unknown): string[] {
-  if (!Array.isArray(values)) return [];
-
-  return Array.from(
-    new Set(
-      values
-        .map((item) => sanitizeText(item))
-        .filter(Boolean)
-    )
-  );
-}
 
 function sanitizePiezaInput(input: PiezaInput) {
   return {
-    codigoPieza: sanitizeCodigoPieza(String(input.codigo_pieza ?? "")),
     descripcion: sanitizeText(input.descripcion),
     medida: sanitizeText(input.medida),
     idSubcategoria: Number(input.id_subcategoria),
@@ -51,7 +29,6 @@ function sanitizePiezaInput(input: PiezaInput) {
 }
 
 function validatePiezaInput(payload: ReturnType<typeof sanitizePiezaInput>) {
-  if (!payload.codigoPieza) throw new Error("El código de pieza es obligatorio");
   if (!payload.descripcion) throw new Error("La descripción es obligatoria");
   if (!Number.isInteger(payload.idSubcategoria) || payload.idSubcategoria <= 0) {
     throw new Error("La subcategoría es obligatoria");
@@ -163,7 +140,7 @@ async function replacePiezaCodigos(
 }
 
 export async function getPiezasListado(): Promise<PiezaListado[]> {
-  const { rows } = await pool.query(`
+  const sql = `
     SELECT
       p.id,
       p.codigo_pieza,
@@ -189,13 +166,14 @@ export async function getPiezasListado(): Promise<PiezaListado[]> {
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.id_subcategoria, s.descripcion, c.descripcion
     ORDER BY p.codigo_pieza ASC
-  `);
+  `;
+  const { rows } = await query(sql);
 
   return rows as PiezaListado[];
 }
 
 export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {
-  const { rows } = await pool.query(`
+  const sql = `
     SELECT
       p.id,
       p.codigo_pieza,
@@ -220,10 +198,20 @@ export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, c.id, c.descripcion, s.id, s.descripcion
     ORDER BY p.codigo_pieza ASC
-  `);
+  `;
+  const { rows } = await query(sql);
 
   return rows as PiezaBusqueda[];
 }
+
+export async function getNextCodigoPieza(): Promise<number> {
+  const { rows } = await query(`
+    SELECT COALESCE(MAX(codigo_pieza), 0) + 1 as next 
+    FROM pieza
+  `);
+  return Number(rows[0].next);
+}
+
 
 export async function getPiezaById(id: string | number): Promise<Pieza | null> {
   const piezaQuery = `
@@ -242,8 +230,8 @@ export async function getPiezaById(id: string | number): Promise<Pieza | null> {
   `;
 
   const [piezaRes, codigosRes] = await Promise.all([
-    pool.query(piezaQuery, [id]),
-    pool.query(codigosQuery, [id]),
+    query(piezaQuery, [id]),
+    query(codigosQuery, [id]),
   ]);
 
   if (piezaRes.rows.length === 0) return null;
@@ -261,22 +249,9 @@ export async function getPiezaById(id: string | number): Promise<Pieza | null> {
 }
 
 export async function createPieza(input: PiezaInput) {
-  const client = await pool.connect();
-  try {
+  return await withTransaction(async (client) => {
     const payload = sanitizePiezaInput(input);
     validatePiezaInput(payload);
-
-    await client.query("BEGIN");
-
-    const duplicate = await client.query(
-      `SELECT id FROM pieza WHERE UPPER(TRIM(codigo_pieza)) = $1 LIMIT 1`,
-      [payload.codigoPieza]
-    );
-    if (duplicate.rows[0]) {
-      const err = new Error("Ya existe una pieza con ese código");
-      (err as Error & { status?: number }).status = 409;
-      throw err;
-    }
 
     const originalConflicts = await findCodeConflicts(client, payload.originales, "ORIGINAL");
     if (originalConflicts.length > 0) {
@@ -291,50 +266,29 @@ export async function createPieza(input: PiezaInput) {
 
     const piezaResult = await client.query(
       `
-        INSERT INTO pieza (codigo_pieza, descripcion, medida, id_subcategoria)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO pieza (descripcion, medida, id_subcategoria)
+        VALUES ($1, $2, $3)
         RETURNING *
       `,
-      [payload.codigoPieza, payload.descripcion, payload.medida || null, payload.idSubcategoria]
+      [payload.descripcion, payload.medida || null, payload.idSubcategoria]
     );
 
     const pieza = piezaResult.rows[0];
     await attachCodigosToPieza(client, pieza.id, "ORIGINAL", payload.originales);
     await attachCodigosToPieza(client, pieza.id, "EQUIVALENTE", payload.equivalentes);
 
-    await client.query("COMMIT");
     return {
       pieza,
       warning: equivalenteConflicts.length > 0 ? buildWarningMessage(equivalenteConflicts) : null,
     };
-  } catch (error) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {}
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function updatePieza(id: string | number, input: PiezaInput) {
-  const client = await pool.connect();
-  try {
+  return await withTransaction(async (client) => {
     const numericId = Number(id);
     const payload = sanitizePiezaInput(input);
     validatePiezaInput(payload);
-
-    await client.query("BEGIN");
-
-    const duplicate = await client.query(
-      `SELECT id FROM pieza WHERE UPPER(TRIM(codigo_pieza)) = $1 AND id <> $2 LIMIT 1`,
-      [payload.codigoPieza, id]
-    );
-    if (duplicate.rows[0]) {
-      const err = new Error("Ya existe una pieza con ese código");
-      (err as Error & { status?: number }).status = 409;
-      throw err;
-    }
 
     const originalConflicts = await findCodeConflicts(client, payload.originales, "ORIGINAL", numericId);
     if (originalConflicts.length > 0) {
@@ -350,14 +304,14 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
     const updateResult = await client.query(
       `
         UPDATE pieza
-        SET codigo_pieza = $1,
-            descripcion = $2,
-            medida = $3,
-            id_subcategoria = $4
-        WHERE id = $5
+        SET descripcion = $1,
+            medida = $2,
+            id_subcategoria = $3,
+            updated_at = now()
+        WHERE id = $4
         RETURNING *
       `,
-      [payload.codigoPieza, payload.descripcion, payload.medida || null, payload.idSubcategoria, id]
+      [payload.descripcion, payload.medida || null, payload.idSubcategoria, id]
     );
 
     if ((updateResult.rowCount ?? 0) === 0) {
@@ -368,40 +322,24 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
 
     await replacePiezaCodigos(client, id, payload.originales, payload.equivalentes);
 
-    await client.query("COMMIT");
     return {
       pieza: updateResult.rows[0],
       warning: equivalenteConflicts.length > 0 ? buildWarningMessage(equivalenteConflicts) : null,
     };
-  } catch (error) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {}
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function deletePieza(id: string | number) {
-  const usage = await pool.query(`SELECT 1 FROM productos WHERE id_pieza = $1 LIMIT 1`, [id]);
+  const usage = await query(`SELECT 1 FROM productos WHERE id_pieza = $1 LIMIT 1`, [id]);
   if (usage.rows[0]) {
     const err = new Error("No se puede eliminar la pieza porque está asociada a productos");
     (err as Error & { status?: number }).status = 409;
     throw err;
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
+  return await withTransaction(async (client) => {
     await client.query(`DELETE FROM pieza_codigo_referencia WHERE id_pieza = $1`, [id]);
     const result = await client.query(`DELETE FROM pieza WHERE id = $1`, [id]);
-    await client.query("COMMIT");
     return { deleted: (result.rowCount ?? 0) > 0 };
-  } catch (error) {
-    try { await client.query("ROLLBACK"); } catch {}
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }

@@ -1,45 +1,46 @@
-import { AppError } from "@/lib/api-errors";
+import { z } from "zod";
+import { 
+  idSchema, 
+  nonEmptyStringSchema, 
+  validateWithSchema 
+} from "./common";
 
-function normalizeDescripcion(value: unknown) {
-  return String(value ?? "").trim();
+/**
+ * Esquema para descripciones de catálogos simples (marcas, proveedores, categorías)
+ */
+export const catalogSchema = z.object({
+  descripcion: nonEmptyStringSchema,
+});
+
+/**
+ * Esquema para subcategorías
+ */
+export const subcategoriaSchema = z.object({
+  descripcion: nonEmptyStringSchema,
+  id_categoria: idSchema,
+});
+
+/**
+ * Validador para descripciones de catálogos
+ */
+export function parseCatalogDescripcion(body: any) {
+  return validateWithSchema(catalogSchema, body);
 }
 
-export function parseCatalogDescripcion(body: unknown) {
-  if (!body || typeof body !== "object") {
-    throw new AppError("Datos inválidos", 400);
-  }
-
-  const descripcion = normalizeDescripcion((body as { descripcion?: unknown }).descripcion);
-  if (!descripcion) {
-    throw new AppError("La descripción es obligatoria", 400);
-  }
-
-  return { descripcion };
+/**
+ * Validador para subcategorías
+ */
+export function parseSubcategoriaPayload(body: any) {
+  return validateWithSchema(subcategoriaSchema, body);
 }
 
+/**
+ * Validador para parámetros de ID en la URL
+ */
 export function parseIdParam(rawId: string) {
-  const id = Number(rawId);
-  if (!Number.isInteger(id) || id <= 0) {
-    throw new AppError("ID inválido", 400);
+  const result = idSchema.safeParse(Number(rawId));
+  if (!result.success) {
+    throw new Error("ID inválido");
   }
-  return id;
-}
-
-export function parseSubcategoriaPayload(body: unknown) {
-  if (!body || typeof body !== "object") {
-    throw new AppError("Datos inválidos", 400);
-  }
-
-  const descripcion = normalizeDescripcion((body as { descripcion?: unknown }).descripcion);
-  const id_categoria = Number((body as { id_categoria?: unknown }).id_categoria);
-
-  if (!descripcion) {
-    throw new AppError("La descripción es obligatoria", 400);
-  }
-
-  if (!Number.isInteger(id_categoria) || id_categoria <= 0) {
-    throw new AppError("La categoría es obligatoria", 400);
-  }
-
-  return { descripcion, id_categoria };
+  return result.data;
 }

@@ -1,22 +1,28 @@
-import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
 import { pool } from "@/utils/database";
+import { createClient as createCookieSupabaseClient } from "@/utils/supabase/server";
+import { canReadContent, normalizeRole } from "@/lib/permissions";
 
-type AuthenticatedInternalUser = {
+export type AuthenticatedInternalUser = {
   authUserId: string;
   usuarioId: number;
-  rol: string;
-  activo: boolean;
   email: string | null;
   nombre: string | null;
   apellido: string | null;
   nombreUsuario: string | null;
+  rol: "admin" | "empleado" | "";
+  activo: boolean;
 };
 
-type UsuarioAuthRow = {
-  usuario_id: number;
+type InternalUserRow = {
+  authUserId: string;
+  usuarioId: number;
+  email: string | null;
+  nombre: string | null;
+  apellido: string | null;
+  nombreUsuario: string | null;
   rol: string | null;
   activo: boolean | null;
 };
@@ -29,15 +35,9 @@ function getRequiredEnv(name: string): string {
   return value.trim();
 }
 
-function getSupabaseConfig() {
-  return {
-    supabaseUrl: getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    supabaseKey: getRequiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
-  };
-}
-
-export function createRequestSupabaseClient(request: NextRequest) {
-  const { supabaseUrl, supabaseKey } = getSupabaseConfig();
+function createRequestSupabaseClient(request: NextRequest) {
+  const supabaseUrl = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const supabaseKey = getRequiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
   return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
@@ -51,88 +51,49 @@ export function createRequestSupabaseClient(request: NextRequest) {
   });
 }
 
-export async function createCookieSupabaseClient() {
-  const { supabaseUrl, supabaseKey } = getSupabaseConfig();
-  const cookieStore = await cookies();
+function mapInternalUser(row: InternalUserRow | null | undefined): AuthenticatedInternalUser | null {
+  if (!row) return null;
 
-  return createServerClient(supabaseUrl, supabaseKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
-        } catch {
-          // En server components puede no ser posible mutar cookies.
-        }
-      },
-    },
-  });
+  return {
+    authUserId: row.authUserId,
+    usuarioId: Number(row.usuarioId),
+    email: row.email,
+    nombre: row.nombre,
+    apellido: row.apellido,
+    nombreUsuario: row.nombreUsuario,
+    rol: normalizeRole(row.rol),
+    activo: Boolean(row.activo),
+  };
 }
 
-async function getUsuarioAuthBySupabaseClient(
-  supabase: SupabaseClient,
-  authUserId: string
-): Promise<UsuarioAuthRow | null> {
-  const { data, error } = await supabase
-    .from("usuario_auth")
-    .select("usuario_id, rol, activo")
-    .eq("auth_user_id", authUserId)
-    .maybeSingle<UsuarioAuthRow>();
-
-  if (error || !data) {
-    return null;
-  }
-
-  return data;
-}
-
-async function getInternalUserProfile(
-  authUserId: string,
-  usuarioId: number,
-  rol: string,
-  activo: boolean
-): Promise<AuthenticatedInternalUser | null> {
-  const { rows } = await pool.query<AuthenticatedInternalUser>(
-    `
-      SELECT
-        $1::text AS "authUserId",
-        u.id AS "usuarioId",
-        $3::text AS rol,
-        $4::boolean AS activo,
-        du.email,
-        du.nombre,
-        du.apellido,
-        u.nombre_usuario AS "nombreUsuario"
-      FROM public.usuario u
-      LEFT JOIN public.detalle_usuario du ON du.id = u.id
-      WHERE u.id = $2
-      LIMIT 1
-    `,
-    [authUserId, usuarioId, rol, activo]
-  );
-
-  return rows[0] ?? null;
+export function canAccessApp(session: AuthenticatedInternalUser | null | undefined): boolean {
+  return Boolean(session && session.activo && canReadContent(session.rol));
 }
 
 export async function findInternalUserByAuthUserId(
-  authUserId: string,
-  supabase?: SupabaseClient
+  authUserId: string
 ): Promise<AuthenticatedInternalUser | null> {
-  const supabaseClient = supabase ?? (await createCookieSupabaseClient());
-  const usuarioAuth = await getUsuarioAuthBySupabaseClient(supabaseClient, authUserId);
-
-  if (!usuarioAuth || !usuarioAuth.usuario_id || usuarioAuth.activo !== true) {
-    return null;
-  }
-
-  return getInternalUserProfile(
-    authUserId,
-    usuarioAuth.usuario_id,
-    usuarioAuth.rol ?? "usuario",
-    true
+  const { rows } = await pool.query<InternalUserRow>(
+    `
+      SELECT
+        ua.auth_user_id AS "authUserId",
+        ua.usuario_id AS "usuarioId",
+        du.email,
+        du.nombre,
+        du.apellido,
+        u.nombre_usuario AS "nombreUsuario",
+        ua.rol,
+        ua.activo
+      FROM public.usuario_auth ua
+      JOIN public.usuario u ON u.id = ua.usuario_id
+      LEFT JOIN public.detalle_usuario du ON du.id = ua.usuario_id
+      WHERE ua.auth_user_id = $1
+      LIMIT 1
+    `,
+    [authUserId]
   );
+
+  return mapInternalUser(rows[0]);
 }
 
 export async function verifyInternalUserFromRequest(
@@ -148,21 +109,18 @@ export async function verifyInternalUserFromRequest(
     return null;
   }
 
-  return findInternalUserByAuthUserId(user.id, supabase);
+  return findInternalUserByAuthUserId(user.id);
 }
 
-export async function verifyInternalUserFromCookies(): Promise<AuthenticatedInternalUser | null> {
-  const supabase = await createCookieSupabaseClient();
+export async function getServerInternalUser(): Promise<AuthenticatedInternalUser | null> {
+  const cookieStore = await cookies();
+  const supabase = createCookieSupabaseClient(cookieStore);
   const {
     data: { user },
     error,
   } = await supabase.auth.getUser();
 
-  if (error || !user) {
-    return null;
-  }
+  if (error || !user) return null;
 
-  return findInternalUserByAuthUserId(user.id, supabase);
+  return findInternalUserByAuthUserId(user.id);
 }
-
-export type { AuthenticatedInternalUser };

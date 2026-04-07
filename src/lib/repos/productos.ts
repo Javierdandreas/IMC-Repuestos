@@ -1,33 +1,23 @@
-import { pool } from "@/utils/database";
+import { query, withTransaction } from "@/lib/db-utils";
 import type { Producto, ProductoListado, ProveedorProducto } from "@/interfaces/productos";
-import type { PoolClient } from "pg";
+import type { DbClient } from "@/lib/db-utils";
+import { 
+  sanitizeNullableString, 
+  sanitizeRequiredString, 
+  sanitizeStock 
+} from "@/utils/sanitization";
 
-type DbClient = Pick<PoolClient, "query">;
-
-type ProductoInput = {
+export type ProductoInput = {
   cod_unico: string;
   descripcion: string;
   cod_barra?: string | null;
   stock?: number;
   id_pieza?: number | null;
-  id_subcategoria: number | null;
+  id_subcategoria: number;
   id_marca?: number | null;
   proveedores?: ProveedorProducto[];
 };
 
-function sanitizeNullableString(value: unknown) {
-  const text = String(value ?? "").trim();
-  return text ? text : null;
-}
-
-function sanitizeRequiredString(value: unknown) {
-  return String(value ?? "").trim();
-}
-
-function sanitizeStock(value: unknown) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : 0;
-}
 
 function sanitizeProductoInput(input: ProductoInput) {
   return {
@@ -73,14 +63,14 @@ async function getProductoProveedores(id: string | number) {
     ORDER BY id_proveedor
   `;
 
-  const { rows } = await pool.query(proveedoresQuery, [id]);
+  const { rows } = await query(proveedoresQuery, [id]);
   return rows.length > 0
     ? (rows as ProveedorProducto[])
     : [{ id_proveedor: null, codigo_proveedor: "" }];
 }
 
 export async function getProductosListado(): Promise<ProductoListado[]> {
-  const query = `
+  const sql = `
     SELECT 
       p.id,
       COALESCE(p.cod_unico, '') AS cod_unico,
@@ -134,7 +124,7 @@ export async function getProductosListado(): Promise<ProductoListado[]> {
     ORDER BY p.id DESC
   `;
 
-  const { rows } = await pool.query(query);
+  const { rows } = await query(sql);
   return rows as ProductoListado[];
 }
 
@@ -193,7 +183,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
   `;
 
   const [productRes, proveedores] = await Promise.all([
-    pool.query(productQuery, [id]),
+    query(productQuery, [id]),
     getProductoProveedores(id),
   ]);
 
@@ -226,8 +216,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       categoria: row.pieza_categoria ?? "",
       id_subcategoria: row.pieza_id_subcategoria ?? 0,
       subcategoria: row.pieza_subcategoria ?? "",
-      originales: product.originales,
-      equivalentes: product.equivalentes,
+      originales: product.originales ?? [],
+      equivalentes: product.equivalentes ?? [],
     };
   }
 
@@ -235,11 +225,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
 }
 
 export async function createProducto(input: ProductoInput) {
-  const client = await pool.connect();
-  try {
+  return await withTransaction(async (client) => {
     const payload = sanitizeProductoInput(input);
-
-    await client.query("BEGIN");
 
     const productResult = await client.query(
       `
@@ -269,22 +256,13 @@ export async function createProducto(input: ProductoInput) {
     const newProduct = productResult.rows[0];
     await syncProductoProveedores(client, newProduct.id, payload.proveedores);
 
-    await client.query("COMMIT");
     return newProduct;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function updateProducto(id: string | number, input: ProductoInput) {
-  const client = await pool.connect();
-  try {
+  return await withTransaction(async (client) => {
     const payload = sanitizeProductoInput(input);
-
-    await client.query("BEGIN");
 
     const result = await client.query(
       `
@@ -320,20 +298,12 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
 
     await syncProductoProveedores(client, id, payload.proveedores);
 
-    await client.query("COMMIT");
     return result.rows[0];
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function deleteProducto(id: string | number) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
+  return await withTransaction(async (client) => {
     await client.query("DELETE FROM producto_proveedor WHERE id_producto = $1", [id]);
     const result = await client.query("DELETE FROM productos WHERE id = $1 RETURNING *", [id]);
 
@@ -343,12 +313,6 @@ export async function deleteProducto(id: string | number) {
       throw err;
     }
 
-    await client.query("COMMIT");
     return result.rows[0];
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }

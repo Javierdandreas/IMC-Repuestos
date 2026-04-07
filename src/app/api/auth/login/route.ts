@@ -1,8 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { findInternalUserByAuthUserId } from "@/lib/auth";
+import { canReadContent } from "@/lib/permissions";
+import { rateLimit, getRequestIp } from "@/lib/rate-limit";
+import { jsonError } from "@/lib/api-errors";
+
+const LOGIN_RATE_LIMIT = 5;          // máx. intentos
+const LOGIN_RATE_WINDOW_MS = 300_000; // por 5 minutos
 
 export async function POST(request: NextRequest) {
+  // ── Rate limiting ──────────────────────────────────────
+  const ip = getRequestIp(request.headers);
+  const rl = rateLimit(ip, LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_MS);
+
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { message: "Demasiados intentos de inicio de sesión. Intentá de nuevo en unos segundos." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+      }
+    );
+  }
   const response = NextResponse.json({ ok: true });
 
   const supabase = createServerClient(
@@ -60,9 +79,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const internalUser = await findInternalUserByAuthUserId(user.id, supabase);
+    const internalUser = await findInternalUserByAuthUserId(user.id);
 
-    if (!internalUser) {
+    if (!internalUser || !internalUser.activo || !canReadContent(internalUser.rol)) {
       await supabase.auth.signOut();
       return NextResponse.json(
         { message: "Usuario autenticado pero sin acceso habilitado en IMC" },
@@ -70,20 +89,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!internalUser.activo) {
-      await supabase.auth.signOut();
-      return NextResponse.json(
-        { message: "Usuario inactivo" },
-        { status: 403 }
-      );
-    }
-
     return response;
-  } catch (error: any) {
+  } catch (error: unknown) {
     await supabase.auth.signOut();
-    return NextResponse.json(
-      { message: error?.message || "No se pudo iniciar sesión" },
-      { status: 400 }
-    );
+    return jsonError(error, "No se pudo iniciar sesión");
   }
 }

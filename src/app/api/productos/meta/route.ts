@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getProductMeta } from "@/lib/productos-meta";
 import { pool } from "@/utils/database";
 import { requireApiSession } from "@/lib/api-auth";
+import { jsonError } from "@/lib/api-errors";
 
 export async function GET(request: NextRequest) {
   await requireApiSession(request);
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
       ...meta,
       tipos: tipos.rows,
     });
-  } catch (error: any) {
-    return NextResponse.json({ message: error.message }, { status: 400 });
+  } catch (error: unknown) {
+    return jsonError(error, "No se pudieron obtener los metadatos de productos");
   }
 }

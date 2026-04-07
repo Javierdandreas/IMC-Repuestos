@@ -9,15 +9,19 @@ import { PencilButton } from "@/components/ui/PencilButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { CategoriaOption, Pieza, PiezaListado, SubcategoriaOption } from "@/interfaces/piezas";
 import { toast } from "sonner";
+import { usePermissions } from "@/components/auth/usePermissions";
 
 type Props = {
   piezas: PiezaListado[];
   categorias: CategoriaOption[];
   subcategorias: SubcategoriaOption[];
+  nextCode: number;
 };
 
-export function PiezaList({ piezas, categorias, subcategorias }: Props) {
+export function PiezaList({ piezas, categorias, subcategorias, nextCode }: Props) {
+
   const router = useRouter();
+  const { canManage } = usePermissions();
   const [openNew, setOpenNew] = useState(false);
   const [editingPieza, setEditingPieza] = useState<PiezaListado | null>(null);
   const [deletingPieza, setDeletingPieza] = useState<PiezaListado | null>(null);
@@ -70,13 +74,15 @@ export function PiezaList({ piezas, categorias, subcategorias }: Props) {
             <h1 className="text-3xl font-bold text-slate-900">Piezas</h1>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setOpenNew(true)}
-            className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700"
-          >
-            Crear pieza
-          </button>
+          {canManage ? (
+            <button
+              type="button"
+              onClick={() => setOpenNew(true)}
+              className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700"
+            >
+              Crear pieza
+            </button>
+          ) : null}
         </div>
 
         <div className="overflow-x-auto rounded-xl border border-slate-300">
@@ -113,14 +119,16 @@ export function PiezaList({ piezas, categorias, subcategorias }: Props) {
                     <td className="px-4 py-4 text-center text-sm text-slate-700">{pieza.cantidad_equivalentes}</td>
                     <td className="px-4 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        <PencilButton
-                          label={`Editar pieza ${pieza.codigo_pieza}`}
-                          onClick={() => setEditingPieza(pieza)}
-                        />
-                        <TrashButton
-                          label={`Borrar pieza ${pieza.codigo_pieza}`}
-                          onClick={() => setDeletingPieza(pieza)}
-                        />
+                        {canManage ? (<>
+                          <PencilButton
+                            label={`Editar pieza ${pieza.codigo_pieza}`}
+                            onClick={() => setEditingPieza(pieza)}
+                          />
+                          <TrashButton
+                            label={`Borrar pieza ${pieza.codigo_pieza}`}
+                            onClick={() => setDeletingPieza(pieza)}
+                          />
+                        </>) : <span className="text-xs text-slate-400">SOLO LECTURA</span>}
                       </div>
                     </td>
                   </tr>
@@ -131,16 +139,18 @@ export function PiezaList({ piezas, categorias, subcategorias }: Props) {
         </div>
       </div>
 
-      <Modal open={openNew} onClose={() => setOpenNew(false)} title="Crear pieza">
+      <Modal open={canManage && openNew} onClose={() => setOpenNew(false)} title="Crear pieza">
         <PiezaForm
           categorias={categorias}
           subcategorias={subcategorias}
+          nextCode={nextCode}
           onSuccess={() => setOpenNew(false)}
           onCancel={() => setOpenNew(false)}
         />
       </Modal>
 
-      <Modal open={!!editingPieza} onClose={() => setEditingPieza(null)} title="Editar pieza">
+
+      <Modal open={canManage && !!editingPieza} onClose={() => setEditingPieza(null)} title="Editar pieza">
         <PiezaForm
           piezaId={editingPieza?.id}
           initialPieza={mapToForm(editingPieza)}
@@ -152,7 +162,7 @@ export function PiezaList({ piezas, categorias, subcategorias }: Props) {
       </Modal>
 
       <ConfirmDeleteModal
-        open={!!deletingPieza}
+        open={canManage && !!deletingPieza}
         title="Eliminar pieza"
         description={
           deletingPieza

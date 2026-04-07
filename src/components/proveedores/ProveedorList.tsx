@@ -7,6 +7,7 @@ import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { ProveedorForm } from "@/components/proveedores/ProveedorForm";
 import { PencilButton } from "@/components/ui/PencilButton";
 import { TrashButton } from "@/components/ui/TrashButton";
+import { usePermissions } from "@/components/auth/usePermissions";
 
 type Proveedor = {
   id: number;
@@ -19,6 +20,7 @@ type Props = {
 
 export function ProveedorList({ proveedores }: Props) {
   const router = useRouter();
+  const { canManage } = usePermissions();
   const [openNew, setOpenNew] = useState(false);
   const [editingProveedor, setEditingProveedor] = useState<Proveedor | null>(null);
   const [deletingProveedor, setDeletingProveedor] = useState<Proveedor | null>(null);
@@ -51,13 +53,15 @@ export function ProveedorList({ proveedores }: Props) {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Proveedores</h1>
 
-          <button
-            type="button"
-            onClick={() => setOpenNew(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md"
-          >
-            Nuevo proveedor
-          </button>
+          {canManage ? (
+            <button
+              type="button"
+              onClick={() => setOpenNew(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md"
+            >
+              Nuevo proveedor
+            </button>
+          ) : null}
         </div>
 
         <div className="rounded-md overflow-hidden border border-slate-300 border border-slate-300">
@@ -78,15 +82,17 @@ export function ProveedorList({ proveedores }: Props) {
                 <div className="p-3 border-r">{proveedor.id}</div>
                 <div className="p-3 border-r">{proveedor.descripcion}</div>
                 <div className="p-2 flex items-center justify-center gap-2">
-                  <PencilButton
-                    label={`Editar proveedor ${proveedor.descripcion}`}
-                    onClick={() => setEditingProveedor(proveedor)}
-                  />
-                  <TrashButton
-                    label={`Borrar proveedor ${proveedor.descripcion}`}
-                    onClick={() => setDeletingProveedor(proveedor)}
-                    disabled={isDeleting && deletingProveedor?.id === proveedor.id}
-                  />
+                  {canManage ? (<>
+                    <PencilButton
+                      label={`Editar proveedor ${proveedor.descripcion}`}
+                      onClick={() => setEditingProveedor(proveedor)}
+                    />
+                    <TrashButton
+                      label={`Borrar proveedor ${proveedor.descripcion}`}
+                      onClick={() => setDeletingProveedor(proveedor)}
+                      disabled={isDeleting && deletingProveedor?.id === proveedor.id}
+                    />
+                  </>) : <span className="text-xs text-slate-400">SOLO LECTURA</span>}
                 </div>
               </div>
             ))
@@ -96,7 +102,7 @@ export function ProveedorList({ proveedores }: Props) {
 
       <Modal
         title="Nuevo proveedor"
-        open={openNew}
+        open={canManage && openNew}
         onClose={() => setOpenNew(false)}
       >
         <ProveedorForm
@@ -110,7 +116,7 @@ export function ProveedorList({ proveedores }: Props) {
 
       <Modal
         title="Editar proveedor"
-        open={!!editingProveedor}
+        open={canManage && !!editingProveedor}
         onClose={() => setEditingProveedor(null)}
       >
         <ProveedorForm
@@ -125,7 +131,7 @@ export function ProveedorList({ proveedores }: Props) {
       </Modal>
 
       <ConfirmDeleteModal
-        open={!!deletingProveedor}
+        open={canManage && !!deletingProveedor}
         title="Borrar proveedor"
         description={
           deletingProveedor

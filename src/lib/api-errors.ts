@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 export class AppError extends Error {
   status: number;
@@ -13,8 +14,24 @@ export function isAppError(error: unknown): error is AppError {
   return error instanceof AppError;
 }
 
+/**
+ * Convierte un error de Zod a un mensaje amigable para el cliente.
+ */
+export function formatZodError(error: z.ZodError): string {
+  return error.issues
+    .map((err: any) => {
+      const path = err.path.join(".");
+      return path ? `${path}: ${err.message}` : err.message;
+    })
+    .join(", ");
+}
+
 export function toAppError(error: unknown, fallbackMessage: string): AppError {
   if (isAppError(error)) return error;
+
+  if (error instanceof z.ZodError) {
+    return new AppError(formatZodError(error), 400);
+  }
 
   if (typeof error === "object" && error && "status" in error && typeof (error as any).status === "number") {
     const message = typeof (error as any).message === "string" ? (error as any).message : fallbackMessage;

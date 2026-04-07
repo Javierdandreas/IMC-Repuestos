@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
 import LoginForm from "@/components/auth/LoginForm";
-import { verifyInternalUserFromCookies } from "@/lib/auth";
+import { canAccessApp, getServerInternalUser } from "@/lib/auth";
 
 export default async function LoginPage() {
-  const internalUser = await verifyInternalUserFromCookies();
+  const session = await getServerInternalUser();
 
-  if (internalUser?.activo) {
+  if (canAccessApp(session)) {
     redirect("/");
   }
 

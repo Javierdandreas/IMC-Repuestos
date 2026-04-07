@@ -6,7 +6,6 @@ CREATE TABLE public.categoria (
   descripcion character varying NOT NULL,
   CONSTRAINT categoria_pkey PRIMARY KEY (id)
 );
-
 CREATE TABLE public.codigo_referencia (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
   codigo character varying NOT NULL,
@@ -15,7 +14,6 @@ CREATE TABLE public.codigo_referencia (
   updated_at timestamp without time zone NOT NULL DEFAULT now(),
   CONSTRAINT codigo_referencia_pkey PRIMARY KEY (id)
 );
-
 CREATE TABLE public.detalle_usuario (
   id integer NOT NULL,
   nombre character varying,
@@ -24,13 +22,11 @@ CREATE TABLE public.detalle_usuario (
   CONSTRAINT detalle_usuario_pkey PRIMARY KEY (id),
   CONSTRAINT detalle_usuario_id_fkey FOREIGN KEY (id) REFERENCES public.usuario(id)
 );
-
 CREATE TABLE public.marcas (
   id integer NOT NULL DEFAULT nextval('marcas_id_seq'::regclass),
   descripcion character varying NOT NULL,
   CONSTRAINT marcas_pkey PRIMARY KEY (id)
 );
-
 CREATE TABLE public.pieza (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
   descripcion character varying NOT NULL,
@@ -43,7 +39,6 @@ CREATE TABLE public.pieza (
   CONSTRAINT pieza_pkey PRIMARY KEY (id),
   CONSTRAINT pieza_id_subcategoria_fkey FOREIGN KEY (id_subcategoria) REFERENCES public.subcategoria(id)
 );
-
 CREATE TABLE public.pieza_codigo_referencia (
   id_pieza integer NOT NULL,
   id_codigo_referencia integer NOT NULL,
@@ -53,7 +48,6 @@ CREATE TABLE public.pieza_codigo_referencia (
   CONSTRAINT pieza_codigo_referencia_id_codigo_referencia_fkey FOREIGN KEY (id_codigo_referencia) REFERENCES public.codigo_referencia(id),
   CONSTRAINT pieza_codigo_referencia_id_pieza_fkey FOREIGN KEY (id_pieza) REFERENCES public.pieza(id)
 );
-
 CREATE TABLE public.producto_precio (
   id integer NOT NULL DEFAULT nextval('producto_precio_id_seq'::regclass),
   id_producto integer NOT NULL,
@@ -64,7 +58,6 @@ CREATE TABLE public.producto_precio (
   CONSTRAINT producto_precio_id_producto_fkey FOREIGN KEY (id_producto) REFERENCES public.productos(id),
   CONSTRAINT producto_precio_id_tipo_precio_fkey FOREIGN KEY (id_tipo_precio) REFERENCES public.tipo_precio(id)
 );
-
 CREATE TABLE public.producto_proveedor (
   id_producto integer NOT NULL,
   id_proveedor integer NOT NULL,
@@ -73,7 +66,6 @@ CREATE TABLE public.producto_proveedor (
   CONSTRAINT producto_proveedor_id_producto_fkey FOREIGN KEY (id_producto) REFERENCES public.productos(id),
   CONSTRAINT producto_proveedor_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES public.proveedores(id)
 );
-
 CREATE TABLE public.productos (
   id integer NOT NULL DEFAULT nextval('productos_id_seq'::regclass),
   descripcion character varying NOT NULL,
@@ -88,13 +80,11 @@ CREATE TABLE public.productos (
   CONSTRAINT productos_id_pieza_fkey FOREIGN KEY (id_pieza) REFERENCES public.pieza(id),
   CONSTRAINT productos_id_subcategoria_fkey FOREIGN KEY (id_subcategoria) REFERENCES public.subcategoria(id)
 );
-
 CREATE TABLE public.proveedores (
   id integer NOT NULL DEFAULT nextval('proveedores_id_seq'::regclass),
   descripcion character varying NOT NULL,
   CONSTRAINT proveedores_pkey PRIMARY KEY (id)
 );
-
 CREATE TABLE public.subcategoria (
   id integer NOT NULL DEFAULT nextval('subcategoria_id_seq'::regclass),
   id_categoria integer NOT NULL,
@@ -102,16 +92,22 @@ CREATE TABLE public.subcategoria (
   CONSTRAINT subcategoria_pkey PRIMARY KEY (id),
   CONSTRAINT subcategoria_id_categoria_fkey FOREIGN KEY (id_categoria) REFERENCES public.categoria(id)
 );
-
 CREATE TABLE public.tipo_precio (
   id integer NOT NULL DEFAULT nextval('tipo_precio_id_seq'::regclass),
   descripcion character varying NOT NULL,
   CONSTRAINT tipo_precio_pkey PRIMARY KEY (id)
 );
-
 CREATE TABLE public.usuario (
   id integer NOT NULL DEFAULT nextval('usuario_id_seq'::regclass),
   nombre_usuario character varying NOT NULL,
-  contrasena character varying NOT NULL,
   CONSTRAINT usuario_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.usuario_auth (
+  auth_user_id uuid NOT NULL,
+  usuario_id integer NOT NULL UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  rol text NOT NULL DEFAULT 'admin'::text,
+  activo boolean NOT NULL DEFAULT true,
+  CONSTRAINT usuario_auth_pkey PRIMARY KEY (auth_user_id),
+  CONSTRAINT usuario_auth_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id)
 );

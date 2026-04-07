@@ -1,26 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteSubcategoria, updateSubcategoria } from "@/lib/repos/catalogos";
-import { requireApiSession } from "@/lib/api-auth";
+import { requireApiWriteSession } from "@/lib/api-auth";
+import { parseSubcategoriaPayload, parseIdParam } from "@/lib/validators/catalogos";
+import { jsonError } from "@/lib/api-errors";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  await requireApiSession(request);
+  await requireApiWriteSession(request);
   try {
     const { id } = await params;
+    const numericId = parseIdParam(id);
     const body = await request.json();
-    const result = await updateSubcategoria(id, body.descripcion, body.id_categoria);
+    const payload = parseSubcategoriaPayload(body);
+    const result = await updateSubcategoria(numericId, payload.descripcion, payload.id_categoria);
     return NextResponse.json(result);
-  } catch (error: any) {
-    return NextResponse.json({ message: error.message || "No se pudo actualizar la subcategoría" }, { status: error.status || 400 });
+  } catch (error: unknown) {
+    return jsonError(error, "No se pudo actualizar la subcategoría");
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  await requireApiSession(request);
+  await requireApiWriteSession(request);
   try {
     const { id } = await params;
-    await deleteSubcategoria(id);
+    const numericId = parseIdParam(id);
+    await deleteSubcategoria(numericId);
     return NextResponse.json({ message: "Subcategoría eliminada correctamente" });
-  } catch (error: any) {
-    return NextResponse.json({ message: error.message || "No se pudo eliminar la subcategoría" }, { status: error.status || 400 });
+  } catch (error: unknown) {
+    return jsonError(error, "No se pudo eliminar la subcategoría");
   }
 }

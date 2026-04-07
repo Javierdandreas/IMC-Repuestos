@@ -5,8 +5,12 @@ import { useRouter } from "next/navigation";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { PencilLink } from "@/components/ui/PencilButton";
 import { TrashButton } from "@/components/ui/TrashButton";
+import { usePermissions } from "@/components/auth/usePermissions";
 import { CatalogoItem, ProductoListado, Subcategoria } from "@/interfaces/productos";
+import { normalizeText, normalizeCode, splitCommaList } from "@/utils/text";
+
 import Link from "next/link";
+
 
 interface Props {
   products: ProductoListado[];
@@ -20,22 +24,7 @@ const TOOLTIP_WIDTH = 420;
 const TOOLTIP_HEIGHT = 260;
 const TOOLTIP_MARGIN = 12;
 
-const normalizeText = (value: string) =>
-  value
-    .toUpperCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const normalizeCode = (value: string) =>
-  normalizeText(value).replace(/[^A-Z0-9]/g, "");
-
-const splitCommaList = (value?: string | null) =>
-  (value ?? "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+// Eliminadas funciones locales de normalización, se usan las de @/utils/text
 
 
 function DuplicateLink({ href, label }: { href: string; label: string }) {
@@ -64,6 +53,7 @@ function DuplicateLink({ href, label }: { href: string; label: string }) {
 }
 
 export function ProductList({ products, categorias, subcategorias, marcas, proveedores }: Props) {
+  const { canManage } = usePermissions();
   const router = useRouter();
   const [deletingProduct, setDeletingProduct] = useState<ProductoListado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -355,19 +345,21 @@ export function ProductList({ products, categorias, subcategorias, marcas, prove
                 <td className="px-4 py-3 text-sm text-gray-700">{product.stock}</td>
                 <td className="px-4 py-3 text-sm">
                   <div className="flex items-center justify-center gap-2">
-                    <DuplicateLink
-                      href={product.codigo_pieza ? `/productos/new?piezaCodigo=${encodeURIComponent(product.codigo_pieza)}` : "/productos/new"}
-                      label={`Duplicar producto ${product.descripcion}`}
-                    />
-                    <PencilLink
-                      href={`/productos/edit/${product.id}`}
-                      label={`Editar producto ${product.descripcion}`}
-                    />
-                    <TrashButton
-                      label={`Borrar producto ${product.descripcion}`}
-                      onClick={() => setDeletingProduct(product)}
-                      disabled={isDeleting && deletingProduct?.id === product.id}
-                    />
+                    {canManage ? (<>
+                      <DuplicateLink
+                        href={product.codigo_pieza ? `/productos/new?piezaCodigo=${encodeURIComponent(product.codigo_pieza)}` : "/productos/new"}
+                        label={`Duplicar producto ${product.descripcion}`}
+                      />
+                      <PencilLink
+                        href={`/productos/edit/${product.id}`}
+                        label={`Editar producto ${product.descripcion}`}
+                      />
+                      <TrashButton
+                        label={`Borrar producto ${product.descripcion}`}
+                        onClick={() => setDeletingProduct(product)}
+                        disabled={isDeleting && deletingProduct?.id === product.id}
+                      />
+                    </>) : <span className="text-xs text-slate-400">SOLO LECTURA</span>}
                   </div>
                 </td>
               </tr>
@@ -455,7 +447,7 @@ export function ProductList({ products, categorias, subcategorias, marcas, prove
       ) : null}
 
       <ConfirmDeleteModal
-        open={!!deletingProduct}
+        open={canManage && !!deletingProduct}
         title="Borrar producto"
         description={
           deletingProduct

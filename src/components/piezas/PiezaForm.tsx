@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CategoriaOption, Pieza, SubcategoriaOption } from "@/interfaces/piezas";
+import { splitCodes, codesToText } from "@/utils/text";
+
+import { PiezaBasicInfoSection } from "./sections/PiezaBasicInfoSection";
+import { PiezaDetailsSection } from "./sections/PiezaDetailsSection";
+import { PiezaCodesSection } from "./sections/PiezaCodesSection";
 
 type Props = {
   onSuccess?: () => void;
@@ -12,10 +17,12 @@ type Props = {
   initialPieza?: Pieza;
   categorias: CategoriaOption[];
   subcategorias: SubcategoriaOption[];
+  nextCode?: number;
 };
 
+
 const initialState: Pieza = {
-  codigo_pieza: "",
+  codigo_pieza: null,
   descripcion: "",
   medida: "",
   id_categoria: null,
@@ -24,31 +31,15 @@ const initialState: Pieza = {
   equivalentes: [],
 };
 
-function splitCodes(value: string): string[] {
-  return Array.from(
-    new Set(
-      value
-        .toUpperCase()
-        .split(/\s+/)
-        .map((item) => item.trim())
-        .filter(Boolean)
-    )
-  );
-}
+export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categorias, subcategorias, nextCode }: Props) {
 
-function codesToText(codes: string[]): string {
-  return codes.join(" ");
-}
-
-export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categorias, subcategorias }: Props) {
   const router = useRouter();
-  const descripcionRef = useRef<HTMLTextAreaElement | null>(null);
   const [pieza, setPieza] = useState<Pieza>({
     ...initialState,
     ...initialPieza,
-    codigo_pieza: initialPieza?.codigo_pieza?.toUpperCase() ?? "",
     descripcion: initialPieza?.descripcion?.toUpperCase() ?? "",
     medida: initialPieza?.medida?.toUpperCase() ?? "",
+
     id_categoria:
       initialPieza?.id_categoria ??
       subcategorias.find((item) => Number(item.id) === Number(initialPieza?.id_subcategoria))?.id_categoria ??
@@ -56,21 +47,10 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     originales: initialPieza?.originales ?? [],
     equivalentes: initialPieza?.equivalentes ?? [],
   });
-  const [originalesTexto, setOriginalesTexto] = useState(codesToText(initialPieza?.originales ?? []));
-  const [equivalentesTexto, setEquivalentesTexto] = useState(codesToText(initialPieza?.equivalentes ?? []));
+
+  const [originalesTexto, setOriginalesTexto] = useState(codesToText(initialPieza?.originales));
+  const [equivalentesTexto, setEquivalentesTexto] = useState(codesToText(initialPieza?.equivalentes));
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    const textarea = descripcionRef.current;
-    if (!textarea) return;
-    textarea.style.height = "0px";
-    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 72), 150)}px`;
-  }, [pieza.descripcion]);
-
-  const subcategoriasFiltradas = useMemo(() => {
-    if (!pieza.id_categoria) return [];
-    return subcategorias.filter((item) => Number(item.id_categoria) === Number(pieza.id_categoria));
-  }, [subcategorias, pieza.id_categoria]);
 
   const handleCategoriaChange = (value: string) => {
     const idCategoria = value === "" ? null : Number(value);
@@ -89,17 +69,14 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     setLoading(true);
 
     try {
-      const originales = splitCodes(originalesTexto);
-      const equivalentes = splitCodes(equivalentesTexto);
-
       const payload = {
-        codigo_pieza: pieza.codigo_pieza.trim().toUpperCase(),
         descripcion: pieza.descripcion.trim().toUpperCase(),
-        medida: pieza.medida.trim().toUpperCase(),
+        medida: (pieza.medida ?? "").trim().toUpperCase(),
         id_subcategoria: pieza.id_subcategoria,
-        originales,
-        equivalentes,
+        originales: splitCodes(originalesTexto),
+        equivalentes: splitCodes(equivalentesTexto),
       };
+
 
       const url = piezaId ? `/api/piezas/${piezaId}` : "/api/piezas";
       const method = piezaId ? "PUT" : "POST";
@@ -114,9 +91,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
       if (!res.ok) throw new Error(data.message || "No se pudo guardar la pieza");
 
       toast.success(piezaId ? "Pieza actualizada correctamente" : "Pieza creada correctamente");
-      if (data.warning) {
-        toast.warning(data.warning);
-      }
+      if (data.warning) toast.warning(data.warning);
 
       if (onSuccess) {
         onSuccess();
@@ -132,134 +107,49 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     }
   };
 
-  const originalesPreview = splitCodes(originalesTexto);
-  const equivalentesPreview = splitCodes(equivalentesTexto);
-
-  const previewChip = (codigo: string) => (
-    <span
-      key={codigo}
-      className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-3 text-xs font-semibold uppercase tracking-[0.02em] text-slate-700"
-    >
-      {codigo}
-    </span>
-  );
-
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      <div className="grid gap-4 xl:grid-cols-[220px_1fr_1fr]">
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-slate-700">Código de pieza</label>
-          <input
-            type="text"
-            value={pieza.codigo_pieza}
-            onChange={(e) => setPieza((prev) => ({ ...prev, codigo_pieza: e.target.value.toUpperCase() }))}
-            className="h-11 w-full rounded-xl border border-slate-300 px-4 uppercase shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            placeholder="Ej. 1043"
-            required
-          />
-        </div>
+      <PiezaBasicInfoSection
+        codigo_pieza={pieza.codigo_pieza}
+        id_categoria={pieza.id_categoria}
+        id_subcategoria={pieza.id_subcategoria}
+        categorias={categorias}
+        subcategorias={subcategorias}
+        nextCode={nextCode}
+        onCategoriaChange={handleCategoriaChange}
+        onSubcategoriaChange={(val) => setPieza((p) => ({ ...p, id_subcategoria: val === "" ? null : Number(val) }))}
+      />
 
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-slate-700">Categoría</label>
-          <select
-            value={pieza.id_categoria ?? ""}
-            onChange={(e) => handleCategoriaChange(e.target.value)}
-            className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            required
-          >
-            <option value="">Seleccionar categoría</option>
-            {categorias.map((categoria) => (
-              <option key={categoria.id} value={categoria.id}>{categoria.descripcion}</option>
-            ))}
-          </select>
-        </div>
 
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-slate-700">Subcategoría</label>
-          <select
-            value={pieza.id_subcategoria ?? ""}
-            onChange={(e) => setPieza((prev) => ({ ...prev, id_subcategoria: e.target.value === "" ? null : Number(e.target.value) }))}
-            className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            required
-            disabled={!pieza.id_categoria}
-          >
-            <option value="">Seleccionar subcategoría</option>
-            {subcategoriasFiltradas.map((sub) => (
-              <option key={sub.id} value={sub.id}>{sub.descripcion}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <PiezaDetailsSection
+        descripcion={pieza.descripcion}
+        medida={pieza.medida ?? ""}
+        onDescripcionChange={(val) => setPieza((p) => ({ ...p, descripcion: val }))}
+        onMedidaChange={(val) => setPieza((p) => ({ ...p, medida: val }))}
+      />
 
-      <div>
-        <label className="mb-2 block text-sm font-semibold text-slate-700">Descripción</label>
-        <textarea
-          ref={descripcionRef}
-          value={pieza.descripcion}
-          onChange={(e) => setPieza((prev) => ({ ...prev, descripcion: e.target.value.toUpperCase() }))}
-          className="w-full resize-none overflow-hidden rounded-xl border border-slate-300 px-4 py-2.5 uppercase shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          style={{ minHeight: 72 }}
-          placeholder="Ingresar descripción"
-          required
-        />
-      </div>
-
-      <div>
-        <label className="mb-2 block text-sm font-semibold text-slate-700">Medida</label>
-        <input
-          type="text"
-          value={pieza.medida}
-          onChange={(e) => setPieza((prev) => ({ ...prev, medida: e.target.value.toUpperCase() }))}
-          className="h-11 w-full rounded-xl border border-slate-300 px-4 uppercase shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          placeholder="Ej. 45MM x 30MM"
-        />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
-          <div className="mb-3">
-            <h3 className="text-base font-semibold text-slate-800">Números originales</h3>
-            <p className="mt-1 text-sm text-slate-600">Pegá varios códigos separados por espacios.</p>
-          </div>
-          <textarea
-            value={originalesTexto}
-            onChange={(e) => setOriginalesTexto(e.target.value.toUpperCase())}
-            className="min-h-[110px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 uppercase shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            placeholder="EJ: 1K0505465AA 1K0505465K 1K0505465L"
-          />
-          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
-            <div className="mb-2 text-sm font-semibold text-slate-700">Vista previa</div>
-            <div className="flex min-h-[44px] flex-wrap items-center gap-2">
-              {originalesPreview.length === 0 ? <span className="text-sm text-slate-500">Todavía no cargaste originales.</span> : originalesPreview.map(previewChip)}
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
-          <div className="mb-3">
-            <h3 className="text-base font-semibold text-slate-800">Números equivalentes</h3>
-            <p className="mt-1 text-sm text-slate-600">Pegá varios códigos separados por espacios.</p>
-          </div>
-          <textarea
-            value={equivalentesTexto}
-            onChange={(e) => setEquivalentesTexto(e.target.value.toUpperCase())}
-            className="min-h-[110px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 uppercase shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            placeholder="EJ: 1K0505465C 1K0505465J 1K0505465R"
-          />
-          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
-            <div className="mb-2 text-sm font-semibold text-slate-700">Vista previa</div>
-            <div className="flex min-h-[44px] flex-wrap items-center gap-2">
-              {equivalentesPreview.length === 0 ? <span className="text-sm text-slate-500">Todavía no cargaste equivalencias.</span> : equivalentesPreview.map(previewChip)}
-            </div>
-          </div>
-        </section>
-      </div>
+      <PiezaCodesSection
+        originalesTexto={originalesTexto}
+        equivalentesTexto={equivalentesTexto}
+        onOriginalesChange={setOriginalesTexto}
+        onEquivalentesChange={setEquivalentesTexto}
+      />
 
       <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
         {onCancel && (
-          <button type="button" onClick={onCancel} className="rounded-lg border border-gray-300 px-5 py-2.5 text-gray-700 transition hover:bg-gray-50">Cancelar</button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-gray-300 px-5 py-2.5 text-gray-700 transition hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
         )}
-        <button type="submit" disabled={loading} className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50">
+        <button
+          type="submit"
+          disabled={loading}
+          className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+        >
           {loading ? "Guardando..." : piezaId ? "Actualizar pieza" : "Guardar pieza"}
         </button>
       </div>

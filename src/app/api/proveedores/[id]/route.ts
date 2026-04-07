@@ -1,26 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteProveedor, updateProveedor } from "@/lib/repos/catalogos";
-import { requireApiSession } from "@/lib/api-auth";
+import { requireApiWriteSession } from "@/lib/api-auth";
+import { parseCatalogDescripcion, parseIdParam } from "@/lib/validators/catalogos";
+import { jsonError } from "@/lib/api-errors";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  await requireApiSession(request);
+  await requireApiWriteSession(request);
   try {
     const { id } = await params;
+    const numericId = parseIdParam(id);
     const body = await request.json();
-    const result = await updateProveedor(id, body.descripcion);
+    const payload = parseCatalogDescripcion(body);
+    const result = await updateProveedor(numericId, payload.descripcion);
     return NextResponse.json(result);
-  } catch (error: any) {
-    return NextResponse.json({ message: error.message || "No se pudo actualizar el proveedor" }, { status: error.status || 400 });
+  } catch (error: unknown) {
+    return jsonError(error, "No se pudo actualizar el proveedor");
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  await requireApiSession(request);
+  await requireApiWriteSession(request);
   try {
     const { id } = await params;
-    await deleteProveedor(id);
+    const numericId = parseIdParam(id);
+    await deleteProveedor(numericId);
     return NextResponse.json({ message: "Proveedor eliminado correctamente" });
-  } catch (error: any) {
-    return NextResponse.json({ message: error.message || "No se pudo eliminar el proveedor" }, { status: error.status || 400 });
+  } catch (error: unknown) {
+    return jsonError(error, "No se pudo eliminar el proveedor");
   }
 }

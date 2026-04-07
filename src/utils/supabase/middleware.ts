@@ -1,11 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
+import { normalizeRole } from "@/lib/permissions";
 
 type MiddlewareSessionResult = {
   response: NextResponse;
   authUserId: string | null;
   usuarioId: number | null;
-  rol: string | null;
+  rol: "admin" | "empleado" | "";
   activo: boolean;
 };
 
@@ -38,30 +39,31 @@ export async function updateSession(request: NextRequest): Promise<MiddlewareSes
 
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (authError || !user) {
     return {
       response: supabaseResponse,
       authUserId: null,
       usuarioId: null,
-      rol: null,
+      rol: "",
       activo: false,
     };
   }
 
-  const { data: usuarioAuth, error } = await supabase
+  const { data: usuarioAuth, error: usuarioAuthError } = await supabase
     .from("usuario_auth")
     .select("usuario_id, rol, activo")
     .eq("auth_user_id", user.id)
     .maybeSingle();
 
-  if (error || !usuarioAuth || usuarioAuth.activo !== true) {
+  if (usuarioAuthError || !usuarioAuth) {
     return {
       response: supabaseResponse,
       authUserId: user.id,
       usuarioId: null,
-      rol: null,
+      rol: "",
       activo: false,
     };
   }
@@ -70,7 +72,7 @@ export async function updateSession(request: NextRequest): Promise<MiddlewareSes
     response: supabaseResponse,
     authUserId: user.id,
     usuarioId: usuarioAuth.usuario_id ?? null,
-    rol: usuarioAuth.rol ?? null,
-    activo: true,
+    rol: normalizeRole(usuarioAuth.rol),
+    activo: Boolean(usuarioAuth.activo),
   };
 }
