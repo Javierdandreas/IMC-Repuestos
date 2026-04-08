@@ -33,23 +33,23 @@ const connectionString = process.env.DATABASE_URL;
 
 const poolConfig = connectionString
   ? {
-      connectionString,
-      ssl: buildSslConfig(),
-      max: Number(process.env.DB_POOL_MAX ?? 10),
-      idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30000),
-      connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 10000),
-    }
+    connectionString,
+    ssl: buildSslConfig(),
+    max: Number(process.env.DB_POOL_MAX ?? 10),
+    idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30000),
+    connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 10000),
+  }
   : {
-      host: getEnvOptional("DB_HOST"),
-      port: getPortOptional(),
-      user: getEnvOptional("DB_USER"),
-      password: getEnvOptional("DB_PASSWORD"),
-      database: getEnvOptional("DB_NAME"),
-      ssl: buildSslConfig(),
-      max: Number(process.env.DB_POOL_MAX ?? 10),
-      idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30000),
-      connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 10000),
-    };
+    host: getEnvOptional("DB_HOST"),
+    port: getPortOptional(),
+    user: getEnvOptional("DB_USER"),
+    password: getEnvOptional("DB_PASSWORD"),
+    database: getEnvOptional("DB_NAME"),
+    ssl: buildSslConfig(),
+    max: Number(process.env.DB_POOL_MAX ?? 10),
+    idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30000),
+    connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 10000),
+  };
 
 export const pool = globalForPg.__imcPgPool ?? new Pool(poolConfig);
 

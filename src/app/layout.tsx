@@ -7,6 +7,8 @@ import { MetadataProvider } from "@/context/MetadataContext";
 import { getProductMeta } from "@/lib/productos-meta";
 import { UserProvider } from "@/context/UserContext";
 import { getServerInternalUser } from "@/lib/auth";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/react";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -35,6 +37,8 @@ export default async function RootLayout({
           <MetadataProvider initialMeta={meta}>
             <AppShell>{children}</AppShell>
             <Toaster richColors position="top-right" />
+            <SpeedInsights />
+            <Analytics />
           </MetadataProvider>
         </UserProvider>
       </body>
