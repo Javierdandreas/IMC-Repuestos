@@ -115,56 +115,6 @@ export function ClassificationSection({
         </div>
       </div>
 
-      {isPiezaLinked && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-6">
-          <div className="rounded-2xl border border-gray-400 bg-slate-50 p-4">
-            <div className="mb-3 text-sm font-semibold text-slate-700">Medida</div>
-            <div className="flex min-h-[48px] items-center">
-              {selectedPieza?.medida ? (
-                <span className="inline-flex items-center rounded-full border border-gray-400 bg-white px-4 py-2 text-xs font-semibold uppercase text-slate-700">
-                  {selectedPieza.medida}
-                </span>
-              ) : (
-                <span className="text-sm text-slate-500">Sin medida cargada.</span>
-              )}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-gray-400 bg-slate-50 p-4">
-            <div className="mb-3 text-sm font-semibold text-slate-700">Números originales</div>
-            <div className="flex min-h-[48px] flex-wrap gap-2">
-              {(!selectedPieza?.originales || selectedPieza.originales.length === 0) ? (
-                <span className="text-sm text-slate-500">Sin originales cargados.</span>
-              ) : (
-                selectedPieza.originales.map((codigo) => (
-                  <span
-                    key={codigo}
-                    className="inline-flex min-h-10 items-center justify-center rounded-full border border-gray-400 bg-white px-4 py-2 text-xs font-semibold uppercase leading-none text-slate-700"
-                  >
-                    {codigo}
-                  </span>
-                ))
-              )}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-gray-400 bg-slate-50 p-4">
-            <div className="mb-3 text-sm font-semibold text-slate-700">Números equivalentes</div>
-            <div className="flex min-h-[48px] flex-wrap gap-2">
-              {(!selectedPieza?.equivalentes || selectedPieza.equivalentes.length === 0) ? (
-                <span className="text-sm text-slate-500">Sin equivalencias cargadas.</span>
-              ) : (
-                selectedPieza.equivalentes.map((codigo) => (
-                  <span
-                    key={codigo}
-                    className="inline-flex min-h-10 items-center justify-center rounded-full border border-gray-400 bg-white px-4 py-2 text-xs font-semibold uppercase leading-none text-slate-700"
-                  >
-                    {codigo}
-                  </span>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

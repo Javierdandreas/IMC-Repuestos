@@ -2,20 +2,32 @@ import { PiezaList } from "@/components/piezas/PiezaList";
 import { getCategoriasOptions, getSubcategoriasConCategoria } from "@/lib/repos/catalogos";
 import { getPiezasListado, getNextCodigoPieza } from "@/lib/repos/piezas";
 
-export default async function PiezasPage() {
-  const [piezas, categorias, subcategorias, nextCode] = await Promise.all([
-    getPiezasListado(),
+export const dynamic = "force-dynamic";
+
+type Props = {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
+
+export default async function PiezasPage({ searchParams }: Props) {
+  const resolvedParams = await searchParams;
+  const page = Number(resolvedParams?.page) || 1;
+
+  const [{ data: piezas, totalPages }, categorias, subcategorias, nextCode] = await Promise.all([
+    getPiezasListado(page, 50),
     getCategoriasOptions(),
     getSubcategoriasConCategoria(),
     getNextCodigoPieza(),
   ]);
 
   return (
-    <PiezaList
-      piezas={piezas}
-      categorias={categorias}
-      subcategorias={subcategorias}
-      nextCode={nextCode}
-    />
+    <div className="bg-white p-6">
+      <PiezaList
+        piezas={piezas}
+        categorias={categorias}
+        subcategorias={subcategorias}
+        nextCode={nextCode}
+        totalPages={totalPages}
+      />
+    </div>
   );
 }

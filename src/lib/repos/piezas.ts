@@ -1,4 +1,4 @@
-import { query, withTransaction } from "@/lib/db-utils";
+import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
 import type { DbClient } from "@/lib/db-utils";
 import type { Pieza, PiezaListado } from "@/interfaces/piezas";
 import type { PiezaBusqueda } from "@/interfaces/productos";
@@ -139,7 +139,7 @@ async function replacePiezaCodigos(
   await attachCodigosToPieza(client, pieceId, "EQUIVALENTE", equivalentes);
 }
 
-export async function getPiezasListado(): Promise<PiezaListado[]> {
+export async function getPiezasListado(page: number = 1, limit: number = 50): Promise<{ data: PiezaListado[]; totalCount: number; totalPages: number }> {
   const sql = `
     SELECT
       p.id,
@@ -167,9 +167,8 @@ export async function getPiezasListado(): Promise<PiezaListado[]> {
     GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.id_subcategoria, s.descripcion, c.descripcion
     ORDER BY p.codigo_pieza ASC
   `;
-  const { rows } = await query(sql);
 
-  return rows as PiezaListado[];
+  return await paginateQuery<PiezaListado>("pieza", sql, page, limit);
 }
 
 export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {

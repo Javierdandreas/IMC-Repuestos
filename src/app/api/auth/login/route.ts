@@ -14,11 +14,15 @@ export async function POST(request: NextRequest) {
   const rl = rateLimit(ip, LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_MS);
 
   if (!rl.allowed) {
+    const retryAfterSeconds = Math.ceil(rl.retryAfterMs / 1000);
     return NextResponse.json(
-      { message: "Demasiados intentos de inicio de sesión. Intentá de nuevo en unos segundos." },
+      { 
+        message: "Demasiados intentos de inicio de sesión. Intentá de nuevo en unos segundos.",
+        retryAfterSeconds 
+      },
       {
         status: 429,
-        headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+        headers: { "Retry-After": String(retryAfterSeconds) },
       }
     );
   }

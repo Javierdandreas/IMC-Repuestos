@@ -7,9 +7,10 @@ type Props = {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  width?: string;
 };
 
-export function Modal({ title, open, onClose, children }: Props) {
+export function Modal({ title, open, onClose, children, width = "w-[min(96vw,1280px)]" }: Props) {
   useEffect(() => {
     if (!open) return;
 
@@ -30,22 +31,24 @@ export function Modal({ title, open, onClose, children }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-
-      <div className="relative z-10 flex max-h-[92vh] w-[min(96vw,1280px)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-xl font-bold">{title}</h2>
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} />
+<div className={`relative z-10 flex max-h-[92vh] ${width} flex-col overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-2xl`}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <h2 className="text-xl font-bold text-slate-800">{title}</h2>
 
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
           >
-            ✕
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
           </button>
         </div>
 
-        <div className="overflow-y-auto p-6">{children}</div>
+        <div className="overflow-y-auto p-4 sm:p-6 md:p-8">{children}</div>
       </div>
     </div>
   );

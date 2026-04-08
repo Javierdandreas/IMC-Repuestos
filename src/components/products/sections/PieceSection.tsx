@@ -56,67 +56,69 @@ export function PieceSection({
       </div>
 
       <div className="rounded-2xl border border-gray-400 bg-slate-50 p-4 md:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-          <div className="flex-1">
-            <label className="mb-2 block text-sm font-medium text-slate-700">
-              Buscador de pieza
-            </label>
-            <input
-              type="text"
-              value={piezaSearch}
-              onChange={(e) => onSearchChange(e.target.value.toUpperCase())}
-              className="h-12 w-full rounded-xl border border-gray-400 bg-white px-4 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              placeholder="Ej. 1043, SUSPENSION, BUJES, 1K0505465AA"
-            />
-          </div>
-          {currentPiezaId && (
-            <button
-              type="button"
-              onClick={onClearPieza}
-              className="inline-flex h-12 items-center justify-center rounded-xl border border-gray-400 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-            >
-              Quitar pieza
-            </button>
-          )}
-        </div>
-
-        {selectedPieza && (
-          <div className="mt-4 rounded-2xl border border-gray-400 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-            Pieza seleccionada: <span className="font-semibold">{selectedPieza.codigo_pieza}</span> · {selectedPieza.descripcion}
-            {selectedPieza.medida ? ` · ${selectedPieza.medida}` : ""}
-          </div>
-        )}
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {filteredPieces.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-400 bg-white px-4 py-5 text-sm text-slate-500 md:col-span-2 xl:col-span-3">
-              No encontramos piezas con ese criterio.
+        {selectedPieza ? (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+            <div className="text-sm text-blue-900">
+              <span className="font-semibold text-blue-950 uppercase tracking-wide text-xs mb-1 block">Pieza seleccionada</span>
+              <span className="font-semibold">{selectedPieza.codigo_pieza}</span> · {selectedPieza.descripcion}
+              {selectedPieza.medida ? ` · ${selectedPieza.medida}` : ""}
             </div>
-          ) : (
-            filteredPieces.map((pieza) => {
-              const selected = Number(currentPiezaId) === Number(pieza.id);
-              return (
-                <button
-                  key={pieza.id}
-                  type="button"
-                  onClick={() => onSelectPieza(pieza)}
-                  className={`rounded-2xl border p-4 text-left transition ${
-                    selected
-                      ? "border-blue-500 bg-blue-50 shadow-sm"
-                      : "border-gray-400 bg-white hover:border-gray-400 hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="text-sm font-semibold text-slate-900">{pieza.codigo_pieza}</div>
-                  <div className="mt-1 line-clamp-2 text-sm text-slate-600">{pieza.descripcion}</div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1">{pieza.categoria}</span>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1">{pieza.subcategoria}</span>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
+            {currentPiezaId && (
+              <button
+                type="button"
+                onClick={onClearPieza}
+                className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-red-300 bg-red-50 px-5 text-sm font-semibold text-red-600 transition hover:bg-red-600 hover:text-white"
+              >
+                Quitar pieza
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+              <div className="flex-1">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Buscador de pieza
+                </label>
+                <input
+                  type="text"
+                  value={piezaSearch}
+                  onChange={(e) => onSearchChange(e.target.value.toUpperCase())}
+                  className="h-12 w-full rounded-xl border border-gray-400 bg-white px-4 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  placeholder="Ej. 1043, SUSPENSION, BUJES, 1K0505465AA"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {filteredPieces.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-400 bg-white px-4 py-5 text-sm text-slate-500 md:col-span-2 xl:col-span-3">
+                  {piezaSearch.trim() === "" 
+                    ? "Escribí arriba para buscar piezas."
+                    : "No encontramos piezas con ese criterio."}
+                </div>
+              ) : (
+                filteredPieces.map((pieza) => {
+                  return (
+                    <button
+                      key={pieza.id}
+                      type="button"
+                      onClick={() => onSelectPieza(pieza)}
+                      className="rounded-2xl border p-4 text-left transition border-gray-400 bg-white hover:border-blue-400 hover:bg-slate-50 shadow-sm"
+                    >
+                      <div className="text-sm font-semibold text-slate-900">{pieza.codigo_pieza}</div>
+                      <div className="mt-1 line-clamp-2 text-sm text-slate-600">{pieza.descripcion}</div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1">{pieza.categoria}</span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1">{pieza.subcategoria}</span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
       </div>
     </section>
   );

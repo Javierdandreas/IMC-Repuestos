@@ -3,6 +3,10 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
 import { Toaster } from "sonner";
+import { MetadataProvider } from "@/context/MetadataContext";
+import { getProductMeta } from "@/lib/productos-meta";
+import { UserProvider } from "@/context/UserContext";
+import { getServerInternalUser } from "@/lib/auth";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -11,16 +15,25 @@ export const metadata: Metadata = {
   description: "Panel interno de productos, piezas y catálogos",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const [meta, user] = await Promise.all([
+    getProductMeta(),
+    getServerInternalUser()
+  ]);
+
   return (
     <html lang="es">
       <body className={inter.className}>
-        <AppShell>{children}</AppShell>
-        <Toaster richColors position="top-right" />
+        <UserProvider initialUser={user}>
+          <MetadataProvider initialMeta={meta}>
+            <AppShell>{children}</AppShell>
+            <Toaster richColors position="top-right" />
+          </MetadataProvider>
+        </UserProvider>
       </body>
     </html>
   );

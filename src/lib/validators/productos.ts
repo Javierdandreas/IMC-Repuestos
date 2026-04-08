@@ -26,6 +26,7 @@ export const productoPayloadSchema = z.object({
   id_pieza: nullableIdSchema.optional(),
   id_subcategoria: idSchema,
   id_marca: nullableIdSchema.optional(),
+  imagen_url: z.string().url().nullable().optional(),
   proveedores: z.array(proveedorProductoSchema).optional().default([]),
 });
 

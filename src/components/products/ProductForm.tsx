@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAppForm } from "@/hooks/useAppForm";
 import { toast } from "sonner";
 import {
   CatalogoItem,
@@ -15,19 +16,13 @@ import { PieceSection } from "./sections/PieceSection";
 import { BasicInfoSection } from "./sections/BasicInfoSection";
 import { ClassificationSection } from "./sections/ClassificationSection";
 import { SuppliersSection } from "./sections/SuppliersSection";
+import { ImageUpload } from "./ImageUpload";
+import { useMetadata } from "@/context/MetadataContext";
 
-type MetaData = {
-  marcas: CatalogoItem[];
-  categorias: CatalogoItem[];
-  subcategorias: Subcategoria[];
-  proveedores: CatalogoItem[];
-  piezas: PiezaBusqueda[];
-};
-
-type ProductFormProps = {
-  productId?: string;
+export type ProductFormProps = {
+  productId?: string | number;
   initialProduct?: Producto;
-  meta?: MetaData;
+  onSuccess?: () => void;
 };
 
 const initialState: Producto = {
@@ -39,26 +34,21 @@ const initialState: Producto = {
   id_categoria: null,
   id_subcategoria: null,
   id_marca: null,
+  imagen_url: null,
   proveedores: [{ id_proveedor: null, codigo_proveedor: "" }],
   originales: [],
   equivalentes: [],
 };
 
-const emptyMeta: MetaData = {
-  marcas: [],
-  categorias: [],
-  subcategorias: [],
-  proveedores: [],
-  piezas: [],
-};
+
 
 export function ProductForm({
   productId,
   initialProduct,
-  meta: initialMeta,
+  onSuccess,
 }: ProductFormProps) {
   const router = useRouter();
-  const meta = initialMeta ?? emptyMeta;
+  const meta = useMetadata();
 
   const [product, setProduct] = useState<Producto>({
     ...initialState,
@@ -71,6 +61,7 @@ export function ProductForm({
     cod_unico: initialProduct?.cod_unico?.toUpperCase() ?? initialState.cod_unico,
     descripcion: initialProduct?.descripcion?.toUpperCase() ?? initialState.descripcion,
     cod_barra: initialProduct?.cod_barra?.replace(/\D/g, "") ?? initialState.cod_barra,
+    imagen_url: initialProduct?.imagen_url ?? initialState.imagen_url,
     originales: initialProduct?.pieza?.originales ?? initialProduct?.originales ?? [],
     equivalentes: initialProduct?.pieza?.equivalentes ?? initialProduct?.equivalentes ?? [],
     proveedores:
@@ -82,12 +73,65 @@ export function ProductForm({
         : initialState.proveedores,
   });
 
-  const [loading, setLoading] = useState(false);
-  const [piezaSearch, setPiezaSearch] = useState(
-    initialProduct?.pieza
-      ? `${initialProduct.pieza.codigo_pieza} · ${initialProduct.pieza.descripcion}`
-      : ""
-  );
+  const { loading, submit } = useAppForm({
+    url: productId ? `/api/productos/${productId}` : "/api/productos",
+    method: productId ? "PUT" : "POST",
+    successMessage: productId ? "Producto actualizado correctamente" : "Producto creado correctamente",
+    onSuccess: () => {
+      if (onSuccess) onSuccess();
+      router.refresh();
+      if (!onSuccess) router.push("/");
+    },
+  });
+
+  const { loading: deleting, submit: runDelete } = useAppForm({
+    url: `/api/productos/${productId}`,
+    method: "DELETE",
+    successMessage: "Producto eliminado correctamente",
+    onSuccess: () => {
+      if (onSuccess) onSuccess();
+      router.refresh();
+      if (!onSuccess) router.push("/");
+    },
+  });
+
+  const [isLoadingData, setIsLoadingData] = useState(!!productId);
+  const [piezaSearch, setPiezaSearch] = useState("");
+
+  useEffect(() => {
+    if (!productId) return;
+    setIsLoadingData(true);
+    fetch(`/api/productos/${productId}`)
+      .then((res) => res.json())
+      .then((data: Producto) => {
+        setProduct({
+          ...initialState,
+          ...data,
+          id_pieza: data.id_pieza ?? null,
+          id_categoria: data.id_categoria ?? data.pieza?.id_categoria ?? initialState.id_categoria,
+          id_subcategoria: data.id_subcategoria ?? data.pieza?.id_subcategoria ?? initialState.id_subcategoria,
+          cod_unico: data.cod_unico?.toUpperCase() ?? initialState.cod_unico,
+          descripcion: data.descripcion?.toUpperCase() ?? initialState.descripcion,
+          cod_barra: data.cod_barra?.replace(/\D/g, "") ?? initialState.cod_barra,
+          imagen_url: data.imagen_url ?? initialState.imagen_url,
+          originales: data.pieza?.originales ?? data.originales ?? [],
+          equivalentes: data.pieza?.equivalentes ?? data.equivalentes ?? [],
+          proveedores: data.proveedores?.length > 0
+            ? data.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
+            : initialState.proveedores
+        });
+        if (data.pieza) {
+          setPiezaSearch(`${data.pieza.codigo_pieza} · ${data.pieza.descripcion}`);
+        }
+      })
+      .catch((err) => {
+        toast.error("No se pudo cargar el producto.");
+        console.error(err);
+      })
+      .finally(() => {
+        setIsLoadingData(false);
+      });
+  }, [productId]);
 
   const selectedPieza = useMemo(() => {
     if (!product.id_pieza) return null;
@@ -204,80 +248,54 @@ export function ProductForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
 
-    try {
-      const cleanProveedores = product.proveedores
-        .filter((item) => item.id_proveedor)
-        .map((item) => ({
-          id_proveedor: item.id_proveedor,
-          codigo_proveedor: item.codigo_proveedor?.trim() ?? "",
-        }));
+    const cleanProveedores = product.proveedores
+      .filter((item) => item.id_proveedor)
+      .map((item) => ({
+        id_proveedor: item.id_proveedor,
+        codigo_proveedor: item.codigo_proveedor?.trim() ?? "",
+      }));
 
-      const payload = {
-        cod_unico: product.cod_unico,
-        descripcion: product.descripcion,
-        cod_barra: product.cod_barra,
-        stock: product.stock,
-        id_pieza: product.id_pieza ?? null,
-        id_subcategoria: product.id_subcategoria ?? null,
-        id_marca: product.id_marca ?? null,
-        proveedores: cleanProveedores,
-      };
+    const payload = {
+      cod_unico: product.cod_unico,
+      descripcion: product.descripcion,
+      cod_barra: product.cod_barra,
+      stock: product.stock,
+      id_pieza: product.id_pieza ?? null,
+      id_subcategoria: product.id_subcategoria ?? null,
+      id_marca: product.id_marca ?? null,
+      imagen_url: product.imagen_url ?? null,
+      proveedores: cleanProveedores,
+    };
 
-
-      const url = productId ? `/api/productos/${productId}` : "/api/productos";
-      const method = productId ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Error al guardar el producto");
-
-      toast.success(productId ? "Producto actualizado correctamente" : "Producto creado correctamente");
-      router.push("/");
-      router.refresh();
-    } catch (error: any) {
-      toast.error(error.message);
-    } finally {
-      setLoading(false);
-    }
+    await submit(payload);
   };
 
   const handleDelete = async () => {
     if (!productId) return;
     if (!window.confirm("¿Seguro que querés eliminar este producto?")) return;
-
-    try {
-      const res = await fetch(`/api/productos/${productId}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Error al eliminar el producto");
-
-      toast.success("Producto eliminado correctamente");
-      router.push("/");
-      router.refresh();
-    } catch (error: any) {
-      toast.error(error.message);
-    }
+    await runDelete({});
   };
 
-  return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-8">
-      <form
-        onSubmit={handleSubmit}
-        className="rounded-2xl border border-gray-400 bg-white p-5 shadow-sm md:p-8"
-      >
-        <div className="mb-8 flex flex-col gap-2 border-b border-gray-400 pb-5">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-800 md:text-4xl">
-            {productId ? "Editar producto" : "Nuevo producto"}
-          </h1>
-        </div>
+  if (isLoadingData) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-slate-500">
+        <svg className="animate-spin h-8 w-8 text-blue-600 mb-4" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span>Cargando producto...</span>
+      </div>
+    );
+  }
 
-        <div className="space-y-8">
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-8"
+    >
+
+        <div className="flex flex-col gap-8">
           <PieceSection
             piezaSearch={piezaSearch}
             onSearchChange={setPiezaSearch}
@@ -288,59 +306,125 @@ export function ProductForm({
             onClearPieza={clearSelectedPieza}
           />
 
-          <BasicInfoSection
-            cod_unico={product.cod_unico}
-            cod_barra={product.cod_barra}
-            descripcion={product.descripcion}
-            isPiezaLinked={!!product.id_pieza}
-            onChange={handleChange}
-          />
+          <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
+            <BasicInfoSection
+              cod_unico={product.cod_unico}
+              cod_barra={product.cod_barra}
+              descripcion={product.descripcion}
+              isPiezaLinked={!!product.id_pieza}
+              onChange={handleChange}
+            />
 
-          <ClassificationSection
-            stock={product.stock}
-            id_marca={product.id_marca}
-            id_categoria={product.id_categoria}
-            id_subcategoria={product.id_subcategoria}
-            isPiezaLinked={!!product.id_pieza}
-            selectedPieza={selectedPieza}
-            meta={{
-              marcas: meta.marcas,
-              categorias: meta.categorias,
-              subcategorias: meta.subcategorias,
-            }}
-            onChange={handleChange}
-            onCategoriaChange={handleCategoriaChange}
-          />
+            <ClassificationSection
+              stock={product.stock}
+              id_marca={product.id_marca}
+              id_categoria={product.id_categoria}
+              id_subcategoria={product.id_subcategoria}
+              isPiezaLinked={!!product.id_pieza}
+              selectedPieza={selectedPieza}
+              meta={{
+                marcas: meta.marcas,
+                categorias: meta.categorias,
+                subcategorias: meta.subcategorias,
+              }}
+              onChange={handleChange}
+              onCategoriaChange={handleCategoriaChange}
+            />
+          </div>
 
-          <SuppliersSection
-            proveedores={product.proveedores}
-            allProviders={meta.proveedores}
-            onAdd={addProveedor}
-            onRemove={removeProveedor}
-            onChange={handleProveedorChange}
-          />
+          {!!product.id_pieza && (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-8 border-y border-slate-200 py-6">
+              <div className="rounded-2xl border border-gray-300 bg-white p-4 shadow-sm">
+                <div className="mb-3 text-sm font-semibold text-slate-700">Medida</div>
+                <div className="flex items-center">
+                  {selectedPieza?.medida ? (
+                    <span className="inline-flex items-center rounded-full border border-gray-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase text-slate-700">
+                      {selectedPieza.medida}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-slate-500">Sin medida cargada.</span>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-gray-300 bg-white p-4 shadow-sm">
+                <div className="mb-3 text-sm font-semibold text-slate-700">Números originales</div>
+                <div className="flex max-h-[120px] overflow-y-auto flex-wrap gap-2 pr-1">
+                  {(!selectedPieza?.originales || selectedPieza.originales.length === 0) ? (
+                    <span className="text-sm text-slate-500">Sin originales cargados.</span>
+                  ) : (
+                    selectedPieza.originales.map((codigo) => (
+                      <span
+                        key={codigo}
+                        className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase leading-none text-slate-700"
+                      >
+                        {codigo}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-gray-300 bg-white p-4 shadow-sm">
+                <div className="mb-3 text-sm font-semibold text-slate-700">Números equivalentes</div>
+                <div className="flex max-h-[120px] overflow-y-auto flex-wrap gap-2 pr-1">
+                  {(!selectedPieza?.equivalentes || selectedPieza.equivalentes.length === 0) ? (
+                    <span className="text-sm text-slate-500">Sin equivalencias cargadas.</span>
+                  ) : (
+                     selectedPieza.equivalentes.map((codigo) => (
+                      <span
+                        key={codigo}
+                        className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase leading-none text-slate-700"
+                      >
+                        {codigo}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
-          <div className="flex flex-col gap-3 border-t border-gray-400 pt-6 sm:flex-row">
+          <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
+            <SuppliersSection
+              proveedores={product.proveedores}
+              allProviders={meta.proveedores}
+              onAdd={addProveedor}
+              onRemove={removeProveedor}
+              onChange={handleProveedorChange}
+            />
+
+            <section className="flex flex-col">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-slate-800">Imagen del producto</h2>
+                <p className="mt-1 text-sm text-slate-500">Subí una foto clara del repuesto.</p>
+              </div>
+              <ImageUpload 
+                value={product.imagen_url} 
+                onChange={(url) => setProduct(prev => ({ ...prev, imagen_url: url }))}
+                disabled={loading}
+              />
+            </section>
+          </div>
+        </div>
+
+          <div className="flex flex-col gap-3 pt-2 sm:flex-row">
             <button
               type="submit"
               disabled={loading}
-              className="inline-flex h-12 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-6 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
             >
-              {loading ? "Guardando..." : productId ? "Actualizar" : "Guardar"}
+              {loading ? "Guardando..." : productId ? "Guardar cambios" : "Crear producto"}
             </button>
 
             {productId && (
               <button
                 type="button"
                 onClick={handleDelete}
-                className="inline-flex h-12 items-center justify-center rounded-xl bg-red-600 px-5 text-sm font-semibold text-white transition hover:bg-red-700"
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-6 text-sm font-semibold text-red-600 transition hover:bg-red-100 hover:text-red-700"
               >
-                Eliminar
+                Eliminar producto
               </button>
             )}
           </div>
-        </div>
       </form>
-    </div>
   );
 }

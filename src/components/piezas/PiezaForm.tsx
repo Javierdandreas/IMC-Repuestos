@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAppForm } from "@/hooks/useAppForm";
 import { toast } from "sonner";
 import { CategoriaOption, Pieza, SubcategoriaOption } from "@/interfaces/piezas";
 import { splitCodes, codesToText } from "@/utils/text";
@@ -50,7 +51,18 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
 
   const [originalesTexto, setOriginalesTexto] = useState(codesToText(initialPieza?.originales));
   const [equivalentesTexto, setEquivalentesTexto] = useState(codesToText(initialPieza?.equivalentes));
-  const [loading, setLoading] = useState(false);
+
+  const { loading, submit, cancel } = useAppForm({
+    url: piezaId ? `/api/piezas/${piezaId}` : "/api/piezas",
+    method: piezaId ? "PUT" : "POST",
+    successMessage: piezaId ? "Pieza actualizada correctamente" : "Pieza creada correctamente",
+    onSuccess: () => {
+      if (onSuccess) onSuccess();
+      router.refresh();
+      if (!onSuccess) router.push("/piezas");
+    },
+    onCancel,
+  });
 
   const handleCategoriaChange = (value: string) => {
     const idCategoria = value === "" ? null : Number(value);
@@ -66,80 +78,49 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-
-    try {
-      const payload = {
-        descripcion: pieza.descripcion.trim().toUpperCase(),
-        medida: (pieza.medida ?? "").trim().toUpperCase(),
-        id_subcategoria: pieza.id_subcategoria,
-        originales: splitCodes(originalesTexto),
-        equivalentes: splitCodes(equivalentesTexto),
-      };
-
-
-      const url = piezaId ? `/api/piezas/${piezaId}` : "/api/piezas";
-      const method = piezaId ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || "No se pudo guardar la pieza");
-
-      toast.success(piezaId ? "Pieza actualizada correctamente" : "Pieza creada correctamente");
-      if (data.warning) toast.warning(data.warning);
-
-      if (onSuccess) {
-        onSuccess();
-        router.refresh();
-      } else {
-        router.push("/piezas");
-        router.refresh();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "No se pudo guardar la pieza");
-    } finally {
-      setLoading(false);
-    }
+    await submit({
+      descripcion: pieza.descripcion.trim().toUpperCase(),
+      medida: (pieza.medida ?? "").trim().toUpperCase(),
+      id_subcategoria: pieza.id_subcategoria,
+      originales: splitCodes(originalesTexto),
+      equivalentes: splitCodes(equivalentesTexto),
+    });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      <PiezaBasicInfoSection
-        codigo_pieza={pieza.codigo_pieza}
-        id_categoria={pieza.id_categoria}
-        id_subcategoria={pieza.id_subcategoria}
-        categorias={categorias}
-        subcategorias={subcategorias}
-        nextCode={nextCode}
-        onCategoriaChange={handleCategoriaChange}
-        onSubcategoriaChange={(val) => setPieza((p) => ({ ...p, id_subcategoria: val === "" ? null : Number(val) }))}
-      />
+      <div className="space-y-6">
+        <PiezaBasicInfoSection
+          codigo_pieza={pieza.codigo_pieza}
+          id_categoria={pieza.id_categoria}
+          id_subcategoria={pieza.id_subcategoria}
+          categorias={categorias}
+          subcategorias={subcategorias}
+          nextCode={nextCode}
+          onCategoriaChange={handleCategoriaChange}
+          onSubcategoriaChange={(val) => setPieza((p) => ({ ...p, id_subcategoria: val === "" ? null : Number(val) }))}
+        />
 
+        <PiezaDetailsSection
+          descripcion={pieza.descripcion}
+          medida={pieza.medida ?? ""}
+          onDescripcionChange={(val) => setPieza((p) => ({ ...p, descripcion: val }))}
+          onMedidaChange={(val) => setPieza((p) => ({ ...p, medida: val }))}
+        />
 
-      <PiezaDetailsSection
-        descripcion={pieza.descripcion}
-        medida={pieza.medida ?? ""}
-        onDescripcionChange={(val) => setPieza((p) => ({ ...p, descripcion: val }))}
-        onMedidaChange={(val) => setPieza((p) => ({ ...p, medida: val }))}
-      />
-
-      <PiezaCodesSection
-        originalesTexto={originalesTexto}
-        equivalentesTexto={equivalentesTexto}
-        onOriginalesChange={setOriginalesTexto}
-        onEquivalentesChange={setEquivalentesTexto}
-      />
+        <PiezaCodesSection
+          originalesTexto={originalesTexto}
+          equivalentesTexto={equivalentesTexto}
+          onOriginalesChange={setOriginalesTexto}
+          onEquivalentesChange={setEquivalentesTexto}
+        />
+      </div>
 
       <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
         {onCancel && (
           <button
             type="button"
-            onClick={onCancel}
+            onClick={cancel}
             className="rounded-lg border border-gray-300 px-5 py-2.5 text-gray-700 transition hover:bg-gray-50"
           >
             Cancelar

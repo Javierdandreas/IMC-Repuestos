@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
-import { CategoriaForm } from "@/components/categorias/CategoriaForm";
+import { CatalogForm } from "@/components/ui/CatalogForm";
 import { SubcategoriaForm } from "@/components/subcategorias/SubcategoriaForm";
 import { PencilButton } from "@/components/ui/PencilButton";
 import { TrashButton } from "@/components/ui/TrashButton";
@@ -68,14 +69,14 @@ export function CategoriaTree({ categorias }: Props) {
       if (!response.ok) {
         throw new Error(
           data.message ||
-          `No se pudo borrar la ${deleteTarget.type === "categoria" ? "categoría" : "subcategoría"}`
+            `No se pudo borrar la ${deleteTarget.type === "categoria" ? "categoría" : "subcategoría"}`
         );
       }
 
       setDeleteTarget(null);
       router.refresh();
-    } catch (error) {
-      alert(
+    } catch (error: unknown) {
+      toast.error(
         error instanceof Error
           ? error.message
           : `No se pudo borrar la ${deleteTarget.type === "categoria" ? "categoría" : "subcategoría"}`
@@ -87,16 +88,16 @@ export function CategoriaTree({ categorias }: Props) {
 
   return (
     <>
-      <div className="bg-white p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold">Categorías</h1>
+      <div className="mx-auto w-full max-w-5xl py-8 px-4 md:px-8">
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-bold text-slate-900">Categorías</h1>
 
           {canManage ? (
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => openNewSubcategoria()}
-                className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-md"
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-600 px-5 text-sm font-semibold text-white transition hover:bg-slate-700"
               >
                 Nueva subcategoría
               </button>
@@ -104,7 +105,7 @@ export function CategoriaTree({ categorias }: Props) {
               <button
                 type="button"
                 onClick={() => setOpenCategoria(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md"
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
               >
                 Nueva categoría
               </button>
@@ -112,96 +113,103 @@ export function CategoriaTree({ categorias }: Props) {
           ) : null}
         </div>
 
-        <div className="rounded-md overflow-hidden border border-slate-300 border border-slate-300">
-          <div className="grid grid-cols-[1fr_260px] bg-slate-600 text-white font-semibold">
-            <div className="p-3 border-r">CATEGORÍAS</div>
-            <div className="p-3 text-center">ACCIONES</div>
-          </div>
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="min-w-[500px]">
+            <div className="grid grid-cols-[1fr_260px] bg-slate-50/80 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+              <div className="px-5 py-3.5">Categorías</div>
+              <div className="px-5 py-3.5 text-center">Acciones</div>
+            </div>
 
-          {categorias.length === 0 ? (
-            <div className="p-4 text-gray-600">No hay categorías cargadas.</div>
-          ) : (
-            categorias.map((categoria) => (
-              <div key={categoria.id} className="border-t">
-                <div className="grid grid-cols-[1fr_260px] bg-gray-100">
-                  <div className="p-3 font-semibold uppercase">
-                    {categoria.descripcion}
-                  </div>
-
-                  <div className="p-2 flex items-center justify-end gap-2">
-                    {canManage ? (<>
-                      <PlusButton
-                        label={`Nueva subcategoría para ${categoria.descripcion}`}
-                        onClick={() => openNewSubcategoria(categoria.id)}
-                      />
-
-                      <PencilButton
-                        label={`Editar categoría ${categoria.descripcion}`}
-                        onClick={() => setEditingCategoria(categoria)}
-                      />
-                      <TrashButton
-                        label={`Borrar categoría ${categoria.descripcion}`}
-                        onClick={() =>
-                          setDeleteTarget({
-                            type: "categoria",
-                            id: categoria.id,
-                            descripcion: categoria.descripcion,
-                          })
-                        }
-                        disabled={isDeleting && deleteTarget?.type === "categoria" && deleteTarget.id === categoria.id}
-                      />
-                    </>) : <span className="text-xs text-slate-400">SOLO LECTURA</span>}
-                  </div>
-                </div>
-
-                {categoria.subcategorias.length > 0 ? (
-                  categoria.subcategorias.map((subcategoria) => (
-                    <div
-                      key={subcategoria.id}
-                      className="grid grid-cols-[1fr_260px] border-t-2 border-slate-300 bg-slate-50"
-                    >
-                      <div className="p-3 pl-8 text-gray-700">
-                        • {subcategoria.descripcion}
+            {categorias.length === 0 ? (
+              <div className="px-5 py-12 text-center text-sm font-medium text-slate-500">No hay categorías cargadas.</div>
+            ) : (
+              <div className="divide-y divide-slate-100 bg-white">
+                {categorias.map((categoria) => (
+                  <div key={categoria.id} className="flex flex-col group/cat">
+                    <div className="grid grid-cols-[1fr_260px] bg-slate-50/80 items-center border-b border-slate-100 transition hover:bg-slate-100/50">
+                      <div className="px-5 py-4 font-bold tracking-wide text-slate-800 uppercase text-sm">
+                        {categoria.descripcion}
                       </div>
 
-                      <div className="p-2 flex items-center justify-end gap-2">
+                      <div className="px-5 py-4 flex items-center justify-end gap-2.5">
                         {canManage ? (<>
+                          <PlusButton
+                            label={`Nueva subcategoría para ${categoria.descripcion}`}
+                            onClick={() => openNewSubcategoria(categoria.id)}
+                          />
+
                           <PencilButton
-                            label={`Editar subcategoría ${subcategoria.descripcion}`}
-                            onClick={() =>
-                              setEditingSubcategoria({
-                                id: subcategoria.id,
-                                descripcion: subcategoria.descripcion,
-                                id_categoria: String(categoria.id),
-                              })
-                            }
+                            label={`Editar categoría ${categoria.descripcion}`}
+                            onClick={() => setEditingCategoria(categoria)}
                           />
                           <TrashButton
-                            label={`Borrar subcategoría ${subcategoria.descripcion}`}
-                            onClick={() =>
-                              setDeleteTarget({
-                                type: "subcategoria",
-                                id: subcategoria.id,
-                                descripcion: subcategoria.descripcion,
-                              })
-                            }
-                            disabled={isDeleting && deleteTarget?.type === "subcategoria" && deleteTarget.id === subcategoria.id}
-                          />
-                        </>) : <span className="text-xs text-slate-400">SOLO LECTURA</span>}
+                          label={`Borrar categoría ${categoria.descripcion}`}
+                          onClick={() =>
+                            setDeleteTarget({
+                              type: "categoria",
+                              id: categoria.id,
+                              descripcion: categoria.descripcion,
+                            })
+                          }
+                          disabled={isDeleting && deleteTarget?.type === "categoria" && deleteTarget.id === categoria.id}
+                        />
+                        </>) : <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>}
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div className="grid grid-cols-[1fr_260px] border-t-2 border-slate-300 bg-slate-50">
-                    <div className="p-3 pl-8 text-gray-400 italic">
-                      Sin subcategorías
+
+                    <div className="flex flex-col divide-y divide-slate-50">
+                      {categoria.subcategorias.length > 0 ? (
+                        categoria.subcategorias.map((subcategoria) => (
+                          <div
+                            key={subcategoria.id}
+                            className="grid grid-cols-[1fr_260px] items-center transition hover:bg-slate-50/60"
+                          >
+                            <div className="px-5 py-3.5 pl-10 text-sm font-semibold text-slate-600 flex items-center gap-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+                              {subcategoria.descripcion}
+                            </div>
+
+                            <div className="px-5 py-3.5 flex items-center justify-end gap-2.5">
+                              {canManage ? (<>
+                                <PencilButton
+                                  label={`Editar subcategoría ${subcategoria.descripcion}`}
+                                  onClick={() =>
+                                    setEditingSubcategoria({
+                                      id: subcategoria.id,
+                                      descripcion: subcategoria.descripcion,
+                                      id_categoria: String(categoria.id),
+                                    })
+                                  }
+                                />
+                                <TrashButton
+                                label={`Borrar subcategoría ${subcategoria.descripcion}`}
+                                onClick={() =>
+                                  setDeleteTarget({
+                                    type: "subcategoria",
+                                    id: subcategoria.id,
+                                    descripcion: subcategoria.descripcion,
+                                  })
+                                }
+                                disabled={isDeleting && deleteTarget?.type === "subcategoria" && deleteTarget.id === subcategoria.id}
+                              />
+                              </>) : <span className="text-xs text-slate-400">SOLO LECTURA</span>}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="grid grid-cols-[1fr_260px] items-center">
+                          <div className="px-5 py-4 pl-10 text-sm text-slate-400 italic">
+                            Sin subcategorías
+                          </div>
+                          <div className="px-5 py-4 text-center text-slate-300 text-sm">—</div>
+                        </div>
+                      )}
                     </div>
-                    <div className="p-3 text-center text-gray-400 text-sm">—</div>
                   </div>
-                )}
+                ))}
               </div>
-            ))
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -210,7 +218,10 @@ export function CategoriaTree({ categorias }: Props) {
         open={canManage && openCategoria}
         onClose={() => setOpenCategoria(false)}
       >
-        <CategoriaForm
+        <CatalogForm
+          apiPath="/api/categorias"
+          entityName="categoría"
+          placeholder="Ingresar categoría"
           onSuccess={() => {
             setOpenCategoria(false);
             router.refresh();
@@ -224,8 +235,11 @@ export function CategoriaTree({ categorias }: Props) {
         open={canManage && !!editingCategoria}
         onClose={() => setEditingCategoria(null)}
       >
-        <CategoriaForm
-          categoriaId={editingCategoria?.id}
+        <CatalogForm
+          apiPath="/api/categorias"
+          entityName="categoría"
+          placeholder="Ingresar categoría"
+          entityId={editingCategoria?.id}
           initialDescripcion={editingCategoria?.descripcion ?? ""}
           onSuccess={() => {
             setEditingCategoria(null);

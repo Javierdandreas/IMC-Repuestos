@@ -9,11 +9,11 @@ interface Props {
 export default async function EditProductPage({ params }: Props) {
   const { id } = await params;
 
-  const [product, meta] = await Promise.all([getProductoById(id), getProductMeta()]);
+  const [product] = await Promise.all([getProductoById(id)]);
 
   if (!product) {
     throw new Error("Producto no encontrado");
   }
 
-  return <ProductForm productId={id} initialProduct={product} meta={meta} />;
+  return <ProductForm productId={id} initialProduct={product} />;
 }

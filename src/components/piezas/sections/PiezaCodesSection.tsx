@@ -38,11 +38,11 @@ export function PiezaCodesSection({
           value={originalesTexto}
           onChange={(e) => onOriginalesChange(e.target.value.toUpperCase())}
           className="min-h-[110px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 uppercase shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          placeholder="EJ: 1K0505465AA 1K0505465K 1K0505465L"
+          placeholder="EJ: 1K0505465AA 1K0505465K"
         />
         <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
           <div className="mb-2 text-sm font-semibold text-slate-700">Vista previa</div>
-          <div className="flex min-h-[44px] flex-wrap items-center gap-2">
+          <div className="flex max-h-[140px] overflow-y-auto flex-wrap items-center gap-2 pr-1">
             {originalesPreview.length === 0 ? (
               <span className="text-sm text-slate-500">Todavía no cargaste originales.</span>
             ) : (
@@ -61,11 +61,11 @@ export function PiezaCodesSection({
           value={equivalentesTexto}
           onChange={(e) => onEquivalentesChange(e.target.value.toUpperCase())}
           className="min-h-[110px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 uppercase shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          placeholder="EJ: 1K0505465C 1K0505465J 1K0505465R"
+          placeholder="EJ: 1K0505465C 1K0505465J"
         />
         <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
           <div className="mb-2 text-sm font-semibold text-slate-700">Vista previa</div>
-          <div className="flex min-h-[44px] flex-wrap items-center gap-2">
+          <div className="flex max-h-[140px] overflow-y-auto flex-wrap items-center gap-2 pr-1">
             {equivalentesPreview.length === 0 ? (
               <span className="text-sm text-slate-500">Todavía no cargaste equivalencias.</span>
             ) : (

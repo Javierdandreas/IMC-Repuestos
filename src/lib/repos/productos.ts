@@ -1,4 +1,4 @@
-import { query, withTransaction } from "@/lib/db-utils";
+import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
 import type { Producto, ProductoListado, ProveedorProducto } from "@/interfaces/productos";
 import type { DbClient } from "@/lib/db-utils";
 import { 
@@ -15,6 +15,7 @@ export type ProductoInput = {
   id_pieza?: number | null;
   id_subcategoria: number;
   id_marca?: number | null;
+  imagen_url?: string | null;
   proveedores?: ProveedorProducto[];
 };
 
@@ -28,6 +29,7 @@ function sanitizeProductoInput(input: ProductoInput) {
     id_pieza: input.id_pieza || null,
     id_subcategoria: input.id_subcategoria,
     id_marca: input.id_marca || null,
+    imagen_url: sanitizeNullableString(input.imagen_url),
     proveedores: Array.isArray(input.proveedores) ? input.proveedores : [],
   };
 }
@@ -69,7 +71,7 @@ async function getProductoProveedores(id: string | number) {
     : [{ id_proveedor: null, codigo_proveedor: "" }];
 }
 
-export async function getProductosListado(): Promise<ProductoListado[]> {
+export async function getProductosListado(page: number = 1, limit: number = 50): Promise<{ data: ProductoListado[]; totalCount: number; totalPages: number }> {
   const sql = `
     SELECT 
       p.id,
@@ -77,6 +79,7 @@ export async function getProductosListado(): Promise<ProductoListado[]> {
       p.descripcion,
       p.cod_barra,
       p.stock,
+      p.imagen_url,
       pi.codigo_pieza,
       pi.descripcion AS pieza_descripcion,
       COALESCE(pi.medida, '') AS pieza_medida,
@@ -120,12 +123,12 @@ export async function getProductosListado(): Promise<ProductoListado[]> {
       pi.medida,
       m.descripcion,
       c.descripcion,
-      s.descripcion
+      s.descripcion,
+      p.imagen_url
     ORDER BY p.id DESC
   `;
 
-  const { rows } = await query(sql);
-  return rows as ProductoListado[];
+  return await paginateQuery<ProductoListado>("productos", sql, page, limit);
 }
 
 export async function getProductoById(id: string | number): Promise<Producto | null> {
@@ -139,6 +142,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       p.id_pieza,
       p.id_subcategoria,
       p.id_marca,
+      p.imagen_url,
       s.id_categoria,
       pi.codigo_pieza,
       pi.descripcion AS pieza_descripcion,
@@ -172,6 +176,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       p.id_pieza,
       p.id_subcategoria,
       p.id_marca,
+      p.imagen_url,
       s.id_categoria,
       pi.codigo_pieza,
       pi.descripcion,
@@ -237,9 +242,10 @@ export async function createProducto(input: ProductoInput) {
           stock,
           id_pieza,
           id_subcategoria,
-          id_marca
+          id_marca,
+          imagen_url
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `,
       [
@@ -250,6 +256,7 @@ export async function createProducto(input: ProductoInput) {
         payload.id_pieza,
         payload.id_subcategoria,
         payload.id_marca,
+        payload.imagen_url,
       ]
     );
 
@@ -274,8 +281,9 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
           stock = $4,
           id_pieza = $5,
           id_subcategoria = $6,
-          id_marca = $7
-        WHERE id = $8
+          id_marca = $7,
+          imagen_url = $8
+        WHERE id = $9
         RETURNING *
       `,
       [
@@ -286,6 +294,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
         payload.id_pieza,
         payload.id_subcategoria,
         payload.id_marca,
+        payload.imagen_url,
         id,
       ]
     );

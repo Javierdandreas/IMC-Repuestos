@@ -7,6 +7,7 @@ import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { CatalogForm } from "@/components/ui/CatalogForm";
 import { PencilButton } from "@/components/ui/PencilButton";
 import { TrashButton } from "@/components/ui/TrashButton";
+import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/components/auth/usePermissions";
 import { toast } from "sonner";
 
@@ -26,6 +27,8 @@ type Props = {
   title: string;
   /** Texto del botón de creación (ej: "Nueva marca") */
   createLabel: string;
+  /** Total de paginas para la paginacion */
+  totalPages?: number;
 };
 
 /**
@@ -38,6 +41,7 @@ export function CatalogList({
   entityName,
   title,
   createLabel,
+  totalPages = 1,
 }: Props) {
   const router = useRouter();
   const { canManage } = usePermissions();
@@ -70,55 +74,65 @@ export function CatalogList({
 
   return (
     <>
-      <div className="bg-white p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold">{title}</h1>
+      <div className="mx-auto w-full max-w-5xl py-8 px-4 md:px-8">
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-bold text-slate-900">{title}</h1>
 
           {canManage ? (
             <button
               type="button"
               onClick={() => setOpenNew(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md"
+              className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
             >
               {createLabel}
             </button>
           ) : null}
         </div>
 
-        <div className="rounded-md overflow-hidden border border-slate-300">
-          <div className="grid grid-cols-[100px_1fr_120px] bg-slate-600 text-white font-semibold">
-            <div className="p-3 border-r">ID</div>
-            <div className="p-3 border-r">DESCRIPCIÓN</div>
-            <div className="p-3 text-center">ACCIONES</div>
-          </div>
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="min-w-[500px]">
+            <div className="grid grid-cols-[100px_1fr_120px] bg-slate-50/80 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+              <div className="px-5 py-3.5">ID</div>
+              <div className="px-5 py-3.5">Descripción</div>
+              <div className="px-5 py-3.5 text-center">Acciones</div>
+            </div>
 
-          {items.length === 0 ? (
-            <div className="p-4 text-gray-600">No hay {entityName}s cargadas.</div>
-          ) : (
-            items.map((item) => (
-              <div
-                key={item.id}
-                className="grid grid-cols-[100px_1fr_120px] border-t-2 border-slate-300 bg-slate-50"
-              >
-                <div className="p-3 border-r">{item.id}</div>
-                <div className="p-3 border-r">{item.descripcion}</div>
-                <div className="p-2 flex items-center justify-center gap-2">
-                  {canManage ? (<>
-                    <PencilButton
-                      label={`Editar ${entityName} ${item.descripcion}`}
-                      onClick={() => setEditingItem(item)}
-                    />
-                    <TrashButton
-                      label={`Borrar ${entityName} ${item.descripcion}`}
-                      onClick={() => setDeletingItem(item)}
-                      disabled={isDeleting && deletingItem?.id === item.id}
-                    />
-                  </>) : <span className="text-xs text-slate-400">SOLO LECTURA</span>}
-                </div>
+            {items.length === 0 ? (
+              <div className="px-5 py-12 text-center text-sm font-medium text-slate-500">No hay {entityName}s cargadas.</div>
+            ) : (
+              <div className="divide-y divide-slate-100 bg-white">
+                {items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="grid grid-cols-[100px_1fr_120px] items-center transition hover:bg-slate-50/80"
+                  >
+                    <div className="px-5 py-4 text-sm font-medium text-slate-900">{item.id}</div>
+                    <div className="px-5 py-4 text-sm font-semibold text-slate-700">{item.descripcion}</div>
+                    <div className="px-5 py-4 flex items-center justify-center gap-2.5">
+                      {canManage ? (<>
+                        <PencilButton
+                          label={`Editar ${entityName} ${item.descripcion}`}
+                          onClick={() => setEditingItem(item)}
+                        />
+                        <TrashButton
+                          label={`Borrar ${entityName} ${item.descripcion}`}
+                          onClick={() => setDeletingItem(item)}
+                          disabled={isDeleting && deletingItem?.id === item.id}
+                        />
+                      </>) : <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))
-          )}
+            )}
+          </div>
         </div>
+
+        {totalPages > 1 && (
+          <div className="border-t border-slate-300 mt-4 p-4">
+            <Pagination totalPages={totalPages} />
+          </div>
+        )}
       </div>
 
       <Modal

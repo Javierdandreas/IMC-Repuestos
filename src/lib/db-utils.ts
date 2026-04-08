@@ -37,3 +37,33 @@ export async function query<T extends QueryResultRow = any>(
 ): Promise<QueryResult<T>> {
   return await pool.query(text, params);
 }
+
+/**
+ * Helper para realizar consultas paginadas de forma genérica.
+ */
+export async function paginateQuery<T extends QueryResultRow>(
+  table: string,
+  dataQuery: string,
+  page: number = 1,
+  limit: number = 50,
+  params: any[] = []
+): Promise<{ data: T[]; totalCount: number; totalPages: number }> {
+  const limitNum = Math.max(1, limit);
+  const offset = Math.max(0, (page - 1) * limitNum);
+
+  // Consulta el total de registros
+  const countResult = await query(`SELECT COUNT(*) FROM ${table}`);
+  const totalCount = parseInt(countResult.rows[0].count, 10);
+  const totalPages = Math.ceil(totalCount / limitNum);
+
+  if (totalCount === 0) {
+    return { data: [], totalCount: 0, totalPages: 0 };
+  }
+
+  // Agrega limit y offset al final de la consulta de datos si es necesario
+  const finalSql = `${dataQuery} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+  const { rows } = await query(finalSql, [...params, limitNum, offset]);
+
+  return { data: rows as T[], totalCount, totalPages };
+}
+

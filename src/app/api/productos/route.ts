@@ -7,8 +7,12 @@ import { jsonError } from "@/lib/api-errors";
 export async function GET(request: NextRequest) {
   await requireApiSession(request);
   try {
-    const rows = await getProductosListado();
-    return NextResponse.json(rows);
+    const { searchParams } = new URL(request.url);
+    const page = Number(searchParams.get("page")) || 1;
+    const limit = Number(searchParams.get("limit")) || 50;
+
+    const result = await getProductosListado(page, limit);
+    return NextResponse.json(result);
   } catch (error: unknown) {
     return jsonError(error, "No se pudieron obtener los productos");
   }

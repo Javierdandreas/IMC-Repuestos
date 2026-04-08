@@ -37,6 +37,7 @@ export type Producto = {
   id_categoria: number | null;
   id_subcategoria: number | null;
   id_marca: number | null;
+  imagen_url?: string | null;
   proveedores: ProveedorProducto[];
   pieza?: PiezaBusqueda | null;
   originales?: string[];
@@ -56,6 +57,7 @@ export type ProductoListado = {
   subcategoria?: string | null;
   proveedor?: string | null;
   codigo_proveedor?: string | null;
+  imagen_url?: string | null;
   proveedores_detalle?: { proveedor: string; codigo_proveedor: string }[];
   originales?: string[];
   equivalentes?: string[];

@@ -20,6 +20,18 @@ async function getCatalogo(table: CatalogTable): Promise<CatalogoItem[]> {
   return rows as CatalogoItem[];
 }
 
+export async function getPaginatedCatalogo(table: CatalogTable, page: number = 1, limit: number = 50): Promise<{ data: CatalogoItem[]; totalCount: number; totalPages: number }> {
+  const offset = Math.max(0, (page - 1) * limit);
+  const countResult = await query(`SELECT COUNT(*) FROM ${table}`);
+  const totalCount = parseInt(countResult.rows[0].count, 10);
+  const totalPages = Math.ceil(totalCount / limit);
+
+  if (totalCount === 0) return { data: [], totalCount: 0, totalPages: 0 };
+
+  const { rows } = await query(`SELECT id, descripcion FROM ${table} ORDER BY descripcion ASC LIMIT $1 OFFSET $2`, [limit, offset]);
+  return { data: rows as CatalogoItem[], totalCount, totalPages };
+}
+
 async function createCatalogo(table: CatalogTable, descripcion: unknown): Promise<CatalogoItem> {
   const clean = cleanDescripcion(descripcion);
   if (!clean) throw new Error("La descripción es obligatoria");

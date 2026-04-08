@@ -7,43 +7,26 @@ import { canManageContent } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  const [products, meta, session] = await Promise.all([getProductosListado(), getProductMeta(), getServerInternalUser()]);
+type Props = {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
+
+export default async function Home({ searchParams }: Props) {
+  const resolvedParams = await searchParams;
+  const page = Number(resolvedParams?.page) || 1;
+
+  const [{ data: products, totalPages }, session] = await Promise.all([
+    getProductosListado(page, 50),
+    getServerInternalUser()
+  ]);
   const canManage = canManageContent(session?.rol);
 
   return (
-    <div className="min-h-screen bg-white p-8">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-              <h1 className="text-3xl font-bold text-gray-900">Productos</h1>
-            </div>
-
-            {canManage ? (
-              <Link
-                href="/productos/new"
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
-              >
-                Crear producto
-              </Link>
-            ) : null}
-        </div>
-
-        {products.length === 0 ? (
-          <div className="rounded-lg bg-white p-10 text-center shadow">
-            <h2 className="mb-2 text-xl font-semibold text-gray-800">Todavía no hay productos</h2>
-            <p className="mb-6 text-gray-600">Creá el primero para empezar.</p>
-          </div>
-        ) : (
-          <ProductList
-            products={products}
-            categorias={meta.categorias}
-            subcategorias={meta.subcategorias}
-            marcas={meta.marcas}
-            proveedores={meta.proveedores}
-          />
-        )}
-      </div>
+    <div className="bg-white p-6">
+      <ProductList
+        products={products}
+        totalPages={totalPages}
+      />
     </div>
   );
 }

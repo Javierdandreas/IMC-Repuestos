@@ -20,14 +20,21 @@ export type ProductMeta = {
   }[];
 };
 
-export async function getProductMeta(): Promise<ProductMeta> {
-  const [marcas, categorias, subcategorias, proveedores, piezas] = await Promise.all([
-    getMarcas(),
-    getCategorias(),
-    getSubcategorias(),
-    getProveedores(),
-    getPiezasBusqueda(),
-  ]);
+import { unstable_cache } from "next/cache";
 
-  return { marcas, categorias, subcategorias, proveedores, piezas };
+export async function getProductMeta(): Promise<ProductMeta> {
+  return unstable_cache(
+    async () => {
+      const [marcas, categorias, subcategorias, proveedores, piezas] = await Promise.all([
+        getMarcas(),
+        getCategorias(),
+        getSubcategorias(),
+        getProveedores(),
+        getPiezasBusqueda(),
+      ]);
+      return { marcas, categorias, subcategorias, proveedores, piezas };
+    },
+    ["product-meta"],
+    { revalidate: 3600, tags: ["meta"] }
+  )();
 }
