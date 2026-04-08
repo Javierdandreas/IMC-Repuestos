@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { HiUpload, HiX, HiPhotograph } from "react-icons/hi";
 import { toast } from "sonner";
@@ -21,8 +21,104 @@ export function ImageUpload({
   folder = "product-images"
 }: ImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
+
+  const processFile = async (file: File) => {
+    // Validaciones básicas
+    if (!file.type.startsWith("image/")) {
+      toast.error("Por favor selecciona una imagen válida.");
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("La imagen debe ser menor a 2MB.");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      
+      const fileExt = file.name ? file.name.split(".").pop() : "png";
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `${folder}/${fileName}`;
+
+      const { error: uploadError, data } = await supabase.storage
+        .from(bucket)
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(filePath);
+
+      onChange(publicUrl);
+      toast.success("Imagen subida con éxito.");
+
+      if (value) {
+        await deleteImageFromStorage(value);
+      }
+    } catch (error: any) {
+      toast.error("Error al subir imagen: " + (error.message || "Error desconocido"));
+      console.error(error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handlePaste = (e: ClipboardEvent) => {
+    if (disabled || value || isUploading) return;
+    
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
+        if (file) {
+          processFile(file);
+          break;
+        }
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (disabled || value || isUploading) return;
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (disabled || value || isUploading) return;
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  useEffect(() => {
+    const target = containerRef.current;
+    if (!target) return;
+
+    const pasteHandler = (e: Event) => handlePaste(e as ClipboardEvent);
+    target.addEventListener("paste", pasteHandler);
+    
+    return () => {
+      target.removeEventListener("paste", pasteHandler);
+    };
+  }, [disabled, value, isUploading]);
 
   const deleteImageFromStorage = async (url: string) => {
     try {
@@ -38,53 +134,9 @@ export function ImageUpload({
     }
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validaciones básicas
-    if (!file.type.startsWith("image/")) {
-      toast.error("Por favor selecciona una imagen válida.");
-      return;
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("La imagen debe ser menor a 2MB.");
-      return;
-    }
-
-    try {
-      setIsUploading(true);
-      
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `${folder}/${fileName}`;
-
-      const { error: uploadError, data } = await supabase.storage
-        .from(bucket) // Bucket name
-        .upload(filePath, file);
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(filePath);
-
-      onChange(publicUrl);
-      toast.success("Imagen subida con éxito.");
-
-      // Si había una imagen anterior, borrarla del storage tras subir la nueva con éxito
-      if (value) {
-        await deleteImageFromStorage(value);
-      }
-    } catch (error: any) {
-      toast.error("Error al subir imagen: " + (error.message || "Error desconocido"));
-      console.error(error);
-    } finally {
-      setIsUploading(false);
-    }
+    if (file) processFile(file);
   };
 
   const removeImage = async () => {
@@ -98,14 +150,19 @@ export function ImageUpload({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" ref={containerRef}>
       <div 
-        className={`relative flex min-h-[300px] flex-col items-center justify-center rounded-2xl border-2 border-dashed transition
+        className={`relative flex min-h-[300px] flex-col items-center justify-center rounded-2xl border-2 border-dashed transition outline-none
           ${value ? "border-transparent bg-slate-100" : "border-slate-300 bg-slate-50"}
-          ${!disabled && !value ? "hover:border-blue-400 hover:bg-blue-50/30" : ""}
+          ${isDragging ? "border-blue-500 bg-blue-50/50 ring-4 ring-blue-50" : ""}
+          ${!disabled && !value && !isDragging ? "hover:border-blue-400 hover:bg-blue-50/30" : ""}
           ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
         `}
         onClick={() => !disabled && !value && fileInputRef.current?.click()}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        tabIndex={disabled || value ? -1 : 0}
       >
         {value ? (
           <div className="relative h-full w-full p-4 overflow-hidden rounded-xl">
@@ -134,11 +191,13 @@ export function ImageUpload({
               </div>
             ) : (
               <>
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                <div className={`mb-3 flex h-12 w-12 items-center justify-center rounded-xl transition-transform duration-200 ${isDragging ? "scale-110 bg-blue-600 text-white" : "bg-blue-100 text-blue-600"}`}>
                   <HiPhotograph className="h-6 w-6" />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <span className="text-sm font-bold text-slate-700">Toca para subir una foto</span>
+                  <span className="text-sm font-bold text-slate-700">
+                    {isDragging ? "¡Soltala acá!" : "Toca, arrastrá o pegá una foto"}
+                  </span>
                   <span className="text-xs text-slate-500">JPG, PNG o WEBP (Máx. 2MB)</span>
                 </div>
               </>
