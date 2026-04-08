@@ -25,7 +25,7 @@ type Props = {
 const initialState: Pieza = {
   codigo_pieza: null,
   descripcion: "",
-  medida: "",
+  imagen_medida_url: null,
   id_categoria: null,
   id_subcategoria: null,
   originales: [],
@@ -39,7 +39,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     ...initialState,
     ...initialPieza,
     descripcion: initialPieza?.descripcion?.toUpperCase() ?? "",
-    medida: initialPieza?.medida?.toUpperCase() ?? "",
+    imagen_medida_url: initialPieza?.imagen_medida_url ?? null,
 
     id_categoria:
       initialPieza?.id_categoria ??
@@ -80,7 +80,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     e.preventDefault();
     await submit({
       descripcion: pieza.descripcion.trim().toUpperCase(),
-      medida: (pieza.medida ?? "").trim().toUpperCase(),
+      imagen_medida_url: pieza.imagen_medida_url,
       id_subcategoria: pieza.id_subcategoria,
       originales: splitCodes(originalesTexto),
       equivalentes: splitCodes(equivalentesTexto),
@@ -103,9 +103,10 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
 
         <PiezaDetailsSection
           descripcion={pieza.descripcion}
-          medida={pieza.medida ?? ""}
+          imagen_medida_url={pieza.imagen_medida_url ?? null}
           onDescripcionChange={(val) => setPieza((p) => ({ ...p, descripcion: val }))}
-          onMedidaChange={(val) => setPieza((p) => ({ ...p, medida: val }))}
+          onImagenMedidaChange={(val) => setPieza((p) => ({ ...p, imagen_medida_url: val }))}
+          disabled={loading}
         />
 
         <PiezaCodesSection

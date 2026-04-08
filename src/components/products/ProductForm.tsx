@@ -97,6 +97,7 @@ export function ProductForm({
 
   const [isLoadingData, setIsLoadingData] = useState(!!productId);
   const [piezaSearch, setPiezaSearch] = useState("");
+  const [fetchedPieza, setFetchedPieza] = useState<PiezaBusqueda | null>(null);
 
   useEffect(() => {
     if (!productId) return;
@@ -122,6 +123,7 @@ export function ProductForm({
         });
         if (data.pieza) {
           setPiezaSearch(`${data.pieza.codigo_pieza} · ${data.pieza.descripcion}`);
+          setFetchedPieza(data.pieza);
         }
       })
       .catch((err) => {
@@ -135,13 +137,23 @@ export function ProductForm({
 
   const selectedPieza = useMemo(() => {
     if (!product.id_pieza) return null;
-    return (
-      meta.piezas.find((pieza) => Number(pieza.id) === Number(product.id_pieza)) ??
-      (initialProduct?.pieza && Number(initialProduct.pieza.id) === Number(product.id_pieza)
-        ? (initialProduct.pieza as unknown as PiezaBusqueda)
-        : null)
-    );
-  }, [initialProduct?.pieza, meta.piezas, product.id_pieza]);
+    
+    // 1. PRIORIDAD: Datos frescos cargados específicamente por la API para este producto
+    if (fetchedPieza && Number(fetchedPieza.id) === Number(product.id_pieza)) {
+      return fetchedPieza;
+    }
+
+    // 2. Buscar en la lista de metadatos (búsqueda general ante cambios de selección)
+    const pieceInMeta = meta.piezas.find((pieza) => Number(pieza.id) === Number(product.id_pieza));
+    if (pieceInMeta) return pieceInMeta;
+
+    // 3. Fallback a la pieza inicial si existe
+    if (initialProduct?.pieza && Number(initialProduct.pieza.id) === Number(product.id_pieza)) {
+      return initialProduct.pieza as unknown as PiezaBusqueda;
+    }
+
+    return null;
+  }, [fetchedPieza, initialProduct?.pieza, meta.piezas, product.id_pieza]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -335,14 +347,25 @@ export function ProductForm({
           {!!product.id_pieza && (
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-8 border-y border-slate-200 py-6">
               <div className="rounded-2xl border border-gray-300 bg-white p-4 shadow-sm">
-                <div className="mb-3 text-sm font-semibold text-slate-700">Medida</div>
-                <div className="flex items-center">
-                  {selectedPieza?.medida ? (
-                    <span className="inline-flex items-center rounded-full border border-gray-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase text-slate-700">
-                      {selectedPieza.medida}
-                    </span>
+                <div className="mb-3 text-sm font-semibold text-slate-700">Imagen de Medida</div>
+                <div className="flex items-center justify-center">
+                  {selectedPieza?.imagen_medida_url ? (
+                    <div 
+                      className="group relative h-20 w-20 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition hover:scale-105 cursor-pointer shadow-sm"
+                      onClick={() => window.open(selectedPieza.imagen_medida_url!, '_blank')}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img 
+                        src={selectedPieza.imagen_medida_url} 
+                        alt="Medida Pieza" 
+                        className="h-full w-full object-cover" 
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition group-hover:opacity-100">
+                        <span className="text-[10px] font-bold text-white">VER</span>
+                      </div>
+                    </div>
                   ) : (
-                    <span className="text-sm text-slate-500">Sin medida cargada.</span>
+                    <span className="text-sm text-slate-500 italic">Sin imagen cargada</span>
                   )}
                 </div>
               </div>

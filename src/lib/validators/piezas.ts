@@ -10,7 +10,7 @@ import {
  */
 export const piezaPayloadSchema = z.object({
   descripcion: uppercaseNonEmptyStringSchema,
-  medida: z.string().trim().toUpperCase().optional().default(""),
+  imagen_medida_url: z.string().trim().optional().nullish(),
   id_subcategoria: idSchema,
   originales: z.array(z.string().trim().toUpperCase()).optional().default([]),
   equivalentes: z.array(z.string().trim().toUpperCase()).optional().default([]),

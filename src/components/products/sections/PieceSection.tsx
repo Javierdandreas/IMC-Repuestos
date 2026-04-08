@@ -33,7 +33,6 @@ export function PieceSection({
           [
             pieza.codigo_pieza,
             pieza.descripcion,
-            pieza.medida ?? "",
             pieza.categoria,
             pieza.subcategoria,
             ...(pieza.originales ?? []),
@@ -61,7 +60,6 @@ export function PieceSection({
             <div className="text-sm text-blue-900">
               <span className="font-semibold text-blue-950 uppercase tracking-wide text-xs mb-1 block">Pieza seleccionada</span>
               <span className="font-semibold">{selectedPieza.codigo_pieza}</span> · {selectedPieza.descripcion}
-              {selectedPieza.medida ? ` · ${selectedPieza.medida}` : ""}
             </div>
             {currentPiezaId && (
               <button

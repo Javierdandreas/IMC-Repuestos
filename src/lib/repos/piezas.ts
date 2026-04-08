@@ -3,6 +3,7 @@ import type { DbClient } from "@/lib/db-utils";
 import type { Pieza, PiezaListado } from "@/interfaces/piezas";
 import type { PiezaBusqueda } from "@/interfaces/productos";
 import { sanitizeUppercaseString as sanitizeText, sanitizeCodes } from "@/utils/sanitization";
+import { deleteFileFromStorage } from "@/lib/storage-cleanup";
 export type ConflictRow = {
   codigo: string;
   codigo_pieza: number;
@@ -11,7 +12,7 @@ export type ConflictRow = {
 
 type PiezaInput = {
   descripcion: string;
-  medida?: string;
+  imagen_medida_url?: string | null;
   id_subcategoria: number;
   originales?: string[];
   equivalentes?: string[];
@@ -21,7 +22,7 @@ type PiezaInput = {
 function sanitizePiezaInput(input: PiezaInput) {
   return {
     descripcion: sanitizeText(input.descripcion),
-    medida: sanitizeText(input.medida),
+    imagenMedidaUrl: input.imagen_medida_url || null,
     idSubcategoria: Number(input.id_subcategoria),
     originales: sanitizeCodes(input.originales),
     equivalentes: sanitizeCodes(input.equivalentes),
@@ -145,7 +146,7 @@ export async function getPiezasListado(page: number = 1, limit: number = 50): Pr
       p.id,
       p.codigo_pieza,
       p.descripcion,
-      COALESCE(p.medida, '') AS medida,
+      p.imagen_medida_url,
       p.id_subcategoria,
       s.descripcion AS subcategoria,
       c.descripcion AS categoria,
@@ -164,7 +165,7 @@ export async function getPiezasListado(page: number = 1, limit: number = 50): Pr
     JOIN categoria c ON c.id = s.id_categoria
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
-    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.id_subcategoria, s.descripcion, c.descripcion
+    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.imagen_medida_url, p.id_subcategoria, s.descripcion, c.descripcion
     ORDER BY p.codigo_pieza ASC
   `;
 
@@ -177,7 +178,7 @@ export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {
       p.id,
       p.codigo_pieza,
       p.descripcion,
-      COALESCE(p.medida, '') AS medida,
+      p.imagen_medida_url,
       c.id AS id_categoria,
       c.descripcion AS categoria,
       s.id AS id_subcategoria,
@@ -195,7 +196,7 @@ export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {
     JOIN categoria c ON c.id = s.id_categoria
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
-    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, c.id, c.descripcion, s.id, s.descripcion
+    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.imagen_medida_url, c.id, c.descripcion, s.id, s.descripcion
     ORDER BY p.codigo_pieza ASC
   `;
   const { rows } = await query(sql);
@@ -214,7 +215,7 @@ export async function getNextCodigoPieza(): Promise<number> {
 
 export async function getPiezaById(id: string | number): Promise<Pieza | null> {
   const piezaQuery = `
-    SELECT p.id, p.codigo_pieza, p.descripcion, COALESCE(p.medida, '') AS medida, p.id_subcategoria, s.id_categoria
+    SELECT p.id, p.codigo_pieza, p.descripcion, p.imagen_medida_url, p.id_subcategoria, s.id_categoria
     FROM pieza p
     JOIN subcategoria s ON s.id = p.id_subcategoria
     WHERE p.id = $1
@@ -265,11 +266,11 @@ export async function createPieza(input: PiezaInput) {
 
     const piezaResult = await client.query(
       `
-        INSERT INTO pieza (descripcion, medida, id_subcategoria)
+        INSERT INTO pieza (descripcion, imagen_medida_url, id_subcategoria)
         VALUES ($1, $2, $3)
         RETURNING *
       `,
-      [payload.descripcion, payload.medida || null, payload.idSubcategoria]
+      [payload.descripcion, payload.imagenMedidaUrl, payload.idSubcategoria]
     );
 
     const pieza = piezaResult.rows[0];
@@ -304,13 +305,13 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
       `
         UPDATE pieza
         SET descripcion = $1,
-            medida = $2,
+            imagen_medida_url = $2,
             id_subcategoria = $3,
             updated_at = now()
         WHERE id = $4
         RETURNING *
       `,
-      [payload.descripcion, payload.medida || null, payload.idSubcategoria, id]
+      [payload.descripcion, payload.imagenMedidaUrl, payload.idSubcategoria, id]
     );
 
     if ((updateResult.rowCount ?? 0) === 0) {
@@ -336,9 +337,18 @@ export async function deletePieza(id: string | number) {
     throw err;
   }
 
-  return await withTransaction(async (client) => {
+  const piezaToDelete = await getPiezaById(id);
+
+  const deleteResult = await withTransaction(async (client) => {
     await client.query(`DELETE FROM pieza_codigo_referencia WHERE id_pieza = $1`, [id]);
     const result = await client.query(`DELETE FROM pieza WHERE id = $1`, [id]);
     return { deleted: (result.rowCount ?? 0) > 0 };
   });
+
+  // Limpieza de almacenamiento si se borró con éxito de la DB
+  if (deleteResult.deleted && piezaToDelete?.imagen_medida_url) {
+    deleteFileFromStorage(piezaToDelete.imagen_medida_url, "piezas");
+  }
+
+  return deleteResult;
 }

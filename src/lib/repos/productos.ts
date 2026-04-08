@@ -6,6 +6,7 @@ import {
   sanitizeRequiredString, 
   sanitizeStock 
 } from "@/utils/sanitization";
+import { deleteFileFromStorage } from "@/lib/storage-cleanup";
 
 export type ProductoInput = {
   cod_unico: string;
@@ -82,7 +83,7 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       p.imagen_url,
       pi.codigo_pieza,
       pi.descripcion AS pieza_descripcion,
-      COALESCE(pi.medida, '') AS pieza_medida,
+      COALESCE(pi.imagen_medida_url, '') AS pieza_medida_url,
       m.descripcion AS marca,
       c.descripcion AS categoria,
       s.descripcion AS subcategoria,
@@ -120,7 +121,7 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       p.stock,
       pi.codigo_pieza,
       pi.descripcion,
-      pi.medida,
+      pi.imagen_medida_url,
       m.descripcion,
       c.descripcion,
       s.descripcion,
@@ -146,7 +147,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       s.id_categoria,
       pi.codigo_pieza,
       pi.descripcion AS pieza_descripcion,
-      COALESCE(pi.medida, '') AS pieza_medida,
+      pi.imagen_medida_url AS pieza_medida_url,
       ps.id AS pieza_id_subcategoria,
       ps.descripcion AS pieza_subcategoria,
       pc.id AS pieza_id_categoria,
@@ -180,7 +181,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       s.id_categoria,
       pi.codigo_pieza,
       pi.descripcion,
-      pi.medida,
+      pi.imagen_medida_url,
       ps.id,
       ps.descripcion,
       pc.id,
@@ -201,7 +202,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
     pieza_subcategoria?: string;
     codigo_pieza?: string;
     pieza_descripcion?: string;
-    pieza_medida?: string;
+    pieza_medida_url?: string;
   };
 
   const product: Producto = {
@@ -216,7 +217,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       id: product.id_pieza,
       codigo_pieza: row.codigo_pieza ?? "",
       descripcion: row.pieza_descripcion ?? "",
-      medida: row.pieza_medida ?? "",
+      imagen_medida_url: row.pieza_medida_url ?? "",
       id_categoria: row.pieza_id_categoria ?? 0,
       categoria: row.pieza_categoria ?? "",
       id_subcategoria: row.pieza_id_subcategoria ?? 0,
@@ -322,6 +323,13 @@ export async function deleteProducto(id: string | number) {
       throw err;
     }
 
-    return result.rows[0];
+    const deletedProduct = result.rows[0];
+
+    // Limpieza de almacenamiento (opcional/segundo plano)
+    if (deletedProduct.imagen_url) {
+      deleteFileFromStorage(deletedProduct.imagen_url, "productos");
+    }
+
+    return deletedProduct;
   });
 }

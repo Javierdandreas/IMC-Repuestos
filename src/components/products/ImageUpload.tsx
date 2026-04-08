@@ -9,22 +9,30 @@ interface ImageUploadProps {
   value?: string | null;
   onChange: (url: string | null) => void;
   disabled?: boolean;
+  bucket?: string;
+  folder?: string;
 }
 
-export function ImageUpload({ value, onChange, disabled }: ImageUploadProps) {
+export function ImageUpload({ 
+  value, 
+  onChange, 
+  disabled, 
+  bucket = "productos",
+  folder = "product-images"
+}: ImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
 
   const deleteImageFromStorage = async (url: string) => {
     try {
-      const parts = url.split("/productos/");
+      const parts = url.split(`/${bucket}/`);
       if (parts.length < 2) return;
       
       const path = parts[1];
-      const { error } = await supabase.storage.from("productos").remove([path]);
+      const { error } = await supabase.storage.from(bucket).remove([path]);
       if (error) throw error;
-      console.log("Imagen borrada del storage:", path);
+      console.log(`Imagen borrada del storage (${bucket}):`, path);
     } catch (error) {
       console.error("Error al borrar imagen del storage:", error);
     }
@@ -50,10 +58,10 @@ export function ImageUpload({ value, onChange, disabled }: ImageUploadProps) {
       
       const fileExt = file.name.split(".").pop();
       const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `product-images/${fileName}`;
+      const filePath = `${folder}/${fileName}`;
 
       const { error: uploadError, data } = await supabase.storage
-        .from("productos") // Bucket name
+        .from(bucket) // Bucket name
         .upload(filePath, file);
 
       if (uploadError) {
@@ -61,7 +69,7 @@ export function ImageUpload({ value, onChange, disabled }: ImageUploadProps) {
       }
 
       const { data: { publicUrl } } = supabase.storage
-        .from("productos")
+        .from(bucket)
         .getPublicUrl(filePath);
 
       onChange(publicUrl);

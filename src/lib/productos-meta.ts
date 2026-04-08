@@ -10,7 +10,7 @@ export type ProductMeta = {
     id: number;
     codigo_pieza: string;
     descripcion: string;
-    medida?: string;
+    imagen_medida_url?: string | null;
     id_categoria: number;
     categoria: string;
     id_subcategoria: number;

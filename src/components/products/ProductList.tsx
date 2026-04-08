@@ -311,9 +311,9 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                 <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Pieza</th>
                 <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Descripción</th>
                 <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Foto</th>
+                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Medidas</th>
                 <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Marca</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Categoría</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Subcategoría</th>
+                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Categoría / Subcat.</th>
                 <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Proveedor</th>
                 <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Stock</th>
                 <th className="px-5 py-3.5 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Acciones</th>
@@ -342,7 +342,6 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                         className="group relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100"
                         title="Ver imagen"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <Image 
                           src={product.imagen_url} 
                           alt="" 
@@ -357,9 +356,34 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                       </span>
                     )}
                   </td>
+                  <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
+                    {product.pieza_medida_url ? (
+                      <button
+                        onClick={() => setPreviewImage(product.pieza_medida_url || null)}
+                        className="group relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100"
+                        title="Ver esquema de medidas"
+                      >
+                        <Image 
+                          src={product.pieza_medida_url} 
+                          alt="" 
+                          width={40}
+                          height={40}
+                          className="h-full w-full object-cover transition group-hover:scale-110" 
+                        />
+                      </button>
+                    ) : (
+                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-300">
+                        <HiPhotograph className="h-5 w-5 opacity-40" />
+                      </span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{product.marca ?? "-"}</td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{product.categoria ?? "-"}</td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{product.subcategoria ?? "-"}</td>
+                  <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-900">{product.categoria ?? "-"}</span>
+                      <span className="text-xs text-slate-500">{product.subcategoria ?? "-"}</span>
+                    </div>
+                  </td>
                   <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{product.proveedor ?? "-"}</td>
                   <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{product.stock}</td>
                   <td className="whitespace-nowrap px-5 py-4 text-sm">
@@ -407,7 +431,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
               ))}
               {filteredProducts.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">
                     No hay productos que coincidan con los filtros.
                   </td>
                 </tr>
@@ -523,7 +547,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
           setPreviewImage(null);
           setIsZoomed(false);
         }} 
-        title="Previsualización de producto" 
+        title={previewImage?.includes('/medidas/') ? "Esquema de Medidas" : "Previsualización de producto"} 
         width="w-fit max-w-[95vw]"
       >
         <div className="flex items-center justify-center p-4">

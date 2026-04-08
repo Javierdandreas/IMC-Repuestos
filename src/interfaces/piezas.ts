@@ -20,7 +20,7 @@ export type Pieza = {
   id?: number;
   codigo_pieza: number | null;
   descripcion: string;
-  medida?: string;
+  imagen_medida_url?: string | null;
   id_categoria: number | null;
   id_subcategoria: number | null;
   originales: string[];
@@ -31,7 +31,7 @@ export type PiezaListado = {
   id: number;
   codigo_pieza: number;
   descripcion: string;
-  medida?: string;
+  imagen_medida_url?: string | null;
   id_subcategoria: number;
   subcategoria: string;
   categoria: string;

@@ -12,6 +12,8 @@ import { CategoriaOption, Pieza, PiezaListado, SubcategoriaOption } from "@/inte
 import { toast } from "sonner";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/components/auth/usePermissions";
+import { HiPhotograph } from "react-icons/hi";
+import Image from "next/image";
 
 type Props = {
   piezas: PiezaListado[];
@@ -29,6 +31,8 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
   const [editingPieza, setEditingPieza] = useState<PiezaListado | null>(null);
   const [deletingPieza, setDeletingPieza] = useState<PiezaListado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isZoomed, setIsZoomed] = useState(false);
   
   const [searchGeneral, setSearchGeneral] = useState("");
   const [searchSpecific, setSearchSpecific] = useState("");
@@ -64,7 +68,6 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
       const textFields = [
         pieza.codigo_pieza,
         pieza.descripcion,
-        pieza.medida ?? "",
         pieza.categoria ?? "",
         pieza.subcategoria ?? "",
       ];
@@ -116,7 +119,7 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
       id: pieza.id,
       codigo_pieza: pieza.codigo_pieza,
       descripcion: pieza.descripcion,
-      medida: pieza.medida ?? "",
+      imagen_medida_url: pieza.imagen_medida_url ?? null,
       id_categoria: subcategoria?.id_categoria ?? null,
       id_subcategoria: pieza.id_subcategoria,
       originales: pieza.originales,
@@ -173,7 +176,7 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
                 type="text"
                 value={searchGeneral}
                 onChange={(e) => setSearchGeneral(e.target.value.toUpperCase())}
-                placeholder="Código, descripción, medida, oem..."
+                placeholder="Código, descripción, oem, equivalencia..."
                 className="h-11 w-full rounded-xl border border-slate-300 px-4 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
@@ -240,8 +243,8 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
               <tr>
                 <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Código</th>
                 <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Descripción</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Categoría</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Subcategoría</th>
+                <th className="px-5 py-3.5 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Medida</th>
+                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Categoría / Subcat.</th>
                 <th className="px-5 py-3.5 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Originales</th>
                 <th className="px-5 py-3.5 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Equivalencias</th>
                 <th className="px-5 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-slate-500">Acciones</th>
@@ -257,13 +260,44 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
               ) : (
                 filteredPiezas.map((pieza) => (
                   <tr key={pieza.id} className="align-top transition hover:bg-slate-50/80">
-                    <td className="whitespace-nowrap px-5 py-4 text-sm font-medium text-slate-900">{pieza.codigo_pieza}</td>
-                    <td className="min-w-[320px] px-5 py-4 text-sm text-slate-700">
-                      <div className="font-semibold text-slate-800">{pieza.descripcion}</div>
-                      {pieza.medida ? <div className="mt-1 text-xs font-medium uppercase tracking-wider text-slate-500">{pieza.medida}</div> : null}
+                    <td className="whitespace-nowrap px-5 py-4">
+                      <span className="text-sm font-bold text-slate-900">{pieza.codigo_pieza}</span>
                     </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{pieza.categoria}</td>
-                    <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{pieza.subcategoria}</td>
+                    <td className="px-5 py-4">
+                      <div className="max-w-[300px] text-sm text-slate-600 line-clamp-2" title={pieza.descripcion}>
+                        {pieza.descripcion}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-center">
+                      {pieza.imagen_medida_url ? (
+                        <button
+                          onClick={() => setPreviewImage(pieza.imagen_medida_url || null)}
+                          className="group relative inline-flex h-12 w-12 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-4 hover:ring-blue-100 shadow-sm"
+                          title="Ver esquema de medidas"
+                        >
+                          <Image 
+                            src={pieza.imagen_medida_url} 
+                            alt="" 
+                            width={48}
+                            height={48}
+                            className="h-full w-full object-cover transition duration-300 group-hover:scale-110" 
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/10 opacity-0 transition group-hover:opacity-100">
+                            <span className="text-[10px] font-bold text-white drop-shadow-md">ZOOM</span>
+                          </div>
+                        </button>
+                      ) : (
+                        <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-300">
+                          <HiPhotograph className="h-6 w-6 opacity-40" />
+                        </div>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-slate-900">{pieza.categoria}</span>
+                        <span className="text-xs text-slate-500">{pieza.subcategoria}</span>
+                      </div>
+                    </td>
                     <td className="px-5 py-4 text-center text-sm font-medium text-slate-600">
                       <span className="inline-flex min-w-[2rem] items-center justify-center rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{pieza.cantidad_originales}</span>
                     </td>
@@ -332,6 +366,50 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
         onConfirm={handleDelete}
         onClose={() => setDeletingPieza(null)}
       />
+
+      <Modal 
+        open={!!previewImage} 
+        onClose={() => {
+          setPreviewImage(null);
+          setIsZoomed(false);
+        }} 
+        title="Esquema de Medidas" 
+        width="w-fit max-w-[95vw]"
+      >
+        <div className="flex items-center justify-center p-4">
+          {previewImage && (
+            <div className="relative overflow-hidden rounded-2xl shadow-2xl border border-slate-200 bg-white"
+              onClick={() => setIsZoomed(!isZoomed)}
+              onMouseMove={(e) => {
+                if (!isZoomed) return;
+                const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
+                const x = ((e.clientX - left) / width) * 100;
+                const y = ((e.clientY - top) / height) * 100;
+                const img = e.currentTarget.querySelector("img");
+                if (img) {
+                  img.style.transformOrigin = `${x}% ${y}%`;
+                }
+              }}
+            >
+              <Image 
+                src={previewImage} 
+                alt="Medidas" 
+                width={1200}
+                height={1200}
+                priority
+                className={`max-h-[85vh] w-auto transition-transform duration-300 ease-out ${
+                  isZoomed ? "scale-[2.5] cursor-zoom-out" : "cursor-zoom-in"
+                }`}
+              />
+              {!isZoomed && (
+                <div className="absolute bottom-4 right-4 rounded-full bg-black/50 px-3 py-1.5 text-[10px] font-bold text-white backdrop-blur-sm">
+                  CLICK PARA ZOOM
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Modal>
     </>
   );
 }
