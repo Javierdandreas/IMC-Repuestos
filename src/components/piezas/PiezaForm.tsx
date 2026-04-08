@@ -8,7 +8,7 @@ import { CategoriaOption, Pieza, SubcategoriaOption } from "@/interfaces/piezas"
 import { splitCodes, codesToText } from "@/utils/text";
 
 import { PiezaBasicInfoSection } from "./sections/PiezaBasicInfoSection";
-import { PiezaDetailsSection } from "./sections/PiezaDetailsSection";
+import { PiezaDescriptionSection, PiezaImageSection } from "./sections/PiezaDetailsSection";
 import { PiezaCodesSection } from "./sections/PiezaCodesSection";
 
 type Props = {
@@ -88,27 +88,39 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
-      <div className="space-y-6">
-        <PiezaBasicInfoSection
-          codigo_pieza={pieza.codigo_pieza}
-          id_categoria={pieza.id_categoria}
-          id_subcategoria={pieza.id_subcategoria}
-          categorias={categorias}
-          subcategorias={subcategorias}
-          nextCode={nextCode}
-          onCategoriaChange={handleCategoriaChange}
-          onSubcategoriaChange={(val) => setPieza((p) => ({ ...p, id_subcategoria: val === "" ? null : Number(val) }))}
-        />
+    <form onSubmit={handleSubmit} className="space-y-8">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        {/* Columna Izquierda: Datos y Descripción */}
+        <div className="space-y-6">
+          <PiezaBasicInfoSection
+            codigo_pieza={pieza.codigo_pieza}
+            id_categoria={pieza.id_categoria}
+            id_subcategoria={pieza.id_subcategoria}
+            categorias={categorias}
+            subcategorias={subcategorias}
+            nextCode={nextCode}
+            onCategoriaChange={handleCategoriaChange}
+            onSubcategoriaChange={(val) => setPieza((p) => ({ ...p, id_subcategoria: val === "" ? null : Number(val) }))}
+          />
 
-        <PiezaDetailsSection
-          descripcion={pieza.descripcion}
-          imagen_medida_url={pieza.imagen_medida_url ?? null}
-          onDescripcionChange={(val) => setPieza((p) => ({ ...p, descripcion: val }))}
-          onImagenMedidaChange={(val) => setPieza((p) => ({ ...p, imagen_medida_url: val }))}
-          disabled={loading}
-        />
+          <PiezaDescriptionSection
+            descripcion={pieza.descripcion}
+            onDescripcionChange={(val) => setPieza((p) => ({ ...p, descripcion: val }))}
+            disabled={loading}
+          />
+        </div>
 
+        {/* Columna Derecha: Imagen */}
+        <div className="space-y-6">
+          <PiezaImageSection
+            imagen_medida_url={pieza.imagen_medida_url ?? null}
+            onImagenMedidaChange={(val) => setPieza((p) => ({ ...p, imagen_medida_url: val }))}
+            disabled={loading}
+          />
+        </div>
+      </div>
+
+      <div className="border-t border-slate-200 pt-6">
         <PiezaCodesSection
           originalesTexto={originalesTexto}
           equivalentesTexto={equivalentesTexto}

@@ -1,4 +1,5 @@
 import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
+import { revalidateTag } from "next/cache";
 import type { DbClient } from "@/lib/db-utils";
 import type { Pieza, PiezaListado } from "@/interfaces/piezas";
 import type { PiezaBusqueda } from "@/interfaces/productos";
@@ -277,6 +278,8 @@ export async function createPieza(input: PiezaInput) {
     await attachCodigosToPieza(client, pieza.id, "ORIGINAL", payload.originales);
     await attachCodigosToPieza(client, pieza.id, "EQUIVALENTE", payload.equivalentes);
 
+    revalidateTag("meta");
+
     return {
       pieza,
       warning: equivalenteConflicts.length > 0 ? buildWarningMessage(equivalenteConflicts) : null,
@@ -322,6 +325,8 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
 
     await replacePiezaCodigos(client, id, payload.originales, payload.equivalentes);
 
+    revalidateTag("meta");
+
     return {
       pieza: updateResult.rows[0],
       warning: equivalenteConflicts.length > 0 ? buildWarningMessage(equivalenteConflicts) : null,
@@ -342,6 +347,9 @@ export async function deletePieza(id: string | number) {
   const deleteResult = await withTransaction(async (client) => {
     await client.query(`DELETE FROM pieza_codigo_referencia WHERE id_pieza = $1`, [id]);
     const result = await client.query(`DELETE FROM pieza WHERE id = $1`, [id]);
+    
+    revalidateTag("meta");
+    
     return { deleted: (result.rowCount ?? 0) > 0 };
   });
 

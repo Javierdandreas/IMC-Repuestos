@@ -62,4 +62,8 @@ export type ProductoListado = {
   originales?: string[];
   equivalentes?: string[];
   pieza_medida_url?: string | null;
+  id_pieza?: number | null;
+  id_subcategoria?: number | null;
+  id_marca?: number | null;
+  id_categoria?: number | null;
 };

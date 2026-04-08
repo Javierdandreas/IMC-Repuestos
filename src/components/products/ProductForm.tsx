@@ -96,8 +96,26 @@ export function ProductForm({
   });
 
   const [isLoadingData, setIsLoadingData] = useState(!!productId);
-  const [piezaSearch, setPiezaSearch] = useState("");
-  const [fetchedPieza, setFetchedPieza] = useState<PiezaBusqueda | null>(null);
+  const [piezaSearch, setPiezaSearch] = useState(
+    initialProduct?.pieza
+      ? `${initialProduct.pieza.codigo_pieza} · ${initialProduct.pieza.descripcion}`
+      : (initialProduct as any)?.codigo_pieza
+        ? `${(initialProduct as any).codigo_pieza} · ${(initialProduct as any).pieza_descripcion}`
+        : ""
+  );
+  const [fetchedPieza, setFetchedPieza] = useState<PiezaBusqueda | null>(
+    (initialProduct?.pieza as unknown as PiezaBusqueda) ??
+    ((initialProduct as any)?.id_pieza
+      ? {
+        id: (initialProduct as any).id_pieza,
+        codigo_pieza: (initialProduct as any).codigo_pieza || "",
+        descripcion: (initialProduct as any).pieza_descripcion || "",
+        imagen_medida_url: (initialProduct as any).pieza_medida_url || null,
+        originales: (initialProduct as any).originales || [],
+        equivalentes: (initialProduct as any).equivalentes || [],
+      } as any
+      : null)
+  );
 
   useEffect(() => {
     if (!productId) return;
@@ -351,21 +369,23 @@ export function ProductForm({
                 <div className="flex items-center justify-center">
                   {selectedPieza?.imagen_medida_url ? (
                     <div 
-                      className="group relative h-20 w-20 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition hover:scale-105 cursor-pointer shadow-sm"
+                      className="group relative h-40 w-full overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:ring-2 hover:ring-blue-100 cursor-pointer shadow-sm"
                       onClick={() => window.open(selectedPieza.imagen_medida_url!, '_blank')}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img 
                         src={selectedPieza.imagen_medida_url} 
                         alt="Medida Pieza" 
-                        className="h-full w-full object-cover" 
+                        className="h-full w-full object-contain p-2" 
                       />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition group-hover:opacity-100">
-                        <span className="text-[10px] font-bold text-white">VER</span>
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/5 opacity-0 transition group-hover:opacity-100">
+                        <div className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-bold text-slate-700 shadow-sm border border-slate-200">VER ESQUEMA COMPLETO</div>
                       </div>
                     </div>
                   ) : (
-                    <span className="text-sm text-slate-500 italic">Sin imagen cargada</span>
+                    <div className="flex h-40 w-full items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50/50">
+                      <span className="text-sm text-slate-400 italic">Sin imagen cargada</span>
+                    </div>
                   )}
                 </div>
               </div>

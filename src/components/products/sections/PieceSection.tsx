@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { PiezaBusqueda } from "@/interfaces/productos";
 import { normalizeText } from "@/utils/text";
 
@@ -23,27 +23,40 @@ export function PieceSection({
   onSelectPieza,
   onClearPieza,
 }: PieceSectionProps) {
-  const filteredPieces = useMemo(() => {
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 3;
+
+  // Resetear página al buscar algo nuevo
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [piezaSearch]);
+
+  const filteredFullList = useMemo(() => {
     const term = normalizeText(piezaSearch);
-    if (!term) return allPieces.slice(0, 8);
+    if (!term) return allPieces;
 
-    return allPieces
-      .filter((pieza) => {
-        const haystack = normalizeText(
-          [
-            pieza.codigo_pieza,
-            pieza.descripcion,
-            pieza.categoria,
-            pieza.subcategoria,
-            ...(pieza.originales ?? []),
-            ...(pieza.equivalentes ?? []),
-          ].join(" ")
-        );
+    return allPieces.filter((pieza) => {
+      const haystack = normalizeText(
+        [
+          pieza.codigo_pieza,
+          pieza.descripcion,
+          pieza.categoria,
+          pieza.subcategoria,
+          ...(pieza.originales ?? []),
+          ...(pieza.equivalentes ?? []),
+        ].join(" ")
+      );
 
-        return haystack.includes(term);
-      })
-      .slice(0, 12);
+      return haystack.includes(term);
+    });
   }, [allPieces, piezaSearch]);
+
+  const totalPages = Math.ceil(filteredFullList.length / itemsPerPage);
+  
+  const paginatedPieces = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredFullList.slice(start, start + itemsPerPage);
+  }, [filteredFullList, currentPage]);
 
   return (
     <section className="space-y-4">
@@ -88,15 +101,15 @@ export function PieceSection({
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {filteredPieces.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-gray-400 bg-white px-4 py-5 text-sm text-slate-500 md:col-span-2 xl:col-span-3">
+            <div className="mt-4 grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+              {paginatedPieces.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-400 bg-white px-4 py-5 text-sm text-slate-500 md:col-span-2 lg:col-span-3">
                   {piezaSearch.trim() === "" 
                     ? "Escribí arriba para buscar piezas."
                     : "No encontramos piezas con ese criterio."}
                 </div>
               ) : (
-                filteredPieces.map((pieza) => {
+                paginatedPieces.map((pieza) => {
                   return (
                     <button
                       key={pieza.id}
@@ -115,6 +128,33 @@ export function PieceSection({
                 })
               )}
             </div>
+
+            {/* Controles de Paginación */}
+            {totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                  Anterior
+                </button>
+                <div className="text-xs font-medium text-slate-500">
+                  Página <span className="text-slate-900">{currentPage}</span> de {totalPages}
+                </div>
+                <button
+                  type="button"
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-semibold text-blue-600 transition hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  Siguiente
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

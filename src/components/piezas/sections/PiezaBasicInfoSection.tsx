@@ -31,7 +31,7 @@ export function PiezaBasicInfoSection({
   }, [subcategorias, id_categoria]);
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[220px_1fr_1fr]">
+    <div className="grid grid-cols-1 gap-4">
       <div>
         <label className="mb-2 block text-sm font-semibold text-slate-700">Código de pieza</label>
         <div className="flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold shadow-inner">

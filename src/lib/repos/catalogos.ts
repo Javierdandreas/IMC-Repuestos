@@ -1,4 +1,5 @@
 import { query, withTransaction } from "@/lib/db-utils";
+import { revalidateTag } from "next/cache";
 import type { CatalogoItem, Subcategoria } from "@/interfaces/productos";
 import type { CategoriaOption, CategoriaTreeNode, SubcategoriaOption } from "@/interfaces/piezas";
 import { sanitizeRequiredString as cleanDescripcion } from "@/utils/sanitization";
@@ -52,6 +53,9 @@ async function createCatalogo(table: CatalogTable, descripcion: unknown): Promis
       `INSERT INTO ${table} (descripcion) VALUES ($1) RETURNING *`,
       [clean]
     );
+    
+    revalidateTag("meta");
+    
     return rows[0] as CatalogoItem;
   });
 }
@@ -81,6 +85,9 @@ async function updateCatalogo(table: CatalogTable, id: string | number, descripc
       (error as Error & { status?: number }).status = 404;
       throw error;
     }
+
+    revalidateTag("meta");
+
     return rows[0] as CatalogoItem;
   });
 }
@@ -103,6 +110,8 @@ async function deleteCatalogo(table: CatalogTable, id: string | number): Promise
       (error as Error & { status?: number }).status = 404;
       throw error;
     }
+
+    revalidateTag("meta");
   });
 }
 
@@ -244,6 +253,9 @@ export async function createSubcategoria(descripcion: unknown, id_categoria: unk
       `INSERT INTO subcategoria (descripcion, id_categoria) VALUES ($1, $2) RETURNING *`,
       [clean, idCategoria]
     );
+
+    revalidateTag("meta");
+
     return rows[0] as Subcategoria;
   });
 }
@@ -273,6 +285,9 @@ export async function updateSubcategoria(id: string | number, descripcion: unkno
       (error as Error & { status?: number }).status = 404;
       throw error;
     }
+
+    revalidateTag("meta");
+
     return rows[0] as Subcategoria;
   });
 }
@@ -292,5 +307,7 @@ export async function deleteSubcategoria(id: string | number) {
       (error as Error & { status?: number }).status = 404;
       throw error;
     }
+
+    revalidateTag("meta");
   });
 }
