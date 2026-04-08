@@ -11,8 +11,11 @@ import { getServerInternalUser } from "@/lib/auth";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "IMC Productos",
+  title: "IMC Repuestos",
   description: "Panel interno de productos, piezas y catálogos",
+  icons: {
+    icon: "/icon.ico",
+  },
 };
 
 export default async function RootLayout({
