@@ -4,16 +4,17 @@ import type { CatalogoItem, Subcategoria } from "@/interfaces/productos";
 import type { CategoriaOption, CategoriaTreeNode, SubcategoriaOption } from "@/interfaces/piezas";
 import { sanitizeRequiredString as cleanDescripcion } from "@/utils/sanitization";
 
-type CatalogTable = 'marcas' | 'proveedores' | 'categoria';
+type CatalogTable = 'marcas' | 'proveedores' | 'categoria' | 'ubicaciones';
 type FkCheck = { table: string, column: string, message: string };
 
 const FK_CHECKS: Record<CatalogTable, FkCheck> = {
   marcas: { table: 'productos', column: 'id_marca', message: 'No se puede borrar la marca porque está asociada a uno o más productos' },
   proveedores: { table: 'producto_proveedor', column: 'id_proveedor', message: 'No se puede borrar el proveedor porque está vinculado a uno o más productos' },
-  categoria: { table: 'subcategoria', column: 'id_categoria', message: 'No se puede borrar la categoría porque todavía tiene subcategorías asociadas' }
+  categoria: { table: 'subcategoria', column: 'id_categoria', message: 'No se puede borrar la categoría porque todavía tiene subcategorías asociadas' },
+  ubicaciones: { table: 'productos', column: 'id_ubicacion', message: 'No se puede borrar la ubicación porque está asociada a uno o más productos' }
 };
 
-const ENTITY_NAMES: Record<CatalogTable, string> = { marcas: 'marca', proveedores: 'proveedor', categoria: 'categoría' };
+const ENTITY_NAMES: Record<CatalogTable, string> = { marcas: 'marca', proveedores: 'proveedor', categoria: 'categoría', ubicaciones: 'ubicación' };
 
 
 async function getCatalogo(table: CatalogTable): Promise<CatalogoItem[]> {
@@ -310,4 +311,23 @@ export async function deleteSubcategoria(id: string | number) {
 
     revalidateTag("meta");
   });
+}
+
+// ==========================================
+// UBICACIONES
+// ==========================================
+export async function getUbicaciones(): Promise<CatalogoItem[]> {
+  return getCatalogo('ubicaciones');
+}
+
+export async function createUbicacion(descripcion: unknown) {
+  return createCatalogo('ubicaciones', descripcion);
+}
+
+export async function updateUbicacion(id: string | number, descripcion: unknown) {
+  return updateCatalogo('ubicaciones', id, descripcion);
+}
+
+export async function deleteUbicacion(id: string | number) {
+  return deleteCatalogo('ubicaciones', id);
 }

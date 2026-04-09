@@ -34,6 +34,7 @@ const initialState: Producto = {
   id_categoria: null,
   id_subcategoria: null,
   id_marca: null,
+  id_ubicacion: null,
   imagen_url: null,
   proveedores: [{ id_proveedor: null, codigo_proveedor: "" }],
   originales: [],
@@ -51,6 +52,7 @@ export function ProductForm({
 }: ProductFormProps) {
   const router = useRouter();
   const meta = useMetadata();
+  const [isGeneratingBarcode, setIsGeneratingBarcode] = useState(false);
 
   const [product, setProduct] = useState<Producto>({
     ...initialState,
@@ -290,6 +292,23 @@ export function ProductForm({
     });
   };
 
+  const handleGenerateBarcode = async () => {
+    try {
+      setIsGeneratingBarcode(true);
+      const res = await fetch("/api/productos/generate-barcode");
+      const data = await res.json();
+      
+      if (data.barcode) {
+        setProduct(prev => ({ ...prev, cod_barra: data.barcode }));
+      }
+    } catch (error) {
+      console.error("Error generating barcode:", error);
+      alert("No se pudo generar el código de barra automáticamente.");
+    } finally {
+      setIsGeneratingBarcode(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -308,6 +327,7 @@ export function ProductForm({
       id_pieza: product.id_pieza ?? null,
       id_subcategoria: product.id_subcategoria ?? null,
       id_marca: product.id_marca ?? null,
+      id_ubicacion: product.id_ubicacion ?? null,
       imagen_url: product.imagen_url ?? null,
       proveedores: cleanProveedores,
     };
@@ -357,17 +377,21 @@ export function ProductForm({
               descripcion={product.descripcion}
               isPiezaLinked={!!product.id_pieza}
               onChange={handleChange}
+              onGenerateBarcode={handleGenerateBarcode}
+              isGenerating={isGeneratingBarcode}
             />
 
             <ClassificationSection
               stock={product.stock}
               id_marca={product.id_marca}
+              id_ubicacion={product.id_ubicacion ?? null}
               id_categoria={product.id_categoria}
               id_subcategoria={product.id_subcategoria}
               isPiezaLinked={!!product.id_pieza}
               selectedPieza={selectedPieza}
               meta={{
                 marcas: meta.marcas,
+                ubicaciones: meta.ubicaciones,
                 categorias: meta.categorias,
                 subcategorias: meta.subcategorias,
               }}

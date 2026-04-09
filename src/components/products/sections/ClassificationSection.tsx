@@ -6,12 +6,14 @@ import { CatalogoItem, PiezaBusqueda, Subcategoria } from "@/interfaces/producto
 type ClassificationSectionProps = {
   stock: number;
   id_marca: number | null;
+  id_ubicacion: number | null;
   id_categoria: number | null;
   id_subcategoria: number | null;
   isPiezaLinked: boolean;
   selectedPieza: PiezaBusqueda | null;
   meta: {
     marcas: CatalogoItem[];
+    ubicaciones: CatalogoItem[];
     categorias: CatalogoItem[];
     subcategorias: Subcategoria[];
   };
@@ -22,6 +24,7 @@ type ClassificationSectionProps = {
 export function ClassificationSection({
   stock,
   id_marca,
+  id_ubicacion,
   id_categoria,
   id_subcategoria,
   isPiezaLinked,
@@ -53,7 +56,7 @@ export function ClassificationSection({
         <h2 className="text-lg font-bold text-slate-900 dark:text-white">Clasificación</h2>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:gap-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[120px_1fr_1fr] xl:gap-6">
         <div>
           <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Stock
@@ -79,6 +82,20 @@ export function ClassificationSection({
             className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
           >
             {renderOptions(meta.marcas, "Seleccionar marca")}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Ubicación
+          </label>
+          <select
+            name="id_ubicacion"
+            value={id_ubicacion ?? ""}
+            onChange={onChange}
+            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
+          >
+            {renderOptions(meta.ubicaciones, "Seleccionar ubicación")}
           </select>
         </div>
       </div>

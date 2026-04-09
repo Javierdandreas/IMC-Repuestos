@@ -8,6 +8,8 @@ type BasicInfoSectionProps = {
   descripcion: string;
   isPiezaLinked: boolean;
   onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  onGenerateBarcode?: () => void;
+  isGenerating?: boolean;
 };
 
 export function BasicInfoSection({
@@ -16,6 +18,8 @@ export function BasicInfoSection({
   descripcion,
   isPiezaLinked,
   onChange,
+  onGenerateBarcode,
+  isGenerating = false,
 }: BasicInfoSectionProps) {
   const descripcionRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -32,7 +36,7 @@ export function BasicInfoSection({
         <h2 className="text-lg font-bold text-slate-900 dark:text-white">Datos principales</h2>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:gap-6">
+      <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-[1fr_1fr_auto] xl:gap-6">
         <div>
           <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Código único
@@ -61,6 +65,19 @@ export function BasicInfoSection({
             pattern="[0-9]*"
           />
         </div>
+
+        {onGenerateBarcode && (
+          <div className="flex h-12 items-center">
+            <button
+              type="button"
+              onClick={onGenerateBarcode}
+              disabled={isGenerating}
+              className="inline-flex h-12 items-center justify-center rounded-xl bg-slate-900 px-6 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-slate-800 active:scale-95 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+            >
+              {isGenerating ? "Cargando..." : "Generar Cod"}
+            </button>
+          </div>
+        )}
       </div>
 
       <div>

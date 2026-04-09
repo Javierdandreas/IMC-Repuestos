@@ -17,6 +17,7 @@ const catalogLinks = [
   { href: "/marcas", label: "Marcas" },
   { href: "/proveedores", label: "Proveedores" },
   { href: "/categorias", label: "Categorías" },
+  { href: "/ubicaciones", label: "Ubicaciones" },
 ];
 
 export const Navbar = () => {

@@ -16,6 +16,7 @@ export type ProductoInput = {
   id_pieza?: number | null;
   id_subcategoria: number;
   id_marca?: number | null;
+  id_ubicacion?: number | null;
   imagen_url?: string | null;
   proveedores?: ProveedorProducto[];
 };
@@ -30,6 +31,7 @@ function sanitizeProductoInput(input: ProductoInput) {
     id_pieza: input.id_pieza || null,
     id_subcategoria: input.id_subcategoria,
     id_marca: input.id_marca || null,
+    id_ubicacion: input.id_ubicacion || null,
     imagen_url: sanitizeNullableString(input.imagen_url),
     proveedores: Array.isArray(input.proveedores) ? input.proveedores : [],
   };
@@ -91,6 +93,8 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       c.descripcion AS categoria,
       s.id AS id_subcategoria,
       s.descripcion AS subcategoria,
+      p.id_ubicacion,
+      u.descripcion AS ubicacion,
       STRING_AGG(DISTINCT prv.descripcion, ', ') AS proveedor,
       STRING_AGG(DISTINCT NULLIF(TRIM(pp.codigo_proveedor), ''), ', ') AS codigo_proveedor,
       COALESCE(
@@ -115,6 +119,7 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
     LEFT JOIN categoria c ON c.id = s.id_categoria
     LEFT JOIN producto_proveedor pp ON pp.id_producto = p.id
     LEFT JOIN proveedores prv ON prv.id = pp.id_proveedor
+    LEFT JOIN ubicaciones u ON u.id = p.id_ubicacion
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = pi.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     GROUP BY
@@ -136,6 +141,8 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       p.id_pieza,
       p.id_marca,
       p.id_subcategoria,
+      p.id_ubicacion,
+      u.descripcion,
       p.imagen_url
     ORDER BY p.id DESC
   `;
@@ -164,6 +171,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       pc.id AS pieza_id_categoria,
       pc.descripcion AS pieza_categoria,
       pi.medida AS pieza_medida,
+      p.id_ubicacion,
+      u.descripcion AS ubicacion,
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'ORIGINAL' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
@@ -181,6 +190,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
     LEFT JOIN pieza pi ON pi.id = p.id_pieza
     LEFT JOIN subcategoria ps ON ps.id = pi.id_subcategoria
     LEFT JOIN categoria pc ON pc.id = ps.id_categoria
+    LEFT JOIN ubicaciones u ON u.id = p.id_ubicacion
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = pi.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     WHERE p.id = $1
@@ -197,9 +207,15 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       s.id_categoria,
       pi.codigo_pieza,
       pi.descripcion,
+      pi.imagen_medida_url,
+      ps.id,
+      ps.descripcion,
+      pc.id,
       pc.descripcion,
-      pi.medida
-  `;
+      pi.medida,
+      p.id_ubicacion,
+      u.descripcion
+    `;
 
   const [productRes, proveedores] = await Promise.all([
     query(productQuery, [id]),
@@ -227,6 +243,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
     equivalentes: (row.equivalentes as string[]) ?? [],
     sustitutos: (row.sustitutos as string[]) ?? [],
     medida: row.pieza_medida ?? "",
+    id_ubicacion: row.id_ubicacion,
+    ubicacion: row.ubicacion,
   };
 
   if (product.id_pieza) {
@@ -249,9 +267,57 @@ export async function getProductoById(id: string | number): Promise<Producto | n
   return product;
 }
 
+/**
+ * Verifica si un código de barra ya está en uso.
+ */
+export async function isBarcodeDuplicate(barcode: string, excludeId?: string | number): Promise<boolean> {
+  if (!barcode) return false;
+  
+  let sql = "SELECT p.id FROM productos p WHERE p.cod_barra = $1";
+  const params: any[] = [barcode];
+
+  if (excludeId) {
+    sql += " AND p.id != $2";
+    params.push(excludeId);
+  }
+
+  const { rows } = await query(sql, params);
+  return rows.length > 0;
+}
+
+/**
+ * Genera un código de barra interno de 13 dígitos empezando por 200.
+ */
+export async function generateUniqueBarcode(): Promise<string> {
+  const prefix = "200";
+  let isUnique = false;
+  let barcode = "";
+  let attempts = 0;
+
+  while (!isUnique && attempts < 10) {
+    const randomSuffix = Math.floor(Math.random() * 10000000000).toString().padStart(10, '0');
+    barcode = prefix + randomSuffix;
+    
+    const exists = await isBarcodeDuplicate(barcode);
+    if (!exists) {
+      isUnique = true;
+    }
+    attempts++;
+  }
+
+  return barcode;
+}
+
 export async function createProducto(input: ProductoInput) {
   return await withTransaction(async (client) => {
     const payload = sanitizeProductoInput(input);
+    
+    // Validamos duplicado
+    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra)) {
+      const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro producto`);
+      (err as any).status = 400;
+      throw err;
+    }
 
     const productResult = await client.query(
       `
@@ -263,9 +329,10 @@ export async function createProducto(input: ProductoInput) {
           id_pieza,
           id_subcategoria,
           id_marca,
+          id_ubicacion,
           imagen_url
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *
       `,
       [
@@ -276,6 +343,7 @@ export async function createProducto(input: ProductoInput) {
         payload.id_pieza,
         payload.id_subcategoria,
         payload.id_marca,
+        payload.id_ubicacion,
         payload.imagen_url,
       ]
     );
@@ -295,6 +363,13 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
   const result = await withTransaction(async (client) => {
     const payload = sanitizeProductoInput(input);
 
+    // Validamos duplicado si se cambió el código
+    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, id)) {
+      const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro producto`);
+      (err as any).status = 400;
+      throw err;
+    }
+
     const result = await client.query(
       `
         UPDATE productos
@@ -306,8 +381,9 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
           id_pieza = $5,
           id_subcategoria = $6,
           id_marca = $7,
-          imagen_url = $8
-        WHERE id = $9
+          id_ubicacion = $8,
+          imagen_url = $9
+        WHERE id = $10
         RETURNING *
       `,
       [
@@ -318,6 +394,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
         payload.id_pieza,
         payload.id_subcategoria,
         payload.id_marca,
+        payload.id_ubicacion,
         payload.imagen_url,
         id,
       ]
