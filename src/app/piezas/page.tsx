@@ -20,7 +20,7 @@ export default async function PiezasPage({ searchParams }: Props) {
   ]);
 
   return (
-    <div className="bg-white p-6">
+    <div className="bg-white min-h-screen dark:bg-slate-950">
       <PiezaList
         piezas={piezas}
         categorias={categorias}

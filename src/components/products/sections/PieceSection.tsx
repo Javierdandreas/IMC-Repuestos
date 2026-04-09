@@ -61,18 +61,18 @@ export function PieceSection({
   return (
     <section className="space-y-4">
       <div className="mb-1">
-        <h2 className="text-lg font-semibold text-slate-800">Vincular pieza</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="text-lg font-bold text-slate-900 dark:text-white">Vincular pieza</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Buscá por categoría, subcategoría, código interno, número original o equivalencia.
         </p>
       </div>
 
-      <div className="rounded-2xl border border-gray-400 bg-slate-50 p-4 md:p-5">
+      <div className="rounded-3xl border border-slate-200 bg-white p-4 md:p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/50">
         {selectedPieza ? (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-            <div className="text-sm text-blue-900">
-              <span className="font-semibold text-blue-950 uppercase tracking-wide text-xs mb-1 block">Pieza seleccionada</span>
-              <span className="font-semibold">{selectedPieza.codigo_pieza}</span> · {selectedPieza.descripcion}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 dark:border-blue-900/50 dark:bg-blue-950/30">
+            <div className="text-sm text-blue-900 dark:text-blue-200">
+              <span className="font-bold text-blue-950 uppercase tracking-widest text-[10px] mb-1 block dark:text-blue-400">Pieza seleccionada</span>
+              <span className="font-mono font-black text-blue-950 dark:text-white">{selectedPieza.codigo_pieza}</span> · {selectedPieza.descripcion}
             </div>
             {currentPiezaId && (
               <button
@@ -88,14 +88,14 @@ export function PieceSection({
           <>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
               <div className="flex-1">
-                <label className="mb-2 block text-sm font-medium text-slate-700">
+                <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Buscador de pieza
                 </label>
                 <input
                   type="text"
                   value={piezaSearch}
                   onChange={(e) => onSearchChange(e.target.value.toUpperCase())}
-                  className="h-12 w-full rounded-xl border border-gray-400 bg-white px-4 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm uppercase text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   placeholder="Ej. 1043, SUSPENSION, BUJES, 1K0505465AA"
                 />
               </div>
@@ -103,7 +103,7 @@ export function PieceSection({
 
             <div className="mt-4 grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
               {paginatedPieces.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-gray-400 bg-white px-4 py-5 text-sm text-slate-500 md:col-span-2 lg:col-span-3">
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-400 md:col-span-2 lg:col-span-3">
                   {piezaSearch.trim() === "" 
                     ? "Escribí arriba para buscar piezas."
                     : "No encontramos piezas con ese criterio."}
@@ -115,13 +115,13 @@ export function PieceSection({
                       key={pieza.id}
                       type="button"
                       onClick={() => onSelectPieza(pieza)}
-                      className="rounded-2xl border p-4 text-left transition border-gray-400 bg-white hover:border-blue-400 hover:bg-slate-50 shadow-sm"
+                      className="group rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-blue-500 dark:hover:bg-slate-900"
                     >
-                      <div className="text-sm font-semibold text-slate-900">{pieza.codigo_pieza}</div>
-                      <div className="mt-1 line-clamp-2 text-sm text-slate-600">{pieza.descripcion}</div>
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1">{pieza.categoria}</span>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1">{pieza.subcategoria}</span>
+                      <div className="text-sm font-mono font-black text-slate-900 dark:text-white">{pieza.codigo_pieza}</div>
+                      <div className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-slate-400 leading-snug">{pieza.descripcion}</div>
+                      <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-tight">
+                        <span className="rounded-lg bg-slate-100 px-2 py-1 text-slate-600 dark:bg-slate-800 dark:text-slate-400">{pieza.categoria}</span>
+                        <span className="rounded-lg bg-slate-100 px-2 py-1 text-slate-600 dark:bg-slate-800 dark:text-slate-400">{pieza.subcategoria}</span>
                       </div>
                     </button>
                   );
@@ -131,27 +131,27 @@ export function PieceSection({
 
             {/* Controles de Paginación */}
             {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
+              <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-5 dark:border-slate-800">
                 <button
                   type="button"
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-transparent"
+                  className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-bold text-slate-500 transition hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-400 dark:hover:bg-slate-800"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                   Anterior
                 </button>
-                <div className="text-xs font-medium text-slate-500">
-                  Página <span className="text-slate-900">{currentPage}</span> de {totalPages}
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  Página <span className="text-slate-900 dark:text-white">{currentPage}</span> / {totalPages}
                 </div>
                 <button
                   type="button"
                   disabled={currentPage === totalPages}
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-semibold text-blue-600 transition hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent"
+                  className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-bold text-blue-600 transition hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent dark:text-blue-400 dark:hover:bg-blue-900/40"
                 >
                   Siguiente
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                 </button>
               </div>
             )}

@@ -2,7 +2,29 @@
 @tailwind components;
 @tailwind utilities; 
 
-body {
-  background-color: #ffffff;
-  color: #0f172a;
+@layer base {
+  body {
+    @apply bg-white text-slate-900 transition-colors duration-200;
+  }
+
+  .dark body {
+    @apply bg-slate-950 text-slate-100;
+  }
+}
+
+/* Custom scrollbar to match theme */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-200 dark:bg-slate-800 rounded-full border-2 border-transparent bg-clip-content;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-300 dark:bg-slate-700;
 }

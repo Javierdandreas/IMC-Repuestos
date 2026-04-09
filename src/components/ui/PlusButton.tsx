@@ -38,7 +38,7 @@ export function PlusButton({
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-600 transition hover:bg-emerald-50 hover:text-emerald-600 ${className}`.trim()}
+      className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-300 text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-600 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400 ${className}`.trim()}
       {...props}
     >
       {children ?? <PlusIcon />}
@@ -58,7 +58,7 @@ export function PlusLink({
       href={href}
       aria-label={label}
       title={label}
-      className={`inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-600 transition hover:bg-emerald-50 hover:text-emerald-600 ${className}`.trim()}
+      className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-300 text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-600 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400 ${className}`.trim()}
       {...props}
     >
       {children ?? <PlusIcon />}

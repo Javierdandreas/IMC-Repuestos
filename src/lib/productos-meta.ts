@@ -17,6 +17,8 @@ export type ProductMeta = {
     subcategoria: string;
     originales: string[];
     equivalentes: string[];
+    sustitutos: string[];
+    medida?: string | null;
   }[];
 };
 

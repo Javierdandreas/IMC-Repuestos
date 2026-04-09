@@ -81,12 +81,12 @@ export function CatalogForm({
 
   return (
     <form onSubmit={handleSubmit}>
-      <label className="block mb-2 font-medium">Descripción</label>
+      <label className="block mb-2 font-medium text-slate-700 dark:text-slate-300">Descripción</label>
       <input
         type="text"
         value={descripcion}
         onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
-        className="w-full border rounded-md p-3 mb-6 uppercase"
+        className="w-full border rounded-xl p-3 mb-6 uppercase outline-none transition border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-blue-500"
         placeholder={placeholder ?? `Ingresar ${entityName}`}
         required
       />
@@ -96,7 +96,7 @@ export function CatalogForm({
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+            className="px-6 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             Cancelar
           </button>
@@ -105,7 +105,7 @@ export function CatalogForm({
         <button
           type="submit"
           disabled={loading}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          className="bg-slate-900 text-white px-6 py-2.5 rounded-xl font-bold transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-lg"
         >
           {loading ? "Guardando..." : isEditing ? "Actualizar" : "Guardar"}
         </button>

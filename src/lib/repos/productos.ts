@@ -163,6 +163,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       ps.descripcion AS pieza_subcategoria,
       pc.id AS pieza_id_categoria,
       pc.descripcion AS pieza_categoria,
+      pi.medida AS pieza_medida,
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'ORIGINAL' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
@@ -170,7 +171,11 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'EQUIVALENTE' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
-      ) AS equivalentes
+      ) AS equivalentes,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'SUSTITUTO' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS sustitutos
     FROM productos p
     LEFT JOIN subcategoria s ON s.id = p.id_subcategoria
     LEFT JOIN pieza pi ON pi.id = p.id_pieza
@@ -192,11 +197,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       s.id_categoria,
       pi.codigo_pieza,
       pi.descripcion,
-      pi.imagen_medida_url,
-      ps.id,
-      ps.descripcion,
-      pc.id,
-      pc.descripcion
+      pc.descripcion,
+      pi.medida
   `;
 
   const [productRes, proveedores] = await Promise.all([
@@ -214,6 +216,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
     codigo_pieza?: string;
     pieza_descripcion?: string;
     pieza_medida_url?: string;
+    pieza_medida?: string;
+    sustitutos?: string[];
   };
 
   const product: Producto = {
@@ -221,6 +225,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
     proveedores,
     originales: (row.originales as string[]) ?? [],
     equivalentes: (row.equivalentes as string[]) ?? [],
+    sustitutos: (row.sustitutos as string[]) ?? [],
+    medida: row.pieza_medida ?? "",
   };
 
   if (product.id_pieza) {
@@ -235,6 +241,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       subcategoria: row.pieza_subcategoria ?? "",
       originales: product.originales ?? [],
       equivalentes: product.equivalentes ?? [],
+      sustitutos: product.sustitutos ?? [],
+      medida: product.medida ?? "",
     };
   }
 
@@ -280,7 +288,11 @@ export async function createProducto(input: ProductoInput) {
 }
 
 export async function updateProducto(id: string | number, input: ProductoInput) {
-  return await withTransaction(async (client) => {
+  // Obtenemos el producto ANTES para saber si la imagen cambió
+  const existingProduct = await getProductoById(id);
+  const oldImageUrl = existingProduct?.imagen_url;
+
+  const result = await withTransaction(async (client) => {
     const payload = sanitizeProductoInput(input);
 
     const result = await client.query(
@@ -321,6 +333,14 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
 
     return result.rows[0];
   });
+
+  // Si la transacción fue exitosa y la imagen cambió, borramos la vieja
+  const newImageUrl = input.imagen_url;
+  if (oldImageUrl && oldImageUrl !== newImageUrl) {
+    deleteFileFromStorage(oldImageUrl, "productos");
+  }
+
+  return result;
 }
 
 export async function deleteProducto(id: string | number) {

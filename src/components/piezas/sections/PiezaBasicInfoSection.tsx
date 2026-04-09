@@ -31,12 +31,12 @@ export function PiezaBasicInfoSection({
   }, [subcategorias, id_categoria]);
 
   return (
-    <div className="grid grid-cols-1 gap-4">
+    <section className="space-y-4">
       <div>
-        <label className="mb-2 block text-sm font-semibold text-slate-700">Código de pieza</label>
-        <div className="flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold shadow-inner">
+        <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Código de pieza</label>
+        <div className="flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold shadow-inner dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
           {codigo_pieza ? (
-            <span className="text-slate-600">#{codigo_pieza}</span>
+            <span className="text-slate-600 dark:text-slate-300">#{codigo_pieza}</span>
           ) : nextCode ? (
             <span className="text-blue-600">#{nextCode} <span className="ml-1 text-[10px] font-medium uppercase tracking-wider text-blue-400">(Siguiente)</span></span>
           ) : (
@@ -45,37 +45,42 @@ export function PiezaBasicInfoSection({
         </div>
       </div>
 
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div>
+          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Categoría
+          </label>
+          <select
+            value={id_categoria ?? ""}
+            onChange={(e) => onCategoriaChange(e.target.value)}
+            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900"
+            required
+          >
+            <option value="">Seleccionar categoría</option>
+            {categorias.map((categoria) => (
+              <option key={categoria.id} value={categoria.id}>{categoria.descripcion}</option>
+            ))}
+          </select>
+        </div>
 
-      <div>
-        <label className="mb-2 block text-sm font-semibold text-slate-700">Categoría</label>
-        <select
-          value={id_categoria ?? ""}
-          onChange={(e) => onCategoriaChange(e.target.value)}
-          className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          required
-        >
-          <option value="">Seleccionar categoría</option>
-          {categorias.map((categoria) => (
-            <option key={categoria.id} value={categoria.id}>{categoria.descripcion}</option>
-          ))}
-        </select>
+        <div>
+          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Subcategoría
+          </label>
+          <select
+            value={id_subcategoria ?? ""}
+            onChange={(e) => onSubcategoriaChange(e.target.value)}
+            disabled={!id_categoria}
+            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900"
+            required
+          >
+            <option value=""> {id_categoria ? "Seleccionar subcategoría" : "Elegí una categoría"}</option>
+            {subcategoriasFiltradas.map((sub) => (
+              <option key={sub.id} value={sub.id}>{sub.descripcion}</option>
+            ))}
+          </select>
+        </div>
       </div>
-
-      <div>
-        <label className="mb-2 block text-sm font-semibold text-slate-700">Subcategoría</label>
-        <select
-          value={id_subcategoria ?? ""}
-          onChange={(e) => onSubcategoriaChange(e.target.value)}
-          className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          required
-          disabled={!id_categoria}
-        >
-          <option value="">Seleccionar subcategoría</option>
-          {subcategoriasFiltradas.map((sub) => (
-            <option key={sub.id} value={sub.id}>{sub.descripcion}</option>
-          ))}
-        </select>
-      </div>
-    </div>
+    </section>
   );
 }

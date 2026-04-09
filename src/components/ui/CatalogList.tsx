@@ -76,39 +76,39 @@ export function CatalogList({
     <>
       <div className="mx-auto w-full max-w-5xl py-8 px-4 md:px-8">
         <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-slate-900">{title}</h1>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{title}</h1>
 
           {canManage ? (
             <button
               type="button"
               onClick={() => setOpenNew(true)}
-              className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
+              className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-6 text-sm font-bold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-md active:scale-95"
             >
               {createLabel}
             </button>
           ) : null}
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-slate-50/50 shadow-xl dark:border-slate-800 dark:bg-slate-900 shadow-slate-200/50 dark:shadow-none">
           <div className="min-w-[500px]">
-            <div className="grid grid-cols-[100px_1fr_120px] bg-slate-50/80 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
-              <div className="px-5 py-3.5">ID</div>
-              <div className="px-5 py-3.5">Descripción</div>
-              <div className="px-5 py-3.5 text-center">Acciones</div>
+            <div className="grid grid-cols-[100px_1fr_120px] bg-slate-50/50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-800">
+              <div className="px-5 py-4">ID</div>
+              <div className="px-5 py-4">Descripción</div>
+              <div className="px-5 py-4 text-center border-l border-slate-200 dark:border-slate-800/50">Acciones</div>
             </div>
 
             {items.length === 0 ? (
-              <div className="px-5 py-12 text-center text-sm font-medium text-slate-500">No hay {entityName}s cargadas.</div>
+              <div className="px-5 py-12 text-center text-sm font-medium text-slate-500 dark:text-slate-500">No hay {entityName}s cargadas.</div>
             ) : (
-              <div className="divide-y divide-slate-100 bg-white">
+              <div className="divide-y divide-slate-100 bg-white/50 dark:divide-slate-800 dark:bg-slate-900/50">
                 {items.map((item) => (
                   <div
                     key={item.id}
-                    className="grid grid-cols-[100px_1fr_120px] items-center transition hover:bg-slate-50/80"
+                    className="grid grid-cols-[100px_1fr_120px] items-center transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/30"
                   >
-                    <div className="px-5 py-4 text-sm font-medium text-slate-900">{item.id}</div>
-                    <div className="px-5 py-4 text-sm font-semibold text-slate-700">{item.descripcion}</div>
-                    <div className="px-5 py-4 flex items-center justify-center gap-2.5">
+                    <div className="px-5 py-4 text-sm font-mono font-bold text-slate-400 dark:text-slate-500">#{item.id}</div>
+                    <div className="px-5 py-4 text-sm font-bold text-slate-800 dark:text-slate-200">{item.descripcion}</div>
+                    <div className="px-5 py-4 flex items-center justify-center gap-2.5 border-l border-slate-50 dark:border-slate-800/50">
                       {canManage ? (<>
                         <PencilButton
                           label={`Editar ${entityName} ${item.descripcion}`}
@@ -119,7 +119,7 @@ export function CatalogList({
                           onClick={() => setDeletingItem(item)}
                           disabled={isDeleting && deletingItem?.id === item.id}
                         />
-                      </>) : <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>}
+                      </>) : <span className="text-[10px] font-black tracking-widest text-slate-400">READONLY</span>}
                     </div>
                   </div>
                 ))}
@@ -129,7 +129,7 @@ export function CatalogList({
         </div>
 
         {totalPages > 1 && (
-          <div className="border-t border-slate-300 mt-4 p-4">
+          <div className="mt-8 flex justify-center">
             <Pagination totalPages={totalPages} />
           </div>
         )}

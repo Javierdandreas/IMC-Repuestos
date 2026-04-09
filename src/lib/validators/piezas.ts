@@ -14,6 +14,8 @@ export const piezaPayloadSchema = z.object({
   id_subcategoria: idSchema,
   originales: z.array(z.string().trim().toUpperCase()).optional().default([]),
   equivalentes: z.array(z.string().trim().toUpperCase()).optional().default([]),
+  sustitutos: z.array(z.string().trim().toUpperCase()).optional().default([]),
+  medida: z.string().trim().optional().nullish(),
 });
 
 export type PiezaPayload = z.infer<typeof piezaPayloadSchema>;

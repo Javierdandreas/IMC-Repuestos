@@ -90,14 +90,14 @@ export function CategoriaTree({ categorias }: Props) {
     <>
       <div className="mx-auto w-full max-w-5xl py-8 px-4 md:px-8">
         <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-slate-900">Categorías</h1>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Categorías</h1>
 
           {canManage ? (
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => openNewSubcategoria()}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-600 px-5 text-sm font-semibold text-white transition hover:bg-slate-700"
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-200 px-6 text-sm font-bold text-slate-700 transition hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 shadow-sm active:scale-95"
               >
                 Nueva subcategoría
               </button>
@@ -105,7 +105,7 @@ export function CategoriaTree({ categorias }: Props) {
               <button
                 type="button"
                 onClick={() => setOpenCategoria(true)}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-6 text-sm font-bold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-md active:scale-95"
               >
                 Nueva categoría
               </button>
@@ -113,21 +113,21 @@ export function CategoriaTree({ categorias }: Props) {
           ) : null}
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white/50 shadow-xl dark:border-slate-800 dark:bg-slate-900 shadow-slate-200/50 dark:shadow-none">
           <div className="min-w-[500px]">
-            <div className="grid grid-cols-[1fr_260px] bg-slate-50/80 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
-              <div className="px-5 py-3.5">Categorías</div>
-              <div className="px-5 py-3.5 text-center">Acciones</div>
+            <div className="grid grid-cols-[1fr_260px] bg-slate-50/50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-800">
+              <div className="px-5 py-4">Categorías</div>
+              <div className="px-5 py-4 text-center border-l border-slate-200/50 dark:border-slate-800/30">Acciones</div>
             </div>
 
             {categorias.length === 0 ? (
               <div className="px-5 py-12 text-center text-sm font-medium text-slate-500">No hay categorías cargadas.</div>
             ) : (
-              <div className="divide-y divide-slate-100 bg-white">
+              <div className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
                 {categorias.map((categoria) => (
-                  <div key={categoria.id} className="flex flex-col group/cat">
-                    <div className="grid grid-cols-[1fr_260px] bg-slate-50/80 items-center border-b border-slate-100 transition hover:bg-slate-100/50">
-                      <div className="px-5 py-4 font-bold tracking-wide text-slate-800 uppercase text-sm">
+                   <div key={categoria.id} className="flex flex-col group/cat">
+                    <div className="grid grid-cols-[1fr_260px] bg-slate-50/30 items-center border-b border-slate-100 transition hover:bg-slate-100/50 dark:bg-slate-800/30 dark:border-slate-800 dark:hover:bg-slate-800/50">
+                      <div className="px-5 py-4 font-black tracking-tight text-slate-900 dark:text-white uppercase text-sm">
                         {categoria.descripcion}
                       </div>
 
@@ -164,8 +164,8 @@ export function CategoriaTree({ categorias }: Props) {
                             key={subcategoria.id}
                             className="grid grid-cols-[1fr_260px] items-center transition hover:bg-slate-50/60"
                           >
-                            <div className="px-5 py-3.5 pl-10 text-sm font-semibold text-slate-600 flex items-center gap-2">
-                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+                            <div className="px-5 py-4 pl-10 text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-3">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700 group-hover:bg-blue-500 transition-colors"></span>
                               {subcategoria.descripcion}
                             </div>
 

@@ -50,12 +50,12 @@ export function ClassificationSection({
   return (
     <section className="space-y-4">
       <div className="mb-1">
-        <h2 className="text-lg font-semibold text-slate-800">Clasificación</h2>
+        <h2 className="text-lg font-bold text-slate-900 dark:text-white">Clasificación</h2>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:gap-6">
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700">
+          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Stock
           </label>
           <input
@@ -63,20 +63,20 @@ export function ClassificationSection({
             name="stock"
             value={stock}
             onChange={onChange}
-            className="h-12 w-full rounded-xl border border-gray-400 px-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
             required
           />
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700">
+          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Marca
           </label>
           <select
             name="id_marca"
             value={id_marca ?? ""}
             onChange={onChange}
-            className="h-12 w-full rounded-xl border border-gray-400 bg-white px-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
           >
             {renderOptions(meta.marcas, "Seleccionar marca")}
           </select>
@@ -85,14 +85,14 @@ export function ClassificationSection({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:gap-6">
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700">
+          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Categoría
           </label>
           <select
             name="id_categoria"
             value={id_categoria ?? ""}
             onChange={onCategoriaChange}
-            className="h-12 w-full rounded-xl border border-gray-400 bg-white px-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
+            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
             disabled={isPiezaLinked}
           >
             {renderOptions(meta.categorias, "Seleccionar categoría")}
@@ -100,14 +100,14 @@ export function ClassificationSection({
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700">
+          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Subcategoría
           </label>
           <select
             name="id_subcategoria"
             value={id_subcategoria ?? ""}
             onChange={onChange}
-            className="h-12 w-full rounded-xl border border-gray-400 bg-white px-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
+            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
             disabled={isPiezaLinked}
           >
             {renderOptions(filteredSubcategories, "Seleccionar subcategoría")}

@@ -3,7 +3,8 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
-import { PencilLink } from "@/components/ui/PencilButton";
+import { PencilButton } from "@/components/ui/PencilButton";
+import { CopyButton } from "@/components/ui/CopyButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { usePermissions } from "@/components/auth/usePermissions";
 import { CatalogoItem, ProductoListado, Subcategoria, PiezaBusqueda } from "@/interfaces/productos";
@@ -147,7 +148,6 @@ export function ProductList({ products, totalPages = 1 }: Props) {
         throw new Error(data.message || "No se pudo borrar el producto");
       }
 
-      setDeletingProduct(null);
       router.refresh();
       toast.success("Producto borrado correctamente");
     } catch (error) {
@@ -163,23 +163,24 @@ export function ProductList({ products, totalPages = 1 }: Props) {
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
-    let left = rect.left;
+    const left = rect.right + TOOLTIP_MARGIN;
+    let top = rect.top;
+
     if (left + TOOLTIP_WIDTH + TOOLTIP_MARGIN > viewportWidth) {
-      left = viewportWidth - TOOLTIP_WIDTH - TOOLTIP_MARGIN;
+      // If doesn't fit right, try left
+      const leftAlt = rect.left - TOOLTIP_WIDTH - TOOLTIP_MARGIN;
+      if (leftAlt > TOOLTIP_MARGIN) {
+        setTooltipPosition({ top, left: leftAlt });
+      } else {
+        // Fallback to top center if no side space
+        setTooltipPosition({ top: rect.top - TOOLTIP_HEIGHT - 8, left: Math.max(TOOLTIP_MARGIN, (viewportWidth - TOOLTIP_WIDTH) / 2) });
+      }
+    } else {
+      if (top + TOOLTIP_HEIGHT + TOOLTIP_MARGIN > viewportHeight) {
+        top = viewportHeight - TOOLTIP_HEIGHT - TOOLTIP_MARGIN;
+      }
+      setTooltipPosition({ top, left });
     }
-    if (left < TOOLTIP_MARGIN) left = TOOLTIP_MARGIN;
-
-    const spaceBelow = viewportHeight - rect.bottom;
-    const spaceAbove = rect.top;
-    let top = rect.bottom + 8;
-
-    if (spaceBelow < TOOLTIP_HEIGHT && spaceAbove > TOOLTIP_HEIGHT) {
-      top = rect.top - TOOLTIP_HEIGHT - 8;
-    } else if (top + TOOLTIP_HEIGHT + TOOLTIP_MARGIN > viewportHeight) {
-      top = Math.max(TOOLTIP_MARGIN, viewportHeight - TOOLTIP_HEIGHT - TOOLTIP_MARGIN);
-    }
-
-    setTooltipPosition({ top, left });
     setHoveredProductId(productId);
   };
 
@@ -191,264 +192,286 @@ export function ProductList({ products, totalPages = 1 }: Props) {
 
   return (
     <>
-      <div className="mx-auto w-full max-w-[1500px]">
-        <div className="mb-6 flex flex-col gap-4 pb-5 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Productos</h1>
-          </div>
-          {canManage ? (
-            <button
-              onClick={() => setOpenNew(true)}
-              className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
-            >
-              Crear producto
-            </button>
-          ) : null}
-        </div>
-
-        <div className="mb-5 rounded-2xl border border-slate-300 bg-white p-4 shadow-sm">
-          <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)_repeat(4,minmax(0,1fr))]">
-            <div className="xl:col-span-1">
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Buscador general</label>
-              <input
-                type="text"
-                value={searchGeneral}
-                onChange={(e) => setSearchGeneral(e.target.value.toUpperCase())}
-                placeholder="Descripción, pieza, oem, equivalencia, categoría, marca..."
-                className="h-11 w-full rounded-xl border border-slate-300 px-4 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Buscador específico</label>
-              <input
-                type="text"
-                value={searchSpecific}
-                onChange={(e) => setSearchSpecific(e.target.value.toUpperCase())}
-                placeholder="Código exacto, original, equivalencia..."
-                className="h-11 w-full rounded-xl border border-slate-300 px-4 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Categoría</label>
-              <select
-                value={categoria}
-                onChange={(e) => {
-                  setCategoria(e.target.value);
-                  setSubcategoria("");
-                }}
-                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="">Todas</option>
-                {categorias.map((item) => (
-                  <option key={item.id} value={String(item.id)}>{item.descripcion}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Subcategoría</label>
-              <select
-                value={subcategoria}
-                onChange={(e) => setSubcategoria(e.target.value)}
-                disabled={!categoria}
-                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="">{categoria ? "Todas" : "Elegí una categoría"}</option>
-                {subcategoriasDisponibles.map((item) => (
-                  <option key={item.id} value={String(item.id)}>{item.descripcion}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Marca</label>
-              <select
-                value={marca}
-                onChange={(e) => setMarca(e.target.value)}
-                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="">Todas</option>
-                {marcas.map((item) => (
-                  <option key={item.id} value={String(item.id)}>{item.descripcion}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Proveedor</label>
-              <select
-                value={proveedor}
-                onChange={(e) => setProveedor(e.target.value)}
-                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="">Todos</option>
-                {proveedores.map((item) => (
-                  <option key={item.id} value={String(item.id)}>{item.descripcion}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-slate-600">Resultados: <span className="font-semibold text-slate-900">{filteredProducts.length}</span></p>
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-            >
-              Limpiar filtros
-            </button>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50/80">
-              <tr>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Código único</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Pieza</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Descripción</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Foto</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Medidas</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Marca</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Categoría / Subcat.</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Proveedor</th>
-                <th className="px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Stock</th>
-                <th className="px-5 py-3.5 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {filteredProducts.map((product) => (
-                <tr key={product.id} className="transition hover:bg-slate-50/80">
-                  <td className="whitespace-nowrap px-5 py-4 text-sm font-medium text-slate-900">{product.cod_unico}</td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm font-semibold text-slate-700">{product.codigo_pieza ?? "-"}</td>
-                  <td className="px-5 py-4 text-sm text-slate-900">
-                    <div className="inline-block max-w-[340px]">
-                      <span
-                        className="cursor-help font-medium text-slate-900 underline decoration-dotted underline-offset-4"
-                        onMouseEnter={(e) => handleTooltipEnter(product.id, e.currentTarget.getBoundingClientRect())}
-                        onMouseLeave={handleTooltipLeave}
-                      >
-                        {product.descripcion}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
-                    {product.imagen_url ? (
-                      <button
-                        onClick={() => setPreviewImage(product.imagen_url || null)}
-                        className="group relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100"
-                        title="Ver imagen"
-                      >
-                        <Image 
-                          src={product.imagen_url} 
-                          alt="" 
-                          width={40}
-                          height={40}
-                          className="h-full w-full object-cover transition group-hover:scale-110" 
-                        />
-                      </button>
-                    ) : (
-                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-300">
-                        <HiPhotograph className="h-5 w-5 opacity-40" />
-                      </span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
-                    {product.pieza_medida_url ? (
-                      <button
-                        onClick={() => setPreviewImage(product.pieza_medida_url || null)}
-                        className="group relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100"
-                        title="Ver esquema de medidas"
-                      >
-                        <Image 
-                          src={product.pieza_medida_url} 
-                          alt="" 
-                          width={40}
-                          height={40}
-                          className="h-full w-full object-cover transition group-hover:scale-110" 
-                        />
-                      </button>
-                    ) : (
-                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-300">
-                        <HiPhotograph className="h-5 w-5 opacity-40" />
-                      </span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{product.marca ?? "-"}</td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-slate-900">{product.categoria ?? "-"}</span>
-                      <span className="text-xs text-slate-500">{product.subcategoria ?? "-"}</span>
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{product.proveedor ?? "-"}</td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{product.stock}</td>
-                  <td className="whitespace-nowrap px-5 py-4 text-sm">
-                    <div className="flex items-center justify-center gap-2">
-                      {canManage ? (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setEditingProduct(product);
-                            }}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"
-                            title={`Editar producto ${product.descripcion}`}
-                          >
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                            </svg>
-                          </button>
-
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setDuplicatingProduct(product);
-                            }}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200"
-                            title={`Duplicar producto ${product.descripcion}`}
-                          >
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                            </svg>
-                          </button>
-
-                          <TrashButton
-                            label={`Borrar producto ${product.descripcion}`}
-                            onClick={() => setDeletingProduct(product)}
-                            disabled={isDeleting && deletingProduct?.id === product.id}
-                          />
-                        </>
-                      ) : (
-                        <span className="text-xs text-slate-400">SOLO LECTURA</span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredProducts.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">
-                    No hay productos que coincidan con los filtros.
-                  </td>
-                </tr>
+      <div className="flex min-h-screen flex-col bg-slate-50 dark:bg-slate-950 p-4 transition-colors duration-200 md:p-4 md:pt-2">
+        <div className="mx-auto w-full max-w-[1500px] space-y-3">
+          {/* Encabezado y Filtros */}
+          <section className="flex flex-col gap-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900/40 dark:backdrop-blur-sm">
+            <div className="flex flex-col items-center justify-between gap-4 md:flex-row pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-lg">
+                  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Productos</h1>
+                  <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Gestión de catálogo optimizada</p>
+                </div>
+              </div>
+              
+              {canManage && (
+                <button
+                  onClick={() => setOpenNew(true)}
+                  className="inline-flex h-12 items-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-700 hover:shadow-blue-500/40 active:scale-95"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  Nuevo Producto
+                </button>
               )}
-            </tbody>
-          </table>
-          {totalPages > 1 && (
-            <div className="border-t border-slate-300 p-4">
-              <Pagination totalPages={totalPages} />
             </div>
-          )}
+            
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-4">
+              {/* Buscador General */}
+              <div className="flex-[2] min-w-[280px] flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Buscador General</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="DESCRIPCIÓN, PIEZA, OEM, EQUIVALENCIA"
+                    value={searchGeneral}
+                    onChange={(e) => setSearchGeneral(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 pl-11 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
+                  />
+                  <svg className="absolute left-4 top-3.5 h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Buscador Específico */}
+              <div className="flex-1 min-w-[200px] flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Buscador Específico</label>
+                <input
+                  type="text"
+                  placeholder="CÓDIGO EXACTO, ORIGINAL, ..."
+                  value={searchSpecific}
+                  onChange={(e) => setSearchSpecific(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
+                />
+              </div>
+
+              {/* Categoría */}
+              <div className="flex-1 min-w-[140px] flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Categoría</label>
+                <select
+                  value={categoria}
+                  onChange={(e) => {
+                    setCategoria(e.target.value);
+                    setSubcategoria("");
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="">TODAS</option>
+                  {categorias.map((item) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.descripcion}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Subcategoría */}
+              <div className="flex-1 min-w-[140px] flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Subcategoría</label>
+                <select
+                  value={subcategoria}
+                  disabled={!categoria}
+                  onChange={(e) => setSubcategoria(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="">TODAS</option>
+                  {subcategoriasDisponibles.map((item) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.descripcion}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Marca */}
+              <div className="flex-1 min-w-[140px] flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Marca</label>
+                <select
+                  value={marca}
+                  onChange={(e) => setMarca(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="">TODAS</option>
+                  {marcas.map((item) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.descripcion}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Proveedor */}
+              <div className="flex-1 min-w-[140px] flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Proveedor</label>
+                <select
+                  value={proveedor}
+                  onChange={(e) => setProveedor(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="">TODOS</option>
+                  {proveedores.map((item) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.descripcion}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between mt-1">
+              <div className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                Resultados: <span className="text-slate-900 dark:text-white font-bold">{filteredProducts.length}</span>
+              </div>
+              <button
+                onClick={clearFilters}
+                className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border border-slate-200 rounded-lg hover:bg-slate-100 hover:text-slate-900 transition-colors dark:text-slate-500 dark:border-slate-800/50 dark:hover:bg-slate-800 dark:hover:text-white"
+              >
+                Limpiar filtros
+              </button>
+            </div>
+          </section>
+
+          {/* Tabla de Resultados */}
+          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900/30">
+            <table className="w-full border-collapse text-left table-fixed">
+              <thead className="bg-slate-50 dark:bg-slate-800/50">
+                <tr>
+                  <th className="w-[120px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Código</th>
+                  <th className="px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Descripción</th>
+                  <th className="w-[80px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Foto</th>
+                  <th className="w-[80px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Medidas</th>
+                  <th className="w-[130px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Marca</th>
+                  <th className="w-[180px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Rubro</th>
+                  <th className="w-[220px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Proveedores</th>
+                  <th className="w-[60px] px-4 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Stock</th>
+                  <th className="w-[170px] px-4 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredProducts.map((product) => (
+                  <tr
+                    key={product.id}
+                    className="group transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/30"
+                  >
+                    <td className="whitespace-nowrap px-5 py-4">
+                      <div className="flex flex-col">
+                        <span className="font-mono text-sm font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
+                        <span className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 tracking-wider">
+                          {product.codigo_pieza}
+                        </span>
+                      </div>
+                    </td>
+                    <td 
+                      className="px-5 py-4 cursor-help"
+                      onMouseEnter={(e) => handleTooltipEnter(product.id, e.currentTarget.getBoundingClientRect())}
+                      onMouseLeave={handleTooltipLeave}
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                          {product.descripcion}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
+                      {product.imagen_url ? (
+                        <button 
+                          onClick={() => setPreviewImage(product.imagen_url || null)}
+                          className="group relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
+                        >
+                          <Image 
+                            src={product.imagen_url} 
+                            alt="" 
+                            width={40}
+                            height={40}
+                            className="h-full w-full object-cover transition group-hover:scale-110" 
+                          />
+                        </button>
+                      ) : (
+                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
+                          <HiPhotograph className="h-5 w-5 opacity-40" />
+                        </span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
+                      {product.pieza_medida_url ? (
+                        <button
+                          onClick={() => setPreviewImage(product.pieza_medida_url || null)}
+                          className="group relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
+                          title="Ver esquema de medidas"
+                        >
+                          <Image 
+                            src={product.pieza_medida_url} 
+                            alt="" 
+                            width={40}
+                            height={40}
+                            className="h-full w-full object-cover transition group-hover:scale-110" 
+                          />
+                        </button>
+                      ) : (
+                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
+                          <HiPhotograph className="h-5 w-5 opacity-40" />
+                        </span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600 dark:text-slate-300">{product.marca ?? "-"}</td>
+                    <td className="px-5 py-6 text-sm">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">{product.categoria ?? "-"}</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500">{product.subcategoria ?? "-"}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-6 text-sm text-slate-600 dark:text-slate-400 break-words line-clamp-2 hover:line-clamp-none transition-all">
+                      {product.proveedor ?? "-"}
+                    </td>
+                    <td className="px-4 py-6 text-sm text-slate-700 dark:text-slate-300 font-bold">{product.stock}</td>
+                    <td className="whitespace-nowrap px-4 py-4">
+                      <div className="flex items-center justify-center gap-2">
+                        {canManage ? (
+                          <>
+                            <PencilButton
+                              label={`Editar producto ${product.descripcion}`}
+                              onClick={() => setEditingProduct(product)}
+                            />
+                            <CopyButton
+                              label={`Duplicar producto ${product.descripcion}`}
+                              onClick={() => setDuplicatingProduct(product)}
+                            />
+                            <TrashButton
+                              label={`Borrar producto ${product.descripcion}`}
+                              onClick={() => setDeletingProduct(product)}
+                              disabled={isDeleting && deletingProduct?.id === product.id}
+                            />
+                          </>
+                        ) : (
+                          <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredProducts.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
+                      No hay productos que coincidan con los filtros.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       {hoveredProduct && (
         <div
-          className="fixed z-[60] w-[420px] rounded-xl bg-slate-800 p-4 text-left text-sm text-white shadow-2xl"
+          className="fixed z-[60] w-[420px] rounded-2xl border border-slate-200 bg-white p-5 text-left text-sm text-slate-900 shadow-2xl dark:border-slate-700 dark:bg-slate-800 dark:text-white"
           style={{ top: tooltipPosition.top, left: tooltipPosition.left }}
           onMouseEnter={() => {
             if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
@@ -491,9 +514,9 @@ export function ProductList({ products, totalPages = 1 }: Props) {
               {hoveredProduct.proveedores_detalle && hoveredProduct.proveedores_detalle.length > 0 ? (
                 <div className="space-y-1.5">
                   {hoveredProduct.proveedores_detalle.map((item, index) => (
-                    <div key={`prov-${hoveredProduct.id}-${index}`} className="flex items-center gap-2 rounded bg-slate-700/50 px-2 py-1 text-xs text-slate-200">
-                      <span className="font-semibold">{item.proveedor}</span>
-                      <span className="text-slate-400">— {item.codigo_proveedor || "Sin código"}</span>
+                    <div key={`prov-${hoveredProduct.id}-${index}`} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5 text-xs text-slate-700 dark:bg-slate-700/50 dark:border-slate-600 dark:text-slate-200">
+                      <span className="font-bold">{item.proveedor}</span>
+                      <span className="text-slate-400 dark:text-slate-400">— {item.codigo_proveedor || "Sin código"}</span>
                     </div>
                   ))}
                 </div>
@@ -552,7 +575,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
       >
         <div className="flex items-center justify-center p-4">
           {previewImage && (
-            <div className="relative overflow-hidden rounded-xl shadow-2xl border border-slate-200 bg-white"
+            <div className="relative overflow-hidden rounded-xl shadow-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
               onClick={() => setIsZoomed(!isZoomed)}
               onMouseMove={(e) => {
                 if (!isZoomed) return;

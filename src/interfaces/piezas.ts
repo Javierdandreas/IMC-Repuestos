@@ -25,6 +25,8 @@ export type Pieza = {
   id_subcategoria: number | null;
   originales: string[];
   equivalentes: string[];
+  sustitutos: string[];
+  medida: string | null;
 };
 
 export type PiezaListado = {
@@ -37,6 +39,9 @@ export type PiezaListado = {
   categoria: string;
   originales: string[];
   equivalentes: string[];
+  sustitutos: string[];
   cantidad_originales: number;
   cantidad_equivalentes: number;
+  cantidad_sustitutos: number;
+  medida: string | null;
 };

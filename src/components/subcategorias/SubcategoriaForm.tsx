@@ -85,39 +85,42 @@ export function SubcategoriaForm({
   };
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div>
+        <label className="block mb-2 text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Categoría</label>
+        <select
+          value={idCategoria}
+          onChange={(e) => setIdCategoria(e.target.value)}
+          className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          required
+        >
+          <option value="">Seleccionar categoría</option>
+          {categorias.map((cat) => (
+            <option key={cat.id} value={cat.id}>
+              {cat.descripcion}
+            </option>
+          ))}
+        </select>
+      </div>
 
-      <label className="block mb-2 font-medium">Categoría</label>
-      <select
-        value={idCategoria}
-        onChange={(e) => setIdCategoria(e.target.value)}
-        className="w-full border rounded-md p-3 mb-6"
-        required
-      >
-        <option value="">Seleccionar categoría</option>
-        {categorias.map((cat) => (
-          <option key={cat.id} value={cat.id}>
-            {cat.descripcion}
-          </option>
-        ))}
-      </select>
+      <div>
+        <label className="block mb-2 text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Descripción</label>
+        <input
+          type="text"
+          value={descripcion}
+          onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
+          className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          placeholder="Ingresar subcategoría"
+          required
+        />
+      </div>
 
-      <label className="block mb-2 font-medium">Descripción</label>
-      <input
-        type="text"
-        value={descripcion}
-        onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
-        className="w-full border rounded-md p-3 mb-6 uppercase"
-        placeholder="Ingresar subcategoría"
-        required
-      />
-
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-3 pt-2">
         {onCancel && (
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+            className="px-6 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             Cancelar
           </button>
@@ -126,7 +129,7 @@ export function SubcategoriaForm({
         <button
           type="submit"
           disabled={loading}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          className="bg-slate-900 text-white px-8 py-2.5 rounded-xl font-bold transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-lg active:scale-95"
         >
           {loading ? "Guardando..." : subcategoriaId ? "Actualizar" : "Guardar"}
         </button>

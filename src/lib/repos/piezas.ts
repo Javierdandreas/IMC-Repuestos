@@ -13,20 +13,24 @@ export type ConflictRow = {
 
 type PiezaInput = {
   descripcion: string;
+  medida?: string | null;
   imagen_medida_url?: string | null;
   id_subcategoria: number;
   originales?: string[];
   equivalentes?: string[];
+  sustitutos?: string[];
 };
 
 
 function sanitizePiezaInput(input: PiezaInput) {
   return {
     descripcion: sanitizeText(input.descripcion),
+    medida: sanitizeText(input.medida) || null,
     imagenMedidaUrl: input.imagen_medida_url || null,
     idSubcategoria: Number(input.id_subcategoria),
     originales: sanitizeCodes(input.originales),
     equivalentes: sanitizeCodes(input.equivalentes),
+    sustitutos: sanitizeCodes(input.sustitutos),
   };
 }
 
@@ -62,7 +66,7 @@ export async function findOrCreateCodigo(client: DbClient, codigo: string) {
 export async function findCodeConflicts(
   client: DbClient,
   codes: string[],
-  tipo: "ORIGINAL" | "EQUIVALENTE",
+  tipo: "ORIGINAL" | "EQUIVALENTE" | "SUSTITUTO",
   excludePieceId?: number
 ): Promise<ConflictRow[]> {
   if (codes.length === 0) return [];
@@ -114,7 +118,7 @@ export function buildWarningMessage(conflicts: ConflictRow[]) {
 async function attachCodigosToPieza(
   client: DbClient,
   pieceId: number | string,
-  tipo: "ORIGINAL" | "EQUIVALENTE",
+  tipo: "ORIGINAL" | "EQUIVALENTE" | "SUSTITUTO",
   codigos: string[]
 ) {
   for (const codigo of codigos) {
@@ -134,11 +138,21 @@ async function replacePiezaCodigos(
   client: DbClient,
   pieceId: number | string,
   originales: string[],
-  equivalentes: string[]
+  equivalentes: string[],
+  sustitutos: string[]
 ) {
   await client.query(`DELETE FROM pieza_codigo_referencia WHERE id_pieza = $1`, [pieceId]);
   await attachCodigosToPieza(client, pieceId, "ORIGINAL", originales);
   await attachCodigosToPieza(client, pieceId, "EQUIVALENTE", equivalentes);
+  await attachCodigosToPieza(client, pieceId, "SUSTITUTO", sustitutos);
+}
+
+async function cleanupOrphanedCodes(client: DbClient) {
+  // Elimina códigos que ya no están referenciados por ninguna pieza
+  await client.query(`
+    DELETE FROM codigo_referencia 
+    WHERE id NOT IN (SELECT id_codigo_referencia FROM pieza_codigo_referencia)
+  `);
 }
 
 export async function getPiezasListado(page: number = 1, limit: number = 50): Promise<{ data: PiezaListado[]; totalCount: number; totalPages: number }> {
@@ -147,6 +161,7 @@ export async function getPiezasListado(page: number = 1, limit: number = 50): Pr
       p.id,
       p.codigo_pieza,
       p.descripcion,
+      p.medida,
       p.imagen_medida_url,
       p.id_subcategoria,
       s.descripcion AS subcategoria,
@@ -159,14 +174,19 @@ export async function getPiezasListado(page: number = 1, limit: number = 50): Pr
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'EQUIVALENTE' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
       ) AS equivalentes,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'SUSTITUTO' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS sustitutos,
       COUNT(DISTINCT cr.id) FILTER (WHERE pcr.tipo = 'ORIGINAL') AS cantidad_originales,
-      COUNT(DISTINCT cr.id) FILTER (WHERE pcr.tipo = 'EQUIVALENTE') AS cantidad_equivalentes
+      COUNT(DISTINCT cr.id) FILTER (WHERE pcr.tipo = 'EQUIVALENTE') AS cantidad_equivalentes,
+      COUNT(DISTINCT cr.id) FILTER (WHERE pcr.tipo = 'SUSTITUTO') AS cantidad_sustitutos
     FROM pieza p
     JOIN subcategoria s ON s.id = p.id_subcategoria
     JOIN categoria c ON c.id = s.id_categoria
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
-    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.imagen_medida_url, p.id_subcategoria, s.descripcion, c.descripcion
+    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.imagen_medida_url, p.id_subcategoria, s.descripcion, c.descripcion
     ORDER BY p.codigo_pieza ASC
   `;
 
@@ -179,6 +199,7 @@ export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {
       p.id,
       p.codigo_pieza,
       p.descripcion,
+      p.medida,
       p.imagen_medida_url,
       c.id AS id_categoria,
       c.descripcion AS categoria,
@@ -191,13 +212,17 @@ export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'EQUIVALENTE' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
-      ) AS equivalentes
+      ) AS equivalentes,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'SUSTITUTO' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS sustitutos
     FROM pieza p
     JOIN subcategoria s ON s.id = p.id_subcategoria
     JOIN categoria c ON c.id = s.id_categoria
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
-    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.imagen_medida_url, c.id, c.descripcion, s.id, s.descripcion
+    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.imagen_medida_url, c.id, c.descripcion, s.id, s.descripcion
     ORDER BY p.codigo_pieza ASC
   `;
   const { rows } = await query(sql);
@@ -216,7 +241,7 @@ export async function getNextCodigoPieza(): Promise<number> {
 
 export async function getPiezaById(id: string | number): Promise<Pieza | null> {
   const piezaQuery = `
-    SELECT p.id, p.codigo_pieza, p.descripcion, p.imagen_medida_url, p.id_subcategoria, s.id_categoria
+    SELECT p.id, p.codigo_pieza, p.descripcion, p.medida, p.imagen_medida_url, p.id_subcategoria, s.id_categoria
     FROM pieza p
     JOIN subcategoria s ON s.id = p.id_subcategoria
     WHERE p.id = $1
@@ -238,14 +263,13 @@ export async function getPiezaById(id: string | number): Promise<Pieza | null> {
   if (piezaRes.rows.length === 0) return null;
 
   const pieza = piezaRes.rows[0];
+  const codigos = codigosRes.rows as { codigo: string; tipo: string }[];
+
   return {
     ...pieza,
-    originales: (codigosRes.rows as { codigo: string; tipo: string }[])
-      .filter((row) => row.tipo === "ORIGINAL")
-      .map((row) => row.codigo),
-    equivalentes: (codigosRes.rows as { codigo: string; tipo: string }[])
-      .filter((row) => row.tipo === "EQUIVALENTE")
-      .map((row) => row.codigo),
+    originales: codigos.filter((row) => row.tipo === "ORIGINAL").map((row) => row.codigo),
+    equivalentes: codigos.filter((row) => row.tipo === "EQUIVALENTE").map((row) => row.codigo),
+    sustitutos: codigos.filter((row) => row.tipo === "SUSTITUTO").map((row) => row.codigo),
   } as Pieza;
 }
 
@@ -267,16 +291,17 @@ export async function createPieza(input: PiezaInput) {
 
     const piezaResult = await client.query(
       `
-        INSERT INTO pieza (descripcion, imagen_medida_url, id_subcategoria)
-        VALUES ($1, $2, $3)
+        INSERT INTO pieza (descripcion, medida, imagen_medida_url, id_subcategoria)
+        VALUES ($1, $2, $3, $4)
         RETURNING *
       `,
-      [payload.descripcion, payload.imagenMedidaUrl, payload.idSubcategoria]
+      [payload.descripcion, payload.medida, payload.imagenMedidaUrl, payload.idSubcategoria]
     );
 
     const pieza = piezaResult.rows[0];
     await attachCodigosToPieza(client, pieza.id, "ORIGINAL", payload.originales);
     await attachCodigosToPieza(client, pieza.id, "EQUIVALENTE", payload.equivalentes);
+    await attachCodigosToPieza(client, pieza.id, "SUSTITUTO", payload.sustitutos);
 
     revalidateTag("meta");
 
@@ -288,7 +313,11 @@ export async function createPieza(input: PiezaInput) {
 }
 
 export async function updatePieza(id: string | number, input: PiezaInput) {
-  return await withTransaction(async (client) => {
+  // Obtenemos la pieza ANTES para saber si la imagen cambió
+  const existingPieza = await getPiezaById(id);
+  const oldImageUrl = existingPieza?.imagen_medida_url;
+
+  const result = await withTransaction(async (client) => {
     const numericId = Number(id);
     const payload = sanitizePiezaInput(input);
     validatePiezaInput(payload);
@@ -308,13 +337,14 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
       `
         UPDATE pieza
         SET descripcion = $1,
-            imagen_medida_url = $2,
-            id_subcategoria = $3,
+            medida = $2,
+            imagen_medida_url = $3,
+            id_subcategoria = $4,
             updated_at = now()
-        WHERE id = $4
+        WHERE id = $5
         RETURNING *
       `,
-      [payload.descripcion, payload.imagenMedidaUrl, payload.idSubcategoria, id]
+      [payload.descripcion, payload.medida, payload.imagenMedidaUrl, payload.idSubcategoria, id]
     );
 
     if ((updateResult.rowCount ?? 0) === 0) {
@@ -323,7 +353,10 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
       throw err;
     }
 
-    await replacePiezaCodigos(client, id, payload.originales, payload.equivalentes);
+    await replacePiezaCodigos(client, id, payload.originales, payload.equivalentes, payload.sustitutos);
+    
+    // Limpieza de códigos huérfanos
+    await cleanupOrphanedCodes(client);
 
     revalidateTag("meta");
 
@@ -332,6 +365,15 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
       warning: equivalenteConflicts.length > 0 ? buildWarningMessage(equivalenteConflicts) : null,
     };
   });
+
+  // Si la transacción fue exitosa y la imagen cambió, borramos la vieja
+  const newImageUrl = input.imagen_medida_url;
+  if (oldImageUrl && oldImageUrl !== newImageUrl) {
+    // No usamos await aquí para no retrasar la respuesta, pero lo llamamos
+    deleteFileFromStorage(oldImageUrl, "piezas");
+  }
+
+  return result;
 }
 
 export async function deletePieza(id: string | number) {
@@ -348,6 +390,9 @@ export async function deletePieza(id: string | number) {
     await client.query(`DELETE FROM pieza_codigo_referencia WHERE id_pieza = $1`, [id]);
     const result = await client.query(`DELETE FROM pieza WHERE id = $1`, [id]);
     
+    // Limpieza de códigos huérfanos
+    await cleanupOrphanedCodes(client);
+
     revalidateTag("meta");
     
     return { deleted: (result.rowCount ?? 0) > 0 };

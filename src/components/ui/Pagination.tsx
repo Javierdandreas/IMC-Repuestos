@@ -25,7 +25,7 @@ export function Pagination({ totalPages }: PaginationProps) {
     <div className="flex items-center justify-center gap-2 mt-6 p-4">
       <Link
         href={createPageURL(currentPage - 1)}
-        className={`px-4 py-2 border rounded-md font-medium transition hover:bg-slate-50 ${
+        className={`px-4 py-2 border border-slate-200 rounded-xl font-bold text-sm bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 ${
           currentPage <= 1 ? "pointer-events-none opacity-50" : ""
         }`}
         aria-disabled={currentPage <= 1}
@@ -33,13 +33,13 @@ export function Pagination({ totalPages }: PaginationProps) {
         Anterior
       </Link>
 
-      <span className="text-sm font-medium text-slate-600 px-4">
-        Página {currentPage} de {totalPages}
+      <span className="text-sm font-bold text-slate-500 px-4 dark:text-slate-500">
+        Página <span className="text-slate-900 dark:text-white">{currentPage}</span> / {totalPages}
       </span>
 
       <Link
         href={createPageURL(currentPage + 1)}
-        className={`px-4 py-2 border rounded-md font-medium transition hover:bg-slate-50 ${
+        className={`px-4 py-2 border border-slate-200 rounded-xl font-bold text-sm bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 ${
           currentPage >= totalPages ? "pointer-events-none opacity-50" : ""
         }`}
         aria-disabled={currentPage >= totalPages}

@@ -30,6 +30,8 @@ const initialState: Pieza = {
   id_subcategoria: null,
   originales: [],
   equivalentes: [],
+  sustitutos: [],
+  medida: null,
 };
 
 export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categorias, subcategorias, nextCode }: Props) {
@@ -47,10 +49,13 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
       null,
     originales: initialPieza?.originales ?? [],
     equivalentes: initialPieza?.equivalentes ?? [],
+    sustitutos: initialPieza?.sustitutos ?? [],
+    medida: initialPieza?.medida ?? null,
   });
 
   const [originalesTexto, setOriginalesTexto] = useState(codesToText(initialPieza?.originales));
   const [equivalentesTexto, setEquivalentesTexto] = useState(codesToText(initialPieza?.equivalentes));
+  const [sustitutosTexto, setSustitutosTexto] = useState(codesToText(initialPieza?.sustitutos));
 
   const { loading, submit, cancel } = useAppForm({
     url: piezaId ? `/api/piezas/${piezaId}` : "/api/piezas",
@@ -80,18 +85,20 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     e.preventDefault();
     await submit({
       descripcion: pieza.descripcion.trim().toUpperCase(),
+      medida: pieza.medida?.trim().toUpperCase(),
       imagen_medida_url: pieza.imagen_medida_url,
       id_subcategoria: pieza.id_subcategoria,
       originales: splitCodes(originalesTexto),
       equivalentes: splitCodes(equivalentesTexto),
+      sustitutos: splitCodes(sustitutosTexto),
     });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 items-stretch">
         {/* Columna Izquierda: Datos y Descripción */}
-        <div className="space-y-6">
+        <div className="flex flex-col space-y-6">
           <PiezaBasicInfoSection
             codigo_pieza={pieza.codigo_pieza}
             id_categoria={pieza.id_categoria}
@@ -105,13 +112,15 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
 
           <PiezaDescriptionSection
             descripcion={pieza.descripcion}
+            medida={pieza.medida}
             onDescripcionChange={(val) => setPieza((p) => ({ ...p, descripcion: val }))}
+            onMedidaChange={(val) => setPieza((p) => ({ ...p, medida: val }))}
             disabled={loading}
           />
         </div>
 
         {/* Columna Derecha: Imagen */}
-        <div className="space-y-6">
+        <div className="flex flex-col space-y-6">
           <PiezaImageSection
             imagen_medida_url={pieza.imagen_medida_url ?? null}
             onImagenMedidaChange={(val) => setPieza((p) => ({ ...p, imagen_medida_url: val }))}
@@ -120,21 +129,23 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
         </div>
       </div>
 
-      <div className="border-t border-slate-200 pt-6">
+      <div className="border-t border-slate-200 pt-6 dark:border-slate-800">
         <PiezaCodesSection
           originalesTexto={originalesTexto}
           equivalentesTexto={equivalentesTexto}
+          sustitutosTexto={sustitutosTexto}
           onOriginalesChange={setOriginalesTexto}
           onEquivalentesChange={setEquivalentesTexto}
+          onSustitutosChange={setSustitutosTexto}
         />
       </div>
 
-      <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
+      <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-6 dark:border-slate-800">
         {onCancel && (
           <button
             type="button"
             onClick={cancel}
-            className="rounded-lg border border-gray-300 px-5 py-2.5 text-gray-700 transition hover:bg-gray-50"
+            className="px-6 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             Cancelar
           </button>
@@ -142,7 +153,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
         <button
           type="submit"
           disabled={loading}
-          className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+          className="bg-slate-900 text-white px-8 py-2.5 rounded-xl font-bold transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-lg active:scale-95"
         >
           {loading ? "Guardando..." : piezaId ? "Actualizar pieza" : "Guardar pieza"}
         </button>

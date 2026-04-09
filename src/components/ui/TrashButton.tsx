@@ -41,7 +41,7 @@ export function TrashButton({
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 text-red-600 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60 ${className}`.trim()}
+      className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-200 text-red-600 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-900/60 dark:hover:text-red-100 ${className}`.trim()}
       {...props}
     >
       {children ?? <TrashIcon />}
@@ -61,7 +61,7 @@ export function TrashLink({
       href={href}
       aria-label={label}
       title={label}
-      className={`inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 text-red-600 transition hover:bg-red-50 hover:text-red-700 ${className}`.trim()}
+      className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-200 text-red-600 transition hover:bg-red-50 hover:text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-900/60 dark:hover:text-red-100 ${className}`.trim()}
       {...props}
     >
       {children ?? <TrashIcon />}

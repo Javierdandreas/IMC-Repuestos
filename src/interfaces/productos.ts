@@ -25,6 +25,8 @@ export type PiezaBusqueda = {
   subcategoria: string;
   originales: string[];
   equivalentes: string[];
+  sustitutos: string[];
+  medida?: string | null;
 };
 
 export type Producto = {
@@ -42,6 +44,8 @@ export type Producto = {
   pieza?: PiezaBusqueda | null;
   originales?: string[];
   equivalentes?: string[];
+  sustitutos?: string[];
+  medida?: string;
 };
 
 export type ProductoListado = {
@@ -61,6 +65,8 @@ export type ProductoListado = {
   proveedores_detalle?: { proveedor: string; codigo_proveedor: string }[];
   originales?: string[];
   equivalentes?: string[];
+  sustitutos?: string[];
+  medida?: string | null;
   pieza_medida_url?: string | null;
   id_pieza?: number | null;
   id_subcategoria?: number | null;
