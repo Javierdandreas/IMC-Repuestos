@@ -48,6 +48,21 @@ export async function paginateQuery<T extends QueryResultRow>(
   limit: number = 50,
   params: any[] = []
 ): Promise<{ data: T[]; totalCount: number; totalPages: number }> {
+  // SEGURIDAD: Validar que la tabla esté en una lista blanca para evitar SQL Injection dinámica
+  const ALLOWED_TABLES = [
+    "productos",
+    "marcas",
+    "proveedores",
+    "ubicaciones",
+    "categoria",
+    "subcategoria",
+    "pieza",
+  ];
+
+  if (!ALLOWED_TABLES.includes(table)) {
+    throw new Error(`Acceso denegado a la tabla: ${table}`);
+  }
+
   const limitNum = Math.max(1, limit);
   const offset = Math.max(0, (page - 1) * limitNum);
 

@@ -15,7 +15,7 @@ export default async function ProveedoresPage({ searchParams }: Props) {
     <CatalogList
       items={proveedores}
       totalPages={totalPages}
-      apiPath="/api/proveedores"
+      apiPath="/api/catalogos/proveedores"
       entityName="proveedor"
       title="Proveedores"
       createLabel="Nuevo proveedor"

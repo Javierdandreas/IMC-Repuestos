@@ -16,9 +16,25 @@ const FK_CHECKS: Record<CatalogTable, FkCheck> = {
 
 const ENTITY_NAMES: Record<CatalogTable, string> = { marcas: 'marca', proveedores: 'proveedor', categoria: 'categoría', ubicaciones: 'ubicación' };
 
+function getOrderByClause(table: CatalogTable): string {
+  if (table === 'ubicaciones') {
+    // Orden natural para ubicaciones (Ej: B1-1-2 antes que B1-1-10)
+    // Usamos CASE + regex check para asegurar que el casteo a INT sea 100% seguro y evitar Runtime Errors
+    const extractNum = (expr: string) => `(CASE WHEN ${expr} ~ '^[0-9]+$' THEN ${expr}::INT ELSE NULL END)`;
+    
+    return `
+      (regexp_match(descripcion, '^[A-Z]+'))[1] ASC NULLS FIRST,
+      ${extractNum("(regexp_match(descripcion, '[0-9]+'))[1]")} ASC NULLS FIRST,
+      ${extractNum("split_part(descripcion, '-', 2)")} ASC NULLS FIRST,
+      ${extractNum("split_part(descripcion, '-', 3)")} ASC NULLS FIRST,
+      ${extractNum("split_part(descripcion, '-', 4)")} ASC NULLS FIRST
+    `;
+  }
+  return 'descripcion ASC';
+}
 
 async function getCatalogo(table: CatalogTable): Promise<CatalogoItem[]> {
-  const { rows } = await query(`SELECT id, descripcion FROM ${table} ORDER BY descripcion ASC`);
+  const { rows } = await query(`SELECT id, descripcion FROM ${table} ORDER BY ${getOrderByClause(table)}`);
   return rows as CatalogoItem[];
 }
 
@@ -30,11 +46,11 @@ export async function getPaginatedCatalogo(table: CatalogTable, page: number = 1
 
   if (totalCount === 0) return { data: [], totalCount: 0, totalPages: 0 };
 
-  const { rows } = await query(`SELECT id, descripcion FROM ${table} ORDER BY descripcion ASC LIMIT $1 OFFSET $2`, [limit, offset]);
+  const { rows } = await query(`SELECT id, descripcion FROM ${table} ORDER BY ${getOrderByClause(table)} LIMIT $1 OFFSET $2`, [limit, offset]);
   return { data: rows as CatalogoItem[], totalCount, totalPages };
 }
 
-async function createCatalogo(table: CatalogTable, descripcion: unknown): Promise<CatalogoItem> {
+export async function createCatalogo(table: CatalogTable, descripcion: unknown): Promise<CatalogoItem> {
   const clean = cleanDescripcion(descripcion);
   if (!clean) throw new Error("La descripción es obligatoria");
 
@@ -61,7 +77,7 @@ async function createCatalogo(table: CatalogTable, descripcion: unknown): Promis
   });
 }
 
-async function updateCatalogo(table: CatalogTable, id: string | number, descripcion: unknown): Promise<CatalogoItem> {
+export async function updateCatalogo(table: CatalogTable, id: string | number, descripcion: unknown): Promise<CatalogoItem> {
   const clean = cleanDescripcion(descripcion);
   if (!clean) throw new Error("La descripción es obligatoria");
 
@@ -93,7 +109,7 @@ async function updateCatalogo(table: CatalogTable, id: string | number, descripc
   });
 }
 
-async function deleteCatalogo(table: CatalogTable, id: string | number): Promise<void> {
+export async function deleteCatalogo(table: CatalogTable, id: string | number): Promise<void> {
   const fkCheck = FK_CHECKS[table];
   const entityName = ENTITY_NAMES[table];
 

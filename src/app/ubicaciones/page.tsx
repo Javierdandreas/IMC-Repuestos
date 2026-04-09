@@ -15,7 +15,7 @@ export default async function UbicacionesPage({ searchParams }: Props) {
     <CatalogList
       items={ubicaciones}
       totalPages={totalPages}
-      apiPath="/api/ubicaciones"
+      apiPath="/api/catalogos/ubicaciones"
       entityName="ubicación"
       title="Ubicaciones"
       createLabel="Nueva ubicación"

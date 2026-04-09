@@ -15,7 +15,7 @@ export default async function MarcasPage({ searchParams }: Props) {
     <CatalogList
       items={marcas}
       totalPages={totalPages}
-      apiPath="/api/marcas"
+      apiPath="/api/catalogos/marcas"
       entityName="marca"
       title="Marcas"
       createLabel="Nueva marca"
