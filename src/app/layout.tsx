@@ -10,6 +10,7 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { getServerInternalUser } from "@/lib/auth";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/react";
+import SessionTimeout from "@/components/auth/SessionTimeout";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -52,6 +53,7 @@ export default async function RootLayout({
       <body className={`${inter.className} bg-white dark:bg-slate-950`}>
         <ThemeProvider>
           <UserProvider initialUser={user}>
+            <SessionTimeout />
             <MetadataProvider initialMeta={meta}>
               <AppShell>{children}</AppShell>
               <Toaster richColors position="top-right" />

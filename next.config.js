@@ -7,7 +7,12 @@ const nextConfig = {
       {
         source: "/(.*)",
         headers: [
-          // Previene clickjacking (que tu app se cargue dentro de un iframe ajeno)
+          // Contenido de seguridad (Cubre XSS, inyecciones de datos, etc)
+          {
+            key: "Content-Security-Policy",
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://mzvzinbjclndofhceaaa.supabase.co; connect-src 'self' https://mzvzinbjclndofhceaaa.supabase.co https://*.vercel-insights.com; font-src 'self' data:; frame-ancestors 'none'; upgrade-insecure-requests;",
+          },
+          // Previene clickjacking
           { key: "X-Frame-Options", value: "DENY" },
           // Evita que el browser infiera el content-type (previene ataques MIME sniffing)
           { key: "X-Content-Type-Options", value: "nosniff" },
@@ -21,7 +26,7 @@ const nextConfig = {
           // Controla a qué APIs del browser puede acceder la app
           {
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
           },
         ],
       },

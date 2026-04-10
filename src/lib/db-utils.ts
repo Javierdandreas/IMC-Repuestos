@@ -63,11 +63,17 @@ export async function paginateQuery<T extends QueryResultRow>(
     throw new Error(`Acceso denegado a la tabla: ${table}`);
   }
 
+  // SEGURIDAD: Evitar que dataQuery contenga múltiples sentencias o caracteres sospechosos
+  if (dataQuery.includes(";") || dataQuery.toLowerCase().includes("drop ") || dataQuery.toLowerCase().includes("truncate ")) {
+    throw new Error("Consulta denegada por motivos de seguridad.");
+  }
+
   const limitNum = Math.max(1, limit);
   const offset = Math.max(0, (page - 1) * limitNum);
 
-  // Consulta el total de registros
-  const countResult = await query(`SELECT COUNT(*) FROM ${table}`);
+  // Consulta el total de registros usando una subconsulta para mayor precisión y seguridad
+  const countSql = `SELECT COUNT(*) FROM (${dataQuery}) AS count_subquery`;
+  const countResult = await query(countSql, params);
   const totalCount = parseInt(countResult.rows[0].count, 10);
   const totalPages = Math.ceil(totalCount / limitNum);
 
@@ -75,7 +81,7 @@ export async function paginateQuery<T extends QueryResultRow>(
     return { data: [], totalCount: 0, totalPages: 0 };
   }
 
-  // Agrega limit y offset al final de la consulta de datos si es necesario
+  // Agrega limit y offset al final de la consulta de datos
   const finalSql = `${dataQuery} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
   const { rows } = await query(finalSql, [...params, limitNum, offset]);
 
