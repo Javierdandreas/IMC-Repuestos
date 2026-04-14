@@ -6,7 +6,7 @@ import path from 'path';
 // Parse .env.local
 const envPath = path.resolve('.env.local');
 const envContent = fs.readFileSync(envPath, 'utf8');
-const processEnv = {};
+const processEnv: Record<string, string> = {};
 envContent.split('\n').forEach(line => {
   const [key, ...rest] = line.split('=');
   if (key && rest.length > 0) processEnv[key.trim()] = rest.join('=').trim();
