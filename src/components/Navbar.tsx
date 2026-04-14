@@ -11,7 +11,6 @@ import { HiChevronDown } from "react-icons/hi";
 const mainNavLinks = [
   { href: "/", label: "Productos" },
   { href: "/piezas", label: "Piezas" },
-  { href: "https://imc-cerebro.vercel.app/", label: "Presupuestos" },
 ];
 
 const catalogLinks = [
@@ -124,6 +123,17 @@ export const Navbar = () => {
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-3">
+          <Link
+            href="https://imc-cerebro.vercel.app/"
+            rel="noopener noreferrer"
+            className="hidden items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-900 transition-all hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 lg:flex"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500"></span>
+            </span>
+            Presupuestos
+          </Link>
           <ThemeToggle />
           <LogoutButton />
         </div>
@@ -146,6 +156,13 @@ export const Navbar = () => {
             </Link>
           );
         })}
+        <Link
+          href="https://imc-cerebro.vercel.app/"
+          rel="noopener noreferrer"
+          className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition-all hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300"
+        >
+          Presupuestos
+        </Link>
         {catalogLinks.map((link) => {
           const isActive = pathname === link.href;
           return (
