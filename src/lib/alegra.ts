@@ -11,6 +11,8 @@ export interface AlegraItemPayload {
   inventory?: {
     unit?: string;
     availableQuantity?: number;
+    initialQuantity?: number;
+    unitCost?: number;
     negativeStock?: boolean;
   };
   tax?: { id: number }[];
