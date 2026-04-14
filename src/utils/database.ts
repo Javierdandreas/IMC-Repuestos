@@ -53,6 +53,12 @@ const poolConfig = connectionString
 
 export const pool = globalForPg.__imcPgPool ?? new Pool(poolConfig);
 
+// Agregar listener de errores globales al pool para diagnóstico
+pool.on('error', (err) => {
+  console.error('❌ Error inesperado en el pool de PostgreSQL:', err.message);
+  if (err.stack) console.error(err.stack);
+});
+
 if (process.env.NODE_ENV !== "production") {
   globalForPg.__imcPgPool = pool;
 }

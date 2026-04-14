@@ -91,7 +91,7 @@ export function SubcategoriaForm({
         <select
           value={idCategoria}
           onChange={(e) => setIdCategoria(e.target.value)}
-          className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
           required
         >
           <option value="">Seleccionar categoría</option>
@@ -109,7 +109,7 @@ export function SubcategoriaForm({
           type="text"
           value={descripcion}
           onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
-          className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 uppercase outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
           placeholder="Ingresar subcategoría"
           required
         />

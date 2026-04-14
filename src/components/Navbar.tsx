@@ -11,6 +11,7 @@ import { HiChevronDown } from "react-icons/hi";
 const mainNavLinks = [
   { href: "/", label: "Productos" },
   { href: "/piezas", label: "Piezas" },
+  { href: "https://imc-cerebro.vercel.app/", label: "Presupuestos" },
 ];
 
 const catalogLinks = [
@@ -74,11 +75,10 @@ export const Navbar = () => {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-200 ${
-                  isActive
+                className={`rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-200 ${isActive
                     ? "bg-slate-900 text-white shadow-md dark:bg-white dark:text-slate-900"
                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white"
-                }`}
+                  }`}
               >
                 {link.label}
               </Link>
@@ -89,18 +89,17 @@ export const Navbar = () => {
             <button
               onClick={() => setIsCatalogOpen(!isCatalogOpen)}
               onMouseEnter={() => setIsCatalogOpen(true)}
-              className={`flex items-center gap-1 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-200 ${
-                isCatalogActive || isCatalogOpen
+              className={`flex items-center gap-1 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-200 ${isCatalogActive || isCatalogOpen
                   ? "bg-slate-100 text-slate-900 dark:bg-slate-900 dark:text-white"
                   : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white"
-              }`}
+                }`}
             >
               Catálogos
               <HiChevronDown className={`h-4 w-4 transition-transform duration-200 ${isCatalogOpen ? "rotate-180" : ""}`} />
             </button>
 
             {isCatalogOpen && (
-              <div 
+              <div
                 onMouseLeave={() => setIsCatalogOpen(false)}
                 className="absolute left-1/2 mt-2 w-48 -translate-x-1/2 animate-in fade-in zoom-in duration-200 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl ring-1 ring-slate-900/5 dark:border-slate-800 dark:bg-slate-900 dark:ring-white/5"
               >
@@ -110,11 +109,10 @@ export const Navbar = () => {
                     <Link
                       key={link.href}
                       href={link.href}
-                      className={`block rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-                        isActive
+                      className={`block rounded-lg px-4 py-2 text-sm font-medium transition-all ${isActive
                           ? "bg-slate-900 text-white shadow-lg dark:bg-white dark:text-slate-900"
                           : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white"
-                      }`}
+                        }`}
                     >
                       {link.label}
                     </Link>
@@ -139,11 +137,10 @@ export const Navbar = () => {
             <Link
               key={link.href}
               href={link.href}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-                isActive
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${isActive
                   ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-              }`}
+                }`}
             >
               {link.label}
             </Link>
@@ -155,11 +152,10 @@ export const Navbar = () => {
             <Link
               key={link.href}
               href={link.href}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-                isActive
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${isActive
                   ? "bg-blue-600 text-white dark:bg-blue-500"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-              }`}
+                }`}
             >
               {link.label}
             </Link>

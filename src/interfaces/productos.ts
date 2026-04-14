@@ -48,6 +48,7 @@ export type Producto = {
   equivalentes?: string[];
   sustitutos?: string[];
   medida?: string;
+  alegra_id?: string | null;
 };
 
 export type ProductoListado = {
@@ -64,6 +65,7 @@ export type ProductoListado = {
   proveedor?: string | null;
   codigo_proveedor?: string | null;
   imagen_url?: string | null;
+  alegra_id?: string | null;
   proveedores_detalle?: { proveedor: string; codigo_proveedor: string }[];
   originales?: string[];
   equivalentes?: string[];

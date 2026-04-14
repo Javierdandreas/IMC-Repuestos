@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "alegra-mcp": {
+      "type": "streamable-http",
+      "streamable": true,
+      "url": "https://mcp.alegra.com/mcp",
+      "headers": {
+        "Authorization": "${env:ALEGRA_MCP_AUTHORIZATION}",
+        "mcp-groups": "invoices,items,contacts,banks,income-payments,resolutions,currencies,sellers,taxes,retentions"
+      }
+    }
+  }
+}

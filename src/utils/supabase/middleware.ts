@@ -17,8 +17,19 @@ export async function updateSession(request: NextRequest): Promise<MiddlewareSes
     },
   });
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.warn("⚠️ NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY no están definidas.");
+    return {
+      response: supabaseResponse,
+      authUserId: null,
+      usuarioId: null,
+      rol: "",
+      activo: false,
+    };
+  }
 
   const supabase = createServerClient(supabaseUrl, supabaseKey, {
     cookies: {

@@ -1,4 +1,5 @@
 import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
+import { alegraApi } from "@/lib/alegra";
 import type { Producto, ProductoListado, ProveedorProducto } from "@/interfaces/productos";
 import type { DbClient } from "@/lib/db-utils";
 import { 
@@ -95,6 +96,7 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       s.descripcion AS subcategoria,
       p.id_ubicacion,
       u.descripcion AS ubicacion,
+      p.alegra_id,
       STRING_AGG(DISTINCT prv.descripcion, ', ') AS proveedor,
       STRING_AGG(DISTINCT NULLIF(TRIM(pp.codigo_proveedor), ''), ', ') AS codigo_proveedor,
       COALESCE(
@@ -143,7 +145,8 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       p.id_subcategoria,
       p.id_ubicacion,
       u.descripcion,
-      p.imagen_url
+      p.imagen_url,
+      p.alegra_id
     ORDER BY p.id DESC
   `;
 
@@ -214,7 +217,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       pc.descripcion,
       pi.medida,
       p.id_ubicacion,
-      u.descripcion
+      u.descripcion,
+      p.alegra_id
     `;
 
   const [productRes, proveedores] = await Promise.all([
@@ -351,6 +355,35 @@ export async function createProducto(input: ProductoInput) {
     const newProduct = productResult.rows[0];
     await syncProductoProveedores(client, newProduct.id, payload.proveedores);
 
+    // Sincronización con Alegra (opcional/segundo plano)
+    try {
+      // Intentamos buscar el impuesto del 21% dinámicamente
+      const taxId = await alegraApi.getTaxIdByPercentage(21);
+      
+      const alegraResult = await alegraApi.createItem({
+        name: payload.cod_unico,
+        reference: payload.cod_barra || '',
+        description: payload.descripcion,
+        price: [{ price: 0 }],
+        inventory: {
+          unit: "unit",
+          unitCost: 0,
+          initialQuantity: payload.stock || 0,
+        },
+        tax: taxId ? [{ id: taxId }] : []
+      });
+
+      if (alegraResult && alegraResult.id) {
+        await client.query("UPDATE productos SET alegra_id = $1 WHERE id = $2", [
+          alegraResult.id.toString(),
+          newProduct.id
+        ]);
+        newProduct.alegra_id = alegraResult.id.toString();
+      }
+    } catch (alegraError) {
+      console.warn("⚠️ Fallo la sincronización con Alegra:", alegraError);
+    }
+
     return newProduct;
   });
 }
@@ -408,7 +441,28 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
 
     await syncProductoProveedores(client, id, payload.proveedores);
 
-    return result.rows[0];
+    const updatedProduct = result.rows[0];
+
+    // Sincronización con Alegra (Actualización)
+    if (updatedProduct.alegra_id) {
+      try {
+        const taxId = await alegraApi.getTaxIdByPercentage(21);
+        
+        await alegraApi.updateItem(updatedProduct.alegra_id, {
+          name: updatedProduct.cod_unico,
+          reference: updatedProduct.cod_barra || '',
+          description: updatedProduct.descripcion,
+          inventory: {
+            availableQuantity: updatedProduct.stock || 0
+          },
+          tax: taxId ? [{ id: taxId }] : []
+        });
+      } catch (alegraError) {
+        console.warn(`⚠️ Fallo la actualización en Alegra para el producto ${id}:`, alegraError);
+      }
+    }
+
+    return updatedProduct;
   });
 
   // Si la transacción fue exitosa y la imagen cambió, borramos la vieja
