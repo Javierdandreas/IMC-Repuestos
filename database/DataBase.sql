@@ -1,5 +1,7 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
 CREATE TABLE public.categoria (
   id integer NOT NULL DEFAULT nextval('categoria_id_seq'::regclass),
@@ -34,8 +36,9 @@ CREATE TABLE public.pieza (
   activo boolean NOT NULL DEFAULT true,
   created_at timestamp without time zone NOT NULL DEFAULT now(),
   updated_at timestamp without time zone NOT NULL DEFAULT now(),
-  medida text,
   codigo_pieza integer NOT NULL DEFAULT nextval('pieza_codigo_pieza_seq'::regclass) UNIQUE,
+  imagen_medida_url text,
+  medida text,
   CONSTRAINT pieza_pkey PRIMARY KEY (id),
   CONSTRAINT pieza_id_subcategoria_fkey FOREIGN KEY (id_subcategoria) REFERENCES public.subcategoria(id)
 );
@@ -75,10 +78,14 @@ CREATE TABLE public.productos (
   id_marca integer,
   cod_unico character varying,
   id_pieza integer NOT NULL,
+  imagen_url text,
+  id_ubicacion integer,
+  alegra_id character varying,
   CONSTRAINT productos_pkey PRIMARY KEY (id),
   CONSTRAINT productos_id_marca_fkey FOREIGN KEY (id_marca) REFERENCES public.marcas(id),
   CONSTRAINT productos_id_pieza_fkey FOREIGN KEY (id_pieza) REFERENCES public.pieza(id),
-  CONSTRAINT productos_id_subcategoria_fkey FOREIGN KEY (id_subcategoria) REFERENCES public.subcategoria(id)
+  CONSTRAINT productos_id_subcategoria_fkey FOREIGN KEY (id_subcategoria) REFERENCES public.subcategoria(id),
+  CONSTRAINT productos_id_ubicacion_fkey FOREIGN KEY (id_ubicacion) REFERENCES public.ubicaciones(id)
 );
 CREATE TABLE public.proveedores (
   id integer NOT NULL DEFAULT nextval('proveedores_id_seq'::regclass),
@@ -96,6 +103,11 @@ CREATE TABLE public.tipo_precio (
   id integer NOT NULL DEFAULT nextval('tipo_precio_id_seq'::regclass),
   descripcion character varying NOT NULL,
   CONSTRAINT tipo_precio_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.ubicaciones (
+  id integer NOT NULL DEFAULT nextval('ubicaciones_id_seq'::regclass),
+  descripcion character varying NOT NULL UNIQUE,
+  CONSTRAINT ubicaciones_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.usuario (
   id integer NOT NULL DEFAULT nextval('usuario_id_seq'::regclass),

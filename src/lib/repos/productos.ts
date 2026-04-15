@@ -355,28 +355,21 @@ export async function createProducto(input: ProductoInput) {
     const newProduct = productResult.rows[0];
     await syncProductoProveedores(client, newProduct.id, payload.proveedores);
 
-    // Sincronización con Alegra (opcional/segundo plano)
+    // Sincronización con Alegra (asíncrona, no bloquea la creación)
     try {
-      // Intentamos buscar el impuesto del 21% dinámicamente
-      const taxId = await alegraApi.getTaxIdByPercentage(21);
-      
-      const alegraResult = await alegraApi.createItem({
-        name: payload.cod_unico,
-        reference: payload.cod_barra || '',
-        description: payload.descripcion,
-        price: [{ price: 0 }],
-        inventory: {
-          unit: "unit",
-          unitCost: 0,
-          initialQuantity: payload.stock || 0,
-        },
-        tax: taxId ? [{ id: taxId }] : []
+      const alegraResult = await alegraApi.createItemFromProducto({
+        cod_unico:    payload.cod_unico,
+        descripcion:  payload.descripcion,
+        cod_barra:    payload.cod_barra,
+        stock:        payload.stock || 0,
+        ubicacion:    payload.id_ubicacion ? undefined : undefined, // se agrega cuando exista campo texto
+        // precio_venta y costo_unitario = 0 por defecto hasta que se agreguen a la BD
       });
 
       if (alegraResult && alegraResult.id) {
         await client.query("UPDATE productos SET alegra_id = $1 WHERE id = $2", [
           alegraResult.id.toString(),
-          newProduct.id
+          newProduct.id,
         ]);
         newProduct.alegra_id = alegraResult.id.toString();
       }
@@ -446,17 +439,13 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
     // Sincronización con Alegra (Actualización)
     if (updatedProduct.alegra_id) {
       try {
-        const taxId = await alegraApi.getTaxIdByPercentage(21);
-        
-        await alegraApi.updateItem(updatedProduct.alegra_id, {
-          name: updatedProduct.cod_unico,
-          reference: updatedProduct.cod_barra || '',
-          description: updatedProduct.descripcion,
-          inventory: {
-            availableQuantity: updatedProduct.stock || 0
-          },
-          tax: taxId ? [{ id: taxId }] : []
+        const updatePayload = alegraApi.buildItemPayload({
+          cod_unico:   updatedProduct.cod_unico,
+          descripcion: updatedProduct.descripcion,
+          cod_barra:   updatedProduct.cod_barra || '',
+          stock:       updatedProduct.stock || 0,
         });
+        await alegraApi.updateItem(updatedProduct.alegra_id, updatePayload);
       } catch (alegraError) {
         console.warn(`⚠️ Fallo la actualización en Alegra para el producto ${id}:`, alegraError);
       }
