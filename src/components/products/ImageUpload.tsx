@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { HiUpload, HiX, HiPhotograph } from "react-icons/hi";
+import Image from "next/image";
 import { toast } from "sonner";
 
 interface ImageUploadProps {
@@ -166,12 +167,15 @@ export function ImageUpload({
       >
         {value ? (
           <div className="relative h-full w-full p-4 overflow-hidden rounded-xl">
-             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src={value} 
-              alt="Producto" 
-              className="mx-auto block max-h-[350px] rounded-xl object-contain shadow-md" 
-            />
+            <div className="relative mx-auto block h-[350px] w-full max-w-full rounded-xl overflow-hidden shadow-md">
+              <Image 
+                src={value} 
+                alt="Producto" 
+                fill
+                className="object-contain" 
+                unoptimized
+              />
+            </div>
             {!disabled && (
               <button
                 type="button"

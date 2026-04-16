@@ -7,16 +7,15 @@ import { PencilButton } from "@/components/ui/PencilButton";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { CatalogoItem, ProductoListado, Subcategoria, PiezaBusqueda } from "@/interfaces/productos";
-import { normalizeText, normalizeCode, splitCommaList } from "@/utils/text";
+import { ProductoListado, Subcategoria } from "@/interfaces/productos";
+import { normalizeText, normalizeCode } from "@/utils/text";
 import { HiPhotograph } from "react-icons/hi";
+import { motion, AnimatePresence } from "framer-motion";
 
-import Link from "next/link";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
 import { ProductForm } from "@/components/products/ProductForm";
 import { toast } from "sonner";
-import { Pagination } from "@/components/ui/Pagination";
 import { useMetadata } from "@/context/MetadataContext";
 
 interface Props {
@@ -25,11 +24,10 @@ interface Props {
 }
 
 const TOOLTIP_WIDTH = 420;
-const TOOLTIP_HEIGHT = 260;
-const TOOLTIP_MARGIN = 12;
+const TOOLTIP_MARGIN = 16;
 
 export function ProductList({ products, totalPages = 1 }: Props) {
-  const { categorias, subcategorias, marcas, proveedores, piezas } = useMetadata();
+  const { categorias, subcategorias, marcas, proveedores } = useMetadata();
   const { canManage } = usePermissions();
   const router = useRouter();
   const [openNew, setOpenNew] = useState(false);
@@ -44,9 +42,11 @@ export function ProductList({ products, totalPages = 1 }: Props) {
   const [subcategoria, setSubcategoria] = useState("");
   const [marca, setMarca] = useState("");
   const [proveedor, setProveedor] = useState("");
-  const [hoveredProductId, setHoveredProductId] = useState<number | null>(null);
-  const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [isZoomed, setIsZoomed] = useState(false);
+  
+  // Hover state
+  const [hoveredProductId, setHoveredProductId] = useState<number | null>(null);
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const subcategoriasDisponibles = useMemo(() => {
@@ -123,9 +123,51 @@ export function ProductList({ products, totalPages = 1 }: Props) {
   }, [products, searchGeneral, searchSpecific, categoria, subcategoria, marca, proveedor, categorias, subcategorias, marcas, proveedores]);
 
   const hoveredProduct = useMemo(
-    () => filteredProducts.find((item) => item.id === hoveredProductId) ?? null,
+    () => filteredProducts.find(p => p.id === hoveredProductId) ?? null,
     [filteredProducts, hoveredProductId]
   );
+
+  const handleTooltipEnter = (productId: number, event: React.MouseEvent) => {
+    if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+    
+    const rect = event.currentTarget.getBoundingClientRect();
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+
+    let left = rect.right + TOOLTIP_MARGIN;
+    let top = rect.top;
+
+    // Check right space
+    if (left + TOOLTIP_WIDTH > viewportW - TOOLTIP_MARGIN) {
+      const idealLeft = rect.left - TOOLTIP_WIDTH - TOOLTIP_MARGIN;
+      if (idealLeft > TOOLTIP_MARGIN) {
+        left = idealLeft;
+      } else {
+        left = (viewportW - TOOLTIP_WIDTH) / 2;
+        top = rect.bottom + TOOLTIP_MARGIN;
+      }
+    }
+
+    // Precision Fix for Bottom Clipping
+    // If it's in the bottom 40% of the screen, we anchor it to the bottom with margin
+    const threshold = viewportH * 0.6;
+    if (top > threshold) {
+      // Estimated max height of tooltip is around 350-400px
+      // We set a max-h in the UI and here we just push it up
+      top = viewportH - 380 - TOOLTIP_MARGIN; 
+    }
+
+    top = Math.max(TOOLTIP_MARGIN, top);
+
+    setTooltipPos({ top, left });
+    setHoveredProductId(productId);
+  };
+
+  const handleTooltipLeave = () => {
+    tooltipTimeoutRef.current = setTimeout(() => {
+      setHoveredProductId(null);
+    }, 100);
+  };
 
   const clearFilters = () => {
     setSearchGeneral("");
@@ -155,39 +197,6 @@ export function ProductList({ products, totalPages = 1 }: Props) {
     } finally {
       setIsDeleting(false);
     }
-  };
-
-  const handleTooltipEnter = (productId: number, rect: DOMRect) => {
-    if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    const left = rect.right + TOOLTIP_MARGIN;
-    let top = rect.top;
-
-    if (left + TOOLTIP_WIDTH + TOOLTIP_MARGIN > viewportWidth) {
-      // If doesn't fit right, try left
-      const leftAlt = rect.left - TOOLTIP_WIDTH - TOOLTIP_MARGIN;
-      if (leftAlt > TOOLTIP_MARGIN) {
-        setTooltipPosition({ top, left: leftAlt });
-      } else {
-        // Fallback to top center if no side space
-        setTooltipPosition({ top: rect.top - TOOLTIP_HEIGHT - 8, left: Math.max(TOOLTIP_MARGIN, (viewportWidth - TOOLTIP_WIDTH) / 2) });
-      }
-    } else {
-      if (top + TOOLTIP_HEIGHT + TOOLTIP_MARGIN > viewportHeight) {
-        top = viewportHeight - TOOLTIP_HEIGHT - TOOLTIP_MARGIN;
-      }
-      setTooltipPosition({ top, left });
-    }
-    setHoveredProductId(productId);
-  };
-
-  const handleTooltipLeave = () => {
-    tooltipTimeoutRef.current = setTimeout(() => {
-      setHoveredProductId(null);
-    }, 150);
   };
 
   return (
@@ -345,11 +354,11 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                 <tr>
                   <th className="w-[120px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Código</th>
                   <th className="px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Descripción</th>
-                  <th className="w-[80px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Foto</th>
-                  <th className="w-[80px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Medidas</th>
+                  <th className="w-[85px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Foto</th>
+                  <th className="w-[85px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Medidas</th>
                   <th className="w-[130px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Marca</th>
                   <th className="w-[180px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Rubro</th>
-                  <th className="w-[220px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Proveedores</th>
+                  <th className="w-[200px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Proveedores</th>
                   <th className="w-[60px] px-4 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Stock</th>
                   <th className="w-[170px] px-4 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Acciones</th>
                 </tr>
@@ -370,7 +379,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                     </td>
                     <td 
                       className="px-5 py-4 cursor-help"
-                      onMouseEnter={(e) => handleTooltipEnter(product.id, e.currentTarget.getBoundingClientRect())}
+                      onMouseEnter={(e) => handleTooltipEnter(product.id, e)}
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
@@ -383,41 +392,41 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                       {product.imagen_url ? (
                         <button 
                           onClick={() => setPreviewImage(product.imagen_url || null)}
-                          className="group relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
+                          className="group/img relative inline-flex h-11 w-11 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
                         >
                           <Image 
                             src={product.imagen_url} 
                             alt="" 
-                            width={40}
-                            height={40}
-                            className="h-full w-full object-cover transition group-hover:scale-110" 
+                            width={44}
+                            height={44}
+                            className="h-full w-full object-cover transition group-hover/img:scale-110" 
                           />
                         </button>
                       ) : (
-                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
-                          <HiPhotograph className="h-5 w-5 opacity-40" />
-                        </span>
+                        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
+                          <HiPhotograph className="h-6 w-6 opacity-30" />
+                        </div>
                       )}
                     </td>
                     <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
                       {product.pieza_medida_url ? (
                         <button
                           onClick={() => setPreviewImage(product.pieza_medida_url || null)}
-                          className="group relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
+                          className="group/img relative inline-flex h-11 w-11 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
                           title="Ver esquema de medidas"
                         >
                           <Image 
                             src={product.pieza_medida_url} 
                             alt="" 
-                            width={40}
-                            height={40}
-                            className="h-full w-full object-cover transition group-hover:scale-110" 
+                            width={44}
+                            height={44}
+                            className="h-full w-full object-cover transition group-hover/img:scale-110" 
                           />
                         </button>
                       ) : (
-                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
-                          <HiPhotograph className="h-5 w-5 opacity-40" />
-                        </span>
+                        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
+                          <HiPhotograph className="h-6 w-6 opacity-30" />
+                        </div>
                       )}
                     </td>
                     <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600 dark:text-slate-300">{product.marca ?? "-"}</td>
@@ -469,64 +478,69 @@ export function ProductList({ products, totalPages = 1 }: Props) {
         </div>
       </div>
 
-      {hoveredProduct && (
-        <div
-          className="fixed z-[60] w-[420px] rounded-2xl border border-slate-200 bg-white p-5 text-left text-sm text-slate-900 shadow-2xl dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-          style={{ top: tooltipPosition.top, left: tooltipPosition.left }}
-          onMouseEnter={() => {
-            if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-          }}
-          onMouseLeave={handleTooltipLeave}
-        >
-          <div className="space-y-4">
-            <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Números originales</p>
-              {hoveredProduct.originales && hoveredProduct.originales.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {hoveredProduct.originales.map((item) => (
-                    <span key={`orig-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-slate-500 italic">Sin datos</p>
-              )}
-            </div>
+      {/* Reverted Original Style Tooltip */}
+      <AnimatePresence>
+        {hoveredProduct && (
+          <motion.div
+            initial={{ opacity: 0, scale: 1 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1 }}
+            className="fixed z-[100] w-[420px] rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800 dark:text-white pointer-events-none overflow-y-auto max-h-[380px]"
+            style={{ 
+              top: tooltipPos.top, 
+              left: tooltipPos.left
+            }}
+          >
+            <div className="space-y-4">
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Números originales</p>
+                {hoveredProduct.originales && hoveredProduct.originales.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {hoveredProduct.originales.map((item) => (
+                      <span key={`orig-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 italic">Sin datos</p>
+                )}
+              </div>
 
-            <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Números equivalentes</p>
-              {hoveredProduct.equivalentes && hoveredProduct.equivalentes.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {hoveredProduct.equivalentes.map((item) => (
-                    <span key={`equiv-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-slate-500 italic">Sin datos</p>
-              )}
-            </div>
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Números equivalentes</p>
+                {hoveredProduct.equivalentes && hoveredProduct.equivalentes.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {hoveredProduct.equivalentes.map((item) => (
+                      <span key={`equiv-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 italic">Sin datos</p>
+                )}
+              </div>
 
-            <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Proveedores</p>
-              {hoveredProduct.proveedores_detalle && hoveredProduct.proveedores_detalle.length > 0 ? (
-                <div className="space-y-1.5">
-                  {hoveredProduct.proveedores_detalle.map((item, index) => (
-                    <div key={`prov-${hoveredProduct.id}-${index}`} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5 text-xs text-slate-700 dark:bg-slate-700/50 dark:border-slate-600 dark:text-slate-200">
-                      <span className="font-bold">{item.proveedor}</span>
-                      <span className="text-slate-400 dark:text-slate-400">— {item.codigo_proveedor || "Sin código"}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-slate-500 italic">Sin datos</p>
-              )}
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Proveedores</p>
+                {hoveredProduct.proveedores_detalle && hoveredProduct.proveedores_detalle.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {hoveredProduct.proveedores_detalle.map((item, index) => (
+                      <div key={`prov-${hoveredProduct.id}-${index}`} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5 text-xs text-slate-700 dark:bg-slate-700/50 dark:border-slate-600 dark:text-slate-200">
+                        <span className="font-bold">{item.proveedor}</span>
+                        <span className="text-slate-400 dark:text-slate-400">— {item.codigo_proveedor || "Sin código"}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 italic">Sin datos</p>
+                )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <Modal open={openNew} onClose={() => setOpenNew(false)} title="Crear producto">
         <ProductForm onSuccess={() => setOpenNew(false)} />

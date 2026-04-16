@@ -16,6 +16,7 @@ import { PieceSection } from "./sections/PieceSection";
 import { BasicInfoSection } from "./sections/BasicInfoSection";
 import { ClassificationSection } from "./sections/ClassificationSection";
 import { SuppliersSection } from "./sections/SuppliersSection";
+import { ProductSeriesManager } from "./ProductSeriesManager";
 import { ImageUpload } from "./ImageUpload";
 import { useMetadata } from "@/context/MetadataContext";
 
@@ -41,6 +42,7 @@ const initialState: Producto = {
   equivalentes: [],
   sustitutos: [],
   medida: "",
+  usa_numero_serie: false,
 };
 
 
@@ -70,6 +72,7 @@ export function ProductForm({
     equivalentes: initialProduct?.pieza?.equivalentes ?? initialProduct?.equivalentes ?? [],
     sustitutos: initialProduct?.pieza?.sustitutos ?? initialProduct?.sustitutos ?? [],
     medida: initialProduct?.pieza?.medida ?? initialProduct?.medida ?? "",
+    usa_numero_serie: initialProduct?.usa_numero_serie ?? initialState.usa_numero_serie,
     proveedores:
       initialProduct?.proveedores && initialProduct.proveedores.length > 0
         ? initialProduct.proveedores.map((proveedor) => ({
@@ -101,6 +104,7 @@ export function ProductForm({
     },
   });
 
+  const [isSeriesManagerOpen, setIsSeriesManagerOpen] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(!!productId);
   const [piezaSearch, setPiezaSearch] = useState(
     initialProduct?.pieza
@@ -145,6 +149,7 @@ export function ProductForm({
           equivalentes: data.pieza?.equivalentes ?? data.equivalentes ?? [],
           sustitutos: data.pieza?.sustitutos ?? data.sustitutos ?? [],
           medida: data.pieza?.medida ?? data.medida ?? "",
+          usa_numero_serie: data.usa_numero_serie ?? initialState.usa_numero_serie,
           proveedores: data.proveedores?.length > 0
             ? data.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
             : initialState.proveedores
@@ -330,6 +335,7 @@ export function ProductForm({
       id_ubicacion: product.id_ubicacion ?? null,
       imagen_url: product.imagen_url ?? null,
       proveedores: cleanProveedores,
+      usa_numero_serie: product.usa_numero_serie ?? false,
     };
 
     await submit(payload);
@@ -354,6 +360,7 @@ export function ProductForm({
   }
 
   return (
+    <>
     <form
       onSubmit={handleSubmit}
       className="flex flex-col gap-8"
@@ -379,6 +386,10 @@ export function ProductForm({
               onChange={handleChange}
               onGenerateBarcode={handleGenerateBarcode}
               isGenerating={isGeneratingBarcode}
+              usa_numero_serie={product.usa_numero_serie}
+              onToggleSerie={(val) => setProduct(prev => ({ ...prev, usa_numero_serie: val }))}
+              onOpenSeriesManager={productId ? () => setIsSeriesManagerOpen(true) : undefined}
+              isSeriesDirty={initialProduct?.usa_numero_serie !== product.usa_numero_serie}
             />
 
             <ClassificationSection
@@ -542,5 +553,14 @@ export function ProductForm({
             )}
           </div>
       </form>
+
+    {productId && (
+      <ProductSeriesManager
+        productId={Number(productId)}
+        isOpen={isSeriesManagerOpen}
+        onClose={() => setIsSeriesManagerOpen(false)}
+      />
+    )}
+    </>
   );
 }

@@ -11,6 +11,7 @@ import { HiChevronDown } from "react-icons/hi";
 const mainNavLinks = [
   { href: "/", label: "Productos" },
   { href: "/piezas", label: "Piezas" },
+  { href: "/operaciones", label: "Operaciones" },
 ];
 
 const catalogLinks = [

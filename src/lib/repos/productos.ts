@@ -20,6 +20,7 @@ export type ProductoInput = {
   id_ubicacion?: number | null;
   imagen_url?: string | null;
   proveedores?: ProveedorProducto[];
+  usa_numero_serie?: boolean;
 };
 
 
@@ -35,6 +36,7 @@ function sanitizeProductoInput(input: ProductoInput) {
     id_ubicacion: input.id_ubicacion || null,
     imagen_url: sanitizeNullableString(input.imagen_url),
     proveedores: Array.isArray(input.proveedores) ? input.proveedores : [],
+    usa_numero_serie: Boolean(input.usa_numero_serie),
   };
 }
 
@@ -97,6 +99,7 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       p.id_ubicacion,
       u.descripcion AS ubicacion,
       p.alegra_id,
+      p.usa_numero_serie,
       STRING_AGG(DISTINCT prv.descripcion, ', ') AS proveedor,
       STRING_AGG(DISTINCT NULLIF(TRIM(pp.codigo_proveedor), ''), ', ') AS codigo_proveedor,
       COALESCE(
@@ -146,7 +149,8 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       p.id_ubicacion,
       u.descripcion,
       p.imagen_url,
-      p.alegra_id
+      p.alegra_id,
+      p.usa_numero_serie
     ORDER BY p.id DESC
   `;
 
@@ -176,6 +180,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       pi.medida AS pieza_medida,
       p.id_ubicacion,
       u.descripcion AS ubicacion,
+      p.alegra_id,
+      p.usa_numero_serie,
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'ORIGINAL' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
@@ -218,7 +224,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       pi.medida,
       p.id_ubicacion,
       u.descripcion,
-      p.alegra_id
+      p.alegra_id,
+      p.usa_numero_serie
     `;
 
   const [productRes, proveedores] = await Promise.all([
@@ -334,9 +341,10 @@ export async function createProducto(input: ProductoInput) {
           id_subcategoria,
           id_marca,
           id_ubicacion,
-          imagen_url
+          imagen_url,
+          usa_numero_serie
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
       `,
       [
@@ -349,6 +357,7 @@ export async function createProducto(input: ProductoInput) {
         payload.id_marca,
         payload.id_ubicacion,
         payload.imagen_url,
+        payload.usa_numero_serie
       ]
     );
 
@@ -408,8 +417,9 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
           id_subcategoria = $6,
           id_marca = $7,
           id_ubicacion = $8,
-          imagen_url = $9
-        WHERE id = $10
+          imagen_url = $9,
+          usa_numero_serie = $10
+        WHERE id = $11
         RETURNING *
       `,
       [
@@ -422,6 +432,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
         payload.id_marca,
         payload.id_ubicacion,
         payload.imagen_url,
+        payload.usa_numero_serie,
         id,
       ]
     );
