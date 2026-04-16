@@ -1,6 +1,6 @@
 export interface OperacionListado {
   id: number | string;
-  tipo: "COMPRA" | "VENTA";
+  tipo: "COMPRA" | "VENTA" | "AJUSTE";
   entidad_nombre: string | null;
   numero_comprobante: string | null;
   total: number;

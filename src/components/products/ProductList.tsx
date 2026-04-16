@@ -149,12 +149,10 @@ export function ProductList({ products, totalPages = 1 }: Props) {
     }
 
     // Precision Fix for Bottom Clipping
-    // If it's in the bottom 40% of the screen, we anchor it to the bottom with margin
-    const threshold = viewportH * 0.6;
-    if (top > threshold) {
-      // Estimated max height of tooltip is around 350-400px
-      // We set a max-h in the UI and here we just push it up
-      top = viewportH - 380 - TOOLTIP_MARGIN; 
+    // We aim for a safer estimate (480px) and move the tooltip up if space is tight
+    const ESTIMATED_H = 480;
+    if (top + ESTIMATED_H > viewportH - TOOLTIP_MARGIN) {
+      top = Math.max(TOOLTIP_MARGIN, viewportH - ESTIMATED_H - TOOLTIP_MARGIN);
     }
 
     top = Math.max(TOOLTIP_MARGIN, top);
@@ -485,10 +483,11 @@ export function ProductList({ products, totalPages = 1 }: Props) {
             initial={{ opacity: 0, scale: 1 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 1 }}
-            className="fixed z-[100] w-[420px] rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800 dark:text-white pointer-events-none overflow-y-auto max-h-[380px]"
+            className="fixed z-[100] w-[420px] rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800 dark:text-white pointer-events-none overflow-y-auto"
             style={{ 
               top: tooltipPos.top, 
-              left: tooltipPos.left
+              left: tooltipPos.left,
+              maxHeight: `calc(100vh - ${tooltipPos.top + TOOLTIP_MARGIN}px)`
             }}
           >
             <div className="space-y-4">

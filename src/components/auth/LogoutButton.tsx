@@ -2,8 +2,14 @@
 
 import { useState } from "react";
 import { createClient } from "@/utils/supabase/client";
+import { HiOutlineLogout } from "react-icons/hi";
 
-export default function LogoutButton() {
+interface LogoutButtonProps {
+  className?: string;
+  showIcon?: boolean;
+}
+
+export default function LogoutButton({ className, showIcon = true }: LogoutButtonProps) {
   const [loading, setLoading] = useState(false);
 
   async function handleLogout() {
@@ -21,8 +27,9 @@ export default function LogoutButton() {
       type="button"
       onClick={handleLogout}
       disabled={loading}
-      className="rounded-xl bg-blue-600 px-4 py-2.5 font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+      className={`flex items-center gap-2 w-full px-3 py-2 text-sm font-medium transition-colors ${className}`}
     >
+      {showIcon && <HiOutlineLogout className="h-4 w-4" />}
       {loading ? "Cerrando..." : "Cerrar sesión"}
     </button>
   );
