@@ -229,104 +229,96 @@ export function ProductList({ products, totalPages = 1 }: Props) {
               )}
             </div>
             
-            <div className="flex flex-wrap items-end gap-x-4 gap-y-4">
+            <div className="grid grid-cols-12 items-end gap-2 px-1">
               {/* Buscador General */}
-              <div className="flex-[2] min-w-[280px] flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Buscador General</label>
+              <div className="col-span-3 flex flex-col gap-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Buscador General</label>
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="DESCRIPCIÓN, PIEZA, OEM, EQUIVALENCIA"
+                    placeholder="DESCRIPCIÓN, PIEZA, OEM..."
                     value={searchGeneral}
                     onChange={(e) => setSearchGeneral(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 pl-11 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pl-9 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
                   />
-                  <svg className="absolute left-4 top-3.5 h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <svg className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                 </div>
               </div>
 
               {/* Buscador Específico */}
-              <div className="flex-1 min-w-[200px] flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Buscador Específico</label>
+              <div className="col-span-2 flex flex-col gap-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Buscador Específico</label>
                 <input
                   type="text"
-                  placeholder="CÓDIGO EXACTO, ORIGINAL, ..."
+                  placeholder="CÓDIGO EXACTO"
                   value={searchSpecific}
                   onChange={(e) => setSearchSpecific(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
                 />
               </div>
 
               {/* Categoría */}
-              <div className="flex-1 min-w-[140px] flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Categoría</label>
+              <div className="col-span-1 flex flex-col gap-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Categoría</label>
                 <select
                   value={categoria}
                   onChange={(e) => {
                     setCategoria(e.target.value);
                     setSubcategoria("");
                   }}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">TODAS</option>
                   {categorias.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.descripcion}
-                    </option>
+                    <option key={item.id} value={String(item.id)}>{item.descripcion}</option>
                   ))}
                 </select>
               </div>
 
               {/* Subcategoría */}
-              <div className="flex-1 min-w-[140px] flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Subcategoría</label>
+              <div className="col-span-2 flex flex-col gap-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Subcategoría</label>
                 <select
                   value={subcategoria}
                   disabled={!categoria}
                   onChange={(e) => setSubcategoria(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 disabled:opacity-30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">TODAS</option>
                   {subcategoriasDisponibles.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.descripcion}
-                    </option>
+                    <option key={item.id} value={String(item.id)}>{item.descripcion}</option>
                   ))}
                 </select>
               </div>
 
               {/* Marca */}
-              <div className="flex-1 min-w-[140px] flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Marca</label>
+              <div className="col-span-1 flex flex-col gap-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Marca</label>
                 <select
                   value={marca}
                   onChange={(e) => setMarca(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">TODAS</option>
                   {marcas.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.descripcion}
-                    </option>
+                    <option key={item.id} value={String(item.id)}>{item.descripcion}</option>
                   ))}
                 </select>
               </div>
 
               {/* Proveedor */}
-              <div className="flex-1 min-w-[140px] flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Proveedor</label>
+              <div className="col-span-3 flex flex-col gap-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Proveedor</label>
                 <select
                   value={proveedor}
                   onChange={(e) => setProveedor(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">TODOS</option>
                   {proveedores.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.descripcion}
-                    </option>
+                    <option key={item.id} value={String(item.id)}>{item.descripcion}</option>
                   ))}
                 </select>
               </div>
@@ -347,18 +339,18 @@ export function ProductList({ products, totalPages = 1 }: Props) {
 
           {/* Tabla de Resultados */}
           <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900/30">
-            <table className="w-full border-collapse text-left table-fixed">
+            <table className="w-full border-collapse text-left">
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>
-                  <th className="w-[120px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Código</th>
-                  <th className="px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Descripción</th>
-                  <th className="w-[85px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Foto</th>
-                  <th className="w-[85px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Medidas</th>
-                  <th className="w-[130px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Marca</th>
-                  <th className="w-[180px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Rubro</th>
-                  <th className="w-[200px] px-5 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Proveedores</th>
-                  <th className="w-[60px] px-4 py-5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Stock</th>
-                  <th className="w-[170px] px-4 py-5 text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Acciones</th>
+                  <th className="w-[110px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Código</th>
+                  <th className="px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Descripción</th>
+                  <th className="w-[60px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Foto</th>
+                  <th className="w-[60px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Med.</th>
+                  <th className="w-[100px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Marca</th>
+                  <th className="w-[140px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Rubro</th>
+                  <th className="w-[140px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Proveedores</th>
+                  <th className="w-[50px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Stock</th>
+                  <th className="w-[120px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -376,12 +368,12 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                       </div>
                     </td>
                     <td 
-                      className="px-5 py-4 cursor-help"
+                      className="px-3 py-3 cursor-help border-r border-slate-50 dark:border-slate-800/50"
                       onMouseEnter={(e) => handleTooltipEnter(product.id, e)}
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
-                        <span className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-2" title={product.descripcion}>
                           {product.descripcion}
                         </span>
                       </div>
@@ -427,17 +419,17 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                         </div>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600 dark:text-slate-300">{product.marca ?? "-"}</td>
-                    <td className="px-5 py-6 text-sm">
-                      <div className="flex flex-col gap-1">
-                        <span className="font-semibold text-slate-900 dark:text-slate-100">{product.categoria ?? "-"}</span>
-                        <span className="text-xs text-slate-400 dark:text-slate-500">{product.subcategoria ?? "-"}</span>
+                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-300">{product.marca ?? "-"}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[11px] font-bold text-slate-900 dark:text-slate-100 truncate">{product.categoria ?? "-"}</span>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{product.subcategoria ?? "-"}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-6 text-sm text-slate-600 dark:text-slate-400 break-words line-clamp-2 hover:line-clamp-none transition-all">
+                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-400 truncate max-w-[140px]" title={product.proveedor ?? ""}>
                       {product.proveedor ?? "-"}
                     </td>
-                    <td className="px-4 py-6 text-sm text-slate-700 dark:text-slate-300 font-bold">{product.stock}</td>
+                    <td className="px-2 py-3 text-[11px] text-slate-700 dark:text-slate-300 font-bold text-center">{product.stock}</td>
                     <td className="whitespace-nowrap px-4 py-4">
                       <div className="flex items-center justify-center gap-2">
                         {canManage ? (
