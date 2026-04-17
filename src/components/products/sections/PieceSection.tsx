@@ -18,45 +18,46 @@ export function PieceSection({
   piezaSearch,
   onSearchChange,
   selectedPieza,
-  allPieces,
   currentPiezaId,
   onSelectPieza,
   onClearPieza,
 }: PieceSectionProps) {
+  const [searchResults, setSearchResults] = useState<PiezaBusqueda[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 3;
+  const itemsPerPage = 6; // Aumentado para mejor visualización dinámica
 
-  // Resetear página al buscar algo nuevo
+  // Búsqueda dinámica con debounce
   useEffect(() => {
-    setCurrentPage(1);
+    const term = piezaSearch.trim();
+    if (!term) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(`/api/piezas/search?q=${encodeURIComponent(term)}`);
+        const data = await res.json();
+        setSearchResults(data);
+        setCurrentPage(1);
+      } catch (error) {
+        console.error("Error buscando piezas:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }, 400); // 400ms debounce
+
+    return () => clearTimeout(timer);
   }, [piezaSearch]);
 
-  const filteredFullList = useMemo(() => {
-    const term = normalizeText(piezaSearch);
-    if (!term) return allPieces;
-
-    return allPieces.filter((pieza) => {
-      const haystack = normalizeText(
-        [
-          pieza.codigo_pieza,
-          pieza.descripcion,
-          pieza.categoria,
-          pieza.subcategoria,
-          ...(pieza.originales ?? []),
-          ...(pieza.equivalentes ?? []),
-        ].join(" ")
-      );
-
-      return haystack.includes(term);
-    });
-  }, [allPieces, piezaSearch]);
-
-  const totalPages = Math.ceil(filteredFullList.length / itemsPerPage);
+  const totalPages = Math.ceil(searchResults.length / itemsPerPage);
   
   const paginatedPieces = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
-    return filteredFullList.slice(start, start + itemsPerPage);
-  }, [filteredFullList, currentPage]);
+    return searchResults.slice(start, start + itemsPerPage);
+  }, [searchResults, currentPage]);
 
   return (
     <section className="space-y-4">
@@ -74,20 +75,18 @@ export function PieceSection({
               <span className="font-bold text-blue-950 uppercase tracking-widest text-[10px] mb-1 block dark:text-blue-400">Pieza seleccionada</span>
               <span className="font-mono font-black text-blue-950 dark:text-white">{selectedPieza.codigo_pieza}</span> · {selectedPieza.descripcion}
             </div>
-            {currentPiezaId && (
-              <button
-                type="button"
-                onClick={onClearPieza}
-                className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-red-300 bg-red-50 px-5 text-sm font-semibold text-red-600 transition hover:bg-red-600 hover:text-white"
-              >
-                Quitar pieza
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={onClearPieza}
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-red-300 bg-red-50 px-5 text-sm font-semibold text-red-600 transition hover:bg-red-600 hover:text-white"
+            >
+              Quitar pieza
+            </button>
           </div>
         ) : (
           <>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-              <div className="flex-1">
+              <div className="flex-1 relative">
                 <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Buscador de pieza
                 </label>
@@ -98,6 +97,11 @@ export function PieceSection({
                   className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm uppercase text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   placeholder="Ej. 1043, SUSPENSION, BUJES, 1K0505465AA"
                 />
+                {isLoading && (
+                  <div className="absolute right-4 bottom-3">
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500"></div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -106,7 +110,9 @@ export function PieceSection({
                 <div className="rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-400 md:col-span-2 lg:col-span-3">
                   {piezaSearch.trim() === "" 
                     ? "Escribí arriba para buscar piezas."
-                    : "No encontramos piezas con ese criterio."}
+                    : isLoading 
+                      ? "Buscando..." 
+                      : "No encontramos piezas con ese criterio."}
                 </div>
               ) : (
                 paginatedPieces.map((pieza) => {

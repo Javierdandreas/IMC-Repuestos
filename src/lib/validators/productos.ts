@@ -29,6 +29,7 @@ export const productoPayloadSchema = z.object({
   imagen_url: z.string().url().nullable().optional(),
   proveedores: z.array(proveedorProductoSchema).optional().default([]),
   usa_numero_serie: z.boolean().optional().default(false),
+  palabra_clave: z.string().trim().toUpperCase().nullable().optional(),
 });
 
 export type ProductoPayload = z.infer<typeof productoPayloadSchema>;

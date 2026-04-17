@@ -230,6 +230,56 @@ export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {
   return rows as PiezaBusqueda[];
 }
 
+export async function getPiezasBusquedaLive(searchTerm: string): Promise<PiezaBusqueda[]> {
+  const term = `%${searchTerm.toUpperCase().trim()}%`;
+  
+  const sql = `
+    SELECT
+      p.id,
+      p.codigo_pieza,
+      p.descripcion,
+      p.medida,
+      p.imagen_medida_url,
+      c.id AS id_categoria,
+      c.descripcion AS categoria,
+      s.id AS id_subcategoria,
+      s.descripcion AS subcategoria,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'ORIGINAL' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS originales,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'EQUIVALENTE' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS equivalentes,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'SUSTITUTO' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS sustitutos
+    FROM pieza p
+    JOIN subcategoria s ON s.id = p.id_subcategoria
+    JOIN categoria c ON c.id = s.id_categoria
+    LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
+    LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
+    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.imagen_medida_url, c.id, c.descripcion, s.id, s.descripcion
+    HAVING 
+      CAST(p.codigo_pieza AS TEXT) LIKE $1 OR
+      UPPER(p.descripcion) LIKE $1 OR
+      UPPER(c.descripcion) LIKE $1 OR
+      UPPER(s.descripcion) LIKE $1 OR
+      EXISTS (
+        SELECT 1 FROM pieza_codigo_referencia pcr2
+        JOIN codigo_referencia cr2 ON cr2.id = pcr2.id_codigo_referencia
+        WHERE pcr2.id_pieza = p.id AND UPPER(cr2.codigo) LIKE $1
+      )
+    ORDER BY p.codigo_pieza ASC
+    LIMIT 20
+  `;
+  
+  const { rows } = await query(sql, [term]);
+  return rows as PiezaBusqueda[];
+}
+
 export async function getNextCodigoPieza(): Promise<number> {
   const { rows } = await query(`
     SELECT COALESCE(MAX(codigo_pieza), 0) + 1 as next 

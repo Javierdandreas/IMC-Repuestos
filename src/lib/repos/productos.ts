@@ -21,6 +21,27 @@ export type ProductoInput = {
   imagen_url?: string | null;
   proveedores?: ProveedorProducto[];
   usa_numero_serie?: boolean;
+  palabra_clave?: string | null;
+};
+
+export type ImportProductoInput = {
+  cod_unico?: string;
+  codigoInterno?: string;
+  descripcion?: string;
+  titulo?: string;
+  cod_barra?: string | null;
+  CodigoBarras?: string | null;
+  stock?: number;
+  marca?: string | null;
+  categoria?: string | null;
+  subcategoria?: string | null;
+  ubicacion?: string | null;
+  ubicacionInt?: string | null;
+  codigo_pieza?: string | null;
+  palabra_clave?: string | null;
+  "Palabra clave"?: string | null;
+  codigoProveedor?: string | null;
+  Proveedor?: string | null;
 };
 
 
@@ -37,6 +58,7 @@ function sanitizeProductoInput(input: ProductoInput) {
     imagen_url: sanitizeNullableString(input.imagen_url),
     proveedores: Array.isArray(input.proveedores) ? input.proveedores : [],
     usa_numero_serie: Boolean(input.usa_numero_serie),
+    palabra_clave: input.id_pieza ? null : sanitizeNullableString(input.palabra_clave),
   };
 }
 
@@ -100,6 +122,7 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       u.descripcion AS ubicacion,
       p.alegra_id,
       p.usa_numero_serie,
+      p.palabra_clave,
       STRING_AGG(DISTINCT prv.descripcion, ', ') AS proveedor,
       STRING_AGG(DISTINCT NULLIF(TRIM(pp.codigo_proveedor), ''), ', ') AS codigo_proveedor,
       COALESCE(
@@ -150,7 +173,8 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
       u.descripcion,
       p.imagen_url,
       p.alegra_id,
-      p.usa_numero_serie
+      p.usa_numero_serie,
+      p.palabra_clave
     ORDER BY p.id DESC
   `;
 
@@ -182,6 +206,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       u.descripcion AS ubicacion,
       p.alegra_id,
       p.usa_numero_serie,
+      p.palabra_clave,
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'ORIGINAL' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
@@ -225,7 +250,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       p.id_ubicacion,
       u.descripcion,
       p.alegra_id,
-      p.usa_numero_serie
+      p.usa_numero_serie,
+      p.palabra_clave
     `;
 
   const [productRes, proveedores] = await Promise.all([
@@ -342,10 +368,11 @@ export async function createProducto(input: ProductoInput) {
           id_marca,
           id_ubicacion,
           imagen_url,
-          usa_numero_serie
+          usa_numero_serie,
+          palabra_clave
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING *
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING id
       `,
       [
         payload.cod_unico,
@@ -357,7 +384,8 @@ export async function createProducto(input: ProductoInput) {
         payload.id_marca,
         payload.id_ubicacion,
         payload.imagen_url,
-        payload.usa_numero_serie
+        payload.usa_numero_serie,
+        payload.palabra_clave,
       ]
     );
 
@@ -418,8 +446,9 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
           id_marca = $7,
           id_ubicacion = $8,
           imagen_url = $9,
-          usa_numero_serie = $10
-        WHERE id = $11
+          usa_numero_serie = $10,
+          palabra_clave = $11
+        WHERE id = $12
         RETURNING *
       `,
       [
@@ -433,6 +462,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
         payload.id_ubicacion,
         payload.imagen_url,
         payload.usa_numero_serie,
+        payload.palabra_clave,
         id,
       ]
     );
@@ -476,7 +506,22 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
 
 export async function deleteProducto(id: string | number) {
   return await withTransaction(async (client) => {
+    // 1. Borrar movimientos de series vinculados
+    await client.query(`
+      DELETE FROM producto_serie_movimiento 
+      WHERE id_producto_serie IN (SELECT id FROM producto_serie WHERE id_producto = $1)
+    `, [id]);
+
+    // 2. Borrar las series del producto
+    await client.query("DELETE FROM producto_serie WHERE id_producto = $1", [id]);
+
+    // 3. Borrar detalles de operaciones donde aparezca el producto
+    await client.query("DELETE FROM operacion_detalle WHERE id_producto = $1", [id]);
+
+    // 4. Borrar asociaciones con proveedores
     await client.query("DELETE FROM producto_proveedor WHERE id_producto = $1", [id]);
+
+    // 5. Finalmente borrar el producto
     const result = await client.query("DELETE FROM productos WHERE id = $1 RETURNING *", [id]);
 
     if (result.rowCount === 0) {
@@ -487,7 +532,7 @@ export async function deleteProducto(id: string | number) {
 
     const deletedProduct = result.rows[0];
 
-    // Limpieza de almacenamiento (opcional/segundo plano)
+    // Limpieza de almacenamiento
     if (deletedProduct.imagen_url) {
       deleteFileFromStorage(deletedProduct.imagen_url, "productos");
     }
@@ -502,4 +547,151 @@ export async function getAvailableSerialsByProduct(idProducto: string | number):
     [idProducto]
   );
   return rows.map(r => r.numero_serie);
+}
+
+export async function importProductos(items: ImportProductoInput[], usuario: string, archivo: string) {
+  return await withTransaction(async (client) => {
+    // 1. Cargar metadatos para resolución rápida
+    const [marcas, categorias, subcategorias, ubicaciones, piezas] = await Promise.all([
+      client.query("SELECT id, descripcion FROM marcas"),
+      client.query("SELECT id, descripcion FROM categoria"),
+      client.query("SELECT id, descripcion FROM subcategoria"),
+      client.query("SELECT id, descripcion FROM ubicaciones"),
+      client.query("SELECT id, codigo_pieza FROM pieza"),
+    ]);
+
+    const normalize = (text: any) => {
+      if (typeof text !== 'string') return '';
+      return text.trim().toUpperCase();
+    };
+
+    const marcaMap = new Map(marcas.rows.map(r => [normalize(r.descripcion), r.id]));
+    const catMap = new Map(categorias.rows.map(r => [normalize(r.descripcion), r.id]));
+    const subMap = new Map(subcategorias.rows.map(r => [normalize(r.descripcion), r.id]));
+    const ubiMap = new Map(ubicaciones.rows.map(r => [normalize(r.descripcion), r.id]));
+    const piezaMap = new Map(piezas.rows.map(r => [normalize(r.codigo_pieza), r.id]));
+
+    // 2. Cargar SKU existentes para detectar duplicados
+    const existingSkusRes = await client.query("SELECT cod_unico FROM productos");
+    const existingSkus = new Set(existingSkusRes.rows.map(r => normalize(r.cod_unico)));
+
+    // IDs de fallback
+    const defaultSubcatId = subMap.get(normalize("SIN SUBCATEGORIA"));
+
+    const results = {
+      imported: 0,
+      ignored: 0,
+      errors: [] as { row: number; error: string; cod_unico: string }[],
+    };
+
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const rowNum = i + 2; // +1 para 0-index, +1 para cabecera
+        
+        try {
+            const sku = normalize(item.codigoInterno || item.cod_unico);
+            const desc = normalize(item.titulo || item.descripcion);
+
+            // Regla: Ignorar si no hay SKU o descripción básica
+            if (!sku || !desc) {
+                if (!sku && !desc) continue; // Fila vacía
+                throw new Error(`Datos críticos faltantes: codigoInterno (${sku}) o titulo (${desc})`);
+            }
+
+            // Regla: Ignorar si ya existe
+            if (existingSkus.has(sku)) {
+                results.ignored++;
+                continue;
+            }
+
+            // Resolución de IDs
+            const id_marca = item.marca ? marcaMap.get(normalize(item.marca)) : null;
+
+            const id_subcategoria_str = item.subcategoria ? normalize(item.subcategoria) : null;
+            let id_subcategoria = id_subcategoria_str ? subMap.get(id_subcategoria_str) : null;
+            
+            // Fallback a "SIN SUBCATEGORIA" si no se encuentra o no se provee
+            if (!id_subcategoria) {
+                id_subcategoria = defaultSubcatId;
+            }
+
+            // Si aún no hay subcategoría (muy raro si el default existe), entonces sí es error
+            if (!id_subcategoria) {
+                throw new Error(`Subcategoría no encontrada y no hay valor por defecto disponible.`);
+            }
+
+            const ubiKey = normalize(item.ubicacionInt || item.ubicacion);
+            const id_ubicacion = ubiKey ? ubiMap.get(ubiKey) : null;
+
+            const id_pieza = item.codigo_pieza ? piezaMap.get(normalize(item.codigo_pieza)) : null;
+            const palabraClaveRaw = item["Palabra clave"] || item.palabra_clave;
+
+            // Inserción
+            await client.query(
+                `INSERT INTO productos (cod_unico, descripcion, cod_barra, stock, id_marca, id_subcategoria, id_ubicacion, id_pieza, palabra_clave)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                [
+                    sku,
+                    desc,
+                    item.CodigoBarras || item.cod_barra || null,
+                    Number(item.stock) || 0,
+                    id_marca,
+                    id_subcategoria,
+                    id_ubicacion,
+                    id_pieza,
+                    normalize(palabraClaveRaw) || null
+                ]
+            );
+
+            existingSkus.add(sku);
+            results.imported++;
+
+        } catch (err: any) {
+            results.errors.push({
+                row: rowNum,
+                error: err.message,
+                cod_unico: item.codigoInterno || item.cod_unico || "SIN SKU"
+            });
+        }
+    }
+
+    // 3. Registrar el log de la importación
+    await client.query(
+      `INSERT INTO log_importaciones (
+        usuario, 
+        archivo, 
+        items_importados, 
+        items_ignorados, 
+        cantidad_errores, 
+        detalles_errores
+      ) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        usuario,
+        archivo,
+        results.imported,
+        results.ignored,
+        results.errors.length,
+        JSON.stringify(results.errors)
+      ]
+    );
+
+    return results;
+  });
+}export async function getImportacionesLogs(page: number = 1, limit: number = 20): Promise<{ data: any[]; totalCount: number; totalPages: number }> {
+  const sql = `
+    SELECT 
+      id,
+      fecha,
+      usuario,
+      archivo,
+      items_importados,
+      items_ignorados,
+      cantidad_errores,
+      detalles_errores,
+      tipo_entidad
+    FROM log_importaciones
+    ORDER BY fecha DESC
+  `;
+  
+  return await paginateQuery<any>("log_importaciones", sql, page, limit);
 }

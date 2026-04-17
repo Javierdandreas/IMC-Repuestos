@@ -48,8 +48,8 @@ export type Producto = {
   equivalentes?: string[];
   sustitutos?: string[];
   medida?: string;
-  alegra_id?: string | null;
   usa_numero_serie?: boolean;
+  palabra_clave?: string | null;
 };
 
 export type ProductoListado = {
@@ -80,4 +80,5 @@ export type ProductoListado = {
   id_marca?: number | null;
   id_categoria?: number | null;
   usa_numero_serie?: boolean;
+  palabra_clave?: string | null;
 };

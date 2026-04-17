@@ -148,7 +148,7 @@ export async function updateSeriesState(
     }
 
     const { rows: currentSeries } = await client.query(
-      "SELECT id, id_ubicacion FROM producto_serie WHERE id = ANY($1::int[]) FOR UPDATE",
+      "SELECT id, id_ubicacion FROM producto_serie WHERE id = ANY($1::bigint[]) FOR UPDATE",
       [ids_series]
     );
 
@@ -165,7 +165,7 @@ export async function updateSeriesState(
         id_ubicacion = COALESCE($2, id_ubicacion),
         fecha_venta = CASE WHEN $1 = 'VENDIDO' THEN NOW() ELSE fecha_venta END,
         updated_at = NOW()
-      WHERE id = ANY($3::int[])
+      WHERE id = ANY($3::bigint[])
       `,
       [estado, id_ubicacion_destino || null, ids_series]
     );

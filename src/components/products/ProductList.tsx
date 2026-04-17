@@ -17,6 +17,8 @@ import { Modal } from "@/components/ui/Modal";
 import { ProductForm } from "@/components/products/ProductForm";
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
+import { ImportProductModal } from "@/components/products/ImportProductModal";
+import { HiCloudUpload } from "react-icons/hi";
 
 interface Props {
   products: ProductoListado[];
@@ -43,6 +45,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
   const [marca, setMarca] = useState("");
   const [proveedor, setProveedor] = useState("");
   const [isZoomed, setIsZoomed] = useState(false);
+  const [openImport, setOpenImport] = useState(false);
   
   // Hover state
   const [hoveredProductId, setHoveredProductId] = useState<number | null>(null);
@@ -217,15 +220,24 @@ export function ProductList({ products, totalPages = 1 }: Props) {
               </div>
               
               {canManage && (
-                <button
-                  onClick={() => setOpenNew(true)}
-                  className="inline-flex h-12 items-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-700 hover:shadow-blue-500/40 active:scale-95"
-                >
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
-                  Nuevo Producto
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setOpenImport(true)}
+                    className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-100 px-6 text-sm font-bold text-slate-900 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700 active:scale-95"
+                  >
+                    <HiCloudUpload className="h-5 w-5" />
+                    Importar CSV
+                  </button>
+                  <button
+                    onClick={() => setOpenNew(true)}
+                    className="inline-flex h-12 items-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-700 hover:shadow-blue-500/40 active:scale-95"
+                  >
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Nuevo Producto
+                  </button>
+                </div>
               )}
             </div>
             
@@ -606,6 +618,15 @@ export function ProductList({ products, totalPages = 1 }: Props) {
             </div>
           )}
         </div>
+      </Modal>
+
+      <Modal
+        open={openImport}
+        onClose={() => setOpenImport(false)}
+        title="Importar Productos (CSV)"
+        size="md"
+      >
+        <ImportProductModal onClose={() => setOpenImport(false)} />
       </Modal>
     </>
   );

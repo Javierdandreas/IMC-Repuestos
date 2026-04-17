@@ -43,6 +43,7 @@ const initialState: Producto = {
   sustitutos: [],
   medida: "",
   usa_numero_serie: false,
+  palabra_clave: "",
 };
 
 
@@ -73,6 +74,7 @@ export function ProductForm({
     sustitutos: initialProduct?.pieza?.sustitutos ?? initialProduct?.sustitutos ?? [],
     medida: initialProduct?.pieza?.medida ?? initialProduct?.medida ?? "",
     usa_numero_serie: initialProduct?.usa_numero_serie ?? initialState.usa_numero_serie,
+    palabra_clave: initialProduct?.palabra_clave ?? initialState.palabra_clave,
     proveedores:
       initialProduct?.proveedores && initialProduct.proveedores.length > 0
         ? initialProduct.proveedores.map((proveedor) => ({
@@ -150,6 +152,7 @@ export function ProductForm({
           sustitutos: data.pieza?.sustitutos ?? data.sustitutos ?? [],
           medida: data.pieza?.medida ?? data.medida ?? "",
           usa_numero_serie: data.usa_numero_serie ?? initialState.usa_numero_serie,
+          palabra_clave: data.palabra_clave ?? initialState.palabra_clave,
           proveedores: data.proveedores?.length > 0
             ? data.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
             : initialState.proveedores
@@ -171,22 +174,18 @@ export function ProductForm({
   const selectedPieza = useMemo(() => {
     if (!product.id_pieza) return null;
     
-    // 1. PRIORIDAD: Datos frescos cargados específicamente por la API para este producto
+    // 1. PRIORIDAD: Datos frescos (ya sea cargados de API o seleccionados del buscador)
     if (fetchedPieza && Number(fetchedPieza.id) === Number(product.id_pieza)) {
       return fetchedPieza;
     }
 
-    // 2. Buscar en la lista de metadatos (búsqueda general ante cambios de selección)
-    const pieceInMeta = meta.piezas.find((pieza) => Number(pieza.id) === Number(product.id_pieza));
-    if (pieceInMeta) return pieceInMeta;
-
-    // 3. Fallback a la pieza inicial si existe
+    // 2. Fallback a la pieza inicial si existe
     if (initialProduct?.pieza && Number(initialProduct.pieza.id) === Number(product.id_pieza)) {
       return initialProduct.pieza as unknown as PiezaBusqueda;
     }
 
     return null;
-  }, [fetchedPieza, initialProduct?.pieza, meta.piezas, product.id_pieza]);
+  }, [fetchedPieza, initialProduct?.pieza, product.id_pieza]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -261,8 +260,10 @@ export function ProductForm({
       equivalentes: pieza.equivalentes ?? [],
       sustitutos: pieza.sustitutos ?? [],
       medida: pieza.medida ?? "",
+      palabra_clave: "",
     }));
     setPiezaSearch(`${pieza.codigo_pieza} · ${pieza.descripcion}`);
+    setFetchedPieza(pieza);
   };
 
   const clearSelectedPieza = () => {
@@ -336,6 +337,7 @@ export function ProductForm({
       imagen_url: product.imagen_url ?? null,
       proveedores: cleanProveedores,
       usa_numero_serie: product.usa_numero_serie ?? false,
+      palabra_clave: product.palabra_clave || null,
     };
 
     await submit(payload);
@@ -371,7 +373,6 @@ export function ProductForm({
             piezaSearch={piezaSearch}
             onSearchChange={setPiezaSearch}
             selectedPieza={selectedPieza}
-            allPieces={meta.piezas}
             currentPiezaId={product.id_pieza ?? null}
             onSelectPieza={selectPieza}
             onClearPieza={clearSelectedPieza}
@@ -390,6 +391,7 @@ export function ProductForm({
               onToggleSerie={(val) => setProduct(prev => ({ ...prev, usa_numero_serie: val }))}
               onOpenSeriesManager={productId ? () => setIsSeriesManagerOpen(true) : undefined}
               isSeriesDirty={initialProduct?.usa_numero_serie !== product.usa_numero_serie}
+              palabra_clave={product.palabra_clave || ""}
             />
 
             <ClassificationSection
