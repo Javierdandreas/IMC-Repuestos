@@ -495,3 +495,11 @@ export async function deleteProducto(id: string | number) {
     return deletedProduct;
   });
 }
+
+export async function getAvailableSerialsByProduct(idProducto: string | number): Promise<string[]> {
+  const { rows } = await query(
+    `SELECT numero_serie FROM producto_serie WHERE id_producto = $1 AND estado = 'DISPONIBLE' ORDER BY created_at ASC`,
+    [idProducto]
+  );
+  return rows.map(r => r.numero_serie);
+}

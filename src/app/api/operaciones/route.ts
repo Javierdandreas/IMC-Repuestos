@@ -5,7 +5,7 @@ import { requireApiSession } from "@/lib/api-auth";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const tipo = searchParams.get("tipo") as "COMPRA" | "VENTA" | null;
+    const tipo = searchParams.get("tipo") as "COMPRA" | "VENTA" | "AJUSTE" | null;
 
     const session = await requireApiSession(request);
     
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // Basic Validation
-    if (!body.tipo || !['COMPRA', 'VENTA'].includes(body.tipo.toUpperCase())) {
+    if (!body.tipo || !['COMPRA', 'VENTA', 'AJUSTE'].includes(body.tipo.toUpperCase())) {
       return NextResponse.json({ message: "Tipo de operación inválido." }, { status: 400 });
     }
     if (!body.detalles || body.detalles.length === 0) {

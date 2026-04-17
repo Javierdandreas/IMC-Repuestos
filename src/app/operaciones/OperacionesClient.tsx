@@ -140,52 +140,121 @@ export function OperacionesClient() {
         )}
 
         {data && data.length > 0 && (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {data.map((op: OperacionListado) => (
-                <motion.div
-                layoutId={`operacion-${op.id}`}
-                key={op.id}
-                onClick={() => setSelectedOperacion(op.id)}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                whileHover={{ y: -6, scale: 1.02 }}
-                className="group cursor-pointer rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:border-blue-500/30 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900/50"
-                >
-                <div className="flex justify-between items-start mb-6">
-                    <div>
-                        <span className="text-[10px] font-black font-mono text-slate-400 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
-                             OP-{String(op.id).padStart(5, "0")}
-                        </span>
-                        <h4 className="font-black text-xl text-slate-900 dark:text-white mt-3 truncate max-w-[180px]">
-                            {op.entidad_nombre || (op.tipo === 'AJUSTE' ? "Ajuste Interno" : "Consumidor Final")}
-                        </h4>
-                    </div>
-                    <div className={`rounded-xl p-2 bg-slate-50 dark:bg-slate-800 ${getTabColor(op.tipo)}`}>
-                        {op.tipo === 'COMPRA' && <HiArrowDownTray className="h-6 w-6" />}
-                        {op.tipo === 'VENTA' && <HiArrowUpTray className="h-6 w-6" />}
-                        {op.tipo === 'AJUSTE' && <HiOutlineAdjustmentsHorizontal className="h-6 w-6" />}
-                    </div>
-                 </div>
-                 
-                 <div className="space-y-3 mb-6">
-                    <div className="flex justify-between items-center text-sm font-bold">
-                        <span className="text-slate-400 uppercase text-[10px] tracking-wider">Comprobante</span>
-                        <span className="text-slate-900 dark:text-slate-200 font-mono">{op.numero_comprobante || "INTERNO"}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm font-bold">
-                        <span className="text-slate-400 uppercase text-[10px] tracking-wider">Volumen</span>
-                        <span className="text-slate-900 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-lg">
-                          {op.total_unidades} Unds.
-                        </span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm font-bold border-t border-slate-50 dark:border-slate-800 pt-3">
-                         <span className="text-slate-400 uppercase text-[10px] tracking-wider">Fecha</span>
-                         <span className="text-slate-900 dark:text-slate-200">{new Date(op.created_at).toLocaleDateString()}</span>
-                    </div>
-                 </div>
-                </motion.div>
-            ))}
+          tab === "AJUSTE" ? (
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white/50 shadow-sm dark:border-slate-800 dark:bg-slate-900/30 backdrop-blur-md">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Comprobante</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Fecha</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Responsable</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Tipo</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.map((op: OperacionListado) => {
+                      const isPositive = op.total_unidades >= 0;
+                      return (
+                        <motion.tr
+                          key={op.id}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          onClick={() => setSelectedOperacion(op.id)}
+                          className="group cursor-pointer border-b border-slate-50 dark:border-slate-800/50 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors"
+                        >
+                          <td className="px-6 py-4">
+                            <span className="font-mono text-sm font-bold text-slate-700 dark:text-slate-300">
+                              {op.numero_comprobante || "INTERNO"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-medium text-slate-500 dark:text-slate-400">
+                            <div className="flex flex-col">
+                                <span>{new Date(op.created_at).toLocaleDateString()}</span>
+                                <span className="text-[10px] text-slate-400">{new Date(op.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}hs</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                                <div className="h-7 w-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[10px] font-black text-slate-500">
+                                    {op.entidad_nombre?.charAt(0) || "U"}
+                                </div>
+                                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                                    {op.entidad_nombre || "Usuario"}
+                                </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tight ${
+                                isPositive 
+                                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
+                                : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                            }`}>
+                                <div className={`h-1.5 w-1.5 rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`} />
+                                {isPositive ? "Positivo" : "Negativo"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                             <button className="text-xs font-black text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors uppercase tracking-widest">
+                                Ver Detalle
+                             </button>
+                          </td>
+                        </motion.tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {data.map((op: OperacionListado) => (
+                  <motion.div
+                  layoutId={`operacion-${op.id}`}
+                  key={op.id}
+                  onClick={() => setSelectedOperacion(op.id)}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  whileHover={{ y: -6, scale: 1.02 }}
+                  className="group cursor-pointer rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:border-blue-500/30 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900/50"
+                  >
+                  <div className="flex justify-between items-start mb-6">
+                      <div>
+                          <span className="text-[10px] font-black font-mono text-slate-400 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                               OP-{String(op.id).padStart(5, "0")}
+                          </span>
+                          <h4 className="font-black text-xl text-slate-900 dark:text-white mt-3 truncate max-w-[180px]">
+                              {op.entidad_nombre || (op.tipo === 'AJUSTE' ? "Ajuste Interno" : "Consumidor Final")}
+                          </h4>
+                      </div>
+                      <div className={`rounded-xl p-2 bg-slate-50 dark:bg-slate-800 ${getTabColor(op.tipo)}`}>
+                          {op.tipo === 'COMPRA' && <HiArrowDownTray className="h-6 w-6" />}
+                          {op.tipo === 'VENTA' && <HiArrowUpTray className="h-6 w-6" />}
+                          {op.tipo === 'AJUSTE' && <HiOutlineAdjustmentsHorizontal className="h-6 w-6" />}
+                      </div>
+                   </div>
+                   
+                   <div className="space-y-3 mb-6">
+                      <div className="flex justify-between items-center text-sm font-bold">
+                          <span className="text-slate-400 uppercase text-[10px] tracking-wider">Comprobante</span>
+                          <span className="text-slate-900 dark:text-slate-200 font-mono">{op.numero_comprobante || "INTERNO"}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm font-bold">
+                          <span className="text-slate-400 uppercase text-[10px] tracking-wider">Volumen</span>
+                          <span className="text-slate-900 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-lg">
+                            {op.total_unidades} Unds.
+                          </span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm font-bold border-t border-slate-50 dark:border-slate-800 pt-3">
+                           <span className="text-slate-400 uppercase text-[10px] tracking-wider">Fecha</span>
+                           <span className="text-slate-900 dark:text-slate-200">{new Date(op.created_at).toLocaleDateString()}</span>
+                      </div>
+                   </div>
+                  </motion.div>
+              ))}
+            </div>
+          )
         )}
       </div>
 

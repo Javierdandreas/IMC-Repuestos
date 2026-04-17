@@ -2,7 +2,7 @@ import { query, withTransaction, DbClient as DBClient } from "@/lib/db-utils";
 import { OperacionListado, OperacionDetalleListado } from "@/interfaces/operaciones";
 
 export async function getOperaciones(params?: {
-  tipo?: "COMPRA" | "VENTA";
+  tipo?: "COMPRA" | "VENTA" | "AJUSTE";
   limit?: number;
 }): Promise<OperacionListado[]> {
   let sql = `
@@ -97,7 +97,7 @@ export async function getOperacionById(id: string | number) {
 
 export async function createOperacion(
   payload: {
-    tipo: "COMPRA" | "VENTA";
+    tipo: "COMPRA" | "VENTA" | "AJUSTE";
     entidad_nombre?: string;
     numero_comprobante?: string;
     observacion?: string;
@@ -113,7 +113,7 @@ export async function createOperacion(
   return await withTransaction(async (client: DBClient) => {
     let total = 0;
     for (const d of payload.detalles) {
-      total += d.cantidad * d.precio_unitario;
+      total += Math.abs(d.cantidad) * d.precio_unitario;
     }
 
     const opRes = await client.query(`
@@ -140,7 +140,6 @@ export async function createOperacion(
 
       // 2. Handle Serials
       if (d.numeros_serie && d.numeros_serie.length > 0) {
-        // Find existing serials or create new ones?
         for (const ns of d.numeros_serie) {
             // Find serie
             const srRes = await client.query(
@@ -149,10 +148,11 @@ export async function createOperacion(
             );
 
             let idSerie: number | string;
+            const esBaja = d.cantidad < 0 || payload.tipo === "VENTA";
 
             if (srRes.rows.length === 0) {
-                // If it's a COMPRA, we might be creating new serials on the fly
-                if (payload.tipo === "COMPRA") {
+                // If it's a COMPRA or AJUSTE POSITIVO, we might be creating new serials
+                if (payload.tipo === "COMPRA" || (payload.tipo === "AJUSTE" && d.cantidad > 0)) {
                     const newSr = await client.query(`
                         INSERT INTO producto_serie (id_producto, numero_serie, estado, costo_unitario)
                         VALUES ($1, $2, $3, $4)
@@ -166,18 +166,21 @@ export async function createOperacion(
                 idSerie = srRes.rows[0].id;
                 const estadoActual = srRes.rows[0].estado;
 
-                // Validate if it's a sale, it must be available
-                if (payload.tipo === "VENTA" && estadoActual !== "DISPONIBLE") {
+                // Validate state for removals
+                if (esBaja && estadoActual !== "DISPONIBLE") {
                     throw new Error(`El número de serie ${ns} no está DISPONIBLE (Actual: ${estadoActual}).`);
                 }
                 
                 // Update state
-                const nuevoEstado = payload.tipo === "VENTA" ? "VENDIDO" : "DISPONIBLE";
+                const nuevoEstado = esBaja ? (payload.tipo === "VENTA" ? "VENDIDO" : "BAJA") : "DISPONIBLE";
                 await client.query(`UPDATE producto_serie SET estado = $1, updated_at = now() WHERE id = $2`, [nuevoEstado, idSerie]);
             }
 
             // Register Movement
-            const movTipo = payload.tipo === "VENTA" ? "VENTA" : "INGRESO";
+            let movTipo: "INGRESO" | "VENTA" | "BAJA" = "INGRESO";
+            if (payload.tipo === "VENTA") movTipo = "VENTA";
+            else if (payload.tipo === "AJUSTE" && d.cantidad < 0) movTipo = "BAJA";
+            
             await client.query(`
                 INSERT INTO producto_serie_movimiento (id_producto_serie, tipo, id_operacion, observacion, usuario_id)
                 VALUES ($1, $2, $3, $4, $5)
@@ -185,12 +188,8 @@ export async function createOperacion(
         }
       }
       
-      // Update global physical stock in products table
-      if (payload.tipo === "VENTA") {
-          await client.query("UPDATE productos SET stock = stock - $1 WHERE id = $2", [d.cantidad, d.id_producto]);
-      } else {
-          await client.query("UPDATE productos SET stock = stock + $1 WHERE id = $2", [d.cantidad, d.id_producto]);
-      }
+      // Update global physical stock
+      await client.query("UPDATE productos SET stock = stock + $1 WHERE id = $2", [d.cantidad, d.id_producto]);
     }
 
     return operacionId;
