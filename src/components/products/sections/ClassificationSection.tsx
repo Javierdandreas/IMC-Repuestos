@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { CatalogoItem, PiezaBusqueda, Subcategoria } from "@/interfaces/productos";
+import { HiOutlineLockClosed } from "react-icons/hi";
 
 type ClassificationSectionProps = {
   stock: number;
@@ -58,17 +59,23 @@ export function ClassificationSection({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[120px_1fr_1fr] xl:gap-6">
         <div>
-          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Stock
+          <label className="mb-2 flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Stock <HiOutlineLockClosed className="h-3 w-3 text-slate-400" />
           </label>
-          <input
-            type="number"
-            name="stock"
-            value={stock}
-            onChange={onChange}
-            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
-            required
-          />
+          <div className="relative group">
+            <input
+              type="number"
+              name="stock"
+              value={stock}
+              onChange={onChange}
+              disabled
+              className="h-12 w-full rounded-xl border border-slate-200 bg-slate-100/50 px-4 text-sm font-black text-slate-700 outline-none transition dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 cursor-not-allowed"
+              required
+            />
+          </div>
+          <p className="mt-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-tight leading-tight">
+            Gestión exclusiva desde <span className="text-blue-500 dark:text-blue-400">Ajustes de Stock</span>
+          </p>
         </div>
 
         <div>

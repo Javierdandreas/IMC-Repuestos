@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSWRConfig } from "swr";
 import { toast } from "sonner";
-import { HiX, HiCheck, HiOutlineQrcode, HiOutlineShoppingCart, HiOutlineUser, HiPlus, HiOutlineCube, HiSearch, HiArrowUp, HiArrowDown } from "react-icons/hi";
+import { HiX, HiCheck, HiOutlineQrcode, HiOutlineShoppingCart, HiOutlineUser, HiPlus, HiOutlineCube, HiSearch, HiArrowUp, HiArrowDown, HiOutlineTag } from "react-icons/hi";
 import { HiOutlineDocumentText } from "react-icons/hi2";
 import { ProductoListado } from "@/interfaces/productos";
 import useSWR from "swr";
@@ -392,7 +392,7 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white"></div>
              ) : (
                  <>
-                  <HiCheck className="h-5 w-5" /> PROCESAR {tipo === 'AJUSTE' ? `AJUSTE (${ajusteTipoGlobal})` : TIPO}
+                  <HiCheck className="h-5 w-5" /> PROCESAR {tipo === 'AJUSTE' ? `AJUSTE (${ajusteTipoGlobal})` : tipo}
                  </>
              )}
            </button>
