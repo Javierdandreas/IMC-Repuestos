@@ -188,43 +188,42 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
               display: flex;
               flex-direction: column;
               align-items: center;
-              justify-content: space-between;
+              justify-content: center;
               page-break-after: always;
               page-break-inside: avoid;
               overflow: hidden;
               box-sizing: border-box;
-              padding: 1mm 1mm;
+              padding: 1mm 1mm 0 1mm;
               text-align: center;
               font-family: sans-serif;
             }
             svg {
               width: 100% !important;
               height: auto !important;
-              max-height: 16mm !important;
+              max-height: 18mm !important;
             }
             .label-detail-row {
               width: 100%;
               display: flex;
               flex-direction: column;
               align-items: center;
-              margin-top: 0.5mm;
+              margin-top: 1mm;
             }
             .label-detail-text { 
               font-size: 7.5pt; 
               font-weight: bold; 
               margin: 0;
-              line-height: 1;
+              line-height: 1.1;
             }
             .label-serial-badge {
               font-size: 7.5pt;
               font-weight: 900;
-              border-top: 1px dashed #000;
               width: 100%;
               text-align: center;
-              padding-top: 0.5mm;
-              margin-top: 0.5mm;
+              padding-top: 0;
+              margin-top: 0;
               text-transform: uppercase;
-              line-height: 1;
+              line-height: 1.1;
             }
           </style>
         </head>
@@ -264,15 +263,15 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
               <div key={`source-${label.product.id}-${idx}`} className="label-card">
                 <Barcode 
                   value={label.serial || label.product.cod_barra || label.product.cod_unico} 
-                  width={1.5} 
-                  height={40} 
-                  fontSize={10}
+                  width={2.5} 
+                  height={45} 
+                  displayValue={false}
                   margin={0}
                 />
                 <div className="label-detail-row">
-                  <span className="label-detail-text">Código: {label.product.cod_unico}</span>
+                  <span className="label-detail-text">{label.product.cod_unico}</span>
                   {label.serial && (
-                    <span className="label-serial-badge">SERIE: {label.serial}</span>
+                    <span className="label-serial-badge">{label.serial}</span>
                   )}
                 </div>
               </div>
@@ -345,22 +344,18 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
                   value={label.serial || label.product.cod_barra || label.product.cod_unico} 
                   width={1.2} 
                   height={40} 
+                  displayValue={false}
                   fontSize={10}
                   background="#ffffff"
                   lineColor="#000000"
                 />
               </div>
 
-              <div className="text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                Código: {label.product.cod_unico}
-              </div>
-
               {label.serial && (
-                <div className="mt-1 flex items-center gap-1 bg-blue-500 text-white px-2 py-0.5 rounded-full text-[9px] font-black tracking-widest">
-                  SERIE: {label.serial}
+                <div className="mt-1 flex items-center gap-1 bg-blue-500 text-white px-2 py-0.5 rounded-full text-[9px] font-black tracking-widest uppercase">
+                   {label.serial}
                 </div>
               )}
-              
               {!label.serial && label.product.usa_numero_serie && (
                 <div className="mt-1 flex items-center gap-1 bg-amber-500 text-white px-2 py-0.5 rounded-full text-[9px] font-black tracking-widest">
                   <HiExclamation className="h-3 w-3" />
