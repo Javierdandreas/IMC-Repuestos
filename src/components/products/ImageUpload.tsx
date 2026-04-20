@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { HiUpload, HiX, HiPhotograph } from "react-icons/hi";
 import Image from "next/image";
@@ -25,9 +25,10 @@ export function ImageUpload({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const supabase = createClient();
 
-  const processFile = async (file: File) => {
+  const processFile = useCallback(async (file: File) => {
     // Validaciones básicas
     if (!file.type.startsWith("image/")) {
       toast.error("Por favor selecciona una imagen válida.");
@@ -46,7 +47,7 @@ export function ImageUpload({
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${folder}/${fileName}`;
 
-      const { error: uploadError, data } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from(bucket)
         .upload(filePath, file);
 
@@ -68,9 +69,10 @@ export function ImageUpload({
     } finally {
       setIsUploading(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bucket, folder, onChange, value]);
 
-  const handlePaste = (e: ClipboardEvent) => {
+  const handlePaste = useCallback((e: ClipboardEvent) => {
     if (disabled || value || isUploading) return;
     
     const items = e.clipboardData?.items;
@@ -85,7 +87,7 @@ export function ImageUpload({
         }
       }
     }
-  };
+  }, [disabled, value, isUploading, processFile]);
 
   const handleDragOver = (e: React.DragEvent) => {
     if (disabled || value || isUploading) return;
@@ -119,7 +121,7 @@ export function ImageUpload({
     return () => {
       target.removeEventListener("paste", pasteHandler);
     };
-  }, [disabled, value, isUploading]);
+  }, [handlePaste]);
 
   const deleteImageFromStorage = async (url: string) => {
     try {

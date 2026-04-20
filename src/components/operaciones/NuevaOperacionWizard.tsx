@@ -46,10 +46,11 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
 
   // Cargar productos
   const { data: productosPaginated, isLoading } = useSWR<{ data: ProductoListado[] }>("/api/productos?limit=1000", fetcher);
-  const productos = productosPaginated?.data || [];
+  const productosRaw = productosPaginated?.data;
 
   // Filter products locally - ONLY if search isn't empty
   const filteredProductos = useMemo(() => {
+    const productos = productosRaw || [];
     const search = searchTerm.trim().toLowerCase();
     if (!search) return [];
     
@@ -58,7 +59,7 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
         p.cod_unico.toLowerCase().includes(search) ||
         p.cod_barra?.toLowerCase().includes(search)
     ).slice(0, 10);
-  }, [productos, searchTerm]);
+  }, [productosRaw, searchTerm]);
 
   // Initial Auto-fills
   useEffect(() => {
@@ -288,7 +289,7 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
                                  ))
                              )}
                              {filteredProductos.length === 0 && !isLoading && (
-                                 <span className="text-xs text-slate-400 py-1.5">No hay resultados para "{searchTerm}"</span>
+                                 <span className="text-xs text-slate-400 py-1.5">No hay resultados para &quot;{searchTerm}&quot;</span>
                              )}
                          </div>
                      )}

@@ -8,7 +8,6 @@ type PieceSectionProps = {
   piezaSearch: string;
   onSearchChange: (value: string) => void;
   selectedPieza: PiezaBusqueda | null;
-  allPieces: PiezaBusqueda[];
   currentPiezaId: number | null;
   onSelectPieza: (pieza: PiezaBusqueda) => void;
   onClearPieza: () => void;

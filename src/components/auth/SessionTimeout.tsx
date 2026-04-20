@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { toast } from "sonner";
@@ -19,7 +19,7 @@ export default function SessionTimeout() {
   const { user } = useUser();
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       // Llamamos a la API de logout
       const response = await fetch("/api/auth/logout", { method: "POST" });
@@ -40,9 +40,9 @@ export default function SessionTimeout() {
       // Forzamos redirección si falla la API
       window.location.href = "/login";
     }
-  };
+  }, []);
 
-  const resetTimer = () => {
+  const resetTimer = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
@@ -50,7 +50,7 @@ export default function SessionTimeout() {
     if (user) {
       timerRef.current = setTimeout(logout, TIMEOUT_MS);
     }
-  };
+  }, [user, logout]);
 
   useEffect(() => {
     // Solo activamos si hay un usuario logueado
@@ -82,7 +82,7 @@ export default function SessionTimeout() {
         window.removeEventListener(event, handleActivity);
       });
     };
-  }, [user]);
+  }, [user, resetTimer]);
 
   return null; // El componente no renderiza nada visualmente
 }

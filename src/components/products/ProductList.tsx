@@ -693,7 +693,6 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         open={openImport}
         onClose={() => setOpenImport(false)}
         title="Importar Productos (CSV)"
-        size="md"
       >
         <ImportProductModal onClose={() => setOpenImport(false)} />
       </Modal>
