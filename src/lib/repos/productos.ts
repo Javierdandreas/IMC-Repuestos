@@ -99,7 +99,61 @@ async function getProductoProveedores(id: string | number) {
     : [{ id_proveedor: null, codigo_proveedor: "" }];
 }
 
-export async function getProductosListado(page: number = 1, limit: number = 50): Promise<{ data: ProductoListado[]; totalCount: number; totalPages: number }> {
+export async function getProductosListado(
+  page: number = 1, 
+  limit: number = 50,
+  filters: {
+    search?: string;
+    searchSpecific?: string;
+    categoria?: string;
+    subcategoria?: string;
+    marca?: string;
+    proveedor?: string;
+  } = {}
+): Promise<{ data: ProductoListado[]; totalCount: number; totalPages: number }> {
+  const params: any[] = [];
+  let whereClauses = ["1=1"];
+
+  if (filters.search) {
+    params.push(`%${filters.search}%`);
+    whereClauses.push(`(
+      p.descripcion ILIKE $${params.length} OR 
+      p.cod_unico::text ILIKE $${params.length} OR 
+      pi.codigo_pieza::text ILIKE $${params.length} OR 
+      p.palabra_clave::text ILIKE $${params.length} OR
+      p.cod_barra::text ILIKE $${params.length}
+    )`);
+  }
+
+  if (filters.searchSpecific) {
+    params.push(filters.searchSpecific);
+    whereClauses.push(`(
+      p.cod_unico::text = $${params.length} OR 
+      pi.codigo_pieza::text = $${params.length} OR
+      p.cod_barra::text = $${params.length}
+    )`);
+  }
+
+  if (filters.categoria) {
+    params.push(filters.categoria);
+    whereClauses.push(`c.id = $${params.length}`);
+  }
+
+  if (filters.subcategoria) {
+    params.push(filters.subcategoria);
+    whereClauses.push(`s.id = $${params.length}`);
+  }
+
+  if (filters.marca) {
+    params.push(filters.marca);
+    whereClauses.push(`m.id = $${params.length}`);
+  }
+
+  if (filters.proveedor) {
+    params.push(filters.proveedor);
+    whereClauses.push(`prv.id = $${params.length}`);
+  }
+
   const sql = `
     SELECT 
       p.id,
@@ -150,6 +204,7 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
     LEFT JOIN ubicaciones u ON u.id = p.id_ubicacion
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = pi.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
+    WHERE ${whereClauses.join(" AND ")}
     GROUP BY
       p.id,
       p.cod_unico,
@@ -178,7 +233,7 @@ export async function getProductosListado(page: number = 1, limit: number = 50):
     ORDER BY p.id DESC
   `;
 
-  return await paginateQuery<ProductoListado>("productos", sql, page, limit);
+  return await paginateQuery<ProductoListado>("productos", sql, page, limit, params);
 }
 
 export async function getProductoById(id: string | number): Promise<Producto | null> {
@@ -571,9 +626,17 @@ export async function importProductos(items: ImportProductoInput[], usuario: str
     const ubiMap = new Map(ubicaciones.rows.map(r => [normalize(r.descripcion), r.id]));
     const piezaMap = new Map(piezas.rows.map(r => [normalize(r.codigo_pieza), r.id]));
 
-    // 2. Cargar SKU existentes para detectar duplicados
-    const existingSkusRes = await client.query("SELECT cod_unico FROM productos");
-    const existingSkus = new Set(existingSkusRes.rows.map(r => normalize(r.cod_unico)));
+    // 2. Cargar SKU existentes para detectar duplicados (Solo los del lote actual para mayor velocidad)
+    const skusToImport = items.map(item => normalize(item.codigoInterno || item.cod_unico)).filter(Boolean);
+    let existingSkus = new Set<string>();
+    
+    if (skusToImport.length > 0) {
+      const { rows: existingRows } = await client.query(
+        "SELECT cod_unico FROM productos WHERE cod_unico = ANY($1)",
+        [skusToImport]
+      );
+      existingSkus = new Set(existingRows.map(r => normalize(r.cod_unico)));
+    }
 
     // IDs de fallback
     const defaultSubcatId = subMap.get(normalize("SIN SUBCATEGORIA"));

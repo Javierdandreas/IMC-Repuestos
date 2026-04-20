@@ -24,6 +24,7 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [processedCount, setProcessedCount] = useState(0);
+  const [importDuration, setImportDuration] = useState<string | null>(null);
   const [results, setResults] = useState<ImportResults | null>(null);
   const [preview, setPreview] = useState<any[]>([]);
 
@@ -57,6 +58,8 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
     try {
       setImporting(true);
       setProcessedCount(0);
+      setImportDuration(null);
+      const startTime = Date.now();
       
       const BATCH_SIZE = 500;
       const totalItems = preview.length;
@@ -67,34 +70,55 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
       };
 
       for (let i = 0; i < totalItems; i += BATCH_SIZE) {
-        const chunk = preview.slice(i, i + BATCH_SIZE);
-        
-        const res = await fetch("/api/productos/import", {
-          method: "POST",
-          body: JSON.stringify({ 
-            items: chunk,
-            fileName: file?.name
-          }),
-        });
+        try {
+          const chunk = preview.slice(i, i + BATCH_SIZE);
+          
+          const res = await fetch("/api/productos/import", {
+            method: "POST",
+            body: JSON.stringify({ 
+              items: chunk,
+              fileName: file?.name
+            }),
+          });
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || `Error en el lote que empieza en la fila ${i + 1}`);
-
-        // Acumular resultados
-        accumulatedResults.imported += data.imported;
-        accumulatedResults.ignored += data.ignored;
-        accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
-
-        setProcessedCount(Math.min(i + BATCH_SIZE, totalItems));
+          const data = await res.json();
+          if (!res.ok) {
+            // En lugar de lanzar error, lo registramos como fallos de lote y continuamos
+            accumulatedResults.errors.push({
+              row: i + 1,
+              error: data.message || "Error en el lote completo",
+              cod_unico: `Lote ${i/BATCH_SIZE + 1}`
+            });
+          } else {
+            // Acumular resultados exitosos
+            accumulatedResults.imported += data.imported;
+            accumulatedResults.ignored += data.ignored;
+            accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
+          }
+        } catch (batchErr: any) {
+          accumulatedResults.errors.push({
+            row: i + 1,
+            error: batchErr.message || "Error de red o conexión",
+            cod_unico: `Lote ${i/BATCH_SIZE + 1}`
+          });
+        } finally {
+          setProcessedCount(Math.min(i + BATCH_SIZE, totalItems));
+        }
       }
+
+      const endTime = Date.now();
+      const durationMs = endTime - startTime;
+      const minutes = Math.floor(durationMs / 60000);
+      const seconds = ((durationMs % 60000) / 1000).toFixed(1);
+      setImportDuration(minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`);
 
       setResults(accumulatedResults);
       if (accumulatedResults.imported > 0) {
-        toast.success(`Importados ${accumulatedResults.imported} productos correctamente`);
+        toast.success(`Proceso finalizado. Importados ${accumulatedResults.imported} productos.`);
         router.refresh();
       }
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error("Error crítico en la importación: " + error.message);
     } finally {
       setImporting(false);
     }
@@ -128,6 +152,13 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
             <span className="text-[10px] font-bold uppercase tracking-widest text-red-600/70">Con Errores</span>
           </div>
         </div>
+
+        {importDuration && (
+          <div className="flex items-center justify-center gap-2 rounded-xl bg-slate-50 p-2 border border-slate-100 dark:bg-slate-800/40 dark:border-slate-700/50">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Tiempo total de importación:</span>
+            <span className="text-xs font-black text-slate-700 dark:text-slate-300">{importDuration}</span>
+          </div>
+        )}
 
         {results.errors.length > 0 && (
           <div className="max-h-[300px] overflow-y-auto rounded-2xl border border-red-100 bg-red-50/50 p-4 dark:border-red-900/30 dark:bg-red-950/20">

@@ -1,14 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { PencilButton } from "@/components/ui/PencilButton";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { usePermissions } from "@/components/auth/usePermissions";
 import { ProductoListado, Subcategoria } from "@/interfaces/productos";
-import { normalizeText, normalizeCode } from "@/utils/text";
 import { HiPhotograph } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -23,27 +22,34 @@ import { HiCloudUpload } from "react-icons/hi";
 interface Props {
   products: ProductoListado[];
   totalPages?: number;
+  currentPage?: number;
+  totalCount?: number;
 }
 
 const TOOLTIP_WIDTH = 420;
 const TOOLTIP_MARGIN = 16;
 
-export function ProductList({ products, totalPages = 1 }: Props) {
+export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
   const { categorias, subcategorias, marcas, proveedores } = useMetadata();
   const { canManage } = usePermissions();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [openNew, setOpenNew] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductoListado | null>(null);
   const [duplicatingProduct, setDuplicatingProduct] = useState<ProductoListado | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<ProductoListado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [searchGeneral, setSearchGeneral] = useState("");
-  const [searchSpecific, setSearchSpecific] = useState("");
-  const [categoria, setCategoria] = useState("");
-  const [subcategoria, setSubcategoria] = useState("");
-  const [marca, setMarca] = useState("");
-  const [proveedor, setProveedor] = useState("");
+
+  // Estados de filtros (sincronizados con URL)
+  const [searchGeneral, setSearchGeneral] = useState(searchParams.get("search") || "");
+  const [searchSpecific, setSearchSpecific] = useState(searchParams.get("searchSpecific") || "");
+  const [categoria, setCategoria] = useState(searchParams.get("categoria") || "");
+  const [subcategoria, setSubcategoria] = useState(searchParams.get("subcategoria") || "");
+  const [marca, setMarca] = useState(searchParams.get("marca") || "");
+  const [proveedor, setProveedor] = useState(searchParams.get("proveedor") || "");
+
   const [isZoomed, setIsZoomed] = useState(false);
   const [openImport, setOpenImport] = useState(false);
   
@@ -52,6 +58,34 @@ export function ProductList({ products, totalPages = 1 }: Props) {
   const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Efecto para sincronizar filtros con la URL (Debounced)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const currentParams = new URLSearchParams(window.location.search);
+      
+      const newParams = new URLSearchParams();
+      if (searchGeneral) newParams.set("search", searchGeneral);
+      if (searchSpecific) newParams.set("searchSpecific", searchSpecific);
+      if (categoria) newParams.set("categoria", categoria);
+      if (subcategoria) newParams.set("subcategoria", subcategoria);
+      if (marca) newParams.set("marca", marca);
+      if (proveedor) newParams.set("proveedor", proveedor);
+      
+      // Si los parámetros cambiaron, volvemos a la página 1
+      const paramsChanged = newParams.toString() !== Array.from(currentParams.entries())
+        .filter(([key]) => key !== 'page')
+        .map(([k, v]) => `${k}=${v}`)
+        .join('&');
+
+      if (paramsChanged) {
+        newParams.set("page", "1");
+        router.push(`?${newParams.toString()}`);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchGeneral, searchSpecific, categoria, subcategoria, marca, proveedor, router]);
+
   const subcategoriasDisponibles = useMemo(() => {
     if (!categoria) return [] as Subcategoria[];
     return subcategorias
@@ -59,75 +93,9 @@ export function ProductList({ products, totalPages = 1 }: Props) {
       .sort((a, b) => a.descripcion.localeCompare(b.descripcion));
   }, [subcategorias, categoria]);
 
-  const filteredProducts = useMemo(() => {
-    const generalText = normalizeText(searchGeneral);
-    const generalCode = normalizeCode(searchGeneral);
-    const specificCode = normalizeCode(searchSpecific);
-
-    return products.filter((product) => {
-      if (categoria) {
-        const categoriaId = categorias.find((item) => item.descripcion === product.categoria)?.id;
-        if (String(categoriaId ?? "") !== categoria) return false;
-      }
-
-      if (subcategoria) {
-        const subcategoriaId = subcategorias.find((item) => item.descripcion === product.subcategoria)?.id;
-        if (String(subcategoriaId ?? "") !== subcategoria) return false;
-      }
-
-      if (marca) {
-        const marcaDescripcion = marcas.find((item) => String(item.id) === marca)?.descripcion ?? "";
-        if ((product.marca ?? "") !== marcaDescripcion) return false;
-      }
-
-      if (proveedor) {
-        const proveedorDescripcion = proveedores.find((item) => String(item.id) === proveedor)?.descripcion ?? "";
-        const proveedorList = (product.proveedor ?? "").split(",").map((item) => item.trim()).filter(Boolean);
-        if (!proveedorList.includes(proveedorDescripcion)) return false;
-      }
-
-      const textFields = [
-        product.descripcion ?? "",
-        product.pieza_descripcion ?? "",
-        product.marca ?? "",
-        product.categoria ?? "",
-        product.subcategoria ?? "",
-        product.proveedor ?? "",
-      ];
-      const generalHaystackText = normalizeText(textFields.join(" "));
-      const generalTextTokens = generalText ? generalText.split(" ").filter(Boolean) : [];
-      const matchesGeneralText = generalTextTokens.length === 0
-        ? true
-        : generalTextTokens.every((token) => generalHaystackText.includes(token));
-
-      const codeCandidates = [
-        product.cod_unico,
-        product.codigo_pieza ?? "",
-        product.cod_barra ?? "",
-        product.codigo_proveedor ?? "",
-        ...(product.originales ?? []).filter(Boolean),
-        ...(product.equivalentes ?? []).filter(Boolean),
-      ];
-      const generalHaystackCode = normalizeCode(codeCandidates.join(" "));
-      const matchesGeneralCode = !generalCode || generalHaystackCode.includes(generalCode);
-
-      if (searchGeneral && !(matchesGeneralText || matchesGeneralCode)) {
-        return false;
-      }
-
-      if (specificCode) {
-        const exactCandidates = codeCandidates.map((value) => normalizeCode(value));
-        const matchesSpecific = exactCandidates.some((value) => value === specificCode);
-        if (!matchesSpecific) return false;
-      }
-
-      return true;
-    });
-  }, [products, searchGeneral, searchSpecific, categoria, subcategoria, marca, proveedor, categorias, subcategorias, marcas, proveedores]);
-
   const hoveredProduct = useMemo(
-    () => filteredProducts.find(p => p.id === hoveredProductId) ?? null,
-    [filteredProducts, hoveredProductId]
+    () => products.find(p => p.id === hoveredProductId) ?? null,
+    [products, hoveredProductId]
   );
 
   const handleTooltipEnter = (productId: number, event: React.MouseEvent) => {
@@ -177,6 +145,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
     setSubcategoria("");
     setMarca("");
     setProveedor("");
+    router.push("/");
   };
 
   const handleDelete = async () => {
@@ -248,7 +217,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="DESCRIPCIÓN, PIEZA, OEM..."
+                    placeholder="DESCRIPCIÓN, PIEZA, PALABRAS..."
                     value={searchGeneral}
                     onChange={(e) => setSearchGeneral(e.target.value)}
                     className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pl-9 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
@@ -338,7 +307,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
 
             <div className="flex items-center justify-between mt-1">
               <div className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                Resultados: <span className="text-slate-900 dark:text-white font-bold">{filteredProducts.length}</span>
+                Resultados: <span className="text-slate-900 dark:text-white font-bold">{totalCount}</span>
               </div>
               <button
                 onClick={clearFilters}
@@ -366,7 +335,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredProducts.map((product) => (
+                {products.map((product) => (
                   <tr
                     key={product.id}
                     className="group transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/30"
@@ -467,7 +436,7 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                     </td>
                   </tr>
                 ))}
-                {filteredProducts.length === 0 && (
+                {products.length === 0 && (
                   <tr>
                     <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
                       No hay productos que coincidan con los filtros.
@@ -476,6 +445,99 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                 )}
               </tbody>
             </table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-100 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-800/20">
+                <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
+                  Página 
+                  <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded bg-slate-900 px-1 text-white dark:bg-white dark:text-slate-900">
+                    {currentPage}
+                  </span> 
+                  de 
+                  <span className="text-slate-900 dark:text-white">
+                    {totalPages}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => router.push(`?page=1`)}
+                    disabled={currentPage === 1}
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                    title="Primera página"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => router.push(`?page=${currentPage - 1}`)}
+                    disabled={currentPage === 1}
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+
+                  <div className="flex items-center gap-1 mx-2">
+                    {(() => {
+                      const range = [];
+                      const delta = 1;
+                      const left = currentPage - delta;
+                      const right = currentPage + delta;
+
+                      for (let i = 1; i <= totalPages; i++) {
+                        if (i === 1 || i === totalPages || (i >= left && i <= right)) {
+                          range.push(i);
+                        } else if (i === left - 1 || i === right + 1) {
+                          range.push("...");
+                        }
+                      }
+
+                      return range.filter((item, index, self) => item !== "..." || self[index-1] !== "...").map((p, idx) => (
+                        typeof p === "number" ? (
+                          <button
+                            key={idx}
+                            onClick={() => router.push(`?page=${p}`)}
+                            className={`h-10 w-10 flex items-center justify-center rounded-xl text-sm font-black transition-all ${
+                              currentPage === p
+                                ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30 scale-105"
+                                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        ) : (
+                          <span key={idx} className="w-6 text-center font-black text-slate-300 dark:text-slate-700">...</span>
+                        )
+                      ));
+                    })()}
+                  </div>
+
+                  <button
+                    onClick={() => router.push(`?page=${currentPage + 1}`)}
+                    disabled={currentPage === totalPages}
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => router.push(`?page=${totalPages}`)}
+                    disabled={currentPage === totalPages}
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                    title="Última página"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -540,6 +602,13 @@ export function ProductList({ products, totalPages = 1 }: Props) {
                   <p className="text-xs text-slate-500 italic">Sin datos</p>
                 )}
               </div>
+
+              {hoveredProduct.palabra_clave && (
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
+                  <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-blue-500/70 dark:text-blue-400/50">Palabra Clave (Ayuda de búsqueda)</p>
+                  <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase leading-tight bg-blue-50/50 dark:bg-blue-900/10 p-2 rounded-lg border border-blue-100/50 dark:border-blue-800/20">{hoveredProduct.palabra_clave}</p>
+                </div>
+              )}
             </div>
           </motion.div>
         )}

@@ -108,7 +108,7 @@ export function BasicInfoSection({
 
       <div>
         <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          Palabra Clave (Temportal)
+          Palabra Clave (Temporal)
         </label>
         <input
           type="text"

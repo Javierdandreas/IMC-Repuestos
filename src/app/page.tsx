@@ -15,8 +15,15 @@ export default async function Home({ searchParams }: Props) {
   const resolvedParams = await searchParams;
   const page = Number(resolvedParams?.page) || 1;
 
-  const [{ data: products, totalPages }, session] = await Promise.all([
-    getProductosListado(page, 50),
+  const [{ data: products, totalPages, totalCount }, session] = await Promise.all([
+    getProductosListado(page, 50, {
+      search: resolvedParams?.search as string,
+      searchSpecific: resolvedParams?.searchSpecific as string,
+      categoria: resolvedParams?.categoria as string,
+      subcategoria: resolvedParams?.subcategoria as string,
+      marca: resolvedParams?.marca as string,
+      proveedor: resolvedParams?.proveedor as string,
+    }),
     getServerInternalUser()
   ]);
   const canManage = canManageContent(session?.rol);
@@ -26,6 +33,8 @@ export default async function Home({ searchParams }: Props) {
       <ProductList
         products={products}
         totalPages={totalPages}
+        totalCount={totalCount}
+        currentPage={page}
       />
     </div>
   );
