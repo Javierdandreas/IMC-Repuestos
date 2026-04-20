@@ -360,7 +360,7 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="text-center max-w-sm">
           <h3 className="text-xl font-black text-white mb-2">Procesando {file?.name}</h3>
-          <p className="text-sm text-zinc-400 leading-relaxed italic">"Sincronizando registros con alta fidelidad..."</p>
+          <p className="text-sm text-zinc-400 leading-relaxed italic">&quot;Sincronizando registros con alta fidelidad...&quot;</p>
 
           <div className="mt-8 flex flex-col gap-3">
             <div className="flex justify-between text-[11px] font-bold uppercase tracking-widest px-1">

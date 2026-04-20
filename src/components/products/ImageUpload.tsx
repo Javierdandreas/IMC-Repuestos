@@ -69,8 +69,7 @@ export function ImageUpload({
     } finally {
       setIsUploading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bucket, folder, onChange, value]);
+  }, [bucket, folder, onChange, value, supabase]);
 
   const handlePaste = useCallback((e: ClipboardEvent) => {
     if (disabled || value || isUploading) return;
