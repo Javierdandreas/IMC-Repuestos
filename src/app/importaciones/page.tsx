@@ -6,6 +6,8 @@ type Props = {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 };
 
+import { ImportActionHeader } from "@/components/products/ImportActionHeader";
+
 export default async function ImportacionesPage({ searchParams }: Props) {
   const resolvedParams = await searchParams;
   const page = Number(resolvedParams?.page) || 1;
@@ -13,22 +15,8 @@ export default async function ImportacionesPage({ searchParams }: Props) {
 
   return (
     <div className="flex flex-col gap-8 p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/20">
-            <HiCollection className="h-8 w-8" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
-              Historial de Importaciones
-            </h1>
-            <p className="text-sm font-medium text-slate-500">
-              Auditoría completa de movimientos de carga masiva de productos.
-            </p>
-          </div>
-        </div>
-      </div>
+      {/* Dynamic Header with Action */}
+      <ImportActionHeader />
 
       {/* Stats Quick View (Opcional, pero se ve premium) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

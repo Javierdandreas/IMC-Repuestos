@@ -231,3 +231,25 @@ export async function generateAutoSeriesForProduct(id_producto: number, id_usuar
   // Dejamos que createSeries corra validaciones y persistencia transaccional
   return await createSeries(id_producto, Array.from(generatedSerials), id_usuario);
 }
+
+/**
+ * Obtener series disponibles para una lista de productos
+ */
+export async function getSeriesPorVariosProductos(ids: (number | string)[]): Promise<ProductoSerie[]> {
+  if (!ids || ids.length === 0) return [];
+  const sql = `
+    SELECT 
+      id,
+      id_producto,
+      numero_serie,
+      estado,
+      id_ubicacion,
+      fecha_ingreso
+    FROM producto_serie
+    WHERE id_producto = ANY($1::bigint[])
+    AND estado = 'DISPONIBLE'
+    ORDER BY id_producto, numero_serie
+  `;
+  const { rows } = await query(sql, [ids]);
+  return rows as ProductoSerie[];
+}

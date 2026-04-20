@@ -67,20 +67,21 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "Gestión",
+    icon: HiOutlineLibrary,
+    links: [
+      { href: "/importaciones", label: "Importaciones" },
+      { href: "/marcas", label: "Marcas" },
+      { href: "/categorias", label: "Categorías" },
+      { href: "/ubicaciones", label: "Ubicaciones" },
+    ],
+  },
+  {
     label: "Entidades",
     icon: HiOutlineUsers,
     links: [
       { href: "#", label: "Clientes" },
       { href: "/proveedores", label: "Proveedores" },
-    ],
-  },
-  {
-    label: "Listados",
-    icon: HiOutlineLibrary,
-    links: [
-      { href: "/marcas", label: "Marcas" },
-      { href: "/ubicaciones", label: "Ubicaciones" },
-      { href: "/categorias", label: "Categorías" },
     ],
   },
 ];

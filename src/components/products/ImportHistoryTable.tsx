@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { HiCalendar, HiUser, HiDocumentText, HiCheckCircle, HiXCircle, HiInformationCircle, HiChevronDown, HiChevronUp } from "react-icons/hi";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -21,6 +21,8 @@ interface ImportationLog {
   cantidad_errores: number;
   detalles_errores: ImportError[] | string;
   tipo_entidad: string;
+  codigo_importacion: string;
+  duracion_ms: number;
 }
 
 export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
@@ -57,8 +59,9 @@ export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/50">
-              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Fecha / Usuario</th>
+              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Código / Fecha</th>
               <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Archivo</th>
+              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Duración</th>
               <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Resultados</th>
               <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
             </tr>
@@ -69,15 +72,18 @@ export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
               const isExpanded = expandedId === log.id;
 
               return (
-                <>
-                  <tr key={log.id} className="group transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
+                <Fragment key={log.id}>
+                  <tr className="group transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
                     <td className="px-6 py-5">
                       <div className="flex flex-col gap-1">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">
+                          {log.codigo_importacion || `IMP-${log.id}`}
+                        </div>
                         <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
                           <HiCalendar className="text-slate-300" />
                           {format(new Date(log.fecha), "PPPp", { locale: es })}
                         </div>
-                        <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-tight">
                           <HiUser className="text-slate-300" />
                           {log.usuario}
                         </div>
@@ -87,6 +93,15 @@ export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
                         <HiDocumentText className="text-blue-400" />
                         {log.archivo}
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                        {log.duracion_ms ? (
+                          <>
+                            {Math.floor(log.duracion_ms / 60000)}m {((log.duracion_ms % 60000) / 1000).toFixed(1)}s
+                          </>
+                        ) : "--"}
                       </div>
                     </td>
                     <td className="px-6 py-5">
@@ -144,7 +159,7 @@ export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>

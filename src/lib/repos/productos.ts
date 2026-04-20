@@ -1,4 +1,5 @@
 import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
+import { pool } from "@/utils/database";
 import { alegraApi } from "@/lib/alegra";
 import type { Producto, ProductoListado, ProveedorProducto } from "@/interfaces/productos";
 import type { DbClient } from "@/lib/db-utils";
@@ -604,157 +605,229 @@ export async function getAvailableSerialsByProduct(idProducto: string | number):
   return rows.map(r => r.numero_serie);
 }
 
-export async function importProductos(items: ImportProductoInput[], usuario: string, archivo: string) {
+export async function importProductos(
+  items: any[], 
+  usuario: string, 
+  archivo: string,
+  mappings: Record<string, { csvHeader: string; updateExisting: boolean }>
+) {
   return await withTransaction(async (client) => {
     // 1. Cargar metadatos para resolución rápida
-    const [marcas, categorias, subcategorias, ubicaciones, piezas] = await Promise.all([
+    const [marcas, categorias, subcategorias, ubicaciones, piezas, proveedores] = await Promise.all([
       client.query("SELECT id, descripcion FROM marcas"),
       client.query("SELECT id, descripcion FROM categoria"),
       client.query("SELECT id, descripcion FROM subcategoria"),
       client.query("SELECT id, descripcion FROM ubicaciones"),
       client.query("SELECT id, codigo_pieza FROM pieza"),
+      client.query("SELECT id, descripcion FROM proveedores"),
     ]);
 
     const normalize = (text: any) => {
-      if (typeof text !== 'string') return '';
-      return text.trim().toUpperCase();
+      if (text === null || text === undefined) return '';
+      return String(text).trim().toUpperCase();
     };
 
-    const marcaMap = new Map(marcas.rows.map(r => [normalize(r.descripcion), r.id]));
-    const catMap = new Map(categorias.rows.map(r => [normalize(r.descripcion), r.id]));
-    const subMap = new Map(subcategorias.rows.map(r => [normalize(r.descripcion), r.id]));
-    const ubiMap = new Map(ubicaciones.rows.map(r => [normalize(r.descripcion), r.id]));
-    const piezaMap = new Map(piezas.rows.map(r => [normalize(r.codigo_pieza), r.id]));
+    const marcaMap = new Map<string, number>(marcas.rows.map(r => [normalize(r.descripcion), r.id]));
+    const catMap = new Map<string, number>(categorias.rows.map(r => [normalize(r.descripcion), r.id]));
+    const subMap = new Map<string, number>(subcategorias.rows.map(r => [normalize(r.descripcion), r.id]));
+    const ubiMap = new Map<string, number>(ubicaciones.rows.map(r => [normalize(r.descripcion), r.id]));
+    const piezaMap = new Map<string, number>(piezas.rows.map(r => [normalize(r.codigo_pieza), r.id]));
+    const provMap = new Map<string, number>(proveedores.rows.map(r => [normalize(r.descripcion), r.id]));
 
-    // 2. Cargar SKU existentes para detectar duplicados (Solo los del lote actual para mayor velocidad)
-    const skusToImport = items.map(item => normalize(item.codigoInterno || item.cod_unico)).filter(Boolean);
-    let existingSkus = new Set<string>();
-    
-    if (skusToImport.length > 0) {
-      const { rows: existingRows } = await client.query(
-        "SELECT cod_unico FROM productos WHERE cod_unico = ANY($1)",
-        [skusToImport]
-      );
-      existingSkus = new Set(existingRows.map(r => normalize(r.cod_unico)));
-    }
-
-    // IDs de fallback
     const defaultSubcatId = subMap.get(normalize("SIN SUBCATEGORIA"));
+    const startTime = Date.now();
+
+    // Arrays para Bulk Insert
+    const v_cod_unico: string[] = [];
+    const v_desc: string[] = [];
+    const v_barra: (string | null)[] = [];
+    const v_stock: number[] = [];
+    const v_id_marca: (number | null)[] = [];
+    const v_id_subcat: (number | null)[] = [];
+    const v_id_ubi: (number | null)[] = [];
+    const v_id_pieza: (number | null)[] = [];
+    const v_palabra_clave: (string | null)[] = [];
+    
+    // Para relación proveedores
+    const supplierLinks: { sku: string; provName: string; codProv: string | null }[] = [];
 
     const results = {
       imported: 0,
+      updated: 0,
       ignored: 0,
       errors: [] as { row: number; error: string; cod_unico: string }[],
     };
 
+    // 2. Preparar los datos
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        const rowNum = i + 2; // +1 para 0-index, +1 para cabecera
+        const rowNum = i + 1;
         
+        const sku = item[mappings.cod_unico?.csvHeader]?.toString().trim();
+        if (!sku) {
+            results.ignored++;
+            continue;
+        }
+
         try {
-            const sku = normalize(item.codigoInterno || item.cod_unico);
-            const desc = normalize(item.titulo || item.descripcion);
-
-            // Regla: Ignorar si no hay SKU o descripción básica
-            if (!sku || !desc) {
-                if (!sku && !desc) continue; // Fila vacía
-                throw new Error(`Datos críticos faltantes: codigoInterno (${sku}) o titulo (${desc})`);
-            }
-
-            // Regla: Ignorar si ya existe
-            if (existingSkus.has(sku)) {
-                results.ignored++;
-                continue;
-            }
-
-            // Resolución de IDs
-            const id_marca = item.marca ? marcaMap.get(normalize(item.marca)) : null;
-
-            const id_subcategoria_str = item.subcategoria ? normalize(item.subcategoria) : null;
-            let id_subcategoria = id_subcategoria_str ? subMap.get(id_subcategoria_str) : null;
+            // Limpieza de datos básica con protección de límites de la DB
+            const rawDesc = (mappings.titulo?.csvHeader ? item[mappings.titulo.csvHeader] : null) || sku;
+            const desc = rawDesc ? String(rawDesc).trim().substring(0, 150) : "";
             
-            // Fallback a "SIN SUBCATEGORIA" si no se encuentra o no se provee
-            if (!id_subcategoria) {
-                id_subcategoria = defaultSubcatId;
+            const rawBarra = mappings.cod_barra?.csvHeader ? item[mappings.cod_barra.csvHeader] : null;
+            const barra = rawBarra ? String(rawBarra).trim().substring(0, 50) : null;
+            
+            const rawStock = mappings.stock?.csvHeader ? item[mappings.stock.csvHeader] : 0;
+            const stockNum = parseFloat(rawStock?.toString().replace(',', '.') || '0') || 0;
+            
+            const idMarca = mappings.marca?.csvHeader ? marcaMap.get(normalize(item[mappings.marca.csvHeader])) || null : null;
+            
+            // La subcategoría es obligatoria en DB, si no existe usamos la primera o la mapeada
+            let idSubcat = mappings.subcategoria?.csvHeader ? subMap.get(normalize(item[mappings.subcategoria.csvHeader])) : null;
+            if (!idSubcat) {
+              idSubcat = subMap.values().next().value || 1; 
             }
 
-            // Si aún no hay subcategoría (muy raro si el default existe), entonces sí es error
-            if (!id_subcategoria) {
-                throw new Error(`Subcategoría no encontrada y no hay valor por defecto disponible.`);
+            const idUbi = mappings.ubicacion?.csvHeader ? ubiMap.get(normalize(item[mappings.ubicacion.csvHeader])) || null : null;
+            const idPieza = mappings.codigo_pieza?.csvHeader ? piezaMap.get(normalize(item[mappings.codigo_pieza.csvHeader])) || null : null;
+            const keyword = mappings.palabra_clave?.csvHeader ? item[mappings.palabra_clave.csvHeader]?.toString() : null;
+
+            v_cod_unico.push(sku.substring(0, 50));
+            v_desc.push(desc);
+            v_barra.push(barra);
+            v_stock.push(stockNum);
+            v_id_marca.push(idMarca);
+            v_id_subcat.push(idSubcat);
+            v_id_ubi.push(idUbi);
+            v_id_pieza.push(idPieza);
+            v_palabra_clave.push(keyword);
+
+            // Relación proveedor
+            const provName = mappings.proveedor?.csvHeader ? item[mappings.proveedor.csvHeader] : null;
+            if (provName) {
+                supplierLinks.push({ 
+                  sku, 
+                  provName: provName.toString(), 
+                  codProv: mappings.codigo_proveedor?.csvHeader ? item[mappings.codigo_proveedor.csvHeader]?.toString() : null 
+                });
             }
-
-            const ubiKey = normalize(item.ubicacionInt || item.ubicacion);
-            const id_ubicacion = ubiKey ? ubiMap.get(ubiKey) : null;
-
-            const id_pieza = item.codigo_pieza ? piezaMap.get(normalize(item.codigo_pieza)) : null;
-            const palabraClaveRaw = item["Palabra clave"] || item.palabra_clave;
-
-            // Inserción
-            await client.query(
-                `INSERT INTO productos (cod_unico, descripcion, cod_barra, stock, id_marca, id_subcategoria, id_ubicacion, id_pieza, palabra_clave)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-                [
-                    sku,
-                    desc,
-                    item.CodigoBarras || item.cod_barra || null,
-                    Number(item.stock) || 0,
-                    id_marca,
-                    id_subcategoria,
-                    id_ubicacion,
-                    id_pieza,
-                    normalize(palabraClaveRaw) || null
-                ]
-            );
-
-            existingSkus.add(sku);
-            results.imported++;
-
         } catch (err: any) {
-            results.errors.push({
-                row: rowNum,
-                error: err.message,
-                cod_unico: item.codigoInterno || item.cod_unico || "SIN SKU"
-            });
+            results.errors.push({ row: rowNum, error: `Error procesando fila: ${err.message}`, cod_unico: sku });
         }
     }
 
-    // 3. Registrar el log de la importación
-    await client.query(
-      `INSERT INTO log_importaciones (
-        usuario, 
-        archivo, 
-        items_importados, 
-        items_ignorados, 
-        cantidad_errores, 
-        detalles_errores
-      ) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        usuario,
-        archivo,
-        results.imported,
-        results.ignored,
-        results.errors.length,
-        JSON.stringify(results.errors)
-      ]
-    );
+    if (v_cod_unico.length === 0) return { ...results, durationMs: Date.now() - startTime };
 
-    return results;
+    // 3. Ejecutar Bulk Upsert de Productos
+    const upsertQuery = `
+      WITH upserted AS (
+        INSERT INTO productos (
+          cod_unico, descripcion, cod_barra, stock, id_marca, id_subcategoria, id_ubicacion, id_pieza, palabra_clave
+        )
+        SELECT * FROM UNNEST(
+            $1::text[], $2::text[], $3::text[], $4::numeric[], $5::int[], $6::int[], $7::int[], $8::int[], $9::text[]
+        ) AS t(cod_unico, descripcion, cod_barra, stock, id_marca, id_subcategoria, id_ubicacion, id_pieza, palabra_clave)
+        ON CONFLICT (cod_unico) DO UPDATE SET
+          descripcion = CASE WHEN $10 THEN EXCLUDED.descripcion ELSE productos.descripcion END,
+          cod_barra = CASE WHEN $11 THEN EXCLUDED.cod_barra ELSE productos.cod_barra END,
+          stock = CASE WHEN $12 THEN EXCLUDED.stock ELSE productos.stock END,
+          id_marca = CASE WHEN $13 THEN EXCLUDED.id_marca ELSE productos.id_marca END,
+          id_subcategoria = CASE WHEN $14 THEN EXCLUDED.id_subcategoria ELSE productos.id_subcategoria END,
+          id_ubicacion = CASE WHEN $15 THEN EXCLUDED.id_ubicacion ELSE productos.id_ubicacion END,
+          id_pieza = CASE WHEN $16 THEN EXCLUDED.id_pieza ELSE productos.id_pieza END,
+          palabra_clave = CASE WHEN $17 THEN EXCLUDED.palabra_clave ELSE productos.palabra_clave END
+        RETURNING id, cod_unico, (xmax = 0) AS is_new
+      )
+      SELECT id, cod_unico, is_new FROM upserted;
+    `;
+
+    try {
+      const upsertRes = await client.query(upsertQuery, [
+          v_cod_unico, v_desc, v_barra, v_stock, v_id_marca, v_id_subcat, v_id_ubi, v_id_pieza, v_palabra_clave,
+          mappings.titulo?.updateExisting ?? true,
+          mappings.cod_barra?.updateExisting ?? true,
+          mappings.stock?.updateExisting ?? true,
+          mappings.marca?.updateExisting ?? true,
+          mappings.subcategoria?.updateExisting ?? true,
+          mappings.ubicacion?.updateExisting ?? true,
+          mappings.codigo_pieza?.updateExisting ?? true,
+          mappings.palabra_clave?.updateExisting ?? true
+      ]);
+
+      const skuToIdMap = new Map<string, number>(upsertRes.rows.map(r => [r.cod_unico, r.id]));
+      upsertRes.rows.forEach(r => {
+          if (r.is_new) results.imported++;
+          else results.updated++;
+      });
+
+      // 4. Bulk Upsert de Proveedores (si corresponde)
+      if (supplierLinks.length > 0 && mappings.proveedor?.updateExisting !== false) {
+          const v_prod_id: number[] = [];
+          const v_prov_id: number[] = [];
+          const v_cod_prov: (string | null)[] = [];
+
+          supplierLinks.forEach(link => {
+              const prodId = skuToIdMap.get(link.sku);
+              const provId = provMap.get(normalize(link.provName));
+              if (prodId && provId) {
+                  v_prod_id.push(prodId);
+                  v_prov_id.push(provId);
+                  v_cod_prov.push(link.codProv);
+              }
+          });
+
+          if (v_prod_id.length > 0) {
+              const codProvShouldUpdate = mappings.codigo_proveedor?.updateExisting ?? true;
+              
+              await client.query(`
+                  INSERT INTO producto_proveedor (id_producto, id_proveedor, codigo_proveedor)
+                  SELECT * FROM UNNEST($1::int[], $2::int[], $3::text[])
+                  AS t(id_producto, id_proveedor, codigo_proveedor)
+                  ON CONFLICT (id_producto, id_proveedor) DO UPDATE SET
+                      codigo_proveedor = CASE WHEN $4 THEN EXCLUDED.codigo_proveedor ELSE producto_proveedor.codigo_proveedor END
+              `, [v_prod_id, v_prov_id, v_cod_prov, codProvShouldUpdate]);
+          }
+      }
+    } catch (dbErr: any) {
+      console.error("❌ Error en DB Bulk Upsert:", dbErr.message, dbErr.detail);
+      throw new Error(`Error de base de datos: ${dbErr.message}${dbErr.detail ? ' - ' + dbErr.detail : ''}`);
+    }
+
+    // 5. Devolver resultados (log lo maneja el cliente consolidando todo)
+    const durationMs = Date.now() - startTime;
+
+    return { ...results, durationMs };
   });
-}export async function getImportacionesLogs(page: number = 1, limit: number = 20): Promise<{ data: any[]; totalCount: number; totalPages: number }> {
+}
+
+
+export async function getImportacionesLogs(page: number = 1, limit: number = 20): Promise<{ data: any[]; totalCount: number; totalPages: number }> {
   const sql = `
     SELECT 
-      id,
-      fecha,
-      usuario,
-      archivo,
-      items_importados,
-      items_ignorados,
-      cantidad_errores,
-      detalles_errores,
-      tipo_entidad
+        id,
+        fecha,
+        usuario,
+        archivo,
+        items_importados,
+        items_ignorados,
+        cantidad_errores,
+        detalles_errores,
+        codigo_importacion,
+        duracion_ms
     FROM log_importaciones
     ORDER BY fecha DESC
   `;
   
   return await paginateQuery<any>("log_importaciones", sql, page, limit);
+}
+
+export async function bulkUpdateBarcodes(updates: { id: number; cod_barra: string }[]) {
+  return await withTransaction(async (client) => {
+    for (const update of updates) {
+      await client.query(
+        "UPDATE productos SET cod_barra = $1 WHERE id = $2 AND (cod_barra IS NULL OR cod_barra = '')",
+        [update.cod_barra, update.id]
+      );
+    }
+  });
 }

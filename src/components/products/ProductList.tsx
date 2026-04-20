@@ -7,17 +7,16 @@ import { PencilButton } from "@/components/ui/PencilButton";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { ProductoListado, Subcategoria } from "@/interfaces/productos";
-import { HiPhotograph } from "react-icons/hi";
+import { HiPhotograph, HiCloudUpload, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
-
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
 import { ProductForm } from "@/components/products/ProductForm";
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
 import { ImportProductModal } from "@/components/products/ImportProductModal";
-import { HiCloudUpload } from "react-icons/hi";
+import { ProductoListado, Subcategoria } from "@/interfaces/productos";
+import { BulkLabelPrinter } from "@/components/products/BulkLabelPrinter";
 
 interface Props {
   products: ProductoListado[];
@@ -52,11 +51,31 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
   const [isZoomed, setIsZoomed] = useState(false);
   const [openImport, setOpenImport] = useState(false);
+  const [openLabelPrinter, setOpenLabelPrinter] = useState(false);
   
   // Hover state
   const [hoveredProductId, setHoveredProductId] = useState<number | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // --- NUEVO: Estado de Selección ---
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const toggleSelect = (id: number) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === products.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(products.map(p => p.id)));
+    }
+  };
+  // ---------------------------------
 
   // Efecto para sincronizar filtros con la URL (Debounced)
   useEffect(() => {
@@ -323,6 +342,16 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             <table className="w-full border-collapse text-left">
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>
+                  <th className="w-[40px] px-3 py-4">
+                    <div className="flex items-center justify-center">
+                      <input 
+                        type="checkbox" 
+                        checked={products.length > 0 && selectedIds.size === products.length}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </div>
+                  </th>
                   <th className="w-[110px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Código</th>
                   <th className="px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Descripción</th>
                   <th className="w-[60px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Foto</th>
@@ -338,8 +367,22 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 {products.map((product) => (
                   <tr
                     key={product.id}
-                    className="group transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/30"
+                    className={`group transition-all ${
+                      selectedIds.has(product.id) 
+                        ? 'bg-blue-50/50 dark:bg-blue-900/10' 
+                        : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/30'
+                    }`}
                   >
+                    <td className="px-3 py-4">
+                      <div className="flex items-center justify-center">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedIds.has(product.id)}
+                          onChange={() => toggleSelect(product.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </div>
+                    </td>
                     <td className="whitespace-nowrap px-5 py-4">
                       <div className="flex flex-col">
                         <span className="font-mono text-sm font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
@@ -436,9 +479,9 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </td>
                   </tr>
                 ))}
-                {products.length === 0 && (
+                 {products.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
+                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
                       No hay productos que coincidan con los filtros.
                     </td>
                   </tr>
@@ -446,7 +489,51 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </tbody>
             </table>
 
-            {/* Pagination Controls */}
+            {/* Barra de Acciones Masivas */}
+            <AnimatePresence>
+              {selectedIds.size > 0 && (
+                <motion.div 
+                  initial={{ y: 100, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 100, opacity: 0 }}
+                  className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-6 rounded-2xl bg-slate-900 px-6 py-4 shadow-2xl shadow-blue-500/20 border border-slate-700/50"
+                >
+                  <div className="flex items-center gap-3 border-r border-slate-700/50 pr-6">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-white font-black text-sm">
+                      {selectedIds.size}
+                    </div>
+                    <span className="text-sm font-bold text-slate-300">items seleccionados</span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setSelectedIds(new Set())}
+                      className="group flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                    >
+                      Deseleccionar
+                    </button>
+                    
+                    <button 
+                      onClick={() => setOpenLabelPrinter(true)}
+                      className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 hover:scale-105 active:scale-95"
+                    >
+                      <HiPrinter className="h-4 w-4" />
+                      IMPRIMIR ETIQUETAS
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <BulkLabelPrinter 
+              isOpen={openLabelPrinter}
+              onClose={() => setOpenLabelPrinter(false)}
+              products={products.filter(p => selectedIds.has(p.id))}
+              onSuccess={() => {
+                router.refresh(); // Actualizar datos de la tabla
+              }}
+            />
+
             {totalPages > 1 && (
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-100 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-800/20">
                 <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
