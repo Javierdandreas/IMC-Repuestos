@@ -20,8 +20,11 @@ export default async function ImportacionesPage({ searchParams }: Props) {
 
       {/* Stats Quick View (Opcional, pero se ve premium) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="rounded-3xl border border-slate-100 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 shadow-sm">
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Archivos</span>
+        <div className="rounded-3xl border border-slate-300 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 shadow-sm relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+             <HiCollection className="h-16 w-16 text-slate-900 dark:text-white" />
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Total Archivos</span>
           <p className="text-3xl font-black text-slate-900 dark:text-white mt-1">{logs.length}</p>
         </div>
         {/* Aquí se podrían sumar items totales si se quisiera */}
@@ -30,7 +33,7 @@ export default async function ImportacionesPage({ searchParams }: Props) {
       {/* Table Section */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Listado Cronológico</h2>
+          <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Listado Cronológico</h2>
         </div>
         <ImportHistoryTable logs={logs} />
       </div>

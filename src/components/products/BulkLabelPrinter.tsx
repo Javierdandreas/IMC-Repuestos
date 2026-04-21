@@ -20,9 +20,18 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
   const [isFetchingSeries, setIsFetchingSeries] = useState(false);
   const [readyToPrint, setReadyToPrint] = useState(false);
   const [seriesMap, setSeriesMap] = useState<Record<number, ProductoSerie[]>>({});
+  const [customQuantities, setCustomQuantities] = useState<Record<number, number>>({});
+  
+  // Identificar productos trazables
+  const [localProducts, setLocalProducts] = useState<ProductoListado[]>(products);
 
-  // Identificar productos sin barcode
-  const missingBarcodes = products.filter(p => !p.cod_barra || p.cod_barra.trim() === "");
+  // Sincronizar localProducts cuando cambian los products props
+  useEffect(() => {
+    setLocalProducts(products);
+  }, [products]);
+
+  // Identificar productos sin barcode en el estado local
+  const missingBarcodes = localProducts.filter(p => !p.cod_barra || p.cod_barra.trim() === "");
 
   // Cargar series para productos trazables
   useEffect(() => {
@@ -59,30 +68,37 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
 
     if (isOpen) {
       fetchSeries();
+      // Inicializar cantidades
+      const initialQtys: Record<number, number> = {};
+      products.forEach(p => {
+        initialQtys[p.id] = Math.max(1, Number(p.stock) || 1);
+      });
+      setCustomQuantities(initialQtys);
     }
   }, [isOpen, products]);
 
-  // Generar etiquetas individuales
+  // Generar etiquetas individuales usando el estado local (localProducts)
   const labelsToPrint = useMemo(() => {
     const list: { product: ProductoListado; serial?: string }[] = [];
     
-    products.forEach(p => {
+    localProducts.forEach(p => {
+      const targetQty = customQuantities[p.id] ?? Math.max(1, Number(p.stock) || 1);
+      
       if (p.usa_numero_serie) {
         const series = seriesMap[p.id] || [];
-        series.forEach(s => {
-          list.push({ product: p, serial: s.numero_serie });
-        });
+        // Tomar hasta N series según la cantidad deseada
+        for (let i = 0; i < Math.min(targetQty, series.length); i++) {
+          list.push({ product: p, serial: series[i].numero_serie });
+        }
       } else {
-        // Ahora también expandimos por stock para items no serializados
-        const stockCount = Math.max(1, Number(p.stock) || 1);
-        for (let i = 0; i < stockCount; i++) {
+        for (let i = 0; i < targetQty; i++) {
           list.push({ product: p });
         }
       }
     });
 
     return list;
-  }, [products, seriesMap]);
+  }, [localProducts, seriesMap, customQuantities]);
 
   const handleAutoGenerateMissing = async () => {
     const productsToFix = products.filter(p => 
@@ -131,7 +147,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
       try {
         const updates = missingBarcodes.map(p => ({
           id: p.id,
-          cod_barra: p.cod_unico
+          cod_barra: "" // Enviamos vacío para que el backend genere uno profesional de 13 dígitos
         }));
 
         const res = await fetch("/api/productos/bulk-generate-barcodes", {
@@ -141,10 +157,23 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
         });
 
         if (!res.ok) throw new Error("Error al guardar códigos");
-        toast.success(`${updates.length} códigos de barras guardados.`);
+        
+        const data = await res.json();
+        if (data.success && data.updates) {
+          // Actualizar localProducts con los nuevos códigos generados antes de imprimir
+          setLocalProducts(prev => prev.map(p => {
+            const update = data.updates.find((u: any) => u.id === p.id);
+            if (update) {
+              return { ...p, cod_barra: update.cod_barra };
+            }
+            return p;
+          }));
+          toast.success(`${data.updates.length} códigos de barras generados profesionalmente.`);
+        }
+        
         onSuccess();
       } catch (error) {
-        toast.error("Error al guardar códigos.");
+        toast.error("Error al generar códigos profesionales.");
         setIsGenerating(false);
         return;
       }
@@ -320,50 +349,97 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
           {missingBarcodes.length > 0 && (
             <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl border border-blue-100 text-[10px] font-bold dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400">
               <HiCheckCircle className="h-4 w-4" />
-              {missingBarcodes.length} productos guardarán su código interno como código de barras.
+              {missingBarcodes.length} productos generarán códigos de barras de 13 dígitos automáticamente.
             </div>
           )}
         </div>
 
-        {/* Grid de Previsualización */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[55vh] overflow-y-auto p-4 bg-white dark:bg-slate-950 rounded-3xl border border-slate-200 dark:border-slate-800 print:hidden">
-          {labelsToPrint.map((label, idx) => (
-            <div 
-              key={`${label.product.id}-${label.serial || 'base'}-${idx}`}
-              className="group relative flex flex-col items-center p-5 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 transition hover:border-blue-500/50 hover:bg-white dark:hover:bg-slate-800 overflow-hidden"
-            >
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter mb-1">
-                {label.product.marca || "IMC REPUSTOS"}
-              </span>
-              <span className="text-[11px] font-black text-slate-900 dark:text-white text-center leading-tight mb-3 px-2 truncate w-full">
-                {label.product.descripcion}
-              </span>
-              
-              <div className="bg-white p-2 rounded-lg border border-slate-200 mb-2 w-full flex justify-center overflow-hidden">
-                <Barcode 
-                  value={label.serial || label.product.cod_barra || label.product.cod_unico} 
-                  width={1.2} 
-                  height={40} 
-                  displayValue={false}
-                  fontSize={10}
-                  background="#ffffff"
-                  lineColor="#000000"
-                />
+        {/* Selector de Cantidades */}
+        <div className="flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-900/30 rounded-3xl border border-slate-200 dark:border-slate-800">
+          <h4 className="px-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Configuración de cantidades</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {products.map(p => (
+              <div key={`qty-ctrl-${p.id}`} className="flex items-center justify-between p-3 bg-white dark:bg-slate-950 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                <div className="flex flex-col min-w-0 flex-1 mr-4">
+                  <span className="text-[11px] font-black text-slate-900 dark:text-white truncate uppercase">{p.descripcion}</span>
+                  <span className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">{p.cod_unico} • Stock: {p.stock || 0}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setCustomQuantities(prev => ({ ...prev, [p.id]: Math.max(0, (prev[p.id] || 0) - 1) }))}
+                    className="h-8 w-8 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                  >
+                    -
+                  </button>
+                  <input 
+                    type="number"
+                    value={customQuantities[p.id] || 0}
+                    onChange={(e) => setCustomQuantities(prev => ({ ...prev, [p.id]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                    className="w-12 text-center bg-transparent font-black text-xs text-slate-900 dark:text-white focus:outline-none"
+                  />
+                  <button 
+                    onClick={() => setCustomQuantities(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }))}
+                    className="h-8 w-8 flex items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500 hover:text-white transition-colors"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
+            ))}
+          </div>
+        </div>
 
-              {label.serial && (
-                <div className="mt-1 flex items-center gap-1 bg-blue-500 text-white px-2 py-0.5 rounded-full text-[9px] font-black tracking-widest uppercase">
-                   {label.serial}
+        {/* Grid de Previsualización (Minimalista: 1 por producto) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[45vh] overflow-y-auto p-4 bg-white dark:bg-slate-950 rounded-3xl border border-slate-200 dark:border-slate-800 print:hidden shadow-inner">
+          {products
+            .filter(p => (customQuantities[p.id] || 0) > 0)
+            .map((product) => {
+              const qty = customQuantities[product.id] || 0;
+              const hasSeries = product.usa_numero_serie;
+              const firstSerial = hasSeries ? (seriesMap[product.id]?.[0]?.numero_serie || "SERIE-EJEMPLO") : null;
+
+              return (
+                <div 
+                  key={`preview-${product.id}`}
+                  className="group relative flex flex-col items-center p-5 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 transition hover:border-blue-500/50 hover:bg-white dark:hover:bg-slate-800"
+                >
+                  {/* Badge de Cantidad Minimalista */}
+                  <div className="absolute top-3 right-3 px-2 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-black shadow-lg shadow-blue-600/20 z-10">
+                    x{qty}
+                  </div>
+
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter mb-1">
+                    {product.marca || "IMC REPUSTOS"}
+                  </span>
+                  <span className="text-[11px] font-black text-slate-900 dark:text-white text-center leading-tight mb-3 px-2 truncate w-full">
+                    {product.descripcion}
+                  </span>
+                  
+                  <div className="bg-white p-2 rounded-lg border border-slate-200 mb-2 w-full flex justify-center overflow-hidden opacity-80 group-hover:opacity-100 transition-opacity">
+                    <Barcode 
+                      value={firstSerial || product.cod_barra || product.cod_unico} 
+                      width={1.1} 
+                      height={35} 
+                      displayValue={false}
+                      fontSize={10}
+                      background="#ffffff"
+                      lineColor="#000000"
+                    />
+                  </div>
+
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">
+                      Cód: {product.cod_unico}
+                    </span>
+                    {hasSeries && (
+                      <div className="flex items-center gap-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full text-[9px] font-black tracking-widest uppercase border border-blue-500/20">
+                        {qty} {qty === 1 ? 'Serie' : 'Series'} configuradas
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-              {!label.serial && label.product.usa_numero_serie && (
-                <div className="mt-1 flex items-center gap-1 bg-amber-500 text-white px-2 py-0.5 rounded-full text-[9px] font-black tracking-widest">
-                  <HiExclamation className="h-3 w-3" />
-                  SIN SERIE ASIGNADA
-                </div>
-              )}
-            </div>
-          ))}
+              );
+            })}
           
           {labelsToPrint.length === 0 && (
             <div className="col-span-full py-20 text-center">

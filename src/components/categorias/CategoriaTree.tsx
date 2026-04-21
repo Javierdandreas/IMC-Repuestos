@@ -217,6 +217,7 @@ export function CategoriaTree({ categorias }: Props) {
         title="Nueva categoría"
         open={canManage && openCategoria}
         onClose={() => setOpenCategoria(false)}
+        width="max-w-15xl"
       >
         <CatalogForm
           apiPath="/api/categorias"
@@ -234,6 +235,7 @@ export function CategoriaTree({ categorias }: Props) {
         title="Editar categoría"
         open={canManage && !!editingCategoria}
         onClose={() => setEditingCategoria(null)}
+        width="max-w-15xl"
       >
         <CatalogForm
           apiPath="/api/categorias"
@@ -253,6 +255,7 @@ export function CategoriaTree({ categorias }: Props) {
         title="Nueva subcategoría"
         open={canManage && openSubcategoria}
         onClose={() => setOpenSubcategoria(false)}
+        width="max-w-15xl"
       >
         <SubcategoriaForm
           categorias={categoriasOptions}
@@ -269,6 +272,7 @@ export function CategoriaTree({ categorias }: Props) {
         title="Editar subcategoría"
         open={canManage && !!editingSubcategoria}
         onClose={() => setEditingSubcategoria(null)}
+        width="max-w-15xl"
       >
         <SubcategoriaForm
           categorias={categoriasOptions}

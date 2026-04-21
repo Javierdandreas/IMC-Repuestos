@@ -58,12 +58,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`🔐 Intentando login para: ${normalizedEmail}`);
+
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
       password: normalizedPassword,
     });
 
     if (signInError) {
+      console.warn(`🛑 Fallo de credenciales Supabase para: ${normalizedEmail}`);
       return NextResponse.json(
         { message: "Email o contraseña incorrectos" },
         { status: 401 }
@@ -76,6 +79,7 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
+      console.error("❌ Error recuperando usuario de Supabase:", userError);
       await supabase.auth.signOut();
       return NextResponse.json(
         { message: "No se pudo validar la sesión" },
@@ -83,9 +87,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`✅ Supabase Auth exitoso para user id: ${user.id}. Buscando usuario en DB interna...`);
     const internalUser = await findInternalUserByAuthUserId(user.id);
 
     if (!internalUser || !internalUser.activo || !canReadContent(internalUser.rol)) {
+      console.warn(`⚠️ Usuario ${user.id} sin permisos o inactivo en IMC.`);
       await supabase.auth.signOut();
       return NextResponse.json(
         { message: "Usuario autenticado pero sin acceso habilitado en IMC" },
@@ -93,9 +99,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`🎉 Login exitoso para: ${normalizedEmail} (ID: ${internalUser.usuarioId})`);
     return response;
   } catch (error: unknown) {
     await supabase.auth.signOut();
-    return jsonError(error, "No se pudo iniciar sesión");
+    return jsonError(error, "No se pudo iniciar sesión por un error interno.");
   }
 }

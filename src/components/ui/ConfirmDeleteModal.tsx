@@ -22,7 +22,7 @@ export function ConfirmDeleteModal({
   onClose,
 }: Props) {
   return (
-    <Modal title={title} open={open} onClose={loading ? () => {} : onClose}>
+    <Modal title={title} open={open} onClose={loading ? () => {} : onClose} width="max-w-md">
       <div className="space-y-6">
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-300">
           {description}

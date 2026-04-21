@@ -139,6 +139,7 @@ export function CatalogList({
         title={createLabel}
         open={canManage && openNew}
         onClose={() => setOpenNew(false)}
+        width="max-w-15xl"
       >
         <CatalogForm
           apiPath={apiPath}
@@ -155,6 +156,7 @@ export function CatalogList({
         title={`Editar ${entityName}`}
         open={canManage && !!editingItem}
         onClose={() => setEditingItem(null)}
+        width="max-w-15xl"
       >
         <CatalogForm
           apiPath={apiPath}

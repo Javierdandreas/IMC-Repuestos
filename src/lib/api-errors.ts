@@ -44,5 +44,18 @@ export function toAppError(error: unknown, fallbackMessage: string): AppError {
 
 export function jsonError(error: unknown, fallbackMessage: string) {
   const appError = toAppError(error, fallbackMessage);
-  return NextResponse.json({ message: appError.message }, { status: appError.status });
+  const isUnexpected = !isAppError(error) && !(error instanceof z.ZodError);
+
+  // Log detallado en el servidor para el desarrollador
+  if (isUnexpected) {
+    console.error("❌ [API ERROR]:", error);
+  } else {
+    console.warn(`⚠️ [API ${appError.status}]:`, appError.message);
+  }
+
+  // En producción, podrías querer ocultar el mensaje real si es inesperado
+  // para evitar fugas de información de la DB.
+  const clientMessage = isUnexpected ? fallbackMessage : appError.message;
+
+  return NextResponse.json({ message: clientMessage }, { status: appError.status });
 }

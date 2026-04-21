@@ -52,21 +52,20 @@ export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
       </div>
     );
   }
-
   return (
-    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <div className="overflow-hidden rounded-3xl border border-slate-300 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/50">
-              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Código / Fecha</th>
-              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Archivo</th>
-              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Duración</th>
-              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Resultados</th>
-              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
+            <tr className="border-b border-slate-300 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/50">
+              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">Código / Fecha</th>
+              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">Archivo</th>
+              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">Duración</th>
+              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">Resultados</th>
+              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400 text-right">Acciones</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          <tbody className="divide-y divide-slate-300 dark:divide-slate-800">
             {logs.map((log) => {
               const errors = parseErrors(log.detalles_errores);
               const isExpanded = expandedId === log.id;
@@ -80,23 +79,23 @@ export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
                           {log.codigo_importacion || `IMP-${log.id}`}
                         </div>
                         <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
-                          <HiCalendar className="text-slate-300" />
+                          <HiCalendar className="text-slate-400 dark:text-slate-500" />
                           {format(new Date(log.fecha), "PPPp", { locale: es })}
                         </div>
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-tight">
-                          <HiUser className="text-slate-300" />
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tight">
+                          <HiUser className="text-slate-400 dark:text-slate-500" />
                           {log.usuario}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
-                        <HiDocumentText className="text-blue-400" />
+                        <HiDocumentText className="text-blue-500" />
                         {log.archivo}
                       </div>
                     </td>
                     <td className="px-6 py-5">
-                      <div className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-400">
                         {log.duracion_ms ? (
                           <>
                             {Math.floor(log.duracion_ms / 60000)}m {((log.duracion_ms % 60000) / 1000).toFixed(1)}s
@@ -106,17 +105,17 @@ export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex flex-wrap gap-2">
-                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-green-600 dark:bg-green-900/20 dark:text-green-400">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-green-700 dark:bg-green-900/20 dark:text-green-400 border border-green-200 dark:border-none">
                           <HiCheckCircle className="h-3 w-3" />
                           {log.items_importados} Creados
                         </span>
                         {log.items_ignorados > 0 && (
-                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-700 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-none">
                             {log.items_ignorados} Ignorados
                           </span>
                         )}
                         {log.cantidad_errores > 0 && (
-                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-red-600 dark:bg-red-900/20 dark:text-red-400">
+                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-red-700 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-none">
                             <HiXCircle className="h-3 w-3" />
                             {log.cantidad_errores} Errores
                           </span>
@@ -127,7 +126,7 @@ export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
                       {log.cantidad_errores > 0 && (
                         <button
                           onClick={() => toggleExpand(log.id)}
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                         >
                           {isExpanded ? (
                             <>Ocultar Errores <HiChevronUp /></>
@@ -141,12 +140,12 @@ export const ImportHistoryTable = ({ logs }: { logs: ImportationLog[] }) => {
                   {/* Detalles Expandibles */}
                   {isExpanded && errors.length > 0 && (
                     <tr className="bg-red-50/30 dark:bg-red-950/10">
-                      <td colSpan={4} className="px-6 py-4">
-                        <div className="rounded-2xl border border-red-100 bg-white p-4 dark:border-red-900/30 dark:bg-slate-900 shadow-inner">
+                      <td colSpan={5} className="px-6 py-4">
+                        <div className="rounded-2xl border border-red-200 bg-white p-4 dark:border-red-900/30 dark:bg-slate-900 shadow-inner">
                           <h4 className="mb-3 text-[10px] font-black uppercase tracking-widest text-red-600">Errores detectados en {log.archivo}</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                             {errors.map((err, i) => (
-                              <div key={i} className="flex flex-col gap-1 p-3 rounded-xl border border-red-50 bg-red-50/20 dark:bg-red-950/20 dark:border-red-900/20">
+                              <div key={i} className="flex flex-col gap-1 p-3 rounded-xl border border-red-200 bg-red-50/20 dark:bg-red-950/20 dark:border-red-900/20">
                                 <div className="flex justify-between items-center">
                                   <span className="text-[10px] font-black text-red-700 dark:text-red-400">FILA {err.row}</span>
                                   <span className="font-mono text-[9px] text-red-600/50">[{err.cod_unico}]</span>

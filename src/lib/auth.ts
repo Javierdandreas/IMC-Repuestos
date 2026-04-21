@@ -73,27 +73,38 @@ export function canAccessApp(session: AuthenticatedInternalUser | null | undefin
 export async function findInternalUserByAuthUserId(
   authUserId: string
 ): Promise<AuthenticatedInternalUser | null> {
-  const { rows } = await pool.query<InternalUserRow>(
-    `
-      SELECT
-        ua.auth_user_id AS "authUserId",
-        ua.usuario_id AS "usuarioId",
-        du.email,
-        du.nombre,
-        du.apellido,
-        u.nombre_usuario AS "nombreUsuario",
-        ua.rol,
-        ua.activo
-      FROM public.usuario_auth ua
-      JOIN public.usuario u ON u.id = ua.usuario_id
-      LEFT JOIN public.detalle_usuario du ON du.id = ua.usuario_id
-      WHERE ua.auth_user_id = $1
-      LIMIT 1
-    `,
-    [authUserId]
-  );
+  try {
+    const { rows } = await pool.query<InternalUserRow>(
+      `
+        SELECT
+          ua.auth_user_id AS "authUserId",
+          ua.usuario_id AS "usuarioId",
+          du.email,
+          du.nombre,
+          du.apellido,
+          u.nombre_usuario AS "nombreUsuario",
+          ua.rol,
+          ua.activo
+        FROM public.usuario_auth ua
+        JOIN public.usuario u ON u.id = ua.usuario_id
+        LEFT JOIN public.detalle_usuario du ON du.id = ua.usuario_id
+        WHERE ua.auth_user_id = $1
+        LIMIT 1
+      `,
+      [authUserId]
+    );
 
-  return mapInternalUser(rows[0]);
+    return mapInternalUser(rows[0]);
+  } catch (error: any) {
+    console.error("❌ Error en findInternalUserByAuthUserId:", {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint,
+      stack: error.stack
+    });
+    throw error; // Re-lanzar para que jsonError lo capture
+  }
 }
 
 export async function verifyInternalUserFromRequest(

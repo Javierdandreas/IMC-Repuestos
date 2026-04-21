@@ -90,7 +90,12 @@ export const Sidebar = () => {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { theme } = useTheme();
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [isHovered, setIsHovered] = useState(false);
+  
+  // El sidebar está "expandido visualmente" si no está colapsado manualmente O si se está pasando el mouse
+  const isSidebarExpanded = !isCollapsed || isHovered;
+
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [openSubgroups, setOpenSubgroups] = useState<Record<string, boolean>>({});
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -113,7 +118,7 @@ export const Sidebar = () => {
         isLinkActive(link.href) || link.sublinks?.some(sub => isLinkActive(sub.href))
       );
       if (hasActive) {
-        setOpenGroups(prev => ({ ...prev, [group.label]: true }));
+        setActiveGroup(group.label);
         group.links.forEach(link => {
             if (link.sublinks?.some(sub => isLinkActive(sub.href))) {
                 setOpenSubgroups(prev => ({ ...prev, [link.label]: true }));
@@ -166,8 +171,11 @@ export const Sidebar = () => {
   }, []);
 
   const toggleGroup = (label: string) => {
-    if (isCollapsed) toggleSidebar();
-    setOpenGroups(prev => ({ ...prev, [label]: !prev[label] }));
+    if (!isSidebarExpanded) {
+        // Si estaba colapsado y hacemos clic, forzamos expansión visual (aunque el hover ya lo hace)
+        setIsHovered(true);
+    }
+    setActiveGroup(prev => prev === label ? null : label);
   };
 
   const toggleSubgroup = (e: React.MouseEvent, label: string) => {
@@ -181,7 +189,7 @@ export const Sidebar = () => {
       {!isMobileOpen && (
         <button 
           onClick={() => setIsMobileOpen(true)}
-          className="fixed top-4 left-4 z-40 rounded-xl bg-white p-2 shadow-lg dark:bg-slate-900 md:hidden"
+          className="fixed top-4 left-4 z-40 rounded-xl bg-white p-2 shadow-lg dark:bg-slate-900 md:hidden border border-slate-200 dark:border-slate-800"
         >
           <HiOutlineMenuAlt2 className="h-6 w-6 text-slate-600 dark:text-slate-300" />
         </button>
@@ -200,13 +208,15 @@ export const Sidebar = () => {
       </AnimatePresence>
 
       <aside 
-        className={`fixed top-0 left-0 z-50 h-screen border-r border-slate-200 bg-white transition-all duration-300 ease-in-out dark:border-slate-800 dark:bg-black/95 backdrop-blur-xl flex flex-col ${
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        className={`fixed top-0 left-0 z-50 h-screen border-r border-slate-300 bg-white transition-all duration-300 ease-in-out dark:border-slate-800 dark:bg-black/95 backdrop-blur-xl flex flex-col shadow-2xl md:shadow-none ${
           isMobileOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'
-        } ${isCollapsed && !isMobileOpen ? 'md:w-20' : 'md:w-64'}`}
+        } ${!isSidebarExpanded && !isMobileOpen ? 'md:w-20' : 'md:w-64'}`}
       >
         
         {/* Logo Section */}
-        <div className="flex h-24 items-center justify-center px-4 overflow-hidden">
+        <div className="flex h-24 items-center justify-center px-4 overflow-hidden border-b border-slate-100 dark:border-slate-800/50">
           <Link href="/" className="flex items-center justify-center w-full">
              <div className="relative w-full h-12">
                 <AnimatePresence mode="wait">
@@ -220,7 +230,7 @@ export const Sidebar = () => {
                   >
                     <Image
                       src={
-                        isCollapsed && !isMobileOpen
+                        !isSidebarExpanded && !isMobileOpen
                           ? "/Logo_Plegado.png"
                           : theme === "dark" 
                             ? "/imc-navbar-logo-negro.png" 
@@ -244,7 +254,7 @@ export const Sidebar = () => {
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-2 scrollbar-none scroll-smooth">
           {navGroups.map((group) => {
             const Icon = group.icon;
-            const isOpen = openGroups[group.label];
+            const isOpen = activeGroup === group.label;
             
             return (
               <div key={group.label} className="space-y-1">
@@ -253,14 +263,14 @@ export const Sidebar = () => {
                   title={isCollapsed ? group.label : ""}
                   className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-bold transition-all ${
                     isOpen && (!isCollapsed || isMobileOpen)
-                      ? "bg-slate-50 text-slate-900 dark:bg-slate-900/40 dark:text-white" 
+                      ? "bg-slate-100 text-slate-900 dark:bg-slate-900/40 dark:text-white ring-1 ring-slate-200 dark:ring-slate-800" 
                       : "text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/40 dark:hover:text-white"
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <Icon className="h-5 w-5 flex-shrink-0" />
                     <AnimatePresence>
-                      {(!isCollapsed || isMobileOpen) && (
+                      {isSidebarExpanded && (
                         <motion.span
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
@@ -272,13 +282,13 @@ export const Sidebar = () => {
                       )}
                     </AnimatePresence>
                   </div>
-                  {(!isCollapsed || isMobileOpen) && (
+                  {isSidebarExpanded && (
                     <HiChevronDown className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
                   )}
                 </button>
 
                 <AnimatePresence initial={false}>
-                  {isOpen && (!isCollapsed || isMobileOpen) && (
+                  {isOpen && isSidebarExpanded && (
                     <motion.div
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: "auto", opacity: 1 }}
@@ -286,7 +296,7 @@ export const Sidebar = () => {
                       transition={{ duration: 0.2, ease: "easeInOut" }}
                       className="overflow-hidden"
                     >
-                      <div className="ml-5 mt-1 space-y-1 border-l border-slate-100 dark:border-slate-800/50 pl-4">
+                      <div className="ml-5 mt-1 space-y-1 border-l border-slate-300 dark:border-slate-800/50 pl-4">
                         {group.links.map((link) => {
                           const active = isLinkActive(link.href) && !link.sublinks;
                           const hasSublinks = link.sublinks && link.sublinks.length > 0;
@@ -311,7 +321,7 @@ export const Sidebar = () => {
                                                     initial={{ height: 0, opacity: 0 }}
                                                     animate={{ height: "auto", opacity: 1 }}
                                                     exit={{ height: 0, opacity: 0 }}
-                                                    className="ml-2 border-l border-slate-100 dark:border-slate-800/50 pl-3 space-y-1"
+                                                    className="ml-2 border-l border-slate-300 dark:border-slate-800/50 pl-3 space-y-1"
                                                 >
                                                     {link.sublinks?.map(sub => (
                                                         sub.external ? (
@@ -376,7 +386,7 @@ export const Sidebar = () => {
         </nav>
 
         {/* Footer Section */}
-        <div className="mt-auto p-4 space-y-4">
+        <div className="mt-auto p-4 space-y-4 border-t border-slate-100 dark:border-slate-800/50">
            
            {/* User Section with Popover */}
            <div className="relative" ref={userMenuRef}>
@@ -386,7 +396,7 @@ export const Sidebar = () => {
                         initial={{ opacity: 0, y: 10, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                        className="absolute bottom-full left-0 mb-2 w-full min-w-[180px] overflow-hidden rounded-2xl bg-white p-1.5 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
+                        className="absolute bottom-full left-0 mb-2 w-full min-w-[180px] overflow-hidden rounded-2xl bg-white p-1.5 shadow-2xl ring-1 ring-slate-300 dark:bg-slate-900 dark:ring-slate-800"
                     >
                         <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
                             <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{userProfile.nombre}</p>
@@ -401,7 +411,7 @@ export const Sidebar = () => {
 
              <button 
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className={`flex w-full items-center gap-3 rounded-2xl p-2 transition-all hover:bg-slate-50 dark:hover:bg-slate-900/50 ${userMenuOpen ? 'bg-slate-50 dark:bg-slate-900/50' : ''} ${isCollapsed && !isMobileOpen ? 'justify-center' : ''}`}
+                className={`flex w-full items-center gap-3 rounded-2xl p-2 transition-all hover:bg-slate-50 dark:hover:bg-slate-900/50 ${userMenuOpen ? 'bg-slate-100 dark:bg-slate-900/50' : ''} ${!isSidebarExpanded && !isMobileOpen ? 'justify-center' : ''}`}
              >
                 <div className="relative h-9 w-9 flex-shrink-0">
                     <div className="flex h-full w-full items-center justify-center rounded-xl bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-black shadow-lg">
@@ -411,7 +421,7 @@ export const Sidebar = () => {
                 </div>
                 
                 <AnimatePresence>
-                    {(!isCollapsed || isMobileOpen) && (
+                    {isSidebarExpanded && (
                         <motion.div 
                             initial={{ opacity: 0, width: 0 }}
                             animate={{ opacity: 1, width: "auto" }}
@@ -429,29 +439,12 @@ export const Sidebar = () => {
              </button>
            </div>
 
-           {/* Theme & Collapse Toolbar */}
-           <div className={`flex items-center gap-2 p-1.5 rounded-2xl bg-slate-50/50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-800/50 ${isCollapsed && !isMobileOpen ? 'flex-col' : 'justify-between'}`}>
+           {/* Theme Section - Now centered and without collapse button */}
+           <div className={`flex items-center justify-center p-1.5 rounded-2xl bg-slate-50 dark:bg-slate-910/30 border border-slate-200 dark:border-slate-800/50`}>
              <ThemeToggle />
-             
-             {!isCollapsed || isMobileOpen ? (
-                <button 
-                    onClick={toggleSidebar}
-                    className="flex items-center justify-center h-10 w-10 rounded-xl text-slate-400 hover:bg-white hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white shadow-sm transition-all"
-                    title="Contraer sidebar"
-                >
-                    <HiChevronLeft className="h-5 w-5" />
-                </button>
-             ) : (
-                <button 
-                    onClick={toggleSidebar}
-                    className="flex items-center justify-center h-10 w-10 rounded-xl text-slate-400 hover:bg-white hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white shadow-sm transition-all"
-                    title="Expandir sidebar"
-                >
-                    <HiChevronRight className="h-5 w-5" />
-                </button>
-             )}
            </div>
         </div>
+        
       </aside>
     </>
   );

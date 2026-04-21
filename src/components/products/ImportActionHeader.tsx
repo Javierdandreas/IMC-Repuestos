@@ -19,7 +19,7 @@ export function ImportActionHeader() {
             <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
               Importaciones
             </h1>
-            <p className="text-sm font-medium text-slate-500">
+            <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
               Auditoría y ejecución de carga masiva de productos.
             </p>
           </div>

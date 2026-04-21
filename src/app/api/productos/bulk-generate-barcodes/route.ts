@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { bulkUpdateBarcodes } from "@/lib/repos/productos";
+import { bulkUpdateBarcodes, generateUniqueBarcode } from "@/lib/repos/productos";
 
 export async function POST(req: Request) {
   try {
@@ -12,9 +12,23 @@ export async function POST(req: Request) {
       );
     }
 
-    await bulkUpdateBarcodes(updates);
+    const processedUpdates = [];
+    for (const update of updates) {
+      let codBarra = update.cod_barra;
+      // Si el código está vacío o es nulo, generamos uno nuevo "oficial" (estilo EAN-13 empezando con 200)
+      if (!codBarra || codBarra.trim() === "") {
+        codBarra = await generateUniqueBarcode();
+      }
+      processedUpdates.push({ ...update, cod_barra: codBarra });
+    }
 
-    return NextResponse.json({ success: true, count: updates.length });
+    await bulkUpdateBarcodes(processedUpdates);
+
+    return NextResponse.json({ 
+      success: true, 
+      count: processedUpdates.length,
+      updates: processedUpdates // Devolvemos los códigos generados para el cliente
+    });
   } catch (error: any) {
     console.error("Error in bulk-generate-barcodes:", error);
     return NextResponse.json(
