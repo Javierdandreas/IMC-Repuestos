@@ -74,7 +74,7 @@ export function CatalogList({
 
   return (
     <>
-      <div className="mx-auto w-full max-w-5xl py-8 px-4 md:px-8">
+      <div className="mx-auto w-full max-w-7xl py-8 px-4 md:px-8">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{title}</h1>
 
@@ -139,7 +139,7 @@ export function CatalogList({
         title={createLabel}
         open={canManage && openNew}
         onClose={() => setOpenNew(false)}
-        width="max-w-15xl"
+        width="w-[min(96vw,1400px)]"
       >
         <CatalogForm
           apiPath={apiPath}
@@ -156,7 +156,7 @@ export function CatalogList({
         title={`Editar ${entityName}`}
         open={canManage && !!editingItem}
         onClose={() => setEditingItem(null)}
-        width="max-w-15xl"
+        width="w-[min(96vw,1400px)]"
       >
         <CatalogForm
           apiPath={apiPath}

@@ -636,7 +636,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             initial={{ opacity: 0, scale: 1 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 1 }}
-            className="fixed z-[100] w-[420px] rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800 dark:text-white pointer-events-none overflow-y-auto"
+            className="fixed z-[100] w-[420px] rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800 dark:text-white overflow-y-auto"
+            onMouseEnter={() => {
+              if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+            }}
+            onMouseLeave={handleTooltipLeave}
             style={{ 
               top: tooltipPos.top, 
               left: tooltipPos.left,

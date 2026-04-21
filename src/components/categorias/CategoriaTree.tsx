@@ -88,7 +88,7 @@ export function CategoriaTree({ categorias }: Props) {
 
   return (
     <>
-      <div className="mx-auto w-full max-w-5xl py-8 px-4 md:px-8">
+      <div className="mx-auto w-full max-w-7xl py-8 px-4 md:px-8">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Categorías</h1>
 
@@ -157,7 +157,7 @@ export function CategoriaTree({ categorias }: Props) {
                       </div>
                     </div>
 
-                    <div className="flex flex-col divide-y divide-slate-50">
+                    <div className="flex flex-col divide-y divide-slate-50 dark:divide-transparent">
                       {categoria.subcategorias.length > 0 ? (
                         categoria.subcategorias.map((subcategoria) => (
                           <div
@@ -217,7 +217,7 @@ export function CategoriaTree({ categorias }: Props) {
         title="Nueva categoría"
         open={canManage && openCategoria}
         onClose={() => setOpenCategoria(false)}
-        width="max-w-15xl"
+        width="w-[min(96vw,700px)]"
       >
         <CatalogForm
           apiPath="/api/categorias"
@@ -235,7 +235,7 @@ export function CategoriaTree({ categorias }: Props) {
         title="Editar categoría"
         open={canManage && !!editingCategoria}
         onClose={() => setEditingCategoria(null)}
-        width="max-w-15xl"
+        width="w-[min(96vw,700px)]"
       >
         <CatalogForm
           apiPath="/api/categorias"
@@ -255,7 +255,7 @@ export function CategoriaTree({ categorias }: Props) {
         title="Nueva subcategoría"
         open={canManage && openSubcategoria}
         onClose={() => setOpenSubcategoria(false)}
-        width="max-w-15xl"
+        width="w-[min(96vw,700px)]"
       >
         <SubcategoriaForm
           categorias={categoriasOptions}
@@ -272,7 +272,7 @@ export function CategoriaTree({ categorias }: Props) {
         title="Editar subcategoría"
         open={canManage && !!editingSubcategoria}
         onClose={() => setEditingSubcategoria(null)}
-        width="max-w-15xl"
+        width="w-[min(96vw,700px)]"
       >
         <SubcategoriaForm
           categorias={categoriasOptions}

@@ -244,107 +244,100 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
   }
 
   if (step === 'mapping') {
-  return (
-    <div className="flex flex-col gap-6 animate-in fade-in duration-300">
-      <div className="flex items-center justify-between bg-zinc-900/50 rounded-2xl p-4 border border-zinc-800">
-        <div>
-          <h3 className="text-lg font-black text-white">Configuración de Columnas</h3>
-          <p className="text-xs text-zinc-400">Mapea los datos de tu CSV a los campos de la base de datos.</p>
+    return (
+      <div className="flex flex-col gap-5 animate-in fade-in duration-300">
+        <div className="flex items-center justify-between bg-slate-50 dark:bg-zinc-900/50 rounded-2xl p-4 border border-slate-200 dark:border-zinc-800">
+          <div>
+            <h3 className="text-lg font-black text-slate-900 dark:text-white">Configuración de Columnas</h3>
+            <p className="text-xs text-slate-500 dark:text-zinc-400">Mapea los datos de tu CSV a los campos de la base de datos.</p>
+          </div>
+          <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
+            <HiAdjustments className="h-5 w-5" />
+          </div>
         </div>
-        <div className="h-12 w-12 flex items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
-          <HiAdjustments className="h-6 w-6" />
-        </div>
-      </div>
 
-      <div className="grid grid-cols-2 gap-6 max-h-[500px] overflow-y-auto pr-3 px-1 scrollbar-thin scrollbar-thumb-zinc-700">
-        {SYSTEM_FIELDS.map((field) => (
-          <div
-            key={field.id}
-            className="flex flex-col gap-3 rounded-2xl bg-zinc-900/30 p-4 border border-zinc-800 hover:border-zinc-700 transition-colors"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-300">
-                {field.label} {field.required && <span className="text-red-500">*</span>}
-              </span>
-
-              {field.id !== 'cod_unico' && (
-                <label className="flex items-center gap-2 cursor-pointer group">
-                  <span
-                    className={`text-[9px] font-bold transition-colors ${
-                      mappings[field.id].updateExisting
-                        ? 'text-blue-400'
-                        : 'text-zinc-600 line-through'
-                    }`}
-                  >
-                    {mappings[field.id].updateExisting ? 'SINCRONIZAR' : 'OMITIR CAMPO'}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto pr-2 px-1 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-zinc-700">
+          {SYSTEM_FIELDS.map((field) => {
+            const isSelected = mappings[field.id].updateExisting;
+            return (
+              <div
+                key={field.id}
+                className={`flex flex-col gap-2 rounded-2xl p-3 border transition-all ${isSelected
+                    ? 'bg-blue-50/50 dark:bg-blue-500/5 border-blue-200 dark:border-blue-500/30'
+                    : 'bg-slate-50/50 dark:bg-zinc-900/30 border-slate-200 dark:border-zinc-800 opacity-80'
+                  }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-zinc-400'
+                    }`}>
+                    {field.label} {field.required && <span className="text-red-500">*</span>}
                   </span>
 
-                  <input
-                    type="checkbox"
-                    checked={mappings[field.id].updateExisting}
-                    onChange={() => toggleUpdate(field.id)}
-                    className="sr-only"
-                  />
+                  {field.id !== 'cod_unico' && (
+                    <label className="flex items-center gap-2 cursor-pointer group">
+                      <span className={`text-[8px] font-black tracking-widest transition-colors ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-zinc-600'
+                        }`}>
+                        {isSelected ? 'SINCRONIZAR' : 'OMITIR'}
+                      </span>
 
-                  <div
-                    className={`w-8 h-4 rounded-full transition-colors relative ${
-                      mappings[field.id].updateExisting ? 'bg-blue-600' : 'bg-red-500/20'
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 w-3 h-3 rounded-full transition-transform ${
-                        mappings[field.id].updateExisting
-                          ? 'bg-white translate-x-[18px]'
-                          : 'bg-zinc-500 translate-x-0.5'
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleUpdate(field.id)}
+                        className="sr-only"
+                      />
+
+                      <div className={`w-7 h-4 rounded-full transition-colors relative ${isSelected ? 'bg-blue-500' : 'bg-slate-300 dark:bg-zinc-800'
+                        }`}>
+                        <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${isSelected ? 'translate-x-[13px]' : 'translate-x-0.5'
+                          }`} />
+                      </div>
+                    </label>
+                  )}
+                </div>
+
+                {isSelected && (
+                  <select
+                    value={mappings[field.id].csvHeader}
+                    onChange={(e) => updateMapping(field.id, e.target.value)}
+                    className={`h-9 w-full rounded-xl border px-3 text-[11px] font-bold transition focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${mappings[field.id].csvHeader
+                        ? 'bg-white dark:bg-zinc-950 border-blue-500/50 text-slate-900 dark:text-white shadow-sm'
+                        : 'bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-400'
                       }`}
-                    />
-                  </div>
-                </label>
-              )}
-            </div>
+                  >
+                    <option value="">-- IGNORAR ESTE CAMPO --</option>
+                    {csvHeaders.map((h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
-            {mappings[field.id].updateExisting && (
-              <select
-                value={mappings[field.id].csvHeader}
-                onChange={(e) => updateMapping(field.id, e.target.value)}
-                className={`h-11 w-full rounded-xl border bg-zinc-900 px-3 text-xs font-bold ring-offset-zinc-900 transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  mappings[field.id].csvHeader
-                    ? 'border-blue-500/50 text-white'
-                    : 'border-zinc-800 text-zinc-500'
-                }`}
-              >
-                <option value="">-- IGNORAR ESTE CAMPO --</option>
-                {csvHeaders.map((h) => (
-                  <option key={h} value={h}>
-                    {h}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        ))}
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={() => setStep('upload')}
+            className="h-12 flex-1 rounded-2xl bg-white dark:bg-zinc-800 font-bold text-slate-600 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 text-xs"
+          >
+            Atrás
+          </button>
+
+          <button
+            onClick={handleImport}
+            disabled={!mappings.cod_unico.csvHeader}
+            className="h-12 flex-[2] flex items-center justify-center gap-2 rounded-2xl bg-blue-600 font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:opacity-50 text-xs uppercase tracking-widest"
+          >
+            <HiPlay className="h-5 w-5" />
+            Importar CSV
+          </button>
+        </div>
       </div>
-
-      <div className="flex gap-4 pt-2">
-        <button
-          onClick={() => setStep('upload')}
-          className="h-14 flex-1 rounded-2xl bg-zinc-800 font-bold text-zinc-300 transition hover:bg-zinc-700 border border-zinc-700"
-        >
-          Atrás
-        </button>
-
-        <button
-          onClick={handleImport}
-          disabled={!mappings.cod_unico.csvHeader}
-          className="h-14 flex-[2] flex items-center justify-center gap-3 rounded-2xl bg-blue-600 font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:opacity-50"
-        >
-          <HiPlay className="h-6 w-6" />
-          Iniciar Procesamiento
-        </button>
-      </div>
-    </div>
-  );
-}
+    );
+  }
 
   if (step === 'importing') {
     return (
@@ -392,28 +385,14 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
           <span className="mt-1 text-xs font-medium text-slate-400">Arrastra tu archivo aquí o haz clic para buscar</span>
         </label>
 
-        <button
-          onClick={() => {
-            const headers = "codigoInterno,marca,titulo,stock,ubicacionInt,codigoProveedor,CodigoBarras,Palabra clave,Proveedor";
-            const blob = new Blob([headers], { type: "text/csv" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "plantilla_productos.csv";
-            a.click();
-          }}
-          className="flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-blue-600 hover:underline dark:text-blue-400"
-        >
-          <HiDownload /> Descargar plantilla ejemplo
-        </button>
       </div>
 
       <div className="rounded-2xl bg-amber-50 p-4 border border-amber-100 dark:bg-amber-900/20 dark:border-amber-800/40">
         <div className="flex gap-3">
           <HiExclamation className="h-5 w-5 text-amber-500 shrink-0" />
           <div>
-            <p className="text-[11px] font-bold text-amber-800 dark:text-amber-400 leading-tight">Personalización de importación:</p>
-            <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-500 opacity-80">
+            <p className="text-sm font-black text-amber-900 dark:text-amber-400 leading-tight uppercase tracking-tight">Personalización de importación:</p>
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-500 font-medium">
               En el siguiente paso podrás elegir exactamente qué columnas de tu Excel corresponden a cada campo del sistema y decidir si quieres actualizar los productos existentes o solo añadir los nuevos.
             </p>
           </div>
