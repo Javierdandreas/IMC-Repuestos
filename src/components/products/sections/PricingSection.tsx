@@ -14,6 +14,80 @@ const TIPO_ML = 2;
 const TIPO_MOSTRADOR = 3;
 const TIPO_MECANICO = 4;
 
+const round = (num: number) => Math.round(num * 100) / 100;
+
+const formatMoney = (val: number) => {
+  return new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(val);
+};
+
+interface PriceInputProps {
+  value: number;
+  onChange: (val: number) => void;
+  prefix?: string;
+  className?: string;
+  placeholder?: string;
+}
+
+function PriceInput({ value, onChange, prefix, className, placeholder }: PriceInputProps) {
+  const [displayValue, setDisplayValue] = useState(value === 0 ? "" : value.toString());
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDisplayValue(value === 0 ? "" : value.toString());
+    }
+  }, [value, isFocused]);
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    // Lógica robusta para detectar puntos de miles y comas decimales
+    // Caso 1: Tiene coma (formato es-AR) -> Quitar puntos, cambiar coma por punto decimal
+    // Caso 2: No tiene coma -> Mantener como está (asumir formato estándar o solo miles con punto)
+    let clean = displayValue;
+    if (clean.includes(',')) {
+      clean = clean.replace(/\./g, '').replace(',', '.');
+    } else if (clean.includes('.') && clean.split('.').pop()?.length === 3 && clean.split('.').length > 1) {
+      // Caso especial: "1.500" sin coma, muy probable que sea mil quinientos en formato regional
+      // Si tiene exactamente 3 dígitos después del punto, lo tratamos como miles
+      clean = clean.replace(/\./g, '');
+    }
+
+    const num = parseFloat(clean);
+    onChange(isNaN(num) ? 0 : round(num));
+  };
+
+  const handleChange = (val: string) => {
+    // Permitir solo números y un punto/coma decimal
+    const clean = val.replace(/[^0-9.,]/g, "");
+    setDisplayValue(clean);
+  };
+
+  // Valor formateado para cuando NO hay foco
+  const visualValue = value === 0 ? "" : formatMoney(value);
+
+  return (
+    <div className="relative w-full">
+      {prefix && (
+        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+          {prefix}
+        </span>
+      )}
+      <input
+        type="text"
+        value={isFocused ? displayValue : visualValue}
+        onChange={(e) => handleChange(e.target.value)}
+        onFocus={() => setIsFocused(true)}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+        className={`${className} ${prefix ? "pl-8" : "px-4"}`}
+      />
+    </div>
+  );
+}
+
 export function PricingSection({ precios, onChange }: PricingSectionProps) {
   // Inicializamos Costo
   const costoItem = precios.find(p => p.id_tipo_precio === TIPO_COSTO) || {
@@ -23,49 +97,48 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
     porcentaje_ganancia: 0
   };
 
-  const handleCostoChange = (val: number) => {
-    const nuevosPrecios = precios.map(p => {
-      if (p.id_tipo_precio === TIPO_COSTO) {
-        return { ...p, valor: val };
-      }
-      // Al cambiar el costo, recalculamos los precios finales manteniendo el margen
-      const nuevoValor = val * (1 + (p.porcentaje_ganancia || 0) / 100);
-      return { ...p, valor: nuevoValor };
-    });
+  const syncAllPrices = (currentPrecios: PrecioDetalle[]) => {
+    const basicTypes = [TIPO_COSTO, TIPO_ML, TIPO_MOSTRADOR, TIPO_MECANICO];
+    const missing = basicTypes.filter(id => !currentPrecios.find(p => p.id_tipo_precio === id));
+    
+    if (missing.length === 0) return currentPrecios;
 
-    // Si no existían los otros, los agregamos (un producto nuevo podría no tenerlos)
-    const ids = nuevosPrecios.map(p => p.id_tipo_precio);
-    [TIPO_ML, TIPO_MOSTRADOR, TIPO_MECANICO].forEach(id => {
-      if (!ids.includes(id)) {
-        const desc = id === TIPO_ML ? "MERCADO LIBRE" : id === TIPO_MOSTRADOR ? "MOSTRADOR" : "MECANICO";
-        nuevosPrecios.push({
-          id_tipo_precio: id,
-          tipo_descripcion: desc,
-          valor: val, // Inicialmente igual al costo (0% margen)
-          porcentaje_ganancia: 0
-        });
+    const added = missing.map(id => ({
+      id_tipo_precio: id,
+      tipo_descripcion: id === TIPO_COSTO ? "PRECIO COSTO" : id === TIPO_ML ? "MERCADO LIBRE" : id === TIPO_MOSTRADOR ? "MOSTRADOR" : "MECANICO",
+      valor: 0,
+      porcentaje_ganancia: 0
+    }));
+
+    return [...currentPrecios, ...added];
+  };
+
+  const handleCostoChange = (val: number) => {
+    const basePrecios = syncAllPrices(precios);
+    const nuevosPrecios = basePrecios.map(p => {
+      if (p.id_tipo_precio === TIPO_COSTO) {
+        return { ...p, valor: round(val) };
       }
+      const nuevoValor = val * (1 + (p.porcentaje_ganancia || 0) / 100);
+      return { ...p, valor: round(nuevoValor) };
     });
 
     onChange(nuevosPrecios);
   };
 
   const updatePrecio = (idTipo: number, field: "valor" | "porcentaje_ganancia", val: number) => {
-    const costo = precios.find(p => p.id_tipo_precio === TIPO_COSTO)?.valor || 0;
+    const basePrecios = syncAllPrices(precios);
+    const costo = basePrecios.find(p => p.id_tipo_precio === TIPO_COSTO)?.valor || 0;
     
-    const nuevosPrecios = precios.map(p => {
+    const nuevosPrecios = basePrecios.map(p => {
       if (p.id_tipo_precio !== idTipo) return p;
 
       if (field === "valor") {
-        // Al cambiar el precio final, recalculamos el margen
-        // margen = ((precio / costo) - 1) * 100
         const nuevoMargen = costo > 0 ? ((val / costo) - 1) * 100 : 0;
-        return { ...p, valor: val, porcentaje_ganancia: nuevoMargen };
+        return { ...p, valor: round(val), porcentaje_ganancia: round(nuevoMargen) };
       } else {
-        // Al cambiar el margen, recalculamos el precio final
-        // precio = costo * (1 + margen / 100)
         const nuevoPrecio = costo * (1 + val / 100);
-        return { ...p, porcentaje_ganancia: val, valor: nuevoPrecio };
+        return { ...p, porcentaje_ganancia: round(val), valor: round(nuevoPrecio) };
       }
     });
     
@@ -82,36 +155,31 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
             <Icon className="h-5 w-5" />
           </div>
           <div className="flex flex-col">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
-            <span className="text-sm font-black text-slate-900 dark:text-white">Ajuste de Margen</span>
+            <span className="text-sm font-black text-slate-900 dark:text-white uppercase">{label}</span>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase text-slate-400">
-              <Percent className="h-3 w-3" /> Margen %
+              <Percent className="h-3 w-3" /> Margen
             </label>
-            <input
-              type="number"
-              step="any"
-              value={item.porcentaje_ganancia === 0 ? "" : Number(item.porcentaje_ganancia.toFixed(2))}
-              onChange={(e) => updatePrecio(idTipo, "porcentaje_ganancia", Number(e.target.value))}
+            <PriceInput
+              value={item.porcentaje_ganancia}
+              onChange={(val) => updatePrecio(idTipo, "porcentaje_ganancia", val)}
               placeholder="0.00"
-              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
             />
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase text-slate-400">
               <DollarSign className="h-3 w-3" /> Precio Final
             </label>
-            <input
-              type="number"
-              step="any"
-              value={item.valor === 0 ? "" : Number(item.valor.toFixed(2))}
-              onChange={(e) => updatePrecio(idTipo, "valor", Number(e.target.value))}
+            <PriceInput
+              value={item.valor}
+              onChange={(val) => updatePrecio(idTipo, "valor", val)}
               placeholder="0.00"
-              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
             />
           </div>
         </div>
@@ -141,17 +209,14 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
             <span className="text-xs font-medium text-slate-500 leading-none">Base para todos los cálculos</span>
           </div>
         </div>
-        <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-400">$</span>
-          <input
-            type="number"
-            step="any"
-            value={costoItem.valor === 0 ? "" : costoItem.valor}
-            onChange={(e) => handleCostoChange(Number(e.target.value))}
-            placeholder="0.00"
-            className="h-16 w-full rounded-2xl border-none bg-white pl-10 pr-6 text-2xl font-black text-slate-900 shadow-sm outline-none transition focus:ring-4 focus:ring-blue-200 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-900/30"
-          />
-        </div>
+        
+        <PriceInput
+          value={costoItem.valor}
+          onChange={handleCostoChange}
+          prefix="$"
+          placeholder="0.00"
+          className="h-16 w-full rounded-2xl border-none bg-white pr-6 text-2xl font-black text-slate-900 shadow-sm outline-none transition focus:ring-4 focus:ring-blue-200 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-900/30"
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
@@ -162,3 +227,5 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
     </section>
   );
 }
+
+
