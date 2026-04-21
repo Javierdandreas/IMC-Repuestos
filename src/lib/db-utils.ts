@@ -58,6 +58,7 @@ export async function paginateQuery<T extends QueryResultRow>(
     "subcategoria",
     "pieza",
     "log_importaciones",
+    "kits",
   ];
 
   if (!ALLOWED_TABLES.includes(table)) {

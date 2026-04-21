@@ -1,6 +1,5 @@
 import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
 import { pool } from "@/utils/database";
-import { alegraApi } from "@/lib/alegra";
 import type { Producto, ProductoListado, ProveedorProducto } from "@/interfaces/productos";
 import type { DbClient } from "@/lib/db-utils";
 import { 
@@ -23,7 +22,9 @@ export type ProductoInput = {
   proveedores?: ProveedorProducto[];
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
+  precios?: { id_tipo_precio: number; valor: number; porcentaje_ganancia: number }[];
 };
+
 
 export type ImportProductoInput = {
   cod_unico?: string;
@@ -60,8 +61,51 @@ function sanitizeProductoInput(input: ProductoInput) {
     proveedores: Array.isArray(input.proveedores) ? input.proveedores : [],
     usa_numero_serie: Boolean(input.usa_numero_serie),
     palabra_clave: input.id_pieza ? null : sanitizeNullableString(input.palabra_clave),
+    precios: Array.isArray(input.precios) ? input.precios : [],
   };
 }
+
+async function syncProductoPrecios(
+  client: DbClient,
+  productId: number | string,
+  precios: { id_tipo_precio: number; valor: number; porcentaje_ganancia: number }[]
+) {
+  // Solo sincronizar si vienen precios
+  if (!precios || precios.length === 0) return;
+
+  await client.query("DELETE FROM producto_precio WHERE id_producto = $1", [productId]);
+
+  for (const item of precios) {
+    if (!item.id_tipo_precio) continue;
+    await client.query(
+      `
+        INSERT INTO producto_precio (id_producto, id_tipo_precio, precio, porcentaje_ganancia)
+        VALUES ($1, $2, $3, $4)
+      `,
+      [productId, item.id_tipo_precio, item.valor, item.porcentaje_ganancia || 0]
+    );
+
+  }
+}
+
+async function getProductoPrecios(id: string | number) {
+  const querySql = `
+    SELECT
+      pp.id_tipo_precio,
+      tp.descripcion AS tipo_descripcion,
+      pp.precio AS valor,
+      COALESCE(pp.porcentaje_ganancia, 0) AS porcentaje_ganancia
+    FROM producto_precio pp
+
+    JOIN tipo_precio tp ON tp.id = pp.id_tipo_precio
+    WHERE pp.id_producto = $1
+    ORDER BY tp.id
+  `;
+
+  const { rows } = await query(querySql, [id]);
+  return rows;
+}
+
 
 async function syncProductoProveedores(
   client: DbClient,
@@ -175,7 +219,6 @@ export async function getProductosListado(
       s.descripcion AS subcategoria,
       p.id_ubicacion,
       u.descripcion AS ubicacion,
-      p.alegra_id,
       p.usa_numero_serie,
       p.palabra_clave,
       STRING_AGG(DISTINCT prv.descripcion, ', ') AS proveedor,
@@ -228,7 +271,6 @@ export async function getProductosListado(
       p.id_ubicacion,
       u.descripcion,
       p.imagen_url,
-      p.alegra_id,
       p.usa_numero_serie,
       p.palabra_clave
     ORDER BY p.id DESC
@@ -260,7 +302,6 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       pi.medida AS pieza_medida,
       p.id_ubicacion,
       u.descripcion AS ubicacion,
-      p.alegra_id,
       p.usa_numero_serie,
       p.palabra_clave,
       COALESCE(
@@ -305,15 +346,16 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       pi.medida,
       p.id_ubicacion,
       u.descripcion,
-      p.alegra_id,
       p.usa_numero_serie,
       p.palabra_clave
     `;
 
-  const [productRes, proveedores] = await Promise.all([
+  const [productRes, proveedores, precios] = await Promise.all([
     query(productQuery, [id]),
     getProductoProveedores(id),
+    getProductoPrecios(id),
   ]);
+
 
   if (productRes.rows.length === 0) return null;
 
@@ -335,6 +377,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
     originales: (row.originales as string[]) ?? [],
     equivalentes: (row.equivalentes as string[]) ?? [],
     sustitutos: (row.sustitutos as string[]) ?? [],
+    precios: precios as any[],
+
     medida: row.pieza_medida ?? "",
     id_ubicacion: row.id_ubicacion,
     ubicacion: row.ubicacion,
@@ -446,29 +490,11 @@ export async function createProducto(input: ProductoInput) {
     );
 
     const newProduct = productResult.rows[0];
-    await syncProductoProveedores(client, newProduct.id, payload.proveedores);
+    await Promise.all([
+      syncProductoProveedores(client, newProduct.id, payload.proveedores),
+      syncProductoPrecios(client, newProduct.id, payload.precios),
+    ]);
 
-    // Sincronización con Alegra (asíncrona, no bloquea la creación)
-    try {
-      const alegraResult = await alegraApi.createItemFromProducto({
-        cod_unico:    payload.cod_unico,
-        descripcion:  payload.descripcion,
-        cod_barra:    payload.cod_barra,
-        stock:        payload.stock || 0,
-        ubicacion:    payload.id_ubicacion ? undefined : undefined, // se agrega cuando exista campo texto
-        // precio_venta y costo_unitario = 0 por defecto hasta que se agreguen a la BD
-      });
-
-      if (alegraResult && alegraResult.id) {
-        await client.query("UPDATE productos SET alegra_id = $1 WHERE id = $2", [
-          alegraResult.id.toString(),
-          newProduct.id,
-        ]);
-        newProduct.alegra_id = alegraResult.id.toString();
-      }
-    } catch (alegraError) {
-      console.warn("⚠️ Fallo la sincronización con Alegra:", alegraError);
-    }
 
     return newProduct;
   });
@@ -529,24 +555,13 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
       throw err;
     }
 
-    await syncProductoProveedores(client, id, payload.proveedores);
+    await Promise.all([
+      syncProductoProveedores(client, id, payload.proveedores),
+      syncProductoPrecios(client, id, payload.precios),
+    ]);
+
 
     const updatedProduct = result.rows[0];
-
-    // Sincronización con Alegra (Actualización)
-    if (updatedProduct.alegra_id) {
-      try {
-        const updatePayload = alegraApi.buildItemPayload({
-          cod_unico:   updatedProduct.cod_unico,
-          descripcion: updatedProduct.descripcion,
-          cod_barra:   updatedProduct.cod_barra || '',
-          stock:       updatedProduct.stock || 0,
-        });
-        await alegraApi.updateItem(updatedProduct.alegra_id, updatePayload);
-      } catch (alegraError) {
-        console.warn(`⚠️ Fallo la actualización en Alegra para el producto ${id}:`, alegraError);
-      }
-    }
 
     return updatedProduct;
   });

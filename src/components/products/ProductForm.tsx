@@ -16,7 +16,9 @@ import { PieceSection } from "./sections/PieceSection";
 import { BasicInfoSection } from "./sections/BasicInfoSection";
 import { ClassificationSection } from "./sections/ClassificationSection";
 import { SuppliersSection } from "./sections/SuppliersSection";
+import { PricingSection } from "./sections/PricingSection";
 import { ProductSeriesManager } from "./ProductSeriesManager";
+
 import { ImageUpload } from "./ImageUpload";
 import { useMetadata } from "@/context/MetadataContext";
 
@@ -44,7 +46,9 @@ const initialState: Producto = {
   medida: "",
   usa_numero_serie: false,
   palabra_clave: "",
+  precios: [],
 };
+
 
 
 
@@ -75,14 +79,13 @@ export function ProductForm({
     medida: initialProduct?.pieza?.medida ?? initialProduct?.medida ?? "",
     usa_numero_serie: initialProduct?.usa_numero_serie ?? initialState.usa_numero_serie,
     palabra_clave: initialProduct?.palabra_clave ?? initialState.palabra_clave,
-    proveedores:
-      initialProduct?.proveedores && initialProduct.proveedores.length > 0
-        ? initialProduct.proveedores.map((proveedor) => ({
-          ...proveedor,
-          codigo_proveedor: proveedor.codigo_proveedor?.toUpperCase() ?? "",
-        }))
-        : initialState.proveedores,
+    proveedores: initialProduct?.proveedores && initialProduct.proveedores.length > 0
+      ? initialProduct.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
+      : initialState.proveedores,
+    precios: initialProduct?.precios ?? initialState.precios,
+
   });
+
 
   const { loading, submit } = useAppForm({
     url: productId ? `/api/productos/${productId}` : "/api/productos",
@@ -153,10 +156,13 @@ export function ProductForm({
           medida: data.pieza?.medida ?? data.medida ?? "",
           usa_numero_serie: data.usa_numero_serie ?? initialState.usa_numero_serie,
           palabra_clave: data.palabra_clave ?? initialState.palabra_clave,
-          proveedores: data.proveedores?.length > 0
+          proveedores: data.proveedores && data.proveedores.length > 0
             ? data.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
-            : initialState.proveedores
+            : initialState.proveedores,
+          precios: data.precios ?? initialState.precios
+
         });
+
         if (data.pieza) {
           setPiezaSearch(`${data.pieza.codigo_pieza} · ${data.pieza.descripcion}`);
           setFetchedPieza(data.pieza);
@@ -338,7 +344,9 @@ export function ProductForm({
       proveedores: cleanProveedores,
       usa_numero_serie: product.usa_numero_serie ?? false,
       palabra_clave: product.palabra_clave || null,
+      precios: product.precios || [],
     };
+
 
     await submit(payload);
   };
@@ -411,9 +419,16 @@ export function ProductForm({
               onChange={handleChange}
               onCategoriaChange={handleCategoriaChange}
             />
+
           </div>
+          
+          <PricingSection
+            precios={product.precios || []}
+            onChange={(precios) => setProduct(prev => ({ ...prev, precios }))}
+          />
 
           {!!product.id_pieza && (
+
             <div className="flex flex-col gap-6 border-y border-slate-200 py-8 dark:border-slate-800">
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 {/* MEDIDAS */}

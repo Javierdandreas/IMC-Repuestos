@@ -16,6 +16,7 @@
     "@vercel/speed-insights": "^2.0.0",
     "axios": "^1.15.0",
     "date-fns": "^4.1.0",
+    "dotenv": "^17.4.2",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.8.0",
     "next": "^15.5.15",
@@ -28,6 +29,7 @@
     "sharp": "^0.34.5",
     "sonner": "^2.0.3",
     "swr": "^2.4.1",
+    "tsx": "^4.21.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

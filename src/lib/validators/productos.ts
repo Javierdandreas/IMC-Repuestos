@@ -15,6 +15,13 @@ const proveedorProductoSchema = z.object({
   codigo_proveedor: z.string().trim().toUpperCase().optional().default(""),
 });
 
+const precioProductoSchema = z.object({
+  id_tipo_precio: idSchema,
+  valor: z.number().nonnegative(),
+  porcentaje_ganancia: z.number().optional().default(0),
+});
+
+
 /**
  * Esquema de validación para Productos
  */
@@ -30,6 +37,7 @@ export const productoPayloadSchema = z.object({
   proveedores: z.array(proveedorProductoSchema).optional().default([]),
   usa_numero_serie: z.boolean().optional().default(false),
   palabra_clave: z.string().trim().toUpperCase().nullable().optional(),
+  precios: z.array(precioProductoSchema).optional().default([]),
 });
 
 export type ProductoPayload = z.infer<typeof productoPayloadSchema>;

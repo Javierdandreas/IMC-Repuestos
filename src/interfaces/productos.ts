@@ -29,6 +29,14 @@ export type PiezaBusqueda = {
   medida?: string | null;
 };
 
+export type PrecioDetalle = {
+  id_tipo_precio: number;
+  tipo_descripcion: string;
+  valor: number;
+  porcentaje_ganancia: number;
+};
+
+
 export type Producto = {
   id?: number;
   cod_unico: string;
@@ -50,6 +58,7 @@ export type Producto = {
   medida?: string;
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
+  precios?: PrecioDetalle[];
 };
 
 export type ProductoListado = {
@@ -66,7 +75,6 @@ export type ProductoListado = {
   proveedor?: string | null;
   codigo_proveedor?: string | null;
   imagen_url?: string | null;
-  alegra_id?: string | null;
   proveedores_detalle?: { proveedor: string; codigo_proveedor: string }[];
   originales?: string[];
   equivalentes?: string[];
@@ -81,4 +89,5 @@ export type ProductoListado = {
   id_categoria?: number | null;
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
+  precios?: PrecioDetalle[];
 };
