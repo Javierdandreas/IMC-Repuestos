@@ -118,12 +118,28 @@ async function syncProductoProveedores(
     if (!item?.id_proveedor) continue;
     await client.query(
       `
-        INSERT INTO producto_proveedor (id_producto, id_proveedor, codigo_proveedor)
-        VALUES ($1, $2, $3)
+        INSERT INTO producto_proveedor (
+          id_producto, id_proveedor, codigo_proveedor, 
+          precio_lista_actual, costo_actual, fecha_ultima_actualizacion, ultima_importacion_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (id_producto, id_proveedor) DO UPDATE
-        SET codigo_proveedor = EXCLUDED.codigo_proveedor
+        SET 
+          codigo_proveedor = EXCLUDED.codigo_proveedor,
+          precio_lista_actual = EXCLUDED.precio_lista_actual,
+          costo_actual = EXCLUDED.costo_actual,
+          fecha_ultima_actualizacion = EXCLUDED.fecha_ultima_actualizacion,
+          ultima_importacion_id = EXCLUDED.ultima_importacion_id
       `,
-      [productId, item.id_proveedor, sanitizeNullableString(item.codigo_proveedor)]
+      [
+        productId, 
+        item.id_proveedor, 
+        sanitizeNullableString(item.codigo_proveedor),
+        item.precio_lista_actual || null,
+        item.costo_actual || null,
+        item.fecha_ultima_actualizacion || null,
+        item.ultima_importacion_id || null
+      ]
     );
   }
 }
@@ -132,7 +148,11 @@ async function getProductoProveedores(id: string | number) {
   const proveedoresQuery = `
     SELECT
       id_proveedor,
-      COALESCE(codigo_proveedor, '') AS codigo_proveedor
+      COALESCE(codigo_proveedor, '') AS codigo_proveedor,
+      precio_lista_actual,
+      costo_actual,
+      fecha_ultima_actualizacion,
+      ultima_importacion_id
     FROM producto_proveedor
     WHERE id_producto = $1
     ORDER BY id_proveedor
@@ -141,7 +161,7 @@ async function getProductoProveedores(id: string | number) {
   const { rows } = await query(proveedoresQuery, [id]);
   return rows.length > 0
     ? (rows as ProveedorProducto[])
-    : [{ id_proveedor: null, codigo_proveedor: "" }];
+    : [{ id_proveedor: null, codigo_proveedor: "", precio_lista_actual: null, costo_actual: null, fecha_ultima_actualizacion: null, ultima_importacion_id: null }];
 }
 
 export async function getProductosListado(

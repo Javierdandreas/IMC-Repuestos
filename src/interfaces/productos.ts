@@ -12,7 +12,11 @@ export type Subcategoria = {
 export type ProveedorProducto = {
   id_proveedor: number | null;
   codigo_proveedor: string;
-  precio?: number;
+  precio?: number; // Compatibilidad UI
+  precio_lista_actual?: number | null;
+  costo_actual?: number | null;
+  fecha_ultima_actualizacion?: string | null;
+  ultima_importacion_id?: number | null;
 };
 
 export type PiezaBusqueda = {

@@ -35,6 +35,7 @@ import {
   Truck,
   Plus
 } from "lucide-react";
+import { QuickAddModal, QuickAddType } from "./QuickAddModal";
 
 export type TabId = "principal" | "pieza" | "precios" | "serial" | "foto";
 
@@ -92,6 +93,11 @@ export function ProductForm({
   const [isGeneratingBarcode, setIsGeneratingBarcode] = useState(false);
   const [series, setSeries] = useState<any[]>([]);
   const [isLoadingSeries, setIsLoadingSeries] = useState(false);
+
+  // Quick Add State
+  const [quickAddType, setQuickAddType] = useState<QuickAddType | null>(null);
+  const [quickAddParentId, setQuickAddParentId] = useState<number | undefined>();
+  const [pendingQuickAddIndex, setPendingQuickAddIndex] = useState<number | null>(null);
 
   const [product, setProduct] = useState<Producto>({
     ...initialState,
@@ -281,18 +287,21 @@ export function ProductForm({
   const handleProveedorChange = (
     index: number,
     field: keyof ProveedorProducto,
-    value: string
+    value: any
   ) => {
     setProduct((prev) => {
       const proveedores = [...prev.proveedores];
+      let finalValue = value;
+
+      if (field === "id_proveedor") {
+        finalValue = value === "" ? null : Number(value);
+      } else if (field === "codigo_proveedor") {
+        finalValue = String(value).toUpperCase();
+      }
+
       proveedores[index] = {
         ...proveedores[index],
-        [field]:
-          field === "id_proveedor"
-            ? value === ""
-              ? null
-              : Number(value)
-            : value.toUpperCase(),
+        [field]: finalValue
       };
       return { ...prev, proveedores };
     });
@@ -333,7 +342,17 @@ export function ProductForm({
   const addProveedor = () => {
     setProduct((prev) => ({
       ...prev,
-      proveedores: [...prev.proveedores, { id_proveedor: null, codigo_proveedor: "" }],
+      proveedores: [
+        ...prev.proveedores,
+        {
+          id_proveedor: null,
+          codigo_proveedor: "",
+          precio_lista_actual: null,
+          costo_actual: null,
+          fecha_ultima_actualizacion: null,
+          ultima_importacion_id: null
+        }
+      ],
     }));
   };
 
@@ -372,6 +391,10 @@ export function ProductForm({
       .map((item) => ({
         id_proveedor: item.id_proveedor,
         codigo_proveedor: item.codigo_proveedor?.trim() ?? "",
+        precio_lista_actual: item.precio_lista_actual || null,
+        costo_actual: item.costo_actual || null,
+        fecha_ultima_actualizacion: item.fecha_ultima_actualizacion || null,
+        ultima_importacion_id: item.ultima_importacion_id || null,
       }));
 
     const payload = {
@@ -398,6 +421,29 @@ export function ProductForm({
     if (!productId) return;
     if (!window.confirm("¿Seguro que querés eliminar este producto?")) return;
     await runDelete({});
+  };
+
+  const handleQuickAdd = (type: QuickAddType, index: number | null = null) => {
+    if (type === "subcategorias" && !product.id_categoria) {
+      toast.error("Debe seleccionar una categoría antes de crear una subcategoría");
+      return;
+    }
+    setQuickAddType(type);
+    setQuickAddParentId(type === "subcategorias" ? product.id_categoria || undefined : undefined);
+    setPendingQuickAddIndex(index);
+  };
+
+  const handleQuickAddSuccess = (id: number) => {
+    if (quickAddType === "marcas") setProduct(prev => ({ ...prev, id_marca: id }));
+    if (quickAddType === "ubicaciones") setProduct(prev => ({ ...prev, id_ubicacion: id }));
+    if (quickAddType === "categorias") setProduct(prev => ({ ...prev, id_categoria: id }));
+    if (quickAddType === "subcategorias") setProduct(prev => ({ ...prev, id_subcategoria: id }));
+    
+    if (quickAddType === "proveedores" && pendingQuickAddIndex !== null) {
+      handleProveedorChange(pendingQuickAddIndex, "id_proveedor", id);
+    }
+    
+    setPendingQuickAddIndex(null);
   };
 
   if (isLoadingData) {
@@ -472,6 +518,7 @@ export function ProductForm({
                 }}
                 onChange={handleChange}
                 onCategoriaChange={handleCategoriaChange}
+                onQuickAdd={(type) => handleQuickAdd(type)}
               />
             </div>
           )}
@@ -570,6 +617,7 @@ export function ProductForm({
                 onAdd={addProveedor}
                 onRemove={removeProveedor}
                 onChange={handleProveedorChange}
+                onQuickAdd={(type) => handleQuickAdd(type, product.proveedores.length - 1)}
               />
             </div>
           )}
@@ -701,6 +749,12 @@ export function ProductForm({
           onClose={() => setIsSeriesManagerOpen(false)}
         />
       )}
+      <QuickAddModal 
+        type={quickAddType} 
+        onClose={() => setQuickAddType(null)} 
+        onSuccess={handleQuickAddSuccess}
+        parentId={quickAddParentId}
+      />
     </div>
   );
 }

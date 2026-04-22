@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { CatalogoItem, PiezaBusqueda, Subcategoria } from "@/interfaces/productos";
-import { HiOutlineLockClosed } from "react-icons/hi";
+import { HiOutlineLockClosed, HiPlus } from "react-icons/hi";
+import { QuickAddType } from "../QuickAddModal";
 
 type ClassificationSectionProps = {
   stock: number;
@@ -20,6 +21,7 @@ type ClassificationSectionProps = {
   };
   onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
   onCategoriaChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  onQuickAdd: (type: QuickAddType) => void;
 };
 
 export function ClassificationSection({
@@ -33,6 +35,7 @@ export function ClassificationSection({
   meta,
   onChange,
   onCategoriaChange,
+  onQuickAdd,
 }: ClassificationSectionProps) {
   const filteredSubcategories = useMemo(() => {
     const subcategorias = Array.isArray(meta?.subcategorias) ? meta.subcategorias : [];
@@ -40,9 +43,26 @@ export function ClassificationSection({
     return subcategorias.filter((sub) => Number(sub.id_categoria) === Number(id_categoria));
   }, [meta?.subcategorias, id_categoria]);
 
-  const renderOptions = (items: CatalogoItem[] = [], placeholder: string) => (
+  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>, type: QuickAddType) => {
+    if (e.target.value === "NEW") {
+      onQuickAdd(type);
+      return;
+    }
+    if (type === "categorias") {
+      onCategoriaChange(e);
+    } else {
+      onChange(e);
+    }
+  };
+
+  const renderOptions = (items: CatalogoItem[] = [], placeholder: string, type?: QuickAddType) => (
     <>
       <option value="">{placeholder}</option>
+      {type && (
+        <option value="NEW" className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20">
+          + AGREGAR NUEVO...
+        </option>
+      )}
       {items.map((item) => (
         <option key={item.id} value={item.id}>
           {item.descripcion}
@@ -85,10 +105,10 @@ export function ClassificationSection({
           <select
             name="id_marca"
             value={id_marca ?? ""}
-            onChange={onChange}
+            onChange={(e) => handleSelectChange(e, "marcas")}
             className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
           >
-            {renderOptions(meta.marcas, "Seleccionar marca")}
+            {renderOptions(meta.marcas, "Seleccionar marca", "marcas")}
           </select>
         </div>
 
@@ -99,10 +119,10 @@ export function ClassificationSection({
           <select
             name="id_ubicacion"
             value={id_ubicacion ?? ""}
-            onChange={onChange}
+            onChange={(e) => handleSelectChange(e, "ubicaciones")}
             className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
           >
-            {renderOptions(meta.ubicaciones, "Seleccionar ubicación")}
+            {renderOptions(meta.ubicaciones, "Seleccionar ubicación", "ubicaciones")}
           </select>
         </div>
       </div>
@@ -115,11 +135,11 @@ export function ClassificationSection({
           <select
             name="id_categoria"
             value={id_categoria ?? ""}
-            onChange={onCategoriaChange}
+            onChange={(e) => handleSelectChange(e, "categorias")}
             className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
             disabled={isPiezaLinked}
           >
-            {renderOptions(meta.categorias, "Seleccionar categoría")}
+            {renderOptions(meta.categorias, "Seleccionar categoría", isPiezaLinked ? undefined : "categorias")}
           </select>
         </div>
 
@@ -130,11 +150,11 @@ export function ClassificationSection({
           <select
             name="id_subcategoria"
             value={id_subcategoria ?? ""}
-            onChange={onChange}
+            onChange={(e) => handleSelectChange(e, "subcategorias")}
             className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
             disabled={isPiezaLinked}
           >
-            {renderOptions(filteredSubcategories, "Seleccionar subcategoría")}
+            {renderOptions(filteredSubcategories, "Seleccionar subcategoría", isPiezaLinked ? undefined : "subcategorias")}
           </select>
         </div>
       </div>

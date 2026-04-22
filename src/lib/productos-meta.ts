@@ -12,18 +12,12 @@ export type ProductMeta = {
 import { unstable_cache } from "next/cache";
 
 export async function getProductMeta(): Promise<ProductMeta> {
-  return unstable_cache(
-    async () => {
-      const [marcas, categorias, subcategorias, proveedores, ubicaciones] = await Promise.all([
-        getMarcas(),
-        getCategorias(),
-        getSubcategorias(),
-        getProveedores(),
-        getUbicaciones(),
-      ]);
-      return { marcas, categorias, subcategorias, proveedores, ubicaciones };
-    },
-    ["product-meta-v4"],
-    { revalidate: 3600, tags: ["meta"] }
-  )();
+  const [marcas, categorias, subcategorias, proveedores, ubicaciones] = await Promise.all([
+    getMarcas(),
+    getCategorias(),
+    getSubcategorias(),
+    getProveedores(),
+    getUbicaciones(),
+  ]);
+  return { marcas, categorias, subcategorias, proveedores, ubicaciones };
 }

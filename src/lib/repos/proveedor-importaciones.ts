@@ -30,22 +30,18 @@ export async function createImportacion(input: CreateImportacionInput): Promise<
     // 2. Insertar ítems masivamente (Bulk Insert)
     // Preparamos los arrays para UNNEST
     const v_codigo = items.map(i => i.codigo_proveedor);
-    const v_desc = items.map(i => i.descripcion);
-    const v_marca = items.map(i => i.marca_texto || null);
     const v_precio = items.map(i => i.precio_lista);
-    const v_disp = items.map(i => i.disponibilidad || null);
-    const v_obs = items.map(i => i.observacion || null);
 
     await client.query(
       `
         INSERT INTO public.proveedor_importacion_item (
-          id_importacion, codigo_proveedor, descripcion, marca_texto, precio_lista, disponibilidad, observacion
+          id_importacion, codigo_proveedor, precio_lista
         )
         SELECT $1, * FROM UNNEST(
-          $2::text[], $3::text[], $4::text[], $5::numeric[], $6::text[], $7::text[]
+          $2::text[], $3::numeric[]
         )
       `,
-      [importacion.id, v_codigo, v_desc, v_marca, v_precio, v_disp, v_obs]
+      [importacion.id, v_codigo, v_precio]
     );
 
     return importacion;
