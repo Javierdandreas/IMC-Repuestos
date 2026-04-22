@@ -11,7 +11,7 @@ import { HiPhotograph, HiCloudUpload, HiPrinter, HiPlusCircle, HiCollection, HiC
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
-import { ProductForm } from "@/components/products/ProductForm";
+import { ProductForm, PRODUCT_TABS, TabId } from "@/components/products/ProductForm";
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
 import { ImportProductModal } from "@/components/products/ImportProductModal";
@@ -37,6 +37,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [openNew, setOpenNew] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductoListado | null>(null);
   const [duplicatingProduct, setDuplicatingProduct] = useState<ProductoListado | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>("principal");
   const [deletingProduct, setDeletingProduct] = useState<ProductoListado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [isZoomed, setIsZoomed] = useState(false);
   const [openImport, setOpenImport] = useState(false);
   const [openLabelPrinter, setOpenLabelPrinter] = useState(false);
-  
+
   // Hover state
   const [hoveredProductId, setHoveredProductId] = useState<number | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
@@ -81,7 +82,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   useEffect(() => {
     const timer = setTimeout(() => {
       const currentParams = new URLSearchParams(window.location.search);
-      
+
       const newParams = new URLSearchParams();
       if (searchGeneral) newParams.set("search", searchGeneral);
       if (searchSpecific) newParams.set("searchSpecific", searchSpecific);
@@ -89,7 +90,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       if (subcategoria) newParams.set("subcategoria", subcategoria);
       if (marca) newParams.set("marca", marca);
       if (proveedor) newParams.set("proveedor", proveedor);
-      
+
       // Si los parámetros cambiaron, volvemos a la página 1
       const paramsChanged = newParams.toString() !== Array.from(currentParams.entries())
         .filter(([key]) => key !== 'page')
@@ -119,7 +120,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
   const handleTooltipEnter = (productId: number, event: React.MouseEvent) => {
     if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-    
+
     const rect = event.currentTarget.getBoundingClientRect();
     const viewportW = window.innerWidth;
     const viewportH = window.innerHeight;
@@ -188,10 +189,34 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     }
   };
 
+  // Modal Header Tabs Wrapper
+  const formTabs = (
+    <div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800/50">
+      {PRODUCT_TABS.map((tab) => {
+        const Icon = tab.icon;
+        const isActive = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-bold uppercase tracking-wider transition-all duration-200 ${isActive
+                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
+                : "text-slate-500 hover:bg-white/50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-slate-300"
+              }`}
+          >
+            <Icon className={`h-4 w-4 ${isActive ? "text-blue-500" : "text-slate-400"}`} />
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
       <div className="flex min-h-screen flex-col bg-slate-50 dark:bg-slate-950 p-4 transition-colors duration-200 md:p-4 md:pt-2">
-        <div className="mx-auto w-full max-w-[1500px] space-y-3">
+        <div className="w-full max-w-[1500px] space-y-3">
           {/* Encabezado y Filtros */}
           <section className="flex flex-col gap-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900/40 dark:backdrop-blur-sm">
             <div className="flex flex-col items-center justify-between gap-4 md:flex-row pb-4 border-b border-slate-100 dark:border-slate-800">
@@ -206,7 +231,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Gestión de catálogo optimizada</p>
                 </div>
               </div>
-              
+
               {canManage && (
                 <div className="flex items-center gap-2">
                   <button
@@ -228,7 +253,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 </div>
               )}
             </div>
-            
+
             <div className="grid grid-cols-12 items-end gap-2 px-1">
               {/* Buscador General */}
               <div className="col-span-3 flex flex-col gap-1.5">
@@ -344,8 +369,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 <tr>
                   <th className="w-[40px] px-3 py-4">
                     <div className="flex items-center justify-center">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={products.length > 0 && selectedIds.size === products.length}
                         onChange={toggleSelectAll}
                         className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
@@ -367,16 +392,15 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 {products.map((product) => (
                   <tr
                     key={product.id}
-                    className={`group transition-all ${
-                      selectedIds.has(product.id) 
-                        ? 'bg-blue-50/50 dark:bg-blue-900/10' 
+                    className={`group transition-all ${selectedIds.has(product.id)
+                        ? 'bg-blue-50/50 dark:bg-blue-900/10'
                         : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/30'
-                    }`}
+                      }`}
                   >
                     <td className="px-3 py-4">
                       <div className="flex items-center justify-center">
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           checked={selectedIds.has(product.id)}
                           onChange={() => toggleSelect(product.id)}
                           className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
@@ -391,7 +415,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         </span>
                       </div>
                     </td>
-                    <td 
+                    <td
                       className="px-3 py-3 cursor-help border-r border-slate-50 dark:border-slate-800/50"
                       onMouseEnter={(e) => handleTooltipEnter(product.id, e)}
                       onMouseLeave={handleTooltipLeave}
@@ -404,16 +428,16 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </td>
                     <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
                       {product.imagen_url ? (
-                        <button 
+                        <button
                           onClick={() => setPreviewImage(product.imagen_url || null)}
                           className="group/img relative inline-flex h-11 w-11 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
                         >
-                          <Image 
-                            src={product.imagen_url} 
-                            alt="" 
+                          <Image
+                            src={product.imagen_url}
+                            alt=""
                             width={44}
                             height={44}
-                            className="h-full w-full object-cover transition group-hover/img:scale-110" 
+                            className="h-full w-full object-cover transition group-hover/img:scale-110"
                           />
                         </button>
                       ) : (
@@ -429,12 +453,12 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                           className="group/img relative inline-flex h-11 w-11 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
                           title="Ver esquema de medidas"
                         >
-                          <Image 
-                            src={product.pieza_medida_url} 
-                            alt="" 
+                          <Image
+                            src={product.pieza_medida_url}
+                            alt=""
                             width={44}
                             height={44}
-                            className="h-full w-full object-cover transition group-hover/img:scale-110" 
+                            className="h-full w-full object-cover transition group-hover/img:scale-110"
                           />
                         </button>
                       ) : (
@@ -479,7 +503,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </td>
                   </tr>
                 ))}
-                 {products.length === 0 && (
+                {products.length === 0 && (
                   <tr>
                     <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
                       No hay productos que coincidan con los filtros.
@@ -492,7 +516,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             {/* Barra de Acciones Masivas */}
             <AnimatePresence>
               {selectedIds.size > 0 && (
-                <motion.div 
+                <motion.div
                   initial={{ y: 100, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: 100, opacity: 0 }}
@@ -506,14 +530,14 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <button 
+                    <button
                       onClick={() => setSelectedIds(new Set())}
                       className="group flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-800 hover:text-white"
                     >
                       Deseleccionar
                     </button>
-                    
-                    <button 
+
+                    <button
                       onClick={() => setOpenLabelPrinter(true)}
                       className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 hover:scale-105 active:scale-95"
                     >
@@ -525,7 +549,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               )}
             </AnimatePresence>
 
-            <BulkLabelPrinter 
+            <BulkLabelPrinter
               isOpen={openLabelPrinter}
               onClose={() => setOpenLabelPrinter(false)}
               products={products.filter(p => selectedIds.has(p.id))}
@@ -537,11 +561,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             {totalPages > 1 && (
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-100 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-800/20">
                 <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
-                  Página 
+                  Página
                   <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded bg-slate-900 px-1 text-white dark:bg-white dark:text-slate-900">
                     {currentPage}
-                  </span> 
-                  de 
+                  </span>
+                  de
                   <span className="text-slate-900 dark:text-white">
                     {totalPages}
                   </span>
@@ -583,16 +607,15 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         }
                       }
 
-                      return range.filter((item, index, self) => item !== "..." || self[index-1] !== "...").map((p, idx) => (
+                      return range.filter((item, index, self) => item !== "..." || self[index - 1] !== "...").map((p, idx) => (
                         typeof p === "number" ? (
                           <button
                             key={idx}
                             onClick={() => router.push(`?page=${p}`)}
-                            className={`h-10 w-10 flex items-center justify-center rounded-xl text-sm font-black transition-all ${
-                              currentPage === p
+                            className={`h-10 w-10 flex items-center justify-center rounded-xl text-sm font-black transition-all ${currentPage === p
                                 ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30 scale-105"
                                 : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400"
-                            }`}
+                              }`}
                           >
                             {p}
                           </button>
@@ -641,8 +664,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
             }}
             onMouseLeave={handleTooltipLeave}
-            style={{ 
-              top: tooltipPos.top, 
+            style={{
+              top: tooltipPos.top,
               left: tooltipPos.left,
               maxHeight: `calc(100vh - ${tooltipPos.top + TOOLTIP_MARGIN}px)`
             }}
@@ -705,25 +728,50 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         )}
       </AnimatePresence>
 
-      <Modal open={openNew} onClose={() => setOpenNew(false)} title="Crear producto">
-        <ProductForm onSuccess={() => setOpenNew(false)} />
+
+
+      <Modal
+        open={openNew}
+        onClose={() => setOpenNew(false)}
+        title="Crear producto"
+        headerExtra={formTabs}
+      >
+        <ProductForm
+          onSuccess={() => setOpenNew(false)}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
       </Modal>
 
-      <Modal open={!!editingProduct} onClose={() => setEditingProduct(null)} title="Editar producto">
+      <Modal
+        open={!!editingProduct}
+        onClose={() => setEditingProduct(null)}
+        title="Editar producto"
+        headerExtra={formTabs}
+      >
         {editingProduct && (
           <ProductForm
             productId={editingProduct.id}
             initialProduct={editingProduct as any}
             onSuccess={() => setEditingProduct(null)}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
           />
         )}
       </Modal>
 
-      <Modal open={!!duplicatingProduct} onClose={() => setDuplicatingProduct(null)} title="Duplicar producto">
+      <Modal
+        open={!!duplicatingProduct}
+        onClose={() => setDuplicatingProduct(null)}
+        title="Duplicar producto"
+        headerExtra={formTabs}
+      >
         {duplicatingProduct && (
           <ProductForm
             initialProduct={duplicatingProduct as any}
             onSuccess={() => setDuplicatingProduct(null)}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
           />
         )}
       </Modal>
@@ -741,13 +789,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         onClose={() => setDeletingProduct(null)}
       />
 
-      <Modal 
-        open={!!previewImage} 
+      <Modal
+        open={!!previewImage}
         onClose={() => {
           setPreviewImage(null);
           setIsZoomed(false);
-        }} 
-        title={previewImage?.includes('/medidas/') ? "Esquema de Medidas" : "Previsualización de producto"} 
+        }}
+        title={previewImage?.includes('/medidas/') ? "Esquema de Medidas" : "Previsualización de producto"}
         width="w-fit max-w-[95vw]"
       >
         <div className="flex items-center justify-center p-4">
@@ -765,15 +813,14 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 }
               }}
             >
-              <Image 
-                src={previewImage} 
-                alt="Producto" 
+              <Image
+                src={previewImage}
+                alt="Producto"
                 width={1200}
                 height={1200}
                 priority
-                className={`max-h-[80vh] w-auto transition-transform duration-200 ease-out ${
-                  isZoomed ? "scale-[2.5] cursor-zoom-out" : "cursor-zoom-in"
-                }`}
+                className={`max-h-[80vh] w-auto transition-transform duration-200 ease-out ${isZoomed ? "scale-[2.5] cursor-zoom-out" : "cursor-zoom-in"
+                  }`}
               />
             </div>
           )}

@@ -149,37 +149,35 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
     const item = precios.find(p => p.id_tipo_precio === idTipo) || { valor: 0, porcentaje_ganancia: 0 };
     
     return (
-      <div className="group relative flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-5 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-2xl ${colorClass} bg-opacity-10 text-opacity-100`}>
-            <Icon className="h-5 w-5" />
+      <div className="group flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700">
+        <div className="flex items-center gap-2">
+          <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${colorClass} bg-opacity-10 text-opacity-100`}>
+            <Icon className="h-4 w-4" />
           </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-black text-slate-900 dark:text-white uppercase">{label}</span>
-          </div>
+          <span className="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest">{label}</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase text-slate-400">
-              <Percent className="h-3 w-3" /> Margen
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-1">
+            <label className="flex items-center gap-1 px-0.5 text-[8px] font-black uppercase tracking-widest text-slate-400">
+              Margen %
             </label>
             <PriceInput
               value={item.porcentaje_ganancia}
               onChange={(val) => updatePrecio(idTipo, "porcentaje_ganancia", val)}
-              placeholder="0.00"
-              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
+              placeholder="0"
+              className="h-10 w-full rounded-lg border border-slate-100 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase text-slate-400">
-              <DollarSign className="h-3 w-3" /> Precio Final
+            <label className="flex items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
+              Final $
             </label>
             <PriceInput
               value={item.valor}
               onChange={(val) => updatePrecio(idTipo, "valor", val)}
-              placeholder="0.00"
-              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
+              placeholder="0"
+              className="h-10 w-full rounded-lg border border-slate-100 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
             />
           </div>
         </div>
@@ -188,41 +186,41 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
   };
 
   return (
-    <section className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+    <section className="flex flex-col gap-4">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800/50">
         <div className="flex flex-col">
-          <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-white">Gestión de Precios</h2>
-          <p className="text-sm font-medium text-slate-500">Configurá el costo base y los márgenes de venta.</p>
-        </div>
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-          <TrendingUp className="h-6 w-6" />
+          <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white uppercase">Gestión de Precios</h2>
         </div>
       </div>
 
-      <div className="rounded-3xl border-2 border-blue-100 bg-blue-50/30 p-6 dark:border-blue-900/20 dark:bg-blue-900/5">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-200 dark:shadow-none">
-            <Package2 className="h-5 w-5" />
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_3fr]">
+        {/* Costo Section - Primary */}
+        <div className="rounded-xl border-2 border-blue-100 bg-blue-50/30 p-4 dark:border-blue-900/20 dark:bg-blue-900/5">
+          <div className="mb-2 flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-lg shadow-blue-200 dark:shadow-none">
+              <Package2 className="h-4 w-4" />
+            </div>
+            <div className="flex flex-col">
+              <label className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">Costo Base</label>
+              <span className="text-[8px] font-bold uppercase text-slate-400 leading-none">Insumo</span>
+            </div>
           </div>
-          <div className="flex flex-col">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-blue-600 dark:text-blue-400">Costo del Producto</label>
-            <span className="text-xs font-medium text-slate-500 leading-none">Base para todos los cálculos</span>
-          </div>
+          
+          <PriceInput
+            value={costoItem.valor}
+            onChange={handleCostoChange}
+            prefix="$"
+            placeholder="0.00"
+            className="h-12 w-full rounded-lg border-none bg-white pr-4 text-lg font-bold text-slate-900 shadow-sm outline-none transition focus:ring-4 focus:ring-blue-200 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-900/30"
+          />
         </div>
-        
-        <PriceInput
-          value={costoItem.valor}
-          onChange={handleCostoChange}
-          prefix="$"
-          placeholder="0.00"
-          className="h-16 w-full rounded-2xl border-none bg-white pr-6 text-2xl font-black text-slate-900 shadow-sm outline-none transition focus:ring-4 focus:ring-blue-200 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-900/30"
-        />
-      </div>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-        {renderPriceRow(TIPO_ML, "Mercado Libre", ShoppingBag, "bg-amber-500 text-amber-500")}
-        {renderPriceRow(TIPO_MOSTRADOR, "Mostrador", Users, "bg-emerald-500 text-emerald-500")}
-        {renderPriceRow(TIPO_MECANICO, "Mecánico", Wrench, "bg-indigo-500 text-indigo-500")}
+        {/* Selling Prices - Horizontal Row */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {renderPriceRow(TIPO_ML, "Mercado Libre", ShoppingBag, "bg-amber-500 text-amber-500")}
+          {renderPriceRow(TIPO_MOSTRADOR, "Mostrador", Users, "bg-emerald-500 text-emerald-500")}
+          {renderPriceRow(TIPO_MECANICO, "Mecánico", Wrench, "bg-indigo-500 text-indigo-500")}
+        </div>
       </div>
     </section>
   );

@@ -7,13 +7,9 @@ type BasicInfoSectionProps = {
   cod_barra: string;
   descripcion: string;
   isPiezaLinked: boolean;
-  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   onGenerateBarcode?: () => void;
   isGenerating?: boolean;
-  usa_numero_serie?: boolean;
-  onToggleSerie?: (val: boolean) => void;
-  onOpenSeriesManager?: () => void;
-  isSeriesDirty?: boolean;
   palabra_clave?: string;
 };
 
@@ -25,10 +21,6 @@ export function BasicInfoSection({
   onChange,
   onGenerateBarcode,
   isGenerating = false,
-  usa_numero_serie = false,
-  onToggleSerie,
-  onOpenSeriesManager,
-  isSeriesDirty = false,
   palabra_clave = "",
 }: BasicInfoSectionProps) {
   const descripcionRef = useRef<HTMLTextAreaElement | null>(null);
@@ -121,50 +113,6 @@ export function BasicInfoSection({
         <p className="mt-1 text-[10px] font-medium text-slate-400 uppercase tracking-widest">Este campo ayuda a la búsqueda mientras se asocia la pieza definitiva.</p>
       </div>
 
-      {onToggleSerie && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/50">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Control por Número de Serie</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Requerir el registro y escaneo individual unitario</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={usa_numero_serie}
-              onClick={() => onToggleSerie(!usa_numero_serie)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                usa_numero_serie ? "bg-blue-600" : "bg-slate-300 dark:bg-slate-700"
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  usa_numero_serie ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-
-          {usa_numero_serie && onOpenSeriesManager && (
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={onOpenSeriesManager}
-                disabled={isSeriesDirty}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 py-3 text-sm font-bold text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 disabled:opacity-50 disabled:pointer-events-none dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 dark:hover:text-blue-300"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-barcode"><path d="M3 5v14"/><path d="M8 5v14"/><path d="M12 5v14"/><path d="M17 5v14"/><path d="M21 5v14"/></svg>
-                GESTIONAR SERIES
-              </button>
-              {isSeriesDirty && (
-                <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 text-center uppercase tracking-wider">
-                  GUARDÁ LOS CAMBIOS PARA HABILITAR LA EDICIÓN DE SERIES
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
     </section>
   );
 }

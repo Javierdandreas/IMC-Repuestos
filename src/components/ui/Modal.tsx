@@ -7,10 +7,11 @@ type Props = {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  headerExtra?: ReactNode;
   width?: string;
 };
 
-export function Modal({ title, open, onClose, children, width = "w-[min(96vw,1280px)]" }: Props) {
+export function Modal({ title, open, onClose, children, headerExtra, width = "w-[min(96vw,1280px)]" }: Props) {
   useEffect(() => {
     if (!open) return;
 
@@ -34,7 +35,10 @@ export function Modal({ title, open, onClose, children, width = "w-[min(96vw,128
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity dark:bg-black/60" onClick={onClose} />
       <div className={`relative z-10 flex max-h-[92vh] ${width} flex-col overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900`}>
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{title}</h2>
+          <div className="flex flex-1 items-center gap-6">
+            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{title}</h2>
+            {headerExtra}
+          </div>
 
           <button
             type="button"
@@ -48,7 +52,7 @@ export function Modal({ title, open, onClose, children, width = "w-[min(96vw,128
           </button>
         </div>
 
-        <div className="overflow-y-auto p-4 sm:p-6 md:p-8">{children}</div>
+        <div className="overflow-y-auto p-0">{children}</div>
       </div>
     </div>
   );

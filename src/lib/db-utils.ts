@@ -59,6 +59,8 @@ export async function paginateQuery<T extends QueryResultRow>(
     "pieza",
     "log_importaciones",
     "kits",
+    "proveedor_importacion",
+    "proveedor_importacion_item",
   ];
 
   if (!ALLOWED_TABLES.includes(table)) {
