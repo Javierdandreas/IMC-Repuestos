@@ -21,8 +21,16 @@ export async function POST(
       return NextResponse.json({ error: "ID de importación inválido" }, { status: 400 });
     }
 
-    // 3. Aplicar al catálogo
-    const result = await aplicarImportacionAlCatalogo(importacionId);
+    // 3. Obtener descuentos del body
+    const body = await request.json().catch(() => ({}));
+    const { descuentoGeneral = 0, descuentosPorMarca = {} } = body;
+
+    // 4. Aplicar al catálogo
+    const result = await aplicarImportacionAlCatalogo(
+      importacionId,
+      Number(descuentoGeneral),
+      descuentosPorMarca
+    );
 
     return NextResponse.json({
       message: "Importación aplicada al catálogo correctamente",

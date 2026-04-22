@@ -38,15 +38,35 @@ async function getCatalogo(table: CatalogTable): Promise<CatalogoItem[]> {
   return rows as CatalogoItem[];
 }
 
-export async function getPaginatedCatalogo(table: CatalogTable, page: number = 1, limit: number = 50): Promise<{ data: CatalogoItem[]; totalCount: number; totalPages: number }> {
+export async function getPaginatedCatalogo(
+  table: CatalogTable, 
+  page: number = 1, 
+  limit: number = 50,
+  search?: string
+): Promise<{ data: CatalogoItem[]; totalCount: number; totalPages: number }> {
   const offset = Math.max(0, (page - 1) * limit);
-  const countResult = await query(`SELECT COUNT(*) FROM ${table}`);
+  const params: any[] = [];
+  let where = "1=1";
+  
+  if (search) {
+    params.push(`%${search}%`);
+    where = `descripcion ILIKE $${params.length}`;
+  }
+
+  const countResult = await query(`SELECT COUNT(*) FROM ${table} WHERE ${where}`, params);
   const totalCount = parseInt(countResult.rows[0].count, 10);
   const totalPages = Math.ceil(totalCount / limit);
 
   if (totalCount === 0) return { data: [], totalCount: 0, totalPages: 0 };
 
-  const { rows } = await query(`SELECT id, descripcion FROM ${table} ORDER BY ${getOrderByClause(table)} LIMIT $1 OFFSET $2`, [limit, offset]);
+  const limitParam = params.length + 1;
+  const offsetParam = params.length + 2;
+  params.push(limit, offset);
+
+  const { rows } = await query(
+    `SELECT id, descripcion FROM ${table} WHERE ${where} ORDER BY ${getOrderByClause(table)} LIMIT $${limitParam} OFFSET $${offsetParam}`, 
+    params
+  );
   return { data: rows as CatalogoItem[], totalCount, totalPages };
 }
 

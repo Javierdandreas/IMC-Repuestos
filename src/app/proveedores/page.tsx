@@ -8,8 +8,9 @@ type Props = {
 export default async function ProveedoresPage({ searchParams }: Props) {
   const resolvedParams = await searchParams;
   const page = Number(resolvedParams?.page) || 1;
+  const search = typeof resolvedParams?.search === 'string' ? resolvedParams.search : undefined;
 
-  const { data: proveedores, totalPages } = await getPaginatedCatalogo("proveedores", page, 25);
+  const { data: proveedores, totalPages } = await getPaginatedCatalogo("proveedores", page, 25, search);
 
   return (
     <CatalogList

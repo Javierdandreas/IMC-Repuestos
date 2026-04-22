@@ -48,27 +48,38 @@ export async function createImportacion(input: CreateImportacionInput): Promise<
   });
 }
 
-/**
- * Aplica masivamente los precios de una importación al catálogo de productos.
- * Cruza por id_proveedor y codigo_proveedor.
- */
-export async function aplicarImportacionAlCatalogo(id_importacion: number) {
+export async function aplicarImportacionAlCatalogo(
+  id_importacion: number,
+  descuentoGeneral: number = 0,
+  descuentosPorMarca: Record<number, number> = {}
+) {
   return await withTransaction(async (client) => {
-    // 1. Actualizar producto_proveedor vinculados
+    // Preparamos los arrays para los descuentos por marca
+    const marcaIds = Object.keys(descuentosPorMarca).map(Number);
+    const marcaDescuentos = Object.values(descuentosPorMarca).map(Number);
+
+    // 1. Actualizar producto_proveedor vinculados aplicando descuentos
+    // NOTA: Para evitar el error "invalid reference to FROM-clause entry for table 'pp'",
+    // movemos la condición de join con la tabla objetivo (pp) al WHERE.
     const updateResult = await client.query(
       `
         UPDATE public.producto_proveedor pp
         SET 
-          precio_lista_actual = pii.precio_lista,
+          precio_lista_actual = pii.precio_lista * (1 - (COALESCE(bd.descuento, $2::numeric) / 100.0)),
           fecha_ultima_actualizacion = NOW(),
           ultima_importacion_id = pii.id_importacion
         FROM public.proveedor_importacion_item pii
-        JOIN public.proveedor_importacion pi ON pi.id = pii.id_importacion
-        WHERE pp.id_proveedor = pi.id_proveedor
+        INNER JOIN public.proveedor_importacion pi ON pi.id = pii.id_importacion
+        INNER JOIN public.productos p ON TRUE -- No podemos referenciar 'pp' en un ON clause de la lista FROM
+        LEFT JOIN (
+          SELECT id_marca, descuento FROM UNNEST($3::int[], $4::numeric[]) AS t(id_marca, descuento)
+        ) bd ON bd.id_marca = p.id_marca
+        WHERE p.id = pp.id_producto
+          AND pp.id_proveedor = pi.id_proveedor
           AND upper(trim(pp.codigo_proveedor)) = upper(trim(pii.codigo_proveedor))
           AND pi.id = $1
       `,
-      [id_importacion]
+      [id_importacion, descuentoGeneral, marcaIds, marcaDescuentos]
     );
 
     // 2. Marcar importación como APLICADA
@@ -114,4 +125,68 @@ export async function getImportacionesByProveedor(id_proveedor: number) {
     [id_proveedor]
   );
   return rows as ProveedorImportacion[];
+}
+
+/**
+ * Obtiene la configuración de descuentos de un proveedor (general y por marca)
+ */
+export async function getProveedorDiscounts(id_proveedor: number) {
+  const { rows: header } = await query(
+    `SELECT descuento_general FROM proveedores WHERE id = $1`,
+    [id_proveedor]
+  );
+  
+  const { rows: marcaDiscounts } = await query(
+    `SELECT id_marca, descuento FROM proveedor_descuento_marca WHERE id_proveedor = $1`,
+    [id_proveedor]
+  );
+
+  const discountsByBrand: Record<number, number> = {};
+  marcaDiscounts.forEach(row => {
+    discountsByBrand[row.id_marca] = parseFloat(row.descuento);
+  });
+
+  return {
+    descuentoGeneral: parseFloat(header[0]?.descuento_general || 0),
+    descuentosPorMarca: discountsByBrand
+  };
+}
+
+/**
+ * Actualiza la configuración de descuentos de un proveedor
+ */
+export async function updateProveedorDiscounts(
+  id_proveedor: number, 
+  descuentoGeneral: number,
+  descuentosPorMarca: Record<number, number>
+) {
+  return await withTransaction(async (client) => {
+    // 1. Actualizar descuento general en tabla proveedores
+    await client.query(
+      `UPDATE proveedores SET descuento_general = $1 WHERE id = $2`,
+      [descuentoGeneral, id_proveedor]
+    );
+
+    // 2. Limpiar descuentos por marca previos
+    await client.query(
+      `DELETE FROM proveedor_descuento_marca WHERE id_proveedor = $1`,
+      [id_proveedor]
+    );
+
+    // 3. Insertar nuevos descuentos por marca
+    const ids = Object.keys(descuentosPorMarca).map(Number);
+    const vals = Object.values(descuentosPorMarca).map(Number);
+
+    if (ids.length > 0) {
+      await client.query(
+        `
+          INSERT INTO proveedor_descuento_marca (id_proveedor, id_marca, descuento)
+          SELECT $1, * FROM UNNEST($2::int[], $3::numeric[])
+        `,
+        [id_proveedor, ids, vals]
+      );
+    }
+
+    return { success: true };
+  });
 }

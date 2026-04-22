@@ -3,11 +3,11 @@
 import { useState } from "react";
 import Papa from "papaparse";
 import { toast } from "sonner";
-import { 
-  HiCloudUpload, 
-  HiCheck, 
-  HiExclamation, 
-  HiAdjustments, 
+import {
+  HiCloudUpload,
+  HiCheck,
+  HiExclamation,
+  HiAdjustments,
   HiPlay,
   HiTable
 } from "react-icons/hi";
@@ -42,9 +42,10 @@ interface Props {
   id_proveedor: number;
   nombre_proveedor: string;
   onSuccess?: () => void;
+  hideHistory?: boolean;
 }
 
-export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSuccess }: Props) {
+export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSuccess, hideHistory }: Props) {
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -104,7 +105,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         skipEmptyLines: true,
         complete: async (allData) => {
           const rawItems = allData.data;
-          
+
           // Mapear los datos según la configuración
           const mappedItems = rawItems.map((row: any) => {
             const item: any = {};
@@ -136,10 +137,10 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
             if (res.ok) {
               setResults({ total: mappedItems.length, errors: [] });
               toast.success("Lista importada correctamente");
-              
+
               // Refrescar historial
               mutate(`/api/proveedores/importaciones?id_proveedor=${id_proveedor}`);
-              
+
               if (onSuccess) onSuccess();
             } else {
               throw new Error(data.message || "Error al importar");
@@ -170,18 +171,18 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     if (step === 'results' && results) {
       return (
         <div className="flex flex-col items-center justify-center gap-4 py-8 animate-in fade-in zoom-in duration-300">
-          <div className="h-20 w-20 flex items-center justify-center rounded-full bg-green-500/10 text-green-500 border border-green-500/20">
+          <div className="h-20 w-20 flex items-center justify-center rounded-full bg-white/10 text-white border border-white/20">
             <HiCheck className="h-10 w-10" />
           </div>
           <div className="text-center">
-            <h3 className="text-xl font-black text-slate-900 dark:text-white">Importación Finalizada</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            <h3 className="text-xl font-black text-white">Importación Finalizada</h3>
+            <p className="text-sm text-slate-400 mt-1">
               Se han procesado <strong>{results.total}</strong> ítems para {nombre_proveedor}.
             </p>
           </div>
           <button
             onClick={() => setStep('upload')}
-            className="mt-4 px-8 py-3 rounded-xl bg-slate-900 text-white font-bold transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+            className="mt-4 px-8 py-3 rounded-2xl bg-slate-200 text-black font-black uppercase tracking-widest text-[10px] transition hover:bg-white shadow-sm active:scale-95"
           >
             Importar otra lista
           </button>
@@ -194,31 +195,19 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
       return (
         <div className="flex flex-col gap-6 animate-in fade-in duration-300">
-          <div className="flex items-center justify-between bg-blue-50/50 dark:bg-blue-500/5 rounded-2xl p-4 border border-blue-100 dark:border-blue-500/20">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-blue-500 text-white shadow-lg">
-                <HiAdjustments className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Mapeo de Columnas</h3>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">Vincula las columnas de tu archivo con los campos del sistema.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {SUPPLIER_FIELDS.map((field) => (
-              <div key={field.id} className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-1">
-                  {field.label} {field.required && <span className="text-red-500">*</span>}
+              <div key={field.id} className="flex flex-col gap-2.5">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white px-1">
+                  {field.label} <span className="text-red-500 font-bold">*</span>
                 </label>
                 <select
                   value={mappings[field.id].csvHeader}
                   onChange={(e) => updateMapping(field.id, e.target.value)}
-                  className={`h-11 w-full rounded-xl border px-3 text-xs font-bold transition focus:outline-none focus:ring-4 focus:ring-blue-500/10 ${mappings[field.id].csvHeader
-                      ? 'bg-white border-blue-500 text-slate-900 dark:bg-slate-900 dark:text-white'
-                      : 'bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-900/50 dark:border-slate-800'
-                    }`}
+                  className={`h-14 w-full rounded-2xl border-2 px-4 text-xs font-black transition outline-none tracking-widest ${mappings[field.id].csvHeader
+                    ? 'bg-slate-900 border-white text-white'
+                    : 'bg-slate-900/50 border-slate-700 text-slate-400'
+                    } focus:border-white focus:ring-4 focus:ring-white/5`}
                 >
                   <option value="">-- OMITIR --</option>
                   {csvHeaders.map((h) => (
@@ -229,17 +218,17 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
             ))}
           </div>
 
-          <div className="flex gap-3 pt-4">
+          <div className="flex gap-4 pt-6">
             <button
               onClick={() => setStep('upload')}
-              className="flex-1 h-12 rounded-xl border border-slate-200 font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="flex-1 h-14 rounded-2xl border-2 border-slate-700 bg-slate-900 font-black uppercase tracking-widest text-[10px] text-white transition hover:bg-slate-800 active:scale-95"
             >
               Atrás
             </button>
             <button
               onClick={handleImport}
               disabled={!canImport || importing}
-              className="flex-[2] h-12 flex items-center justify-center gap-2 rounded-xl bg-blue-600 font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:opacity-50 uppercase tracking-widest text-xs"
+              className="flex-[2] h-14 flex items-center justify-center gap-3 rounded-2xl bg-slate-300 text-black font-black uppercase tracking-widest text-[10px] shadow-lg transition hover:bg-white disabled:opacity-30 active:scale-95"
             >
               <HiPlay className="h-5 w-5" />
               {importing ? "Procesando..." : "Comenzar Importación"}
@@ -252,10 +241,10 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     if (step === 'importing') {
       return (
         <div className="flex flex-col items-center justify-center py-12 gap-6 animate-pulse">
-          <div className="h-16 w-16 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+          <div className="h-16 w-16 border-4 border-slate-800 border-t-white rounded-full animate-spin" />
           <div className="text-center">
-            <h3 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-widest">Importando Lista</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Esto puede tomar unos segundos dependiendo del tamaño del archivo...</p>
+            <h3 className="text-lg font-black text-white uppercase tracking-[0.2em]">Importando Lista</h3>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-2">Sincronizando con la base de datos...</p>
           </div>
         </div>
       );
@@ -263,18 +252,18 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
     return (
       <div className="flex flex-col gap-6">
-        <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-10 transition hover:border-blue-400 hover:bg-blue-50/20 dark:border-slate-800 dark:bg-slate-900/20">
+        <div className="rounded-[2.5rem] border-2 border-dashed border-slate-700 bg-slate-900/30 p-12 transition hover:border-white hover:bg-slate-900/50">
           <label className="flex flex-col items-center justify-center cursor-pointer group">
             <input type="file" className="hidden" accept=".csv" onChange={handleFileChange} />
-            <div className="h-20 w-20 flex items-center justify-center rounded-2xl bg-white shadow-xl ring-1 ring-slate-100 transition group-hover:scale-110 group-hover:ring-blue-200 dark:bg-slate-800 dark:ring-slate-700">
-              <HiCloudUpload className="h-10 w-10 text-blue-500" />
+            <div className="h-24 w-24 flex items-center justify-center rounded-[2rem] bg-slate-800 shadow-2xl ring-1 ring-slate-700 transition group-hover:scale-110 group-hover:bg-slate-700">
+              <HiCloudUpload className="h-12 w-12 text-white" />
             </div>
-            <div className="mt-6 text-center">
-              <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">Cargar lista de precios</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-medium">Sube tu archivo CSV con los productos del proveedor.</p>
+            <div className="mt-8 text-center">
+              <h3 className="text-xl font-black text-white tracking-tight uppercase">Cargar lista de precios</h3>
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-3">Sube tu archivo CSV del proveedor</p>
             </div>
-            <div className="mt-8 flex items-center gap-2 rounded-full bg-blue-500 px-6 py-2.5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-blue-500/30 transition group-hover:bg-blue-600">
-              <HiTable className="h-4 w-4" />
+            <div className="mt-10 flex items-center gap-3 rounded-2xl bg-white text-black px-10 py-4 text-[11px] font-black uppercase tracking-widest shadow-xl transition hover:scale-105 active:scale-95">
+              <HiTable className="h-5 w-5" />
               Seleccionar Archivo
             </div>
           </label>
@@ -299,12 +288,14 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     <div className="flex flex-col gap-6">
       {renderStep()}
 
-      <div className="mt-4">
-        <div className="flex items-center gap-2 mb-4">
-          <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Historial de Importaciones</h3>
+      {!hideHistory && (
+        <div className="mt-4">
+          <div className="flex items-center gap-2 mb-4">
+            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Historial de Importaciones</h3>
+          </div>
+          <ProveedorImportHistory id_proveedor={id_proveedor} />
         </div>
-        <ProveedorImportHistory id_proveedor={id_proveedor} />
-      </div>
+      )}
     </div>
   );
 }

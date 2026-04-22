@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
@@ -10,6 +10,7 @@ import { TrashButton } from "@/components/ui/TrashButton";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/components/auth/usePermissions";
 import { toast } from "sonner";
+import { HiSave } from "react-icons/hi";
 
 type CatalogItem = {
   id: number;
@@ -44,11 +45,29 @@ export function CatalogList({
   totalPages = 1,
 }: Props) {
   const router = useRouter();
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const { canManage } = usePermissions();
   const [openNew, setOpenNew] = useState(false);
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
+  const [triggerSave, setTriggerSave] = useState(0);
   const [deletingItem, setDeletingItem] = useState<CatalogItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [search, setSearch] = useState(searchParams.get("search") || "");
+
+  // Debounced search sync with URL
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const current = new URLSearchParams(window.location.search);
+      if (search) {
+        current.set("search", search);
+      } else {
+        current.delete("search");
+      }
+      current.set("page", "1");
+      router.push(`?${current.toString()}`);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [search, router]);
 
   const handleDelete = async () => {
     if (!deletingItem) return;
@@ -75,18 +94,36 @@ export function CatalogList({
   return (
     <>
       <div className="mx-auto w-full max-w-7xl py-8 px-4 md:px-8">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{title}</h1>
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+          <div>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{title}</h1>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Gestión de catálogos</p>
+          </div>
 
-          {canManage ? (
-            <button
-              type="button"
-              onClick={() => setOpenNew(true)}
-              className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-6 text-sm font-bold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-md active:scale-95"
-            >
-              {createLabel}
-            </button>
-          ) : null}
+          <div className="flex items-center gap-3">
+            <div className="relative group">
+              <input
+                type="text"
+                placeholder={`BUSCAR ${entityName.toUpperCase()}...`}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-11 w-64 rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-xs font-bold uppercase outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-blue-500"
+              />
+              <svg className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400 transition group-focus-within:text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+
+            {canManage ? (
+              <button
+                type="button"
+                onClick={() => setOpenNew(true)}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-6 text-sm font-bold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-md active:scale-95"
+              >
+                {createLabel}
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-slate-50/50 shadow-xl dark:border-slate-800 dark:bg-slate-900 shadow-slate-200/50 dark:shadow-none">
@@ -98,7 +135,7 @@ export function CatalogList({
             </div>
 
             {items.length === 0 ? (
-              <div className="px-5 py-12 text-center text-sm font-medium text-slate-500 dark:text-slate-500">No hay {entityName}s cargadas.</div>
+              <div className="px-5 py-12 text-center text-sm font-medium text-slate-500 dark:text-slate-500">No hay resultados para esta búsqueda.</div>
             ) : (
               <div className="divide-y divide-slate-100 bg-white/50 dark:divide-slate-800 dark:bg-slate-900/50">
                 {items.map((item) => (
@@ -155,7 +192,21 @@ export function CatalogList({
       <Modal
         title={`Editar ${entityName}`}
         open={canManage && !!editingItem}
-        onClose={() => setEditingItem(null)}
+        onClose={() => {
+          setEditingItem(null);
+          setTriggerSave(0);
+        }}
+        headerActions={
+          entityName.toLowerCase() === "proveedor" && (
+            <button
+              onClick={() => setTriggerSave(v => v + 1)}
+              className="h-10 px-6 flex items-center gap-2.5 rounded-xl bg-white text-black border border-slate-200 font-black uppercase tracking-widest text-[10px] transition hover:bg-slate-50 shadow-sm active:scale-95 dark:bg-white dark:text-black dark:border-transparent"
+            >
+              <HiSave className="h-4 w-4" />
+              Guardar Cambios
+            </button>
+          )
+        }
         width="w-[min(96vw,1400px)]"
       >
         <CatalogForm
@@ -163,11 +214,16 @@ export function CatalogList({
           entityName={entityName}
           entityId={editingItem?.id}
           initialDescripcion={editingItem?.descripcion ?? ""}
+          triggerSave={triggerSave}
           onSuccess={() => {
             setEditingItem(null);
+            setTriggerSave(0);
             router.refresh();
           }}
-          onCancel={() => setEditingItem(null)}
+          onCancel={() => {
+            setEditingItem(null);
+            setTriggerSave(0);
+          }}
         />
       </Modal>
 
