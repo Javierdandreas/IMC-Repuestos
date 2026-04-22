@@ -381,9 +381,10 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   <th className="px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Descripción</th>
                   <th className="w-[60px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Foto</th>
                   <th className="w-[60px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Med.</th>
-                  <th className="w-[100px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Marca</th>
-                  <th className="w-[140px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Rubro</th>
-                  <th className="w-[140px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Proveedores</th>
+                  <th className="w-[80px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Marca</th>
+                  <th className="w-[120px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Rubro</th>
+                  <th className="w-[100px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Ubicación</th>
+                  <th className="w-[120px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Proveedores</th>
                   <th className="w-[50px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Stock</th>
                   <th className="w-[120px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Acciones</th>
                 </tr>
@@ -474,7 +475,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{product.subcategoria ?? "-"}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-400 truncate max-w-[140px]" title={product.proveedor ?? ""}>
+                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-300">{product.ubicacion ?? "-"}</td>
+                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-400 truncate max-w-[120px]" title={product.proveedor ?? ""}>
                       {product.proveedor ?? "-"}
                     </td>
                     <td className="px-2 py-3 text-[11px] text-slate-700 dark:text-slate-300 font-bold text-center">{product.stock}</td>
