@@ -8,6 +8,8 @@ import { Modal } from "@/components/ui/Modal";
 import { toast } from "sonner";
 import { KitListado } from "@/interfaces/kits";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
+import { ImportKitModal } from "./ImportKitModal";
+import { HiCloudUpload } from "react-icons/hi";
 
 interface Props {
   kits: KitListado[];
@@ -23,6 +25,7 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
   const [search, setSearch] = useState(searchParams.get("search") || "");
   const [deletingKit, setDeletingKit] = useState<KitListado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Sync search with URL
   useEffect(() => {
@@ -68,6 +71,13 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
 
         <div className="flex items-center gap-2">
             <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all shadow-sm active:scale-95"
+            >
+                <HiCloudUpload className="h-5 w-5 text-indigo-500" />
+                IMPORTAR KITS
+            </button>
+            <button
                 onClick={() => router.push("/kits/nuevo")}
                 className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
             >
@@ -101,9 +111,9 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
                 <tr>
                     <th className="px-6 py-4 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Código</th>
                     <th className="px-6 py-4 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Nombre del Kit</th>
-                    <th className="px-6 py-4 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Componentes</th>
                     <th className="px-6 py-4 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Categoría</th>
-                    <th className="px-6 py-4 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Precio Sugerido (ML)</th>
+                    <th className="px-6 py-4 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Precios</th>
+                    <th className="px-6 py-4 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Stock</th>
                     <th className="px-6 py-4 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Acciones</th>
                 </tr>
             </thead>
@@ -130,23 +140,41 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
                                 </div>
                             </td>
                             <td className="px-6 py-5">
-                                <div className="flex items-center gap-2">
-                                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-[10px] font-black">
-                                        {kit.cantidad_componentes}
-                                    </div>
-                                    <span className="text-xs font-bold text-slate-500 uppercase">Items</span>
-                                </div>
-                            </td>
-                            <td className="px-6 py-5">
                                 <div className="flex flex-col">
                                     <span className="text-[11px] font-black text-slate-500 uppercase tracking-tighter">{kit.categoria}</span>
                                     <span className="text-[10px] text-slate-400 truncate">{kit.subcategoria || "-"}</span>
                                 </div>
                             </td>
                             <td className="px-6 py-5 text-right">
-                                <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
-                                    $ {Number(kit.precio_ml_total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                </span>
+                                <div className="flex flex-col items-end gap-2 whitespace-nowrap">
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-tighter w-24 text-right">Mostrador</span>
+                                        <span className="text-base font-black text-emerald-600 dark:text-emerald-400 font-mono w-32 text-right">
+                                            $ {Number(kit.precio_mostrador_total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-tighter w-24 text-right">Mecánico</span>
+                                        <span className="text-base font-black text-indigo-600 dark:text-indigo-400 font-mono w-32 text-right">
+                                            $ {Number(kit.precio_mecanico_total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-tighter w-24 text-right">M. Libre</span>
+                                        <span className="text-base font-black text-blue-600 dark:text-blue-400 font-mono w-32 text-right">
+                                            $ {Number(kit.precio_ml_total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                </div>
+                            </td>
+                            <td className="px-6 py-5 text-center">
+                                <div className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-black ${
+                                    kit.stock_kit > 0 
+                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' 
+                                        : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                                }`}>
+                                    {kit.stock_kit}
+                                </div>
                             </td>
                             <td className="px-6 py-5">
                                 <div className="flex items-center justify-center gap-2">
@@ -195,6 +223,15 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
         title="Eliminar Kit"
         description={`¿Estás seguro que deseas eliminar el kit "${deletingKit?.nombre}"? Esta acción marcará el kit como inactivo.`}
       />
+
+      <Modal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        title="Importación Masiva de Kits"
+        width="w-full max-w-2xl"
+      >
+        <ImportKitModal onClose={() => setShowImportModal(false)} />
+      </Modal>
     </div>
   );
 }

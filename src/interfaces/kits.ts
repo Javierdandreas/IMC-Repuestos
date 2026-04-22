@@ -39,6 +39,9 @@ export type KitListado = {
   activo: boolean;
   cantidad_componentes: number;
   precio_ml_total: number;
+  precio_mostrador_total: number;
+  precio_mecanico_total: number;
+  stock_kit: number;
   created_at: string;
 };
 

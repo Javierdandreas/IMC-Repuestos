@@ -35,7 +35,20 @@ export function KitForm({ kitId, initialData }: Props) {
     const [codigoManual, setCodigoManual] = useState(initialData?.codigo_kit || "");
     const [descripcion, setDescripcion] = useState(initialData?.descripcion || "");
     const [idSubcategoria, setIdSubcategoria] = useState<number | "">(initialData?.id_subcategoria || "");
-    const [items, setItems] = useState<KitItem[]>(initialData?.componentes || []);
+    const [items, setItems] = useState<KitItem[]>(() => {
+        if (!initialData?.componentes) return [];
+        return initialData.componentes.map((c: any) => ({
+            id_producto: c.id_producto,
+            codigo: c.cod_unico || c.codigo || "",
+            descripcion: c.descripcion || "",
+            cantidad: c.cantidad || 1,
+            stock: c.stock_actual !== undefined ? c.stock_actual : (c.stock || 0),
+            precio_costo: Number(c.precio_costo || 0),
+            precio_ml: Number(c.precio_ml || 0),
+            precio_mostrador: Number(c.precio_mostrador || 0),
+            precio_mecanico: Number(c.precio_mecanico || 0),
+        }));
+    });
 
     // Search state
     const [searchQuery, setSearchQuery] = useState("");
@@ -56,6 +69,34 @@ export function KitForm({ kitId, initialData }: Props) {
             mecanico: acc.mecanico + (item.precio_mecanico * item.cantidad),
         }), { costo: 0, ml: 0, mostrador: 0, mecanico: 0 });
     }, [items]);
+
+    // Kit Stock Calculation
+    const kitStock = useMemo(() => {
+        if (items.length === 0) return 0;
+        const stocks = items.map(i => {
+            const s = Number(i.stock || 0);
+            const q = Number(i.cantidad || 1);
+            if (q <= 0) return 0;
+            return Math.floor(s / q);
+        });
+        const res = Math.min(...stocks);
+        return isNaN(res) ? 0 : res;
+    }, [items]);
+
+    // Automatic naming logic
+    const generateAutoName = () => {
+        if (items.length === 0) return;
+        const autoName = items.map(i => `${i.codigo || "???"} X${i.cantidad}`).join(" ");
+        setNombre(autoName.toUpperCase());
+    };
+
+    // Auto-generate name for NEW kits if empty
+    useEffect(() => {
+        if (!kitId && items.length > 0 && (nombre === "" || items.length === 1)) {
+            const autoName = items.map(i => `${i.codigo || "???"} X${i.cantidad}`).join(" ");
+            setNombre(autoName.toUpperCase());
+        }
+    }, [items, kitId]);
 
     // Handle Item Search
     useEffect(() => {
@@ -207,7 +248,18 @@ export function KitForm({ kitId, initialData }: Props) {
                             </div>
 
                             <div className="flex flex-col gap-2">
-                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Nombre del Combo</label>
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Nombre del Combo</label>
+                                    {items.length > 0 && (
+                                        <button 
+                                            type="button"
+                                            onClick={generateAutoName}
+                                            className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase hover:underline"
+                                        >
+                                            Generar desde componentes
+                                        </button>
+                                    )}
+                                </div>
                                 <input
                                     required
                                     value={nombre}
@@ -238,47 +290,13 @@ export function KitForm({ kitId, initialData }: Props) {
                                     value={descripcion}
                                     onChange={e => setDescripcion(e.target.value)}
                                     rows={3}
+                                    placeholder="DETALLES ADICIONALES DEL KIT..."
                                     className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm font-bold uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all resize-none"
                                 />
                             </div>
                         </div>
                     </section>
 
-                    {/* Dynamic Pricing Summary Card */}
-                    <section className="bg-gradient-to-br from-indigo-900 to-slate-900 p-8 rounded-3xl shadow-2xl text-white relative overflow-hidden text-left">
-                        <div className="absolute top-0 right-0 p-8 opacity-10">
-                            <HiCurrencyDollar className="h-32 w-32" />
-                        </div>
-                        
-                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300 mb-6">Precios Sugeridos (Suma)</h4>
-                        
-                        <div className="flex flex-col gap-6 relative z-10">
-                            <div className="flex justify-between items-end border-b border-white/10 pb-4">
-                                <span className="text-[10px] font-bold text-indigo-200 uppercase">MERCADO LIBRE</span>
-                                <span className="text-3xl font-black tracking-tighter text-emerald-400">
-                                    $ {totals.ml.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                </span>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="flex flex-col gap-1">
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase">MOSTRADOR</span>
-                                    <span className="text-lg font-black">$ {totals.mostrador.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase">MECÁNICO</span>
-                                    <span className="text-lg font-black">$ {totals.mecanico.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                            </div>
-
-                            <div className="mt-2 p-3 bg-white/5 rounded-xl border border-white/5">
-                                <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                                    <span className="text-slate-400">COSTO TOTAL</span>
-                                    <span className="text-indigo-400">$ {totals.costo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
                 </div>
 
                 {/* Right Column: Components Selection */}
@@ -368,16 +386,13 @@ export function KitForm({ kitId, initialData }: Props) {
                                                     className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all text-left"
                                                 >
                                                     <td className="px-4 py-4">
-                                                        <div className="flex flex-col">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-md font-mono">
-                                                                    {item.codigo}
-                                                                </span>
-                                                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tighter">
-                                                                    Stock: {item.stock}
-                                                                </span>
-                                                            </div>
-                                                            <span className="text-[11px] font-bold text-slate-900 dark:text-white mt-1 line-clamp-1 uppercase lg:max-w-[200px] xl:max-w-none">{item.descripcion}</span>
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-md font-mono">
+                                                                {item.codigo || "S/C"}
+                                                            </span>
+                                                            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tighter">
+                                                                Stock: {item.stock ?? 0}
+                                                            </span>
                                                         </div>
                                                     </td>
                                                     <td className="px-4 py-4">

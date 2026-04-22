@@ -28,21 +28,23 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
       k.activo,
       k.created_at,
       COUNT(kd.id_producto)::int AS cantidad_componentes,
-      COALESCE(SUM(pp.precio * kd.cantidad), 0) AS precio_ml_total
+      COALESCE(SUM(pml.precio * kd.cantidad), 0) AS precio_ml_total,
+      COALESCE(SUM(pmo.precio * kd.cantidad), 0) AS precio_mostrador_total,
+      COALESCE(SUM(pme.precio * kd.cantidad), 0) AS precio_mecanico_total,
+      COALESCE(MIN(FLOOR(p.stock / kd.cantidad)), 0)::int AS stock_kit
     FROM public.kits k
     LEFT JOIN public.categoria c ON k.id_categoria = c.id
     LEFT JOIN public.subcategoria s ON k.id_subcategoria = s.id
     LEFT JOIN public.kit_detalle kd ON k.id = kd.id_kit
-    LEFT JOIN (
-      SELECT id_producto, precio 
-      FROM public.producto_precio 
-      WHERE id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)
-    ) pp ON kd.id_producto = pp.id_producto
+    LEFT JOIN public.productos p ON kd.id_producto = p.id
+    LEFT JOIN public.producto_precio pml ON kd.id_producto = pml.id_producto AND pml.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)
+    LEFT JOIN public.producto_precio pmo ON kd.id_producto = pmo.id_producto AND pmo.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)
+    LEFT JOIN public.producto_precio pme ON kd.id_producto = pme.id_producto AND pme.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MECANICO' LIMIT 1)
     ${searchClause}
     GROUP BY k.id, c.descripcion, s.descripcion
   `;
 
-  return await paginateQuery<KitListado>("log_importaciones", baseQuery, page, limit, params); // Usamos log_importaciones como bypass si no está en la whitelist de db-utils o actualizamos la whitelist
+  return await paginateQuery<KitListado>("log_importaciones", baseQuery, page, limit, params);
 }
 
 /**
@@ -88,10 +90,16 @@ export async function getKitById(id: number): Promise<Kit | null> {
     mecanico: acc.mecanico + (Number(comp.precio_mecanico) * comp.cantidad),
   }), { costo: 0, ml: 0, mostrador: 0, mecanico: 0 });
 
+  // Calcular stock del kit
+  const stock_kit = componentes.length > 0 
+    ? Math.min(...componentes.map(c => Math.floor(c.stock_actual / c.cantidad)))
+    : 0;
+
   return {
     ...kitData,
     componentes,
-    precio_totales
+    precio_totales,
+    stock_kit
   };
 }
 
@@ -183,4 +191,129 @@ export async function searchComponentesForKit(search: string) {
   `;
   const res = await query(sql, [`%${search}%`]);
   return res.rows;
+}
+
+/**
+ * Importación masiva de kits (Alta Velocidad).
+ */
+export async function importKits(items: any[], user: string, fileName: string, mappings: any) {
+    const startTime = Date.now();
+    const results = {
+        imported: 0,
+        updated: 0,
+        ignored: 0,
+        errors: [] as { row: number; error: string; cod_kit: string }[]
+    };
+
+    if (items.length === 0) return results;
+
+    return await withTransaction(async (client) => {
+        // 1. Agrupar items por codigo_kit
+        const kitsMap = new Map<string, { nombre: string; componentes: { cod: string; qty: number; row: number }[] }>();
+        const allProductCodes = new Set<string>();
+
+        const kitHeader = mappings.codigo_kit?.csvHeader;
+        const nameHeader = mappings.nombre_kit?.csvHeader;
+        const prodHeader = mappings.cod_producto?.csvHeader;
+        const qtyHeader = mappings.cantidad?.csvHeader;
+
+        if (!kitHeader || !prodHeader) {
+            throw new Error("Mapeo insuficiente: se requiere Código de Kit y Código de Producto");
+        }
+
+        items.forEach((item, index) => {
+            const rowNum = index + 2;
+            const codKit = item[kitHeader]?.toString().trim().toUpperCase();
+            const codProd = item[prodHeader]?.toString().trim().toUpperCase();
+            const nombre = item[nameHeader]?.toString().trim() || "";
+            const qty = parseFloat(item[qtyHeader]) || 1;
+
+            if (!codKit || !codProd) {
+                results.errors.push({ row: rowNum, error: "Faltan datos obligatorios (Kit o Producto)", cod_kit: codKit || "???" });
+                return;
+            }
+
+            if (!kitsMap.has(codKit)) {
+                kitsMap.set(codKit, { nombre, componentes: [] });
+            }
+            kitsMap.get(codKit)!.componentes.push({ cod: codProd, qty, row: rowNum });
+            allProductCodes.add(codProd);
+        });
+
+        // 2. Validar que los productos existan y obtener sus IDs
+        const productRes = await client.query(
+            "SELECT id, cod_unico FROM public.productos WHERE cod_unico = ANY($1)",
+            [Array.from(allProductCodes)]
+        );
+        const productMap = new Map<string, number>(productRes.rows.map(r => [r.cod_unico.toUpperCase(), r.id]));
+
+        // 3. Preparar datos para Bulk Upsert de Kits
+        const v_codigo: string[] = [];
+        const v_nombre: string[] = [];
+        const v_desc: string[] = [];
+        const v_activo: boolean[] = [];
+
+        for (const [cod, data] of kitsMap.entries()) {
+            v_codigo.push(cod);
+            v_nombre.push(data.nombre || cod); // Fallback al código si no hay nombre
+            v_desc.push(""); // Descripción vacía por defecto en importación masiva
+            v_activo.push(true);
+        }
+
+        const upsertRes = await client.query(`
+            WITH upserted AS (
+                INSERT INTO public.kits (codigo_kit, nombre, descripcion, activo)
+                SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::boolean[]) AS t(codigo_kit, nombre, descripcion, activo)
+                ON CONFLICT (codigo_kit) DO UPDATE SET
+                    nombre = EXCLUDED.nombre
+                RETURNING id, codigo_kit, (xmax = 0) AS is_new
+            )
+            SELECT id, codigo_kit, is_new FROM upserted;
+        `, [v_codigo, v_nombre, v_desc, v_activo]);
+
+        const kitIdMap = new Map<string, number>(upsertRes.rows.map(r => [r.codigo_kit.toUpperCase(), r.id]));
+        upsertRes.rows.forEach(r => {
+            if (r.is_new) results.imported++;
+            else results.updated++;
+        });
+
+        // 4. Sincronizar Detalle (Bulk)
+        // Eliminamos detalles antiguos para los kits procesados
+        const kitIds = Array.from(kitIdMap.values());
+        await client.query("DELETE FROM public.kit_detalle WHERE id_kit = ANY($1)", [kitIds]);
+
+        // Insertamos nuevos detalles
+        const v_id_kit: number[] = [];
+        const v_id_prod: number[] = [];
+        const v_qty: number[] = [];
+
+        for (const [codKit, data] of kitsMap.entries()) {
+            const kitId = kitIdMap.get(codKit);
+            if (!kitId) continue;
+
+            data.componentes.forEach(comp => {
+                const prodId = productMap.get(comp.cod);
+                if (prodId) {
+                    v_id_kit.push(kitId);
+                    v_id_prod.push(prodId);
+                    v_qty.push(comp.qty);
+                } else {
+                    results.errors.push({ 
+                        row: comp.row, 
+                        error: `Producto "${comp.cod}" no encontrado en catálogo`, 
+                        cod_kit: codKit 
+                    });
+                }
+            });
+        }
+
+        if (v_id_kit.length > 0) {
+            await client.query(`
+                INSERT INTO public.kit_detalle (id_kit, id_producto, cantidad)
+                SELECT * FROM UNNEST($1::int[], $2::int[], $3::numeric[])
+            `, [v_id_kit, v_id_prod, v_qty]);
+        }
+
+        return { ...results, durationMs: Date.now() - startTime };
+    });
 }

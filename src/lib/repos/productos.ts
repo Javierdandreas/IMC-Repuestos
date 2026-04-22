@@ -166,7 +166,8 @@ export async function getProductosListado(
       p.cod_unico::text ILIKE $${params.length} OR 
       pi.codigo_pieza::text ILIKE $${params.length} OR 
       p.palabra_clave::text ILIKE $${params.length} OR
-      p.cod_barra::text ILIKE $${params.length}
+      p.cod_barra::text ILIKE $${params.length} OR
+      cr.codigo::text ILIKE $${params.length}
     )`);
   }
 
@@ -175,7 +176,8 @@ export async function getProductosListado(
     whereClauses.push(`(
       p.cod_unico::text = $${params.length} OR 
       pi.codigo_pieza::text = $${params.length} OR
-      p.cod_barra::text = $${params.length}
+      p.cod_barra::text = $${params.length} OR
+      cr.codigo::text = $${params.length}
     )`);
   }
 
@@ -237,7 +239,11 @@ export async function getProductosListado(
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'EQUIVALENTE' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
-      ) AS equivalentes
+      ) AS equivalentes,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'SUSTITUTO' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS sustitutos
     FROM productos p
     LEFT JOIN pieza pi ON pi.id = p.id_pieza
     LEFT JOIN marcas m ON m.id = p.id_marca
