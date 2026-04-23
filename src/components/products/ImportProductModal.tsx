@@ -5,6 +5,9 @@ import Papa from "papaparse";
 import { toast } from "sonner";
 import { HiCloudUpload, HiCheck, HiExclamation, HiX, HiDownload, HiChevronRight, HiAdjustments, HiPlay } from "react-icons/hi";
 import { useRouter } from "next/navigation";
+import { useMetadata } from "@/context/MetadataContext";
+import { HiTrash } from "react-icons/hi";
+import * as XLSX from "xlsx";
 
 
 
@@ -19,6 +22,7 @@ interface ImportResults {
   updated: number;
   ignored: number;
   errors: ImportError[];
+  updatedDetails?: { cod_unico: string; changes: any }[];
 }
 
 type Step = 'upload' | 'mapping' | 'importing' | 'results';
@@ -57,6 +61,9 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
     return initial;
   });
 
+  const { proveedores } = useMetadata();
+  const [isReplaceMode, setIsReplaceMode] = useState(false);
+
   const [importing, setImporting] = useState(false);
   const [totalRows, setTotalRows] = useState(0);
   const [processedCount, setProcessedCount] = useState(0);
@@ -72,18 +79,35 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
   };
 
   const parseFileHeaders = (file: File) => {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (results.meta.fields) {
-          setCsvHeaders(results.meta.fields);
-          setPreview(results.data.slice(0, 5));
-          setTotalRows(results.data.length);
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+
+    if (isExcel) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = e.target?.result;
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+          const headers: string[] = [];
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const address = XLSX.utils.encode_col(C) + '1';
+            const cell = worksheet[address];
+            if (cell && cell.v !== undefined) {
+              headers.push(cell.v.toString());
+            }
+          }
+          
+          setCsvHeaders(headers);
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          setPreview(jsonData.slice(0, 5));
+          setTotalRows(jsonData.length);
 
           // Auto-mapeo inteligente
           const newMappings = { ...mappings };
-          results.meta.fields.forEach(header => {
+          headers.forEach(header => {
             const h = header.toLowerCase().trim();
             if (h === 'codigo' || h === 'cod_unico' || h === 'codigointerno' || h === 'sku') newMappings.cod_unico.csvHeader = header;
             if (h === 'titulo' || h === 'descripcion' || h === 'nombre') newMappings.titulo.csvHeader = header;
@@ -95,9 +119,39 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
           });
           setMappings(newMappings);
           setStep('mapping');
+        } catch (err) {
+          toast.error("Error al leer el archivo Excel");
         }
-      },
-    });
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (results.meta.fields) {
+            setCsvHeaders(results.meta.fields);
+            setPreview(results.data.slice(0, 5));
+            setTotalRows(results.data.length);
+
+            // Auto-mapeo inteligente
+            const newMappings = { ...mappings };
+            results.meta.fields.forEach(header => {
+              const h = header.toLowerCase().trim();
+              if (h === 'codigo' || h === 'cod_unico' || h === 'codigointerno' || h === 'sku') newMappings.cod_unico.csvHeader = header;
+              if (h === 'titulo' || h === 'descripcion' || h === 'nombre') newMappings.titulo.csvHeader = header;
+              if (h === 'stock' || h === 'cantidad') newMappings.stock.csvHeader = header;
+              if (h === 'marca') newMappings.marca.csvHeader = header;
+              if (h === 'proveedor') newMappings.proveedor.csvHeader = header;
+              if (h === 'ubicacion' || h === 'pasillo') newMappings.ubicacion.csvHeader = header;
+              if (h === 'codigo_barra' || h === 'cod_barra' || h === 'ean') newMappings.cod_barra.csvHeader = header;
+            });
+            setMappings(newMappings);
+            setStep('mapping');
+          }
+        },
+      });
+    }
   };
 
   const handleImport = async () => {
@@ -108,75 +162,154 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
       setImporting(true);
       const startTime = Date.now();
 
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: async (allData) => {
-          const totalItems = allData.data.length;
-          setTotalRows(totalItems);
-          const BATCH_SIZE = 500;
-          let accumulatedResults: ImportResults = {
-            imported: 0,
-            updated: 0,
-            ignored: 0,
-            errors: []
-          };
+      const processImportData = async (allData: { data: any[] }) => {
+        const totalItems = allData.data.length;
+        setTotalRows(totalItems);
 
-          for (let i = 0; i < totalItems; i += BATCH_SIZE) {
-            const chunk = allData.data.slice(i, i + BATCH_SIZE);
-            try {
-              const res = await fetch("/api/productos/import", {
-                method: "POST",
-                body: JSON.stringify({
-                  items: chunk,
-                  mappings,
-                  fileName: file.name
-                }),
-              });
-
-              const data = await res.json();
-              if (res.ok) {
-                accumulatedResults.imported += (data.imported || 0);
-                accumulatedResults.updated += (data.updated || 0);
-                accumulatedResults.ignored += (data.ignored || 0);
-                accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
-              } else {
-                accumulatedResults.errors.push({
-                  row: i + 1,
-                  error: data.message || "Error en el lote",
-                  cod_unico: `Lote ${Math.floor(i / BATCH_SIZE) + 1}`
-                });
-              }
-            } catch (err: any) {
-              accumulatedResults.errors.push({ row: i + 1, error: err.message, cod_unico: "ERROR RED" });
-            }
-            setProcessedCount(Math.min(i + BATCH_SIZE, totalItems));
+        // Lógica de Reemplazo Total
+        if (isReplaceMode) {
+          const provHeader = mappings.proveedor?.csvHeader;
+          if (!provHeader) {
+            toast.error("Para usar el modo reemplazo debes mapear la columna 'Proveedor'");
+            setImporting(false);
+            setStep('mapping');
+            return;
           }
 
-          const durationMs = Date.now() - startTime;
-          const minutes = Math.floor(durationMs / 60000);
-          const seconds = ((durationMs % 60000) / 1000).toFixed(1);
-          setImportDuration(minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`);
-          setResults(accumulatedResults);
+          const firstProvName = (allData.data[0] as any)[provHeader]?.toString().trim();
+          if (!firstProvName) {
+            toast.error("No se detectó el nombre del proveedor en la primera fila");
+            setImporting(false);
+            setStep('mapping');
+            return;
+          }
 
+          const prov = proveedores.find(p => p.descripcion.toLowerCase() === firstProvName.toLowerCase());
+          if (!prov) {
+            toast.error(`Proveedor '${firstProvName}' no encontrado en el sistema`);
+            setImporting(false);
+            setStep('mapping');
+            return;
+          }
+
+          const confirmed = window.confirm(`¡ATENCIÓN! Se ELIMINARÁ toda la lista actual de '${prov.descripcion}' para reemplazarla con los ${totalItems} ítems nuevos. ¿Deseas continuar?`);
+          if (!confirmed) {
+            setImporting(false);
+            setStep('mapping');
+            return;
+          }
+
+          // Ejecutar limpieza
           try {
-            await fetch("/api/productos/import/log", {
+            const clearRes = await fetch("/api/productos/import/clear-provider", {
+              method: "POST",
+              body: JSON.stringify({ id_proveedor: prov.id })
+            });
+            if (!clearRes.ok) throw new Error("Error al limpiar catálogo anterior");
+            toast.info(`Catálogo de ${prov.descripcion} limpiado. Iniciando importación...`);
+          } catch (err: any) {
+            toast.error(err.message);
+            setImporting(false);
+            setStep('mapping');
+            return;
+          }
+        }
+
+        const BATCH_SIZE = 500;
+        let accumulatedResults: ImportResults = {
+          imported: 0,
+          updated: 0,
+          ignored: 0,
+          errors: [],
+          updatedDetails: []
+        };
+
+        for (let i = 0; i < totalItems; i += BATCH_SIZE) {
+          const chunk = allData.data.slice(i, i + BATCH_SIZE);
+          try {
+            const res = await fetch("/api/productos/import", {
               method: "POST",
               body: JSON.stringify({
-                ...accumulatedResults,
-                durationMs,
+                items: chunk,
+                mappings,
                 fileName: file.name
-              })
+              }),
             });
-          } catch (e) {
-            console.error("Error al guardar log unificado:", e);
-          }
 
-          setStep('results');
-          setImporting(false);
-          router.refresh();
+            const data = await res.json();
+            if (res.ok) {
+              accumulatedResults.imported += (data.imported || 0);
+              accumulatedResults.updated += (data.updated || 0);
+              accumulatedResults.ignored += (data.ignored || 0);
+              accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
+              if (data.updatedDetails) {
+                accumulatedResults.updatedDetails = [...(accumulatedResults.updatedDetails || []), ...data.updatedDetails];
+              }
+            } else {
+              accumulatedResults.errors.push({
+                row: i + 1,
+                error: data.message || "Error en el lote",
+                cod_unico: `Lote ${Math.floor(i / BATCH_SIZE) + 1}`
+              });
+            }
+          } catch (err: any) {
+            accumulatedResults.errors.push({ row: i + 1, error: err.message, cod_unico: "ERROR RED" });
+          }
+          setProcessedCount(Math.min(i + BATCH_SIZE, totalItems));
         }
-      });
+
+        const durationMs = Date.now() - startTime;
+        const minutes = Math.floor(durationMs / 60000);
+        const seconds = ((durationMs % 60000) / 1000).toFixed(1);
+        setImportDuration(minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`);
+        setResults(accumulatedResults);
+
+        try {
+          await fetch("/api/productos/import/log", {
+            method: "POST",
+            body: JSON.stringify({
+              ...accumulatedResults,
+              durationMs,
+              fileName: file.name
+            })
+          });
+        } catch (e) {
+          console.error("Error al guardar log unificado:", e);
+        }
+
+        setStep('results');
+        setImporting(false);
+        router.refresh();
+      };
+
+      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+
+      if (isExcel) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const data = e.target?.result;
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            await processImportData({ data: jsonData });
+          } catch (err) {
+            toast.error("Error al leer el archivo Excel");
+            setImporting(false);
+            setStep('upload');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (allData) => {
+            await processImportData(allData);
+          }
+        });
+      }
     } catch (error: any) {
       toast.error("Error crítico: " + error.message);
       setImporting(false);
@@ -236,6 +369,48 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        {results.updatedDetails && results.updatedDetails.length > 0 && (
+          <div className="flex flex-col gap-3 rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 max-h-[400px] overflow-hidden">
+            <div className="flex items-center justify-between">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-500">Auditoría de Cambios en Productos Existentes</h4>
+              <span className="text-[9px] font-bold text-blue-400/50 uppercase tracking-tighter">Últimos {Math.min(results.updatedDetails.length, 300)} registros</span>
+            </div>
+            
+            <div className="overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-blue-500/20">
+              <div className="flex flex-col gap-2">
+                {results.updatedDetails.slice(0, 300).map((item, i) => (
+                  <div key={i} className="flex flex-col gap-2 p-3 bg-black/40 rounded-xl border border-blue-500/10 hover:border-blue-500/30 transition-colors">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-black text-blue-500/60 uppercase tracking-widest">CÓDIGO:</span>
+                        <span className="font-mono text-sm font-black text-blue-400">{item.cod_unico}</span>
+                      </div>
+                      <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-tighter text-blue-400 border border-blue-500/20">
+                        Sincronización Exitosa
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(item.changes).map(([field, value]) => (
+                        <div key={field} className="flex items-center gap-1 rounded-lg bg-zinc-900/50 px-2 py-1 border border-white/5">
+                          <span className="text-[8px] font-bold uppercase text-zinc-500">{field.replace('id_', '').replace('_', ' ')}:</span>
+                          <span className="text-[10px] font-bold text-zinc-300 truncate max-w-[200px]">
+                            {value === null || value === undefined ? '—' : String(value)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {results.updatedDetails.length > 300 && (
+                  <p className="text-[10px] text-center text-zinc-500 py-4 italic border-t border-white/5 mt-2">
+                    Mostrando los primeros 300 cambios para optimizar el rendimiento...
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <button onClick={onClose} className="h-14 w-full rounded-2xl bg-white font-black text-zinc-900 transition hover:bg-zinc-200">
           Cerrar Importador
         </button>
@@ -254,6 +429,28 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
           <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
             <HiAdjustments className="h-5 w-5" />
           </div>
+        </div>
+
+        {/* MODO REEMPLAZO TOTAL */}
+        <div className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${isReplaceMode ? 'bg-red-500/10 border-red-500/40 text-red-500' : 'bg-slate-50 dark:bg-zinc-900/50 border-slate-200 dark:border-zinc-800 text-slate-500'}`}>
+          <div className="flex items-center gap-3">
+            <div className={`h-10 w-10 flex items-center justify-center rounded-xl ${isReplaceMode ? 'bg-red-500 text-white' : 'bg-slate-200 dark:bg-zinc-800'}`}>
+              <HiTrash className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest">Modo Reemplazo Total</p>
+              <p className="text-[10px] opacity-70">Borra la lista actual del proveedor antes de importar la nueva.</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input 
+              type="checkbox" 
+              className="sr-only peer" 
+              checked={isReplaceMode}
+              onChange={() => setIsReplaceMode(!isReplaceMode)}
+            />
+            <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-zinc-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+          </label>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto pr-2 px-1 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-zinc-700">
@@ -377,11 +574,11 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4">
         <label className="group relative flex h-56 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-800 dark:bg-slate-950">
-          <input type="file" className="hidden" accept=".csv" onChange={handleFileChange} />
+          <input type="file" className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileChange} />
           <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-100 transition group-hover:scale-110 group-hover:ring-blue-200 dark:bg-slate-900 dark:ring-slate-800">
             <HiCloudUpload className="h-8 w-8 text-blue-500" />
           </div>
-          <span className="text-base font-black text-slate-900 dark:text-white">Seleccionar archivo CSV</span>
+          <span className="text-base font-black text-slate-900 dark:text-white">Seleccionar CSV o Excel</span>
           <span className="mt-1 text-xs font-medium text-slate-400">Arrastra tu archivo aquí o haz clic para buscar</span>
         </label>
 

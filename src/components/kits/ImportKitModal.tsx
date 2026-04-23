@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Papa from "papaparse";
+import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { HiCloudUpload, HiCheck, HiExclamation, HiX, HiDownload, HiChevronRight, HiAdjustments, HiPlay } from "react-icons/hi";
 import { useRouter } from "next/navigation";
@@ -62,18 +63,35 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
   };
 
   const parseFileHeaders = (file: File) => {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (results.meta.fields) {
-          setCsvHeaders(results.meta.fields);
-          setPreview(results.data.slice(0, 5));
-          setTotalRows(results.data.length);
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+
+    if (isExcel) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = e.target?.result;
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+          const headers: string[] = [];
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const address = XLSX.utils.encode_col(C) + '1';
+            const cell = worksheet[address];
+            if (cell && cell.v !== undefined) {
+              headers.push(cell.v.toString());
+            }
+          }
+          
+          setCsvHeaders(headers);
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          setPreview(jsonData.slice(0, 5));
+          setTotalRows(jsonData.length);
 
           // Auto-mapeo inteligente
           const newMappings = { ...mappings };
-          results.meta.fields.forEach(header => {
+          headers.forEach(header => {
             const h = header.toLowerCase().trim();
             if (h.includes('codigo_kit') || h === 'cod_kit' || h === 'kit_id') newMappings.codigo_kit.csvHeader = header;
             if (h.includes('nombre_kit') || h === 'kit_nombre' || h === 'nombre') newMappings.nombre_kit.csvHeader = header;
@@ -82,9 +100,36 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
           });
           setMappings(newMappings);
           setStep('mapping');
+        } catch (err) {
+          toast.error("Error al leer el archivo Excel");
         }
-      },
-    });
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (results.meta.fields) {
+            setCsvHeaders(results.meta.fields);
+            setPreview(results.data.slice(0, 5));
+            setTotalRows(results.data.length);
+
+            // Auto-mapeo inteligente
+            const newMappings = { ...mappings };
+            results.meta.fields.forEach(header => {
+              const h = header.toLowerCase().trim();
+              if (h.includes('codigo_kit') || h === 'cod_kit' || h === 'kit_id') newMappings.codigo_kit.csvHeader = header;
+              if (h.includes('nombre_kit') || h === 'kit_nombre' || h === 'nombre') newMappings.nombre_kit.csvHeader = header;
+              if (h.includes('cod_producto') || h === 'producto' || h === 'sku' || h === 'articulo') newMappings.cod_producto.csvHeader = header;
+              if (h.includes('cantidad') || h === 'cant' || h === 'qty') newMappings.cantidad.csvHeader = header;
+            });
+            setMappings(newMappings);
+            setStep('mapping');
+          }
+        },
+      });
+    }
   };
 
   const handleImport = async () => {
@@ -95,61 +140,86 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
       setImporting(true);
       const startTime = Date.now();
 
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: async (allData) => {
-          const totalItems = allData.data.length;
-          setTotalRows(totalItems);
-          const BATCH_SIZE = 1000;
-          let accumulatedResults: ImportResults = {
-            imported: 0,
-            updated: 0,
-            ignored: 0,
-            errors: []
-          };
+      const processImportData = async (allData: { data: any[] }) => {
+        const totalItems = allData.data.length;
+        setTotalRows(totalItems);
+        const BATCH_SIZE = 1000;
+        let accumulatedResults: ImportResults = {
+          imported: 0,
+          updated: 0,
+          ignored: 0,
+          errors: []
+        };
 
-          for (let i = 0; i < totalItems; i += BATCH_SIZE) {
-            const chunk = allData.data.slice(i, i + BATCH_SIZE);
-            try {
-              const res = await fetch("/api/kits/import", {
-                method: "POST",
-                body: JSON.stringify({
-                  items: chunk,
-                  mappings,
-                  fileName: file.name
-                }),
+        for (let i = 0; i < totalItems; i += BATCH_SIZE) {
+          const chunk = allData.data.slice(i, i + BATCH_SIZE);
+          try {
+            const res = await fetch("/api/kits/import", {
+              method: "POST",
+              body: JSON.stringify({
+                items: chunk,
+                mappings,
+                fileName: file.name
+              }),
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              accumulatedResults.imported += (data.imported || 0);
+              accumulatedResults.updated += (data.updated || 0);
+              accumulatedResults.ignored += (data.ignored || 0);
+              accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
+            } else {
+              accumulatedResults.errors.push({
+                row: i + 1,
+                error: data.message || "Error en el lote",
+                cod_kit: `Batch ${Math.floor(i / BATCH_SIZE) + 1}`
               });
-
-              const data = await res.json();
-              if (res.ok) {
-                accumulatedResults.imported += (data.imported || 0);
-                accumulatedResults.updated += (data.updated || 0);
-                accumulatedResults.ignored += (data.ignored || 0);
-                accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
-              } else {
-                accumulatedResults.errors.push({
-                  row: i + 1,
-                  error: data.message || "Error en el lote",
-                  cod_kit: `Batch ${Math.floor(i / BATCH_SIZE) + 1}`
-                });
-              }
-            } catch (err: any) {
-              accumulatedResults.errors.push({ row: i + 1, error: err.message, cod_kit: "ERROR RED" });
             }
-            setProcessedCount(Math.min(i + BATCH_SIZE, totalItems));
+          } catch (err: any) {
+            accumulatedResults.errors.push({ row: i + 1, error: err.message, cod_kit: "ERROR RED" });
           }
-
-          const durationMs = Date.now() - startTime;
-          const minutes = Math.floor(durationMs / 60000);
-          const seconds = ((durationMs % 60000) / 1000).toFixed(1);
-          setImportDuration(minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`);
-          setResults(accumulatedResults);
-          setStep('results');
-          setImporting(false);
-          router.refresh();
+          setProcessedCount(Math.min(i + BATCH_SIZE, totalItems));
         }
-      });
+
+        const durationMs = Date.now() - startTime;
+        const minutes = Math.floor(durationMs / 60000);
+        const seconds = ((durationMs % 60000) / 1000).toFixed(1);
+        setImportDuration(minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`);
+        setResults(accumulatedResults);
+        setStep('results');
+        setImporting(false);
+        router.refresh();
+      };
+
+      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+
+      if (isExcel) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const data = e.target?.result;
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            await processImportData({ data: jsonData });
+          } catch (err) {
+            toast.error("Error al leer el archivo Excel");
+            setImporting(false);
+            setStep('upload');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (allData) => {
+            await processImportData(allData);
+          }
+        });
+      }
     } catch (error: any) {
       toast.error("Error crítico: " + error.message);
       setImporting(false);
@@ -280,11 +350,11 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex flex-col gap-6">
       <label className="group relative flex h-64 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 transition hover:border-indigo-400 hover:bg-indigo-50/50 dark:border-slate-800 dark:bg-slate-950">
-        <input type="file" className="hidden" accept=".csv" onChange={handleFileChange} />
+        <input type="file" className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileChange} />
         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-100 transition group-hover:scale-110 dark:bg-slate-900 dark:ring-slate-800">
           <HiCloudUpload className="h-8 w-8 text-indigo-500" />
         </div>
-        <span className="text-base font-black text-slate-900 dark:text-white">Cargar CSV de Kits</span>
+        <span className="text-base font-black text-slate-900 dark:text-white">Cargar CSV o Excel de Kits</span>
         <span className="mt-1 text-xs font-medium text-slate-400">Sube tu archivo para importar combos masivamente</span>
       </label>
 

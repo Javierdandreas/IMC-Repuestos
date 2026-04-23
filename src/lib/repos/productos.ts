@@ -305,6 +305,116 @@ export async function getProductosListado(
   return await paginateQuery<ProductoListado>("productos", sql, page, limit, params);
 }
 
+export async function getProductosParaExportar(filters: {
+  search?: string;
+  searchSpecific?: string;
+  categoria?: string;
+  subcategoria?: string;
+  marca?: string;
+  proveedor?: string;
+} = {}): Promise<any[]> {
+  const params: any[] = [];
+  let whereClauses = ["1=1"];
+
+  if (filters.search) {
+    params.push(`%${filters.search}%`);
+    whereClauses.push(`(
+      p.descripcion ILIKE $${params.length} OR 
+      p.cod_unico::text ILIKE $${params.length} OR 
+      pi.codigo_pieza::text ILIKE $${params.length} OR 
+      p.palabra_clave::text ILIKE $${params.length} OR
+      p.cod_barra::text ILIKE $${params.length} OR
+      cr.codigo::text ILIKE $${params.length}
+    )`);
+  }
+
+  if (filters.searchSpecific) {
+    params.push(filters.searchSpecific);
+    whereClauses.push(`(
+      p.cod_unico::text = $${params.length} OR 
+      pi.codigo_pieza::text = $${params.length} OR
+      p.cod_barra::text = $${params.length} OR
+      cr.codigo::text = $${params.length}
+    )`);
+  }
+
+  if (filters.categoria) {
+    params.push(filters.categoria);
+    whereClauses.push(`c.id = $${params.length}`);
+  }
+
+  if (filters.subcategoria) {
+    params.push(filters.subcategoria);
+    whereClauses.push(`s.id = $${params.length}`);
+  }
+
+  if (filters.marca) {
+    params.push(filters.marca);
+    whereClauses.push(`m.id = $${params.length}`);
+  }
+
+  if (filters.proveedor) {
+    params.push(filters.proveedor);
+    whereClauses.push(`prv.id = $${params.length}`);
+  }
+
+  const sql = `
+    SELECT 
+      p.cod_unico AS "Código Único",
+      p.descripcion AS "Descripción",
+      p.cod_barra AS "Código de Barras",
+      p.stock AS "Stock",
+      m.descripcion AS "Marca",
+      c.descripcion AS "Categoría",
+      s.descripcion AS "Subcategoría",
+      u.descripcion AS "Ubicación",
+      p.palabra_clave AS "Palabras Clave",
+      
+      -- APARTADO PIEZA
+      pi.codigo_pieza AS "Nro Pieza",
+      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'ORIGINAL'), '') AS "Códigos Originales",
+      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'EQUIVALENTE'), '') AS "Códigos Equivalentes",
+      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'SUSTITUTO'), '') AS "Códigos Sustitutos",
+      
+      -- APARTADO PRECIOS (Formateado como string para compatibilidad total)
+      COALESCE(
+        STRING_AGG(DISTINCT tp.descripcion || ': $' || pp_p.precio || ' (' || COALESCE(pp_p.porcentaje_ganancia, 0) || '%)', ' | '), 
+        ''
+      ) AS "Precios y Márgenes",
+      
+      -- APARTADO PROVEEDORES
+      COALESCE(
+        STRING_AGG(DISTINCT prv.descripcion || ' [' || COALESCE(pp_prov.codigo_proveedor, 'S/C') || ']: $' || COALESCE(pp_prov.precio_lista_actual, 0), ' | '),
+        ''
+      ) AS "Proveedores y Precios Lista",
+      
+      -- APARTADO SERIES
+      CASE WHEN p.usa_numero_serie THEN 'SÍ' ELSE 'NO' END AS "Usa Serie",
+      COALESCE(STRING_AGG(DISTINCT ps.numero_serie, ', ') FILTER (WHERE ps.estado = 'DISPONIBLE'), '') AS "Números de Serie Disponibles"
+
+    FROM productos p
+    LEFT JOIN pieza pi ON pi.id = p.id_pieza
+    LEFT JOIN marcas m ON m.id = p.id_marca
+    LEFT JOIN subcategoria s ON s.id = p.id_subcategoria
+    LEFT JOIN categoria c ON c.id = s.id_categoria
+    LEFT JOIN ubicaciones u ON u.id = p.id_ubicacion
+    LEFT JOIN producto_proveedor pp_prov ON pp_prov.id_producto = p.id
+    LEFT JOIN proveedores prv ON prv.id = pp_prov.id_proveedor
+    LEFT JOIN producto_precio pp_p ON pp_p.id_producto = p.id
+    LEFT JOIN tipo_precio tp ON tp.id = pp_p.id_tipo_precio
+    LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = pi.id
+    LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
+    LEFT JOIN producto_serie ps ON ps.id_producto = p.id AND ps.estado = 'DISPONIBLE'
+    
+    WHERE ${whereClauses.join(" AND ")}
+    GROUP BY p.id, pi.id, m.id, c.id, s.id, u.id
+    ORDER BY p.id DESC
+  `;
+
+  const { rows } = await query(sql, params);
+  return rows;
+}
+
 export async function getProductoById(id: string | number): Promise<Producto | null> {
   const productQuery = `
     SELECT
@@ -697,6 +807,7 @@ export async function importProductos(
       updated: 0,
       ignored: 0,
       errors: [] as { row: number; error: string; cod_unico: string }[],
+      updatedDetails: [] as { cod_unico: string; changes: any }[],
     };
 
     // 2. Preparar los datos
@@ -777,9 +888,9 @@ export async function importProductos(
           id_ubicacion = CASE WHEN $15 THEN EXCLUDED.id_ubicacion ELSE productos.id_ubicacion END,
           id_pieza = CASE WHEN $16 THEN EXCLUDED.id_pieza ELSE productos.id_pieza END,
           palabra_clave = CASE WHEN $17 THEN EXCLUDED.palabra_clave ELSE productos.palabra_clave END
-        RETURNING id, cod_unico, (xmax = 0) AS is_new
+        RETURNING *
       )
-      SELECT id, cod_unico, is_new FROM upserted;
+      SELECT * FROM upserted;
     `;
 
     try {
@@ -796,9 +907,30 @@ export async function importProductos(
       ]);
 
       const skuToIdMap = new Map<string, number>(upsertRes.rows.map(r => [r.cod_unico, r.id]));
+      
+      // Mapeo de campos para el reporte de cambios
+      const mappedFields = Object.entries(mappings)
+        .filter(([_, config]) => !!config.csvHeader && config.updateExisting)
+        .map(([field, _]) => field);
+
       upsertRes.rows.forEach(r => {
-          if (r.is_new) results.imported++;
-          else results.updated++;
+          if (r.is_new) {
+              results.imported++;
+          } else {
+              results.updated++;
+              // Solo guardamos detalles de los actualizados
+              if (results.updatedDetails.length < 500) { // Límite para no saturar memoria
+                  const changes: Record<string, any> = {};
+                  mappedFields.forEach(f => {
+                      // Traducir nombres internos a legibles si es necesario, o usar los originales
+                      changes[f] = r[f];
+                  });
+                  results.updatedDetails.push({
+                      cod_unico: r.cod_unico,
+                      changes
+                  });
+              }
+          }
       });
 
       // 4. Bulk Upsert de Proveedores (si corresponde)
@@ -870,5 +1002,10 @@ export async function bulkUpdateBarcodes(updates: { id: number; cod_barra: strin
         [update.cod_barra, update.id]
       );
     }
+  });
+}
+export async function clearProviderProducts(id_proveedor: number): Promise<void> {
+  await withTransaction(async (client) => {
+    await client.query("DELETE FROM producto_proveedor WHERE id_proveedor = $1", [id_proveedor]);
   });
 }

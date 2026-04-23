@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Papa from "papaparse";
+import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import {
   HiCloudUpload,
@@ -71,26 +72,67 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   };
 
   const parseFileHeaders = (file: File) => {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (results.meta.fields) {
-          setCsvHeaders(results.meta.fields);
-          setTotalRows(results.data.length);
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+
+    if (isExcel) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = e.target?.result;
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+          const headers: string[] = [];
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const address = XLSX.utils.encode_col(C) + '1';
+            const cell = worksheet[address];
+            if (cell && cell.v !== undefined) {
+              headers.push(cell.v.toString());
+            }
+          }
+          
+          setCsvHeaders(headers);
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          setTotalRows(jsonData.length);
 
           // Auto-mapping
           const newMappings = { ...mappings };
-          results.meta.fields.forEach(header => {
+          headers.forEach(header => {
             const h = header.toLowerCase().trim();
             if (h.includes('codigo') || h.includes('sku') || h.includes('ref')) newMappings.codigo_proveedor.csvHeader = header;
             if (h.includes('precio') || h.includes('lista') || h.includes('costo')) newMappings.precio_lista.csvHeader = header;
           });
           setMappings(newMappings);
           setStep('mapping');
+        } catch (err) {
+          toast.error("Error al leer el archivo Excel");
         }
-      },
-    });
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (results.meta.fields) {
+            setCsvHeaders(results.meta.fields);
+            setTotalRows(results.data.length);
+
+            // Auto-mapping
+            const newMappings = { ...mappings };
+            results.meta.fields.forEach(header => {
+              const h = header.toLowerCase().trim();
+              if (h.includes('codigo') || h.includes('sku') || h.includes('ref')) newMappings.codigo_proveedor.csvHeader = header;
+              if (h.includes('precio') || h.includes('lista') || h.includes('costo')) newMappings.precio_lista.csvHeader = header;
+            });
+            setMappings(newMappings);
+            setStep('mapping');
+          }
+        },
+      });
+    }
   };
 
   const handleImport = async () => {
@@ -100,62 +142,83 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       setStep('importing');
       setImporting(true);
 
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: async (allData) => {
-          const rawItems = allData.data;
-
-          // Mapear los datos según la configuración
-          const mappedItems = rawItems.map((row: any) => {
-            const item: any = {};
-            SUPPLIER_FIELDS.forEach(f => {
-              const csvHeader = mappings[f.id].csvHeader;
-              if (csvHeader) {
-                let value = row[csvHeader];
-                if (f.id === 'precio_lista') {
-                  value = parseFloat(String(value).replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
-                }
-                item[f.id] = value;
+      const processImportData = async (allData: { data: any[] }) => {
+        // Mapear y limpiar datos en el frontend
+        const mappedItems = allData.data.map((row: any) => {
+          const item: any = {};
+          SUPPLIER_FIELDS.forEach(f => {
+            const csvHeader = mappings[f.id].csvHeader;
+            if (csvHeader) {
+              let value = row[csvHeader];
+              if (f.id === 'precio_lista') {
+                // Limpiar precio (quitar símbolos, convertir comas a puntos)
+                value = parseFloat(String(value).replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
               }
-            });
-            return item;
-          }).filter((i: any) => i.codigo_proveedor);
-
-          try {
-            const res = await fetch("/api/proveedores/importar", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                id_proveedor,
-                nombre_archivo: file.name,
-                items: mappedItems
-              }),
-            });
-
-            const data = await res.json();
-            if (res.ok) {
-              setResults({ total: mappedItems.length, errors: [] });
-              toast.success("Lista importada correctamente");
-
-              // Refrescar historial
-              mutate(`/api/proveedores/importaciones?id_proveedor=${id_proveedor}`);
-
-              if (onSuccess) onSuccess();
-            } else {
-              throw new Error(data.message || "Error al importar");
+              item[f.id] = value;
             }
-          } catch (err: any) {
-            toast.error(err.message);
-            setStep('mapping');
-          } finally {
-            setImporting(false);
+          });
+          return item;
+        }).filter((i: any) => i.codigo_proveedor);
+
+        try {
+          const res = await fetch("/api/proveedores/importar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id_proveedor,
+              nombre_archivo: file.name,
+              items: mappedItems
+            }),
+          });
+
+          const data = await res.json();
+          if (res.ok) {
+            setResults({ total: mappedItems.length, errors: [] });
+            toast.success("Lista importada correctamente al historial");
             setStep('results');
+            if (onSuccess) onSuccess();
+            mutate(`/api/proveedores/importaciones?id_proveedor=${id_proveedor}`);
+          } else {
+            throw new Error(data.message || "Error al importar");
           }
+        } catch (err: any) {
+          toast.error(err.message);
+          setStep('mapping');
+        } finally {
+          setImporting(false);
         }
-      });
+      };
+
+      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+
+      if (isExcel) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const data = e.target?.result;
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            await processImportData({ data: jsonData });
+          } catch (err) {
+            toast.error("Error al leer Excel");
+            setImporting(false);
+            setStep('upload');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (results) => {
+            await processImportData(results);
+          }
+        });
+      }
     } catch (error: any) {
-      toast.error("Error crítico: " + error.message);
+      toast.error("Error: " + error.message);
       setImporting(false);
     }
   };

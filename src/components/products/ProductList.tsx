@@ -7,7 +7,7 @@ import { PencilButton } from "@/components/ui/PencilButton";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { HiPhotograph, HiCloudUpload, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle } from "react-icons/hi";
+import { HiPhotograph, HiCloudUpload, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiDownload, HiAdjustments } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
@@ -15,6 +15,7 @@ import { ProductForm, PRODUCT_TABS, TabId } from "@/components/products/ProductF
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
 import { ImportProductModal } from "@/components/products/ImportProductModal";
+import { ExportModal } from "@/components/products/ExportModal";
 import { ProductoListado, Subcategoria } from "@/interfaces/productos";
 import { BulkLabelPrinter } from "@/components/products/BulkLabelPrinter";
 
@@ -53,6 +54,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [isZoomed, setIsZoomed] = useState(false);
   const [openImport, setOpenImport] = useState(false);
   const [openLabelPrinter, setOpenLabelPrinter] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [openExportModal, setOpenExportModal] = useState(false);
 
   // Hover state
   const [hoveredProductId, setHoveredProductId] = useState<number | null>(null);
@@ -185,7 +188,41 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo borrar el producto");
     } finally {
-      setIsDeleting(false);
+      setIsExporting(false);
+    }
+  };
+
+  const handleExport = async (format: 'csv' | 'excel', columns: string[]) => {
+    try {
+      setIsExporting(true);
+      const params = new URLSearchParams();
+      if (searchGeneral) params.set("search", searchGeneral);
+      if (searchSpecific) params.set("searchSpecific", searchSpecific);
+      if (categoria) params.set("categoria", categoria);
+      if (subcategoria) params.set("subcategoria", subcategoria);
+      if (marca) params.set("marca", marca);
+      if (proveedor) params.set("proveedor", proveedor);
+      params.set("format", format);
+      params.set("columns", columns.join(","));
+
+      const response = await fetch(`/api/productos/export?${params.toString()}`);
+      if (!response.ok) throw new Error("Error al exportar");
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `productos_export_${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'csv'}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success(`Catálogo exportado a ${format.toUpperCase()} correctamente`);
+      setOpenExportModal(false);
+    } catch (error) {
+      toast.error(`No se pudo exportar el catálogo a ${format.toUpperCase()}`);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -240,6 +277,14 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   >
                     <HiCloudUpload className="h-5 w-5" />
                     Importar CSV
+                  </button>
+
+                  <button
+                    onClick={() => setOpenExportModal(true)}
+                    className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-100 px-6 text-sm font-bold text-slate-900 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700 active:scale-95"
+                  >
+                    <HiDownload className="h-5 w-5" />
+                    Exportar
                   </button>
                   <button
                     onClick={() => setOpenNew(true)}
@@ -777,6 +822,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
           />
         )}
       </Modal>
+
+      <ExportModal 
+        isOpen={openExportModal}
+        onClose={() => setOpenExportModal(false)}
+        onExport={handleExport}
+        isExporting={isExporting}
+      />
 
       <ConfirmDeleteModal
         open={canManage && !!deletingProduct}
