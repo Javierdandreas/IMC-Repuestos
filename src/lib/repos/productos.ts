@@ -785,14 +785,14 @@ export async function importProductos(
     try {
       const upsertRes = await client.query(upsertQuery, [
           v_cod_unico, v_desc, v_barra, v_stock, v_id_marca, v_id_subcat, v_id_ubi, v_id_pieza, v_palabra_clave,
-          mappings.titulo?.updateExisting ?? true,
-          mappings.cod_barra?.updateExisting ?? true,
-          mappings.stock?.updateExisting ?? true,
-          mappings.marca?.updateExisting ?? true,
-          mappings.subcategoria?.updateExisting ?? true,
-          mappings.ubicacion?.updateExisting ?? true,
-          mappings.codigo_pieza?.updateExisting ?? true,
-          mappings.palabra_clave?.updateExisting ?? true
+          (!!mappings.titulo?.csvHeader && (mappings.titulo?.updateExisting ?? true)),
+          (!!mappings.cod_barra?.csvHeader && (mappings.cod_barra?.updateExisting ?? true)),
+          (!!mappings.stock?.csvHeader && (mappings.stock?.updateExisting ?? true)),
+          (!!mappings.marca?.csvHeader && (mappings.marca?.updateExisting ?? true)),
+          (!!mappings.subcategoria?.csvHeader && (mappings.subcategoria?.updateExisting ?? true)),
+          (!!mappings.ubicacion?.csvHeader && (mappings.ubicacion?.updateExisting ?? true)),
+          (!!mappings.codigo_pieza?.csvHeader && (mappings.codigo_pieza?.updateExisting ?? true)),
+          (!!mappings.palabra_clave?.csvHeader && (mappings.palabra_clave?.updateExisting ?? true))
       ]);
 
       const skuToIdMap = new Map<string, number>(upsertRes.rows.map(r => [r.cod_unico, r.id]));

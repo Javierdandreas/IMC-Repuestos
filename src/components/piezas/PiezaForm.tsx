@@ -10,6 +10,7 @@ import { splitCodes, codesToText } from "@/utils/text";
 import { PiezaBasicInfoSection } from "./sections/PiezaBasicInfoSection";
 import { PiezaDescriptionSection, PiezaImageSection } from "./sections/PiezaDetailsSection";
 import { PiezaCodesSection } from "./sections/PiezaCodesSection";
+import { QuickAddModal, QuickAddType } from "../products/QuickAddModal";
 
 type Props = {
   onSuccess?: () => void;
@@ -57,6 +58,10 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
   const [equivalentesTexto, setEquivalentesTexto] = useState(codesToText(initialPieza?.equivalentes));
   const [sustitutosTexto, setSustitutosTexto] = useState(codesToText(initialPieza?.sustitutos));
 
+  // Quick Add State
+  const [quickAddType, setQuickAddType] = useState<QuickAddType | null>(null);
+  const [quickAddParentId, setQuickAddParentId] = useState<number | undefined>();
+
   const { loading, submit, cancel } = useAppForm({
     url: piezaId ? `/api/piezas/${piezaId}` : "/api/piezas",
     method: piezaId ? "PUT" : "POST",
@@ -81,6 +86,12 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     }));
   };
 
+  const handleQuickAddSuccess = (id: number) => {
+    if (quickAddType === "categorias") setPieza(prev => ({ ...prev, id_categoria: id }));
+    if (quickAddType === "subcategorias") setPieza(prev => ({ ...prev, id_subcategoria: id }));
+    setQuickAddType(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await submit({
@@ -95,69 +106,82 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-8">
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 items-stretch">
-        {/* Columna Izquierda: Datos y Descripción */}
-        <div className="flex flex-col space-y-6">
-          <PiezaBasicInfoSection
-            codigo_pieza={pieza.codigo_pieza}
-            id_categoria={pieza.id_categoria}
-            id_subcategoria={pieza.id_subcategoria}
-            categorias={categorias}
-            subcategorias={subcategorias}
-            nextCode={nextCode}
-            onCategoriaChange={handleCategoriaChange}
-            onSubcategoriaChange={(val) => setPieza((p) => ({ ...p, id_subcategoria: val === "" ? null : Number(val) }))}
-          />
+    <div className="p-10 bg-white dark:bg-slate-950">
+      <form onSubmit={handleSubmit} className="space-y-10">
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 items-stretch">
+          {/* Columna Izquierda: Datos y Descripción */}
+          <div className="flex flex-col space-y-8">
+            <PiezaBasicInfoSection
+              codigo_pieza={pieza.codigo_pieza}
+              id_categoria={pieza.id_categoria}
+              id_subcategoria={pieza.id_subcategoria}
+              categorias={categorias}
+              subcategorias={subcategorias}
+              nextCode={nextCode}
+              onCategoriaChange={handleCategoriaChange}
+              onSubcategoriaChange={(val) => setPieza((p) => ({ ...p, id_subcategoria: val === "" ? null : Number(val) }))}
+              onQuickAdd={(type) => {
+                setQuickAddType(type);
+                setQuickAddParentId(type === "subcategorias" ? pieza.id_categoria || undefined : undefined);
+              }}
+            />
 
-          <PiezaDescriptionSection
-            descripcion={pieza.descripcion}
-            medida={pieza.medida}
-            onDescripcionChange={(val) => setPieza((p) => ({ ...p, descripcion: val }))}
-            onMedidaChange={(val) => setPieza((p) => ({ ...p, medida: val }))}
-            disabled={loading}
+            <PiezaDescriptionSection
+              descripcion={pieza.descripcion}
+              medida={pieza.medida}
+              onDescripcionChange={(val) => setPieza((p) => ({ ...p, descripcion: val }))}
+              onMedidaChange={(val) => setPieza((p) => ({ ...p, medida: val }))}
+              disabled={loading}
+            />
+          </div>
+
+          {/* Columna Derecha: Imagen */}
+          <div className="flex flex-col space-y-8">
+            <PiezaImageSection
+              imagen_medida_url={pieza.imagen_medida_url ?? null}
+              onImagenMedidaChange={(val) => setPieza((p) => ({ ...p, imagen_medida_url: val }))}
+              disabled={loading}
+            />
+          </div>
+        </div>
+
+        <div className="border-t border-slate-200 pt-8 dark:border-slate-800">
+          <PiezaCodesSection
+            originalesTexto={originalesTexto}
+            equivalentesTexto={equivalentesTexto}
+            sustitutosTexto={sustitutosTexto}
+            onOriginalesChange={setOriginalesTexto}
+            onEquivalentesChange={setEquivalentesTexto}
+            onSustitutosChange={setSustitutosTexto}
           />
         </div>
 
-        {/* Columna Derecha: Imagen */}
-        <div className="flex flex-col space-y-6">
-          <PiezaImageSection
-            imagen_medida_url={pieza.imagen_medida_url ?? null}
-            onImagenMedidaChange={(val) => setPieza((p) => ({ ...p, imagen_medida_url: val }))}
-            disabled={loading}
-          />
-        </div>
-      </div>
-
-      <div className="border-t border-slate-200 pt-6 dark:border-slate-800">
-        <PiezaCodesSection
-          originalesTexto={originalesTexto}
-          equivalentesTexto={equivalentesTexto}
-          sustitutosTexto={sustitutosTexto}
-          onOriginalesChange={setOriginalesTexto}
-          onEquivalentesChange={setEquivalentesTexto}
-          onSustitutosChange={setSustitutosTexto}
-        />
-      </div>
-
-      <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-6 dark:border-slate-800">
-        {onCancel && (
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-8 dark:border-slate-800">
+          {onCancel && (
+            <button
+              type="button"
+              onClick={cancel}
+              className="px-6 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancelar
+            </button>
+          )}
           <button
-            type="button"
-            onClick={cancel}
-            className="px-6 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            type="submit"
+            disabled={loading}
+            className="bg-slate-900 text-white px-8 py-2.5 rounded-xl font-bold transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-lg active:scale-95"
           >
-            Cancelar
+            {loading ? "Guardando..." : piezaId ? "Actualizar pieza" : "Guardar pieza"}
           </button>
-        )}
-        <button
-          type="submit"
-          disabled={loading}
-          className="bg-slate-900 text-white px-8 py-2.5 rounded-xl font-bold transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-lg active:scale-95"
-        >
-          {loading ? "Guardando..." : piezaId ? "Actualizar pieza" : "Guardar pieza"}
-        </button>
-      </div>
-    </form>
+        </div>
+      </form>
+
+      <QuickAddModal 
+        type={quickAddType} 
+        onClose={() => setQuickAddType(null)} 
+        onSuccess={handleQuickAddSuccess}
+        parentId={quickAddParentId}
+      />
+    </div>
   );
 }

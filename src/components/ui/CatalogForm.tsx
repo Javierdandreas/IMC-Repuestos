@@ -139,12 +139,12 @@ export function CatalogForm({
               </div>
               <div className="space-y-6">
                 <div className="space-y-3">
-                  <label className="block text-xs font-black uppercase tracking-[0.2em] text-white/70 px-1">Nombre del Proveedor</label>
+                  <label className="block text-sm font-black uppercase tracking-[0.2em] text-blue-400 px-1">Nombre del Proveedor</label>
                   <input
                     type="text"
                     value={descripcion}
                     onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
-                    className="w-full border rounded-2xl p-4 uppercase outline-none transition border-slate-700 bg-slate-900 text-white font-bold focus:border-white focus:ring-4 focus:ring-white/5"
+                    className="w-full border-2 rounded-2xl p-5 uppercase outline-none transition border-slate-800 bg-slate-950 text-xl font-black text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 shadow-inner"
                     placeholder={placeholder ?? `Ingresar ${entityName}`}
                     required
                   />
@@ -209,7 +209,7 @@ export function CatalogForm({
     <div className="flex flex-col gap-10">
       <form onSubmit={(e) => { e.preventDefault(); handleGlobalSave(); }} className="rounded-3xl border border-slate-200 bg-slate-50/30 p-6 dark:border-slate-800 dark:bg-slate-900/20">
         <div className="mb-6">
-          <label className="block mb-2 text-xs font-black uppercase tracking-widest text-slate-400">Nombre del {entityName}</label>
+          <label className="block mb-2 text-sm font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Nombre del {entityName}</label>
           <input
             type="text"
             value={descripcion}
@@ -220,25 +220,27 @@ export function CatalogForm({
           />
         </div>
 
-        <div className="flex items-center justify-end gap-3">
-          {onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800"
-            >
-              Cancelar
-            </button>
-          )}
+        {!isProveedor && (
+          <div className="flex items-center justify-end gap-3">
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+            )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-slate-900 text-white px-8 py-2.5 rounded-xl font-bold text-sm transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-lg"
-          >
-            {loading ? "Guardando..." : isEditing ? "Actualizar nombre" : "Guardar"}
-          </button>
-        </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-slate-900 text-white px-8 py-2.5 rounded-xl font-bold text-sm transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-lg"
+            >
+              {loading ? "Guardando..." : isEditing ? "Actualizar nombre" : "Guardar"}
+            </button>
+          </div>
+        )}
       </form>
     </div>
   );

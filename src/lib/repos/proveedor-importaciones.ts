@@ -65,12 +65,12 @@ export async function aplicarImportacionAlCatalogo(
       `
         UPDATE public.producto_proveedor pp
         SET 
-          precio_lista_actual = pii.precio_lista * (1 - (COALESCE(bd.descuento, $2::numeric) / 100.0)),
+          precio_lista_actual = pii.precio_lista * COALESCE(NULLIF(bd.descuento, 0), NULLIF($2::numeric, 0), 1),
           fecha_ultima_actualizacion = NOW(),
           ultima_importacion_id = pii.id_importacion
         FROM public.proveedor_importacion_item pii
         INNER JOIN public.proveedor_importacion pi ON pi.id = pii.id_importacion
-        INNER JOIN public.productos p ON TRUE -- No podemos referenciar 'pp' en un ON clause de la lista FROM
+        INNER JOIN public.productos p ON TRUE 
         LEFT JOIN (
           SELECT id_marca, descuento FROM UNNEST($3::int[], $4::numeric[]) AS t(id_marca, descuento)
         ) bd ON bd.id_marca = p.id_marca

@@ -200,10 +200,10 @@ export function CatalogList({
           entityName.toLowerCase() === "proveedor" && (
             <button
               onClick={() => setTriggerSave(v => v + 1)}
-              className="h-10 px-6 flex items-center gap-2.5 rounded-xl bg-white text-black border border-slate-200 font-black uppercase tracking-widest text-[10px] transition hover:bg-slate-50 shadow-sm active:scale-95 dark:bg-white dark:text-black dark:border-transparent"
+              className="h-10 px-6 flex items-center gap-2.5 rounded-xl bg-blue-600 text-white font-black uppercase tracking-widest text-[10px] transition hover:bg-blue-700 shadow-lg shadow-blue-500/20 active:scale-95"
             >
               <HiSave className="h-4 w-4" />
-              Guardar Cambios
+              GUARDAR
             </button>
           )
         }

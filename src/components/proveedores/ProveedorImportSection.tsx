@@ -198,7 +198,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {SUPPLIER_FIELDS.map((field) => (
               <div key={field.id} className="flex flex-col gap-2.5">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white px-1">
+                <label className="text-sm font-black uppercase tracking-[0.2em] text-white px-1">
                   {field.label} <span className="text-red-500 font-bold">*</span>
                 </label>
                 <select
