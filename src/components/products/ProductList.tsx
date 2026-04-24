@@ -408,7 +408,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
           </section>
 
           {/* Tabla de Resultados */}
-          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900/30">
+          <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900/30">
             <table className="w-full border-collapse text-left">
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>

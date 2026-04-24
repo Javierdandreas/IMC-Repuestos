@@ -22,7 +22,7 @@ function AppShellInternal({ children }: Props) {
     <div className="flex min-h-screen bg-white dark:bg-slate-950">
       <Sidebar />
       <main 
-        className={`flex-1 w-full transition-all duration-300 ease-in-out ${
+        className={`flex-1 transition-all duration-300 ease-in-out ${
           isCollapsed ? "md:ml-20" : "md:ml-64"
         }`}
       >

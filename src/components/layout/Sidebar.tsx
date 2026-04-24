@@ -246,6 +246,16 @@ export const Sidebar = () => {
                 </AnimatePresence>
              </div>
           </Link>
+          
+          {/* Collapse Toggle Button (Desktop) */}
+          <button 
+            onClick={toggleSidebar}
+            className="hidden md:flex absolute -right-3 top-10 z-50 h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+            title={isCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+          >
+            {isCollapsed ? <HiChevronRight className="h-4 w-4" /> : <HiChevronLeft className="h-4 w-4" />}
+          </button>
+
           <button onClick={() => setIsMobileOpen(false)} className="absolute right-2 rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 md:hidden">
             <HiX className="h-6 w-6" />
           </button>
