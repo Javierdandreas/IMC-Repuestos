@@ -1,0 +1,8 @@
+Move-Item "src/components/piezas/PiezaForm.tsx" "src/modules/piezas/components/PiezaForm.tsx"
+Move-Item "src/components/piezas/PiezaList.tsx" "src/modules/piezas/components/PiezaList.tsx"
+Move-Item "src/components/piezas/sections/PiezaBasicInfoSection.tsx" "src/modules/piezas/components/sections/PiezaBasicInfoSection.tsx"
+Move-Item "src/components/piezas/sections/PiezaCodesSection.tsx" "src/modules/piezas/components/sections/PiezaCodesSection.tsx"
+Move-Item "src/components/piezas/sections/PiezaDetailsSection.tsx" "src/modules/piezas/components/sections/PiezaDetailsSection.tsx"
+Move-Item "src/lib/repos/piezas.ts" "src/modules/piezas/repos/piezas.ts"
+Move-Item "src/lib/validators/piezas.ts" "src/modules/piezas/validators/piezas.ts"
+Move-Item "src/interfaces/piezas.ts" "src/modules/piezas/types/piezas.ts"
