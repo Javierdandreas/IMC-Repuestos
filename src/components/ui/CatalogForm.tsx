@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { HiSave } from "react-icons/hi";
 
-import { ProveedorImportSection } from "@/components/proveedores/ProveedorImportSection";
+import { ProveedorImportSection } from "@/modules/importaciones/components/ProveedorImportSection";
 import { ProveedorImportHistory } from "@/modules/proveedores/components/ProveedorImportHistory";
 import { ProveedorDiscountSettings } from "@/modules/proveedores/components/ProveedorDiscountSettings";
 

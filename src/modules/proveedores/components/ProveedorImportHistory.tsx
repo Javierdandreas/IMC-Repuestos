@@ -3,7 +3,7 @@
 import useSWR, { useSWRConfig } from "swr";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { ProveedorImportacion } from "@/interfaces/importaciones";
+import { ProveedorImportacion } from "@/modules/importaciones/types/importaciones";
 import { HiOutlineDocumentText, HiClock, HiCheckCircle, HiXCircle, HiInformationCircle, HiLightningBolt, HiExclamation, HiTrash } from "react-icons/hi";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
