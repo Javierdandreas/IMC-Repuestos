@@ -1,20 +1,8 @@
-export type CategoriaOption = {
-  id: number;
-  descripcion: string;
-};
+import type { CategoriaOption, CategoriaTreeNode } from "@/modules/categorias/types/categorias";
+import type { SubcategoriaOption } from "@/modules/subcategorias/types/subcategorias";
 
-export type SubcategoriaOption = {
-  id: number;
-  descripcion: string;
-  id_categoria: number;
-  categoria_descripcion: string;
-};
+export type { CategoriaOption, CategoriaTreeNode, SubcategoriaOption };
 
-export type CategoriaTreeNode = {
-  id: number;
-  descripcion: string;
-  subcategorias: { id: number; descripcion: string }[];
-};
 
 export type Pieza = {
   id?: number;

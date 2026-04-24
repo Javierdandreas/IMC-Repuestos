@@ -1,42 +1,22 @@
-import { z } from "zod";
-import { 
-  idSchema, 
-  nonEmptyStringSchema, 
-  validateWithSchema 
-} from "./common";
+export * from "@/modules/categorias/validators/categorias";
+export * from "@/modules/subcategorias/validators/subcategorias";
+export * from "@/modules/marcas/validators/marcas";
+export * from "@/modules/ubicaciones/validators/ubicaciones";
 
-/**
- * Esquema para descripciones de catálogos simples (marcas, proveedores, categorías)
- */
+// El esquema genérico catalogSchema ahora está distribuido en los validadores de cada módulo
+// pero si algún componente genérico lo usa, podemos re-exportar uno por defecto o mantenerlo aquí.
+
+import { z } from "zod";
+import { nonEmptyStringSchema, validateWithSchema, idSchema } from "./common";
+
 export const catalogSchema = z.object({
   descripcion: nonEmptyStringSchema,
 });
 
-/**
- * Esquema para subcategorías
- */
-export const subcategoriaSchema = z.object({
-  descripcion: nonEmptyStringSchema,
-  id_categoria: idSchema,
-});
-
-/**
- * Validador para descripciones de catálogos
- */
 export function parseCatalogDescripcion(body: any) {
   return validateWithSchema(catalogSchema, body);
 }
 
-/**
- * Validador para subcategorías
- */
-export function parseSubcategoriaPayload(body: any) {
-  return validateWithSchema(subcategoriaSchema, body);
-}
-
-/**
- * Validador para parámetros de ID en la URL
- */
 export function parseIdParam(rawId: string) {
   const result = idSchema.safeParse(Number(rawId));
   if (!result.success) {

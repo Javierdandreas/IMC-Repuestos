@@ -1,4 +1,9 @@
-import { getCategorias, getMarcas, getProveedores, getSubcategorias, getUbicaciones } from "@/lib/repos/catalogos";
+import { getCategorias } from "@/modules/categorias/repos/categorias";
+import { getSubcategorias } from "@/modules/subcategorias/repos/subcategorias";
+import { getMarcas } from "@/modules/marcas/repos/marcas";
+import { getUbicaciones } from "@/modules/ubicaciones/repos/ubicaciones";
+import { getProveedores } from "@/modules/proveedores/repos/proveedores";
+
 import { getPiezasBusqueda } from "@/lib/repos/piezas";
 
 export type ProductMeta = {
