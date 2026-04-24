@@ -1,0 +1,38 @@
+export interface OperacionListado {
+  id: number | string;
+  tipo: "COMPRA" | "VENTA" | "AJUSTE";
+  entidad_nombre: string | null;
+  numero_comprobante: string | null;
+  total: number;
+  usuario_id: number;
+  creador: string;
+  cantidad_items: number;
+  total_unidades: number;
+  created_at: string;
+  observacion: string | null;
+}
+
+export interface OperacionDetalleListado {
+  id: number | string;
+  id_producto: number;
+  cantidad: number;
+  precio_unitario: number;
+  producto_descripcion: string;
+  producto_codigo: string;
+  imagen_url: string | null;
+  usa_numero_serie: boolean;
+}
+
+export interface OperacionSerieMovimiento {
+  id_operacion: number | string;
+  id_producto_serie: number | string;
+  numero_serie: string;
+  id_producto: number;
+  tipo: string;
+  created_at: string;
+}
+
+export interface OperacionCompleta extends OperacionListado {
+  detalles: OperacionDetalleListado[];
+  movimientos: OperacionSerieMovimiento[];
+}
