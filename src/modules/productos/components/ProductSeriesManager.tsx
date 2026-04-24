@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Search, Barcode, CheckCircle2, History, Trash2, PackageSearch } from "lucide-react";
 import { toast } from "sonner";
-import { ProductoSerie } from "@/interfaces/series";
+import { ProductoSerie } from "@/modules/series/types/series";
 
 interface ProductSeriesManagerProps {
   productId: number;

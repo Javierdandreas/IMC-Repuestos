@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { ProductoListado } from "@/modules/productos/types/productos";
-import { ProductoSerie } from "@/interfaces/series";
+import { ProductoSerie } from "@/modules/series/types/series";
 import Barcode from "react-barcode";
 import { toast } from "sonner";
 import { HiPrinter, HiRefresh, HiExclamation, HiCheckCircle } from "react-icons/hi";
