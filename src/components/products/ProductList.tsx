@@ -6,7 +6,7 @@ import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { PencilButton } from "@/components/ui/PencilButton";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { TrashButton } from "@/components/ui/TrashButton";
-import { usePermissions } from "@/components/auth/usePermissions";
+import { usePermissions } from "@/modules/auth/components/usePermissions";
 import { HiPhotograph, HiCloudUpload, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiDownload, HiAdjustments } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";

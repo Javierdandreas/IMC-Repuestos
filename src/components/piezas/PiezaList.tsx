@@ -11,7 +11,7 @@ import { TrashButton } from "@/components/ui/TrashButton";
 import { CategoriaOption, Pieza, PiezaListado, SubcategoriaOption } from "@/interfaces/piezas";
 import { toast } from "sonner";
 import { Pagination } from "@/components/ui/Pagination";
-import { usePermissions } from "@/components/auth/usePermissions";
+import { usePermissions } from "@/modules/auth/components/usePermissions";
 import { HiPhotograph } from "react-icons/hi";
 import Image from "next/image";
 

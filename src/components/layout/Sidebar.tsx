@@ -17,7 +17,7 @@ import {
   HiChevronRight
 } from "react-icons/hi";
 import { ThemeToggle } from "./ThemeToggle";
-import LogoutButton from "../auth/LogoutButton";
+import LogoutButton from "@/modules/auth/components/LogoutButton";
 import { useSidebar } from "@/context/SidebarContext";
 import { useTheme } from "@/context/ThemeContext";
 import { createClient } from "@/utils/supabase/client";

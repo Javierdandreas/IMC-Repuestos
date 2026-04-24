@@ -1,8 +1,8 @@
 "use client";
 
 import { createContext, useContext, ReactNode } from "react";
-import { AuthenticatedInternalUser } from "@/lib/auth";
-import { canManageContent } from "@/lib/permissions";
+import { AuthenticatedInternalUser } from "@/modules/auth/types/auth.types";
+import { canManageContent } from "@/modules/auth/repos/permissions";
 
 type UserContextType = {
   user: AuthenticatedInternalUser | null;

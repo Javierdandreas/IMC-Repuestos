@@ -8,7 +8,7 @@ import { CatalogForm } from "@/components/ui/CatalogForm";
 import { PencilButton } from "@/components/ui/PencilButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { Pagination } from "@/components/ui/Pagination";
-import { usePermissions } from "@/components/auth/usePermissions";
+import { usePermissions } from "@/modules/auth/components/usePermissions";
 import { toast } from "sonner";
 import { HiSave } from "react-icons/hi";
 

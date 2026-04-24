@@ -10,7 +10,7 @@ import { SubcategoriaForm } from "@/components/subcategorias/SubcategoriaForm";
 import { PencilButton } from "@/components/ui/PencilButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { PlusButton } from "@/components/ui/PlusButton";
-import { usePermissions } from "@/components/auth/usePermissions";
+import { usePermissions } from "@/modules/auth/components/usePermissions";
 
 type Subcategoria = {
   id: number;

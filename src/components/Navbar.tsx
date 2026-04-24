@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import LogoutButton from "@/components/auth/LogoutButton";
+import LogoutButton from "@/modules/auth/components/LogoutButton";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { HiChevronDown } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
