@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { HiSave } from "react-icons/hi";
 
 import { ProveedorImportSection } from "@/components/proveedores/ProveedorImportSection";
-import { ProveedorImportHistory } from "@/components/proveedores/ProveedorImportHistory";
-import { ProveedorDiscountSettings } from "@/components/proveedores/ProveedorDiscountSettings";
+import { ProveedorImportHistory } from "@/modules/proveedores/components/ProveedorImportHistory";
+import { ProveedorDiscountSettings } from "@/modules/proveedores/components/ProveedorDiscountSettings";
 
 type Props = {
   /** Ruta base de la API (ej: "/api/marcas", "/api/categorias") */

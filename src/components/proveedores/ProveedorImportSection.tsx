@@ -14,7 +14,7 @@ import {
 } from "react-icons/hi";
 
 import { mutate } from "swr";
-import { ProveedorImportHistory } from "./ProveedorImportHistory";
+import { ProveedorImportHistory } from "@/modules/proveedores/components/ProveedorImportHistory";
 
 interface ImportError {
   row: number;
