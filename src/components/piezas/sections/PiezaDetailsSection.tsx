@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { ImageUpload } from "@/components/products/ImageUpload";
+import { ImageUpload } from "@/modules/productos/components/ImageUpload";
 
 type PiezaDescriptionSectionProps = {
   descripcion: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PrecioDetalle } from "@/interfaces/productos";
+import { PrecioDetalle } from "@/modules/productos/types/productos";
 import { Package2, Percent, DollarSign, TrendingUp, ShoppingBag, Users, Wrench } from "lucide-react";
 
 interface PricingSectionProps {

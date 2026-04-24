@@ -2,7 +2,7 @@ import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
 import { revalidateTag } from "next/cache";
 import type { DbClient } from "@/lib/db-utils";
 import type { Pieza, PiezaListado } from "@/interfaces/piezas";
-import type { PiezaBusqueda } from "@/interfaces/productos";
+import type { PiezaBusqueda } from "@/modules/productos/types/productos";
 import { sanitizeUppercaseString as sanitizeText, sanitizeCodes } from "@/utils/sanitization";
 import { deleteFileFromStorage } from "@/lib/storage-cleanup";
 export type ConflictRow = {

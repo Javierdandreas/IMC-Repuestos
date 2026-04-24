@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { CatalogoItem, PiezaBusqueda, Subcategoria } from "@/interfaces/productos";
+import { CatalogoItem, PiezaBusqueda, Subcategoria } from "@/modules/productos/types/productos";
 import { HiOutlineLockClosed, HiPlus } from "react-icons/hi";
 import { QuickAddType } from "../QuickAddModal";
 

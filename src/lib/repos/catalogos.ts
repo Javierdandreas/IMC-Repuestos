@@ -1,6 +1,6 @@
 import { query, withTransaction } from "@/lib/db-utils";
 import { revalidateTag } from "next/cache";
-import type { CatalogoItem, Subcategoria } from "@/interfaces/productos";
+import type { CatalogoItem, Subcategoria } from "@/modules/productos/types/productos";
 import type { CategoriaOption, CategoriaTreeNode, SubcategoriaOption } from "@/interfaces/piezas";
 import { sanitizeRequiredString as cleanDescripcion } from "@/utils/sanitization";
 
