@@ -3,7 +3,7 @@ import {
   idSchema, 
   uppercaseNonEmptyStringSchema, 
   validateWithSchema 
-} from "@/lib/validators/common";
+} from "@/shared/lib/validators/common";
 
 /**
  * Esquema de validación para Piezas

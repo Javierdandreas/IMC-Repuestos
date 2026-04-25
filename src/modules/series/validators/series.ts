@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { validateWithSchema, uppercaseNonEmptyStringSchema } from "@/lib/validators/common";
+import { validateWithSchema, uppercaseNonEmptyStringSchema } from "@/shared/lib/validators/common";
 
 /**
  * Esquema para la creación de un lote de series.

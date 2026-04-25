@@ -1,10 +1,9 @@
-import { getCategorias } from "@/modules/categorias/repos/categorias";
-import { getSubcategorias } from "@/modules/subcategorias/repos/subcategorias";
-import { getMarcas } from "@/modules/marcas/repos/marcas";
-import { getUbicaciones } from "@/modules/ubicaciones/repos/ubicaciones";
-import { getProveedores } from "@/modules/proveedores/repos/proveedores";
-
-import { getPiezasBusqueda } from "@/lib/repos/piezas";
+import { getCategorias } from "@/modules/categorias";
+import { getSubcategorias } from "@/modules/subcategorias";
+import { getMarcas } from "@/modules/marcas";
+import { getUbicaciones } from "@/modules/ubicaciones";
+import { getProveedores } from "@/modules/proveedores";
+import { getPiezasBusqueda } from "@/modules/piezas";
 
 export type ProductMeta = {
   marcas: { id: number; descripcion: string }[];

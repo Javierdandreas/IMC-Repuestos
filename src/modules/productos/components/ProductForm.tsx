@@ -4,8 +4,8 @@ import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAppForm } from "@/hooks/useAppForm";
 import { toast } from "sonner";
-import {
-  CatalogoItem,
+import { CatalogoItem } from "@/modules/core";
+import type {
   PiezaBusqueda,
   Producto,
   ProveedorProducto,

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CatalogoItem, ProveedorProducto } from "@/modules/productos/types/productos";
+import { CatalogoItem } from "@/modules/core";
+import type { ProveedorProducto } from "@/modules/productos/types/productos";
 import { HiOutlineSearch, HiRefresh, HiCheck, HiClock, HiTrash } from "react-icons/hi";
 import { toast } from "sonner";
 import { format } from "date-fns";

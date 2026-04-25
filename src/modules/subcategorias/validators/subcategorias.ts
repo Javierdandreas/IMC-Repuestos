@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idSchema, nonEmptyStringSchema, validateWithSchema } from "@/lib/validators/common";
+import { idSchema, nonEmptyStringSchema, validateWithSchema } from "@/shared/lib/validators/common";
 
 export const subcategoriaSchema = z.object({
   descripcion: nonEmptyStringSchema,

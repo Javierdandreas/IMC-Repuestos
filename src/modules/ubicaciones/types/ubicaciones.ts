@@ -1,3 +1,3 @@
-import type { CatalogoItem } from "@/modules/productos/types/productos";
+import type { CatalogoItem } from "@/modules/core";
 
 export type Ubicacion = CatalogoItem;

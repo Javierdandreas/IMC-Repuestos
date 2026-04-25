@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { PiezaBusqueda } from "@/modules/productos/types/productos";
+import type { PiezaBusqueda } from "@/modules/productos/types/productos";
 import { normalizeText } from "@/utils/text";
 
 type PieceSectionProps = {

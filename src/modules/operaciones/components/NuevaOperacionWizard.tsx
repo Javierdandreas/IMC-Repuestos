@@ -3,7 +3,7 @@ import { useSWRConfig } from "swr";
 import { toast } from "sonner";
 import { HiX, HiCheck, HiOutlineQrcode, HiOutlineShoppingCart, HiOutlineUser, HiPlus, HiOutlineCube, HiSearch, HiArrowUp, HiArrowDown, HiOutlineTag } from "react-icons/hi";
 import { HiOutlineDocumentText } from "react-icons/hi2";
-import { ProductoListado } from "@/modules/productos/types/productos";
+import type { ProductoListado } from "@/modules/productos/types/productos";
 import useSWR from "swr";
 import Image from "next/image";
 import { createClient } from "@/utils/supabase/client";

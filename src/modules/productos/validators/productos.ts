@@ -5,7 +5,7 @@ import {
   uppercaseNonEmptyStringSchema, 
   optionalUppercaseStringSchema, 
   validateWithSchema 
-} from "@/lib/validators/common";
+} from "@/shared/lib/validators/common";
 
 /**
  * Esquema de validación para Proveedores de Producto

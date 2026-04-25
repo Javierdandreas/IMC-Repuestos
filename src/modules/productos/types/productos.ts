@@ -1,7 +1,5 @@
-export type CatalogoItem = {
-  id: number;
-  descripcion: string;
-};
+import { CatalogoItem } from "@/modules/core";
+
 
 export type Subcategoria = {
   id: number;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { nonEmptyStringSchema, validateWithSchema } from "@/lib/validators/common";
+import { nonEmptyStringSchema, validateWithSchema } from "@/shared/lib/validators/common";
 
 export const ubicacionSchema = z.object({
   descripcion: nonEmptyStringSchema,

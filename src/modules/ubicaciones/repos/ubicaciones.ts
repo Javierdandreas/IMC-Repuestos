@@ -1,6 +1,6 @@
 import { query, withTransaction } from "@/lib/db-utils";
 import { revalidateTag } from "next/cache";
-import type { CatalogoItem } from "@/modules/productos/types/productos";
+import type { CatalogoItem } from "@/modules/core";
 import { sanitizeRequiredString as cleanDescripcion } from "@/utils/sanitization";
 
 function getOrderByClause(): string {

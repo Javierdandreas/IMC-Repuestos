@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
 import { ImportProductModal } from "./ImportProductModal";
 import { ExportModal } from "./ExportModal";
-import { ProductoListado, Subcategoria } from "@/modules/productos/types/productos";
+import type { ProductoListado, Subcategoria } from "@/modules/productos/types/productos";
 import { BulkLabelPrinter } from "./BulkLabelPrinter";
 
 interface Props {
