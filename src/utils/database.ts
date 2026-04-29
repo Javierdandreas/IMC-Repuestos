@@ -22,7 +22,9 @@ function getPoolConfig() {
     connectionString,
     // Forzamos SSL con rejectUnauthorized: false para evitar problemas de certificados auto-firmados
     ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
-    max: Number(process.env.DB_POOL_MAX ?? 10),
+    // En Vercel/Serverless, cada funcion es una instancia. Un pool de 10 es excesivo.
+    // Con 1 es suficiente para evitar el error EMAXCONNSESSION en Supabase.
+    max: isProd ? 1 : Number(process.env.DB_POOL_MAX ?? 10),
     idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30000),
     connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 10000),
   };
