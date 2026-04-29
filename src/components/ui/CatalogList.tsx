@@ -9,6 +9,7 @@ import { PencilButton } from "@/components/ui/PencilButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/modules/auth/components/usePermissions";
+import type { AppPermission } from "@/modules/auth/repos/permissions";
 import { toast } from "sonner";
 import { HiSave } from "react-icons/hi";
 
@@ -46,7 +47,8 @@ export function CatalogList({
 }: Props) {
   const router = useRouter();
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const { canManage } = usePermissions();
+  const { hasAnyPermission } = usePermissions();
+  const canManage = hasAnyPermission(resolveCatalogManagementPermissions(apiPath));
   const [openNew, setOpenNew] = useState(false);
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
   const [triggerSave, setTriggerSave] = useState(0);
@@ -93,7 +95,7 @@ export function CatalogList({
 
   return (
     <>
-      <div className="mx-auto w-full max-w-7xl py-8 px-4 md:px-8">
+      <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{title}</h1>
@@ -245,4 +247,33 @@ export function CatalogList({
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function resolveCatalogManagementPermissions(apiPath: string): AppPermission[] {
+  if (apiPath.includes("/proveedores")) {
+    return [
+      "proveedores.crear",
+      "proveedores.editar",
+      "proveedores.eliminar",
+      "proveedores.importar",
+    ];
+  }
+
+  if (apiPath.includes("/marcas")) {
+    return ["marcas.crear", "marcas.editar", "marcas.eliminar"];
+  }
+
+  if (apiPath.includes("/ubicaciones")) {
+    return ["ubicaciones.crear", "ubicaciones.editar", "ubicaciones.eliminar"];
+  }
+
+  if (apiPath.includes("/categorias")) {
+    return ["categorias.crear", "categorias.editar", "categorias.eliminar"];
+  }
+
+  if (apiPath.includes("/subcategorias")) {
+    return ["subcategorias.crear", "subcategorias.editar", "subcategorias.eliminar"];
+  }
+
+  return [];
 }

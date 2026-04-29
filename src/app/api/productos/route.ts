@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createProducto, getProductosListado } from "@/lib/repos/productos";
-import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
-import { validateProductoPayload } from "@/lib/validators/productos";
+import { createProducto, getProductosListado } from "@/modules/productos/repos/productos";
+import { requireApiPermission } from "@/modules/auth/repos/api-auth";
+import { validateProductoPayload } from "@/modules/productos/validators/productos";
 import { jsonError } from "@/lib/api-errors";
 
 export async function GET(request: NextRequest) {
-  await requireApiSession(request);
   try {
+    await requireApiPermission(request, "productos.ver");
     const { searchParams } = new URL(request.url);
     const page = Number(searchParams.get("page")) || 1;
     const limit = Number(searchParams.get("limit")) || 50;
@@ -19,8 +19,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  await requireApiWriteSession(request);
   try {
+    await requireApiPermission(request, "productos.crear");
     const body = await request.json();
     const payload = validateProductoPayload(body);
     const newProduct = await createProducto(payload);

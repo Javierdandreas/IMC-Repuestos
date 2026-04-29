@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { pool } from "@/utils/database";
@@ -25,6 +25,27 @@ function createRequestSupabaseClient(request: NextRequest) {
       },
       setAll() {
         // El middleware ya se encarga de refrescar las cookies de sesión.
+      },
+    },
+  });
+}
+
+export function createRouteHandlerSupabaseClient(
+  request: NextRequest,
+  response: NextResponse
+) {
+  const supabaseUrl = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const supabaseKey = getRequiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+  return createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          response.cookies.set(name, value, options);
+        });
       },
     },
   });

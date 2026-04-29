@@ -25,7 +25,9 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
   "include": [
@@ -36,6 +38,9 @@
   ],
   "exclude": [
     "node_modules",
-    "_archived_code"
+    "_archived_code",
+    "imc-cerebro",
+    "imc-cerebro/**",
+    "imc-cerebro/control-presupuestos/**"
   ]
 }

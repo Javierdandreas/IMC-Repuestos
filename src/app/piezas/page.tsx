@@ -20,14 +20,12 @@ export default async function PiezasPage({ searchParams }: Props) {
   ]);
 
   return (
-    <div className="bg-white min-h-screen dark:bg-slate-950">
-      <PiezaList
-        piezas={piezas}
-        categorias={categorias}
-        subcategorias={subcategorias}
-        nextCode={nextCode}
-        totalPages={totalPages}
-      />
-    </div>
+    <PiezaList
+      piezas={piezas}
+      categorias={categorias}
+      subcategorias={subcategorias}
+      nextCode={nextCode}
+      totalPages={totalPages}
+    />
   );
 }

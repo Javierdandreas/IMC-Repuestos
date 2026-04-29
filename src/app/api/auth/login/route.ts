@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { findInternalUserByAuthUserId } from "@/lib/auth";
-import { canReadContent } from "@/lib/permissions";
+import { createRouteHandlerSupabaseClient } from "@/modules/auth/repos/auth";
+import { AuthService } from "@/modules/auth/services/auth-service";
 import { rateLimit, getRequestIp } from "@/lib/rate-limit";
 import { jsonError } from "@/lib/api-errors";
 
-const LOGIN_RATE_LIMIT = 5;          // máx. intentos
+const LOGIN_RATE_LIMIT = 5;          // mÃ¡x. intentos
 const LOGIN_RATE_WINDOW_MS = 300_000; // por 5 minutos
 
 export async function POST(request: NextRequest) {
@@ -26,83 +25,17 @@ export async function POST(request: NextRequest) {
       }
     );
   }
-  const response = NextResponse.json({ ok: true });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
-        },
-      },
-    }
-  );
+  const response = NextResponse.json({ ok: true });
+  const supabase = createRouteHandlerSupabaseClient(request, response);
 
   try {
     const { email, password } = await request.json();
+    
+    await AuthService.login(email, password, supabase);
 
-    const normalizedEmail = String(email ?? "").trim().toLowerCase();
-    const normalizedPassword = String(password ?? "");
-
-    if (!normalizedEmail || !normalizedPassword) {
-      return NextResponse.json(
-        { message: "Email y contraseña son obligatorios" },
-        { status: 400 }
-      );
-    }
-
-    console.log(`🔐 Intentando login para: ${normalizedEmail}`);
-
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password: normalizedPassword,
-    });
-
-    if (signInError) {
-      console.warn(`🛑 Fallo de credenciales Supabase para: ${normalizedEmail}`);
-      return NextResponse.json(
-        { message: "Email o contraseña incorrectos" },
-        { status: 401 }
-      );
-    }
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      console.error("❌ Error recuperando usuario de Supabase:", userError);
-      await supabase.auth.signOut();
-      return NextResponse.json(
-        { message: "No se pudo validar la sesión" },
-        { status: 401 }
-      );
-    }
-
-    console.log(`✅ Supabase Auth exitoso para user id: ${user.id}. Buscando usuario en DB interna...`);
-    const internalUser = await findInternalUserByAuthUserId(user.id);
-
-    if (!internalUser || !internalUser.activo || !canReadContent(internalUser.rol)) {
-      console.warn(`⚠️ Usuario ${user.id} sin permisos o inactivo en IMC.`);
-      await supabase.auth.signOut();
-      return NextResponse.json(
-        { message: "Usuario autenticado pero sin acceso habilitado en IMC" },
-        { status: 403 }
-      );
-    }
-
-    console.log(`🎉 Login exitoso para: ${normalizedEmail} (ID: ${internalUser.usuarioId})`);
     return response;
   } catch (error: unknown) {
-    await supabase.auth.signOut();
     return jsonError(error, "No se pudo iniciar sesión por un error interno.");
   }
 }

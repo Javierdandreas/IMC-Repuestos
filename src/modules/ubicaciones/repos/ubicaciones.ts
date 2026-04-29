@@ -5,8 +5,8 @@ import { sanitizeRequiredString as cleanDescripcion } from "@/utils/sanitization
 
 function getOrderByClause(): string {
   // Orden natural para ubicaciones (Ej: B1-1-2 antes que B1-1-10)
-  const extractNum = (expr: string) => `(CASE WHEN ${expr} ~ '^[0-9]+$' THEN ${expr}::INT ELSE NULL END)`;
-  
+  const extractNum = (expr: string) => `(CASE WHEN ${expr} ~ '^[0-9]+$' THEN ${expr}::BIGINT ELSE NULL END)`;
+
   return `
     (regexp_match(descripcion, '^[A-Z]+'))[1] ASC NULLS FIRST,
     ${extractNum("(regexp_match(descripcion, '[0-9]+'))[1]")} ASC NULLS FIRST,
@@ -40,7 +40,7 @@ export async function createUbicacion(descripcion: unknown): Promise<CatalogoIte
       `INSERT INTO ubicaciones (descripcion) VALUES ($1) RETURNING *`,
       [clean]
     );
-    
+
     revalidateTag("meta");
     return rows[0] as CatalogoItem;
   });

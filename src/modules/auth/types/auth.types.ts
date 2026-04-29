@@ -1,3 +1,13 @@
+export type CanonicalRole =
+  | "admin"
+  | "supervisor"
+  | "catalogo"
+  | "vendedor"
+  | "deposito"
+  | "empleado";
+
+export type CanonicalRoleOrEmpty = CanonicalRole | "";
+
 export type AuthenticatedInternalUser = {
   authUserId: string;
   usuarioId: number;
@@ -5,7 +15,7 @@ export type AuthenticatedInternalUser = {
   nombre: string | null;
   apellido: string | null;
   nombreUsuario: string | null;
-  rol: "admin" | "empleado" | "";
+  rol: CanonicalRoleOrEmpty;
   activo: boolean;
 };
 

@@ -1,12 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { normalizeRole } from "@/lib/permissions";
+import type { CanonicalRoleOrEmpty } from "@/modules/auth/types/auth.types";
 
 type MiddlewareSessionResult = {
   response: NextResponse;
   authUserId: string | null;
   usuarioId: number | null;
-  rol: "admin" | "empleado" | "";
+  rol: CanonicalRoleOrEmpty;
   activo: boolean;
 };
 

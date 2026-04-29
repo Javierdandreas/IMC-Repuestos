@@ -19,6 +19,7 @@ export function UserProvider({
   children: ReactNode;
   initialUser: AuthenticatedInternalUser | null;
 }) {
+  // Compatibilidad temporal: `canManage` sigue representando gestión de catálogo/base.
   const canManage = initialUser ? canManageContent(initialUser.rol) : false;
 
   return (

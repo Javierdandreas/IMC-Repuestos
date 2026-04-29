@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { AppError } from "@/lib/api-errors";
 import { verifyInternalUserFromRequest } from "./auth";
-import { canManageContent, canReadContent, normalizeRole } from "./permissions";
+import { canManageContent, canReadContent, normalizeRole, tienePermiso, type AppPermission } from "./permissions";
+import type { CanonicalRole } from "../types/auth.types";
 
 export async function requireApiReadSession(request: NextRequest) {
   const session = await verifyInternalUserFromRequest(request);
@@ -25,7 +26,20 @@ export async function requireApiWriteSession(request: NextRequest) {
   const session = await requireApiReadSession(request);
 
   if (!canManageContent(session.rol)) {
-    throw new AppError("No autorizado para modificar información", 403);
+    throw new AppError("No autorizado para modificar informaciÃ³n", 403);
+  }
+
+  return session;
+}
+
+export async function requireApiPermission(
+  request: NextRequest,
+  permission: AppPermission
+) {
+  const session = await requireApiReadSession(request);
+
+  if (!tienePermiso(session.rol, permission)) {
+    throw new AppError(`No tenÃ©s permiso para esta acciÃ³n (${permission})`, 403);
   }
 
   return session;
@@ -33,17 +47,17 @@ export async function requireApiWriteSession(request: NextRequest) {
 
 export async function requireApiRole(
   request: NextRequest,
-  allowedRoles: Array<"admin" | "empleado">
+  allowedRoles: CanonicalRole[]
 ) {
   const session = await requireApiReadSession(request);
   const normalizedRole = normalizeRole(session.rol);
 
-  if (!allowedRoles.includes(normalizedRole as "admin" | "empleado")) {
-    throw new AppError("No autorizado para esta acción", 403);
+  if (!normalizedRole || !allowedRoles.includes(normalizedRole)) {
+    throw new AppError("No autorizado para esta acciÃ³n", 403);
   }
 
   return session;
 }
 
-// Compatibilidad hacia atrás con rutas que ya lo usan para lectura.
+// Compatibilidad hacia atrÃ¡s con rutas que ya lo usan para lectura.
 export const requireApiSession = requireApiReadSession;

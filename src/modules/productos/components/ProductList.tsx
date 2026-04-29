@@ -31,7 +31,13 @@ const TOOLTIP_MARGIN = 16;
 
 export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
   const { categorias, subcategorias, marcas, proveedores } = useMetadata();
-  const { canManage } = usePermissions();
+  const { hasAnyPermission } = usePermissions();
+  const canManageProducts = hasAnyPermission([
+    "productos.crear",
+    "productos.editar",
+    "productos.eliminar",
+    "productos.exportar",
+  ]);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -252,25 +258,24 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
   return (
     <>
-      <div className="flex min-h-screen flex-col bg-slate-50 dark:bg-slate-950 p-4 transition-colors duration-200 md:p-4 md:pt-2">
-        <div className="w-full max-w-[1500px] space-y-3">
-          {/* Encabezado y Filtros */}
-          <section className="flex flex-col gap-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900/40 dark:backdrop-blur-sm">
-            <div className="flex flex-col items-center justify-between gap-4 md:flex-row pb-4 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-lg">
-                  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                  </svg>
-                </div>
-                <div>
-                  <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Productos</h1>
-                  <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Gestión de catálogo optimizada</p>
-                </div>
-              </div>
+      <div className="space-y-6">
+        {/* Encabezado y Filtros */}
+        <section className="flex flex-col gap-6 rounded-[2rem] border border-slate-200/60 bg-white p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:border-slate-800/60 dark:bg-slate-900/40 dark:backdrop-blur-md">
+        <div className="flex flex-col items-center justify-between gap-4 md:flex-row pb-6 border-b border-slate-100/60 dark:border-slate-800/60">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-lg">
+              <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Productos</h1>
+              <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Gestión de catálogo optimizada</p>
+            </div>
+          </div>
 
-              {canManage && (
-                <div className="flex items-center gap-2">
+          {canManageProducts && (
+            <div className="flex items-center gap-2">
                   <button
                     onClick={() => setOpenImport(true)}
                     className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-100 px-6 text-sm font-bold text-slate-900 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700 active:scale-95"
@@ -407,8 +412,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             </div>
           </section>
 
-          {/* Tabla de Resultados */}
-          <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900/30">
+        {/* Tabla de Resultados */}
+        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900/30">
             <table className="w-full border-collapse text-left">
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>
@@ -527,7 +532,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     <td className="px-2 py-3 text-[11px] text-slate-700 dark:text-slate-300 font-bold text-center">{product.stock}</td>
                     <td className="whitespace-nowrap px-4 py-4">
                       <div className="flex items-center justify-center gap-2">
-                        {canManage ? (
+                        {canManageProducts ? (
                           <>
                             <PencilButton
                               label={`Editar producto ${product.descripcion}`}
@@ -695,7 +700,6 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 </div>
               </div>
             )}
-          </div>
         </div>
       </div>
 
@@ -774,9 +778,6 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
           </motion.div>
         )}
       </AnimatePresence>
-
-
-
       <Modal
         open={openNew}
         onClose={() => setOpenNew(false)}
@@ -831,7 +832,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       />
 
       <ConfirmDeleteModal
-        open={canManage && !!deletingProduct}
+        open={canManageProducts && !!deletingProduct}
         title="Borrar producto"
         description={
           deletingProduct
@@ -891,3 +892,4 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     </>
   );
 }
+

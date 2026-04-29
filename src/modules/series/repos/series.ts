@@ -63,7 +63,7 @@ export async function createSeries(id_producto: number, numeros_serie: string[],
   return await withTransaction(async (client) => {
     // 1. Verificamos que el producto exista y use_numero_serie
     const { rows: prodRows } = await client.query(
-      "SELECT id, usa_numero_serie, id_ubicacion, stock FROM productos WHERE id = $1 FOR UPDATE", 
+      "SELECT id, usa_numero_serie, id_ubicacion, stock FROM productos WHERE id = $1 FOR UPDATE",
       [id_producto]
     );
 
@@ -74,14 +74,14 @@ export async function createSeries(id_producto: number, numeros_serie: string[],
       throw new AppError("El producto no admite asignación de números de serie", 400);
     }
 
-    const { id_ubicacion: prodUbicacion, stock: prodStock } = prodRows[0];
+    const { ion: prodUbicacion, stock: prodStock } = prodRows[0];
 
     // 2. Se limpian y validan duplicados
     const numerosUnicosInput = Array.from(new Set(numeros_serie.map(s => s.trim().toUpperCase()).filter(Boolean)));
     if (numerosUnicosInput.length === 0) {
       throw new AppError("No hay números de serie válidos para registrar", 400);
     }
-    
+
     // Validar Límite de Stock
     const { rows: currentSeriesCountRows } = await client.query(
       "SELECT COUNT(*) as total FROM producto_serie WHERE id_producto = $1 AND estado = 'DISPONIBLE'",
@@ -89,14 +89,14 @@ export async function createSeries(id_producto: number, numeros_serie: string[],
     );
     const existingSeries = parseInt(currentSeriesCountRows[0].total, 10);
     const availableSlots = (prodStock || 0) - existingSeries;
-    
+
     if (numerosUnicosInput.length > availableSlots) {
       throw new AppError(`El número de series ingresadas supera el stock disponible sin asignar (${availableSlots} lugares restantes). Total de la base: ${prodStock}.`, 400);
     }
     if (numerosUnicosInput.length !== numeros_serie.length) {
       throw new AppError("Hay series duplicadas en los datos ingresados", 400);
     }
-    
+
     await validarNumerosDeSerieDisponibles(numerosUnicosInput);
 
     const nuevasSeries: ProductoSerie[] = [];
@@ -111,7 +111,7 @@ export async function createSeries(id_producto: number, numeros_serie: string[],
         `,
         [id_producto, ns, prodUbicacion]
       );
-      
+
       const nuevaSerie = resSerie.rows[0] as ProductoSerie;
 
       // 4. Insertar movimiento inicial
@@ -180,12 +180,12 @@ export async function updateSeriesState(
           ($1, $2, $3, $4, $5, $6, $7)
         `,
         [
-          s.id, 
-          tipo_movimiento, 
+          s.id,
+          tipo_movimiento,
           s.id_ubicacion, // origen
           id_ubicacion_destino || s.id_ubicacion, // destino
-          referencia || null, 
-          observacion || null, 
+          referencia || null,
+          observacion || null,
           id_usuario
         ]
       );
@@ -221,7 +221,7 @@ export async function generateAutoSeriesForProduct(id_producto: number, id_usuar
   }
 
   const generatedSerials = new Set<string>();
-  
+
   // Generamos seriales en memoria
   while (generatedSerials.size < availableSlots) {
     const randomSuffix = Math.floor(Math.random() * 100000000).toString().padStart(8, '0');

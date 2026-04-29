@@ -22,7 +22,7 @@ const ENTITY_NAMES: Record<CatalogTable, string> = { marcas: 'marca', proveedore
 
 function getOrderByClause(table: CatalogTable): string {
   if (table === 'ubicaciones') {
-    const extractNum = (expr: string) => `(CASE WHEN ${expr} ~ '^[0-9]+$' THEN ${expr}::INT ELSE NULL END)`;
+    const extractNum = (expr: string) => `(CASE WHEN ${expr} ~ '^[0-9]+$' THEN ${expr}::BIGINT ELSE NULL END)`;
     return `
       (regexp_match(descripcion, '^[A-Z]+'))[1] ASC NULLS FIRST,
       ${extractNum("(regexp_match(descripcion, '[0-9]+'))[1]")} ASC NULLS FIRST,

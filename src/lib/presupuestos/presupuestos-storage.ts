@@ -1,0 +1,6 @@
+/**
+ * ARCHIVO PUENTE (BRIDGE)
+ * Re-exporta desde el nuevo módulo src/modules/presupuestos para mantener compatibilidad
+ */
+
+export * from "@/modules/presupuestos";

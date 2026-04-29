@@ -1,5 +1,10 @@
 import { pool } from "@/utils/database";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
+import { types } from "pg";
+
+// Forzar que los bigints (oid 20) se devuelvan como números en JS
+// Esto es seguro mientras los IDs no superen Number.MAX_SAFE_INTEGER
+types.setTypeParser(20, (val) => parseInt(val, 10));
 
 export type DbClient = Pick<PoolClient, "query">;
 

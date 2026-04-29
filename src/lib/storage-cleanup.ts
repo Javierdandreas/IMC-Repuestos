@@ -1,10 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-// Cliente administrativo o con permisos suficientes para borrar
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabaseAdmin } from "@/utils/supabase/admin";
 
 /**
  * Elimina un archivo del Storage de Supabase a partir de su URL pública.
@@ -13,6 +7,10 @@ const supabase = createClient(supabaseUrl, supabaseKey);
  */
 export async function deleteFileFromStorage(url: string | null | undefined, bucket: string) {
   if (!url) return;
+  if (!supabaseAdmin) {
+    console.warn("[StorageCleanup] Cliente admin de Supabase no disponible.");
+    return;
+  }
 
   try {
     // 1. Extraer el path del archivo desde la URL
@@ -28,7 +26,7 @@ export async function deleteFileFromStorage(url: string | null | undefined, buck
     const filePath = parts[1];
 
     // 2. Ejecutar la eliminación
-    const { error } = await supabase.storage.from(bucket).remove([filePath]);
+    const { error } = await supabaseAdmin.storage.from(bucket).remove([filePath]);
 
     if (error) {
       console.error(`[StorageCleanup] Error al borrar archivo "${filePath}" del bucket "${bucket}":`, error.message);

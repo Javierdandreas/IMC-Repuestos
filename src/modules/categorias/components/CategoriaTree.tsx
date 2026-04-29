@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -13,11 +13,9 @@ import { PlusButton } from "@/components/ui/PlusButton";
 import { usePermissions } from "@/modules/auth/components/usePermissions";
 import type { CategoriaTreeNode as Categoria } from "@/modules/categorias/types/categorias";
 
-
 type Props = {
   categorias: Categoria[];
 };
-
 
 type DeleteTarget =
   | { type: "categoria"; id: number; descripcion: string }
@@ -26,7 +24,15 @@ type DeleteTarget =
 
 export function CategoriaTree({ categorias }: Props) {
   const router = useRouter();
-  const { canManage } = usePermissions();
+  const { hasAnyPermission } = usePermissions();
+  const canManageCategorias = hasAnyPermission([
+    "categorias.crear",
+    "categorias.editar",
+    "categorias.eliminar",
+    "subcategorias.crear",
+    "subcategorias.editar",
+    "subcategorias.eliminar",
+  ]);
   const [openCategoria, setOpenCategoria] = useState(false);
   const [openSubcategoria, setOpenSubcategoria] = useState(false);
   const [selectedCategoriaId, setSelectedCategoriaId] = useState<string>("");
@@ -80,11 +86,11 @@ export function CategoriaTree({ categorias }: Props) {
 
   return (
     <>
-      <div className="mx-auto w-full max-w-7xl py-8 px-4 md:px-8">
+      <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Categorías</h1>
 
-          {canManage ? (
+          {canManageCategorias ? (
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -117,35 +123,39 @@ export function CategoriaTree({ categorias }: Props) {
             ) : (
               <div className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
                 {categorias.map((categoria) => (
-                   <div key={categoria.id} className="flex flex-col group/cat">
+                  <div key={categoria.id} className="flex flex-col group/cat">
                     <div className="grid grid-cols-[1fr_260px] bg-slate-50/30 items-center border-b border-slate-100 transition hover:bg-slate-100/50 dark:bg-slate-800/30 dark:border-slate-800 dark:hover:bg-slate-800/50">
                       <div className="px-5 py-4 font-black tracking-tight text-slate-900 dark:text-white uppercase text-sm">
                         {categoria.descripcion}
                       </div>
 
                       <div className="px-5 py-4 flex items-center justify-end gap-2.5">
-                        {canManage ? (<>
-                          <PlusButton
-                            label={`Nueva subcategoría para ${categoria.descripcion}`}
-                            onClick={() => openNewSubcategoria(categoria.id)}
-                          />
+                        {canManageCategorias ? (
+                          <>
+                            <PlusButton
+                              label={`Nueva subcategoría para ${categoria.descripcion}`}
+                              onClick={() => openNewSubcategoria(categoria.id)}
+                            />
 
-                          <PencilButton
-                            label={`Editar categoría ${categoria.descripcion}`}
-                            onClick={() => setEditingCategoria(categoria)}
-                          />
-                          <TrashButton
-                          label={`Borrar categoría ${categoria.descripcion}`}
-                          onClick={() =>
-                            setDeleteTarget({
-                              type: "categoria",
-                              id: categoria.id,
-                              descripcion: categoria.descripcion,
-                            })
-                          }
-                          disabled={isDeleting && deleteTarget?.type === "categoria" && deleteTarget.id === categoria.id}
-                        />
-                        </>) : <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>}
+                            <PencilButton
+                              label={`Editar categoría ${categoria.descripcion}`}
+                              onClick={() => setEditingCategoria(categoria)}
+                            />
+                            <TrashButton
+                              label={`Borrar categoría ${categoria.descripcion}`}
+                              onClick={() =>
+                                setDeleteTarget({
+                                  type: "categoria",
+                                  id: categoria.id,
+                                  descripcion: categoria.descripcion,
+                                })
+                              }
+                              disabled={isDeleting && deleteTarget?.type === "categoria" && deleteTarget.id === categoria.id}
+                            />
+                          </>
+                        ) : (
+                          <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>
+                        )}
                       </div>
                     </div>
 
@@ -162,29 +172,33 @@ export function CategoriaTree({ categorias }: Props) {
                             </div>
 
                             <div className="px-5 py-3.5 flex items-center justify-end gap-2.5">
-                              {canManage ? (<>
-                                <PencilButton
-                                  label={`Editar subcategoría ${subcategoria.descripcion}`}
-                                  onClick={() =>
-                                    setEditingSubcategoria({
-                                      id: subcategoria.id,
-                                      descripcion: subcategoria.descripcion,
-                                      id_categoria: String(categoria.id),
-                                    })
-                                  }
-                                />
-                                <TrashButton
-                                label={`Borrar subcategoría ${subcategoria.descripcion}`}
-                                onClick={() =>
-                                  setDeleteTarget({
-                                    type: "subcategoria",
-                                    id: subcategoria.id,
-                                    descripcion: subcategoria.descripcion,
-                                  })
-                                }
-                                disabled={isDeleting && deleteTarget?.type === "subcategoria" && deleteTarget.id === subcategoria.id}
-                              />
-                              </>) : <span className="text-xs text-slate-400">SOLO LECTURA</span>}
+                              {canManageCategorias ? (
+                                <>
+                                  <PencilButton
+                                    label={`Editar subcategoría ${subcategoria.descripcion}`}
+                                    onClick={() =>
+                                      setEditingSubcategoria({
+                                        id: subcategoria.id,
+                                        descripcion: subcategoria.descripcion,
+                                        id_categoria: String(categoria.id),
+                                      })
+                                    }
+                                  />
+                                  <TrashButton
+                                    label={`Borrar subcategoría ${subcategoria.descripcion}`}
+                                    onClick={() =>
+                                      setDeleteTarget({
+                                        type: "subcategoria",
+                                        id: subcategoria.id,
+                                        descripcion: subcategoria.descripcion,
+                                      })
+                                    }
+                                    disabled={isDeleting && deleteTarget?.type === "subcategoria" && deleteTarget.id === subcategoria.id}
+                                  />
+                                </>
+                              ) : (
+                                <span className="text-xs text-slate-400">SOLO LECTURA</span>
+                              )}
                             </div>
                           </div>
                         ))
@@ -207,7 +221,7 @@ export function CategoriaTree({ categorias }: Props) {
 
       <Modal
         title="Nueva categoría"
-        open={canManage && openCategoria}
+        open={canManageCategorias && openCategoria}
         onClose={() => setOpenCategoria(false)}
         width="w-[min(96vw,700px)]"
       >
@@ -225,7 +239,7 @@ export function CategoriaTree({ categorias }: Props) {
 
       <Modal
         title="Editar categoría"
-        open={canManage && !!editingCategoria}
+        open={canManageCategorias && !!editingCategoria}
         onClose={() => setEditingCategoria(null)}
         width="w-[min(96vw,700px)]"
       >
@@ -245,7 +259,7 @@ export function CategoriaTree({ categorias }: Props) {
 
       <Modal
         title="Nueva subcategoría"
-        open={canManage && openSubcategoria}
+        open={canManageCategorias && openSubcategoria}
         onClose={() => setOpenSubcategoria(false)}
         width="w-[min(96vw,700px)]"
       >
@@ -262,7 +276,7 @@ export function CategoriaTree({ categorias }: Props) {
 
       <Modal
         title="Editar subcategoría"
-        open={canManage && !!editingSubcategoria}
+        open={canManageCategorias && !!editingSubcategoria}
         onClose={() => setEditingSubcategoria(null)}
         width="w-[min(96vw,700px)]"
       >
@@ -280,7 +294,7 @@ export function CategoriaTree({ categorias }: Props) {
       </Modal>
 
       <ConfirmDeleteModal
-        open={canManage && !!deleteTarget}
+        open={canManageCategorias && !!deleteTarget}
         title={deleteTarget?.type === "categoria" ? "Borrar categoría" : "Borrar subcategoría"}
         description={
           deleteTarget
