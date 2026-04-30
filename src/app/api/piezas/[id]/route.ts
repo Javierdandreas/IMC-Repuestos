@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deletePieza, getPiezaById, updatePieza } from "@/lib/repos/piezas";
-import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
-import { validatePiezaPayload } from "@/lib/validators/piezas";
+import { deletePieza, getPiezaById, updatePieza } from "@/modules/piezas/repos/piezas";
+import { requireApiSession, requireApiWriteSession } from "@/modules/auth/repos/api-auth";
+import { validatePiezaPayload } from "@/modules/piezas/validators/piezas";
 import { parseIdParam } from "@/lib/validators/catalogos";
 import { jsonError } from "@/lib/api-errors";
 

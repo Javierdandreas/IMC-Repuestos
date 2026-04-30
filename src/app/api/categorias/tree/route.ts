@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCategoriasTree } from "@/lib/repos/catalogos";
-import { requireApiSession } from "@/lib/api-auth";
+import { requireApiSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
 
 export async function GET(request: NextRequest) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiWriteSession, requireApiSession } from "@/lib/api-auth";
+import { requireApiWriteSession, requireApiSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
-import { getProveedorDiscounts, updateProveedorDiscounts } from "@/lib/repos/proveedor-importaciones";
+import { getProveedorDiscounts, updateProveedorDiscounts } from "@/modules/importaciones/repos/proveedor-importaciones";
 
 type Params = Promise<{ id: string }>;
 

@@ -1,6 +1,6 @@
 import { ProductForm } from "@/components/products/ProductForm";
-import { getProductMeta } from "@/lib/productos-meta";
-import { getProductoById } from "@/lib/repos/productos";
+import { getProductMeta } from "@/modules/productos/repos/productos-meta";
+import { getProductoById } from "@/modules/productos/repos/productos";
 import { MetadataProvider } from "@/context/MetadataContext";
 
 interface Props {

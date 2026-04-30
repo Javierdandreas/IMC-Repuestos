@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
-import { getSeriesPorProducto, createSeries } from "@/lib/repos/series";
-import { validateCreateSeriesPayload } from "@/lib/validators/series";
+import { requireApiSession, requireApiWriteSession } from "@/modules/auth/repos/api-auth";
+import { getSeriesPorProducto, createSeries } from "@/modules/series/repos/series";
+import { validateCreateSeriesPayload } from "@/modules/series/validators/series";
 import { jsonError } from "@/lib/api-errors";
 
 export async function GET(

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/utils/supabase/middleware";
-import { canManageContent, canReadContent } from "@/lib/permissions";
+import { canManageContent, canReadContent } from "@/modules/auth/repos/permissions";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout", "/api/auth/me"];
 

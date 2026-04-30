@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clearProviderProducts } from "@/lib/repos/productos";
-import { getServerInternalUser } from "@/lib/auth";
-import { canManageContent } from "@/lib/permissions";
+import { clearProviderProducts } from "@/modules/productos/repos/productos";
+import { getServerInternalUser } from "@/modules/auth";
+import { canManageContent } from "@/modules/auth/repos/permissions";
 
 export async function POST(req: NextRequest) {
   try {

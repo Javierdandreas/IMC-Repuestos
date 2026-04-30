@@ -1,6 +1,6 @@
 import { PiezaList } from "@/components/piezas/PiezaList";
 import { getCategoriasOptions, getSubcategoriasConCategoria } from "@/lib/repos/catalogos";
-import { getPiezasListado, getNextCodigoPieza } from "@/lib/repos/piezas";
+import { getPiezasListado, getNextCodigoPieza } from "@/modules/piezas/repos/piezas";
 
 export const dynamic = "force-dynamic";
 

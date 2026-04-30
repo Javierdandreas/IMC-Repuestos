@@ -1,7 +1,7 @@
-import { getKitsListado } from "@/lib/repos/kits";
+import { getKitsListado } from "@/modules/kits/repos/kits";
 import { KitList } from "@/components/kits/KitList";
-import { getServerInternalUser } from "@/lib/auth";
-import { canManageContent } from "@/lib/permissions";
+import { getServerInternalUser } from "@/modules/auth";
+import { canManageContent } from "@/modules/auth/repos/permissions";
 
 export const dynamic = "force-dynamic";
 

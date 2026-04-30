@@ -1,4 +1,4 @@
-import { getKitById } from "@/lib/repos/kits";
+import { getKitById } from "@/modules/kits/repos/kits";
 import { KitForm } from "@/components/kits/KitForm";
 import { notFound } from "next/navigation";
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/utils/supabase/admin';
-import { getServerInternalUser } from '@/lib/auth';
+import { getServerInternalUser } from '@/modules/auth';
 import { tienePermiso } from '@/modules/auth/repos/permissions';
 
 export const dynamic = 'force-dynamic';

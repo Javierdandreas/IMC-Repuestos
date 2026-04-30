@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteProducto, getProductoById, updateProducto } from "@/lib/repos/productos";
-import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
-import { validateProductoPayload } from "@/lib/validators/productos";
+import { deleteProducto, getProductoById, updateProducto } from "@/modules/productos/repos/productos";
+import { requireApiSession, requireApiWriteSession } from "@/modules/auth/repos/api-auth";
+import { validateProductoPayload } from "@/modules/productos/validators/productos";
 import { parseIdParam } from "@/lib/validators/catalogos";
 import { jsonError } from "@/lib/api-errors";
 

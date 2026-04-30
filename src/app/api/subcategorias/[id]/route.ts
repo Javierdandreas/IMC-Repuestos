@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteSubcategoria, updateSubcategoria } from "@/lib/repos/catalogos";
-import { requireApiWriteSession } from "@/lib/api-auth";
+import { requireApiWriteSession } from "@/modules/auth/repos/api-auth";
 import { parseSubcategoriaPayload, parseIdParam } from "@/lib/validators/catalogos";
 import { jsonError } from "@/lib/api-errors";
 

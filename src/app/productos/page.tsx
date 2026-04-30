@@ -1,5 +1,5 @@
 import { ProductList } from "@/components/products/ProductList";
-import { getProductosListado } from "@/lib/repos/productos";
+import { getProductosListado } from "@/modules/productos/repos/productos";
 
 export const dynamic = "force-dynamic";
 

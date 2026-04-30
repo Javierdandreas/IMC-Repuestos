@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateCatalogo, deleteCatalogo } from "@/lib/repos/catalogos";
-import { requireApiWriteSession } from "@/lib/api-auth";
+import { requireApiWriteSession } from "@/modules/auth/repos/api-auth";
 import { jsonError, AppError } from "@/lib/api-errors";
 
 const ALLOWED_TABLES = ["marcas", "proveedores", "ubicaciones"];

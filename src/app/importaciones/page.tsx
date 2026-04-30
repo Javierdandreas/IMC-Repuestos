@@ -1,4 +1,4 @@
-import { getImportacionesLogs } from "@/lib/repos/productos";
+import { getImportacionesLogs } from "@/modules/productos/repos/productos";
 import { ImportHistoryTable } from "@/components/products/ImportHistoryTable";
 import { HiCollection } from "react-icons/hi";
 

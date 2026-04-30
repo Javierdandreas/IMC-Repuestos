@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiWriteSession } from "@/lib/api-auth";
+import { requireApiWriteSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
-import { aplicarImportacionAlCatalogo } from "@/lib/repos/proveedor-importaciones";
+import { aplicarImportacionAlCatalogo } from "@/modules/importaciones/repos/proveedor-importaciones";
 
 type Params = Promise<{ id: string }>;
 

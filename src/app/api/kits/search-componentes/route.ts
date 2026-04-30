@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchComponentesForKit } from "@/lib/repos/kits";
-import { requireApiSession } from "@/lib/api-auth";
+import { searchComponentesForKit } from "@/modules/kits/repos/kits";
+import { requireApiSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
 
 export async function GET(request: NextRequest) {

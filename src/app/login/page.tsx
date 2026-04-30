@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import LoginForm from "@/components/auth/LoginForm";
-import { canAccessApp, getServerInternalUser } from "@/lib/auth";
+import { canAccessApp, getServerInternalUser } from "@/modules/auth";
 
 export default async function LoginPage() {
   const session = await getServerInternalUser();

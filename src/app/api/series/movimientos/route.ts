@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiWriteSession } from "@/lib/api-auth";
-import { updateSeriesState } from "@/lib/repos/series";
-import { validateUpdateSeriesStatePayload } from "@/lib/validators/series";
+import { requireApiWriteSession } from "@/modules/auth/repos/api-auth";
+import { updateSeriesState } from "@/modules/series/repos/series";
+import { validateUpdateSeriesStatePayload } from "@/modules/series/validators/series";
 import { jsonError } from "@/lib/api-errors";
 
 export async function POST(request: NextRequest) {

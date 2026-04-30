@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getKitById, updateKit, deleteKit } from "@/lib/repos/kits";
-import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
+import { getKitById, updateKit, deleteKit } from "@/modules/kits/repos/kits";
+import { requireApiSession, requireApiWriteSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
 
 export async function GET(

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiReadSession } from "@/lib/api-auth";
+import { requireApiReadSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
-import { getImportacionesByProveedor } from "@/lib/repos/proveedor-importaciones";
+import { getImportacionesByProveedor } from "@/modules/importaciones/repos/proveedor-importaciones";
 
 export async function GET(request: NextRequest) {
   try {

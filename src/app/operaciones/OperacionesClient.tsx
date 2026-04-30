@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import useSWR from "swr";
-import { OperacionListado } from "@/interfaces/operaciones";
+import { OperacionListado } from "@/modules/operaciones/types/operaciones";
 import { HiPlus, HiArrowDownTray, HiArrowUpTray, HiOutlineDocumentText, HiOutlineAdjustmentsHorizontal } from "react-icons/hi2";
 import { motion, AnimatePresence } from "framer-motion";
 import { NuevaOperacionWizard } from "@/components/operaciones/NuevaOperacionWizard";

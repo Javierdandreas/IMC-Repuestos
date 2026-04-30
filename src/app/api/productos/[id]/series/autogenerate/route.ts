@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiWriteSession } from "@/lib/api-auth";
-import { generateAutoSeriesForProduct } from "@/lib/repos/series";
+import { requireApiWriteSession } from "@/modules/auth/repos/api-auth";
+import { generateAutoSeriesForProduct } from "@/modules/series/repos/series";
 import { jsonError } from "@/lib/api-errors";
 
 export async function POST(

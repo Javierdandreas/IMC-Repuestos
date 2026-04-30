@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperacionById } from "@/lib/repos/operaciones";
-import { requireApiSession } from "@/lib/api-auth";
+import { getOperacionById } from "@/modules/operaciones/repos/operaciones";
+import { requireApiSession } from "@/modules/auth/repos/api-auth";
 import { parseIdParam } from "@/lib/validators/catalogos";
 
 export async function GET(

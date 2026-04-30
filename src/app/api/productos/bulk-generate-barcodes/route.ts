@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { bulkUpdateBarcodes, generateUniqueBarcode } from "@/lib/repos/productos";
+import { bulkUpdateBarcodes, generateUniqueBarcode } from "@/modules/productos/repos/productos";
 
 export async function POST(req: Request) {
   try {

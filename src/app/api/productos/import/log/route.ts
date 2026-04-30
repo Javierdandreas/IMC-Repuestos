@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db-utils";
-import { requireApiWriteSession } from "@/lib/api-auth";
+import { requireApiWriteSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
 
 export async function POST(request: NextRequest) {

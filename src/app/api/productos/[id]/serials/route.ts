@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAvailableSerialsByProduct } from "@/lib/repos/productos";
-import { requireApiSession } from "@/lib/api-auth";
+import { getAvailableSerialsByProduct } from "@/modules/productos/repos/productos";
+import { requireApiSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
 
 export async function GET(

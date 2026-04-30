@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getServerInternalUser } from "@/lib/auth";
+import { getServerInternalUser } from "@/modules/auth";
 import { tienePermiso } from "@/modules/auth/repos/permissions";
 import { obtenerTodosLosUsuarios } from "@/modules/auth/repos/usuarios";
 import { UsuariosPage } from "@/modules/auth/components/UsuariosPage";

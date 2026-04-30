@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSeriesPorVariosProductos } from "@/lib/repos/series";
+import { getSeriesPorVariosProductos } from "@/modules/series/repos/series";
 
 export async function POST(req: NextRequest) {
   try {

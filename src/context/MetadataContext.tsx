@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, ReactNode, useState, useCallback } from "react";
-import { ProductMeta } from "@/lib/productos-meta";
+import { ProductMeta } from "@/modules/productos/repos/productos-meta";
 
 interface MetadataContextType extends ProductMeta {
   refresh: () => Promise<void>;

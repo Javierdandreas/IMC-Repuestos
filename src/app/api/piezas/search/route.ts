@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPiezasBusquedaLive } from "@/lib/repos/piezas";
-import { requireApiSession } from "@/lib/api-auth";
+import { getPiezasBusquedaLive } from "@/modules/piezas/repos/piezas";
+import { requireApiSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
 
 export async function GET(request: NextRequest) {
