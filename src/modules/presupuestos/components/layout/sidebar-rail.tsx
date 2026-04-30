@@ -5,7 +5,7 @@ import { Settings } from "lucide-react";
 import { motion } from "framer-motion";
 import { usePathname } from "next/navigation";
 
-import { useUsuarioPresupuestosActual } from "@/lib/presupuestos/auth-storage";
+import { useUser } from "@/context/UserContext";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 import {
@@ -22,7 +22,7 @@ type Props = {
 export function SidebarRail({ activeId, onSelect, onHover }: Props) {
   const pathname = usePathname();
   const currentSection = getSidebarSectionForPath(pathname);
-  const { usuarioActual } = useUsuarioPresupuestosActual();
+  const { user: usuarioActual } = useUser();
   const initials = usuarioActual?.nombre?.substring(0, 2).toUpperCase() || "AD";
 
   return (

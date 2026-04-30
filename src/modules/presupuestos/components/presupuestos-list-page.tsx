@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 import { exportarPresupuestoPDF } from "../utils/exportar-presupuesto-pdf";
-import { useUsuarioPresupuestosActual } from "@/lib/presupuestos/auth-storage";
+import { useUser } from "@/context/UserContext";
 import { crearNotificacionSupabase, marcarNotificacionesPresupuestoLeidas } from "@/modules/notificaciones";
 import { usePermissions } from "@/modules/auth/components/usePermissions";
 import { supabaseBrowser as supabase } from "@/utils/supabase/client";
@@ -78,7 +78,7 @@ type DialogAction =
 export function PresupuestosListPage({ title, status }: Props) {
   const router = useRouter();
   const theme = getTheme(status);
-  const { usuarioActual } = useUsuarioPresupuestosActual();
+  const { user: usuarioActual } = useUser();
   const { hasAnyPermission, hasPermission } = usePermissions();
 
   const [search, setSearch] = useState("");
@@ -302,7 +302,7 @@ export function PresupuestosListPage({ title, status }: Props) {
         }
         return p;
       }));
-      representarPresupuestoEnPreparacionSupabase(realId, usuarioActual!.nombre, codEnvio).then(() => refresh());
+      representarPresupuestoEnPreparacionSupabase(realId, usuarioActual?.nombre || "Sistema", codEnvio).then(() => refresh());
     }
   };
 

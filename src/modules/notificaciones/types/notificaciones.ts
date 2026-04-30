@@ -1,6 +1,4 @@
-import type { RolUsuarioPresupuestos as RolUsuario } from "@/modules/auth-presupuestos";
-
-export type NotificationAudienceRole = RolUsuario;
+export type NotificationAudienceRole = "mostrador" | "deposito" | "administrador";
 
 export type TipoNotificacion = 'confirmacion' | 'deposito' | 'deposito_parcial' | 'sistema';
 

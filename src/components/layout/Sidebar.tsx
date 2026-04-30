@@ -20,7 +20,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import LogoutButton from "@/modules/auth/components/LogoutButton";
 import { usePermissions } from "@/modules/auth/components/usePermissions";
 import type { AppModule } from "@/modules/auth/repos/permissions";
-import { syncLegacyBudgetUserFromInternalSession } from "@/modules/auth-presupuestos/repos/legacy-session-bridge";
+// import { syncLegacyBudgetUserFromInternalSession } from "@/modules/auth-presupuestos/repos/legacy-session-bridge";
 import { useSidebar } from "@/context/SidebarContext";
 import { useTheme } from "@/context/ThemeContext";
 
@@ -174,8 +174,7 @@ export const Sidebar = () => {
 
           setUserProfile({ nombre: nombreCompleto, rol, initials });
 
-          // Mantener compatibilidad temporal con presupuestos legacy.
-          syncLegacyBudgetUserFromInternalSession(data);
+          // La sincronización legacy ha sido eliminada.
         }
       } catch (error) {
         console.error("Error fetching user profile:", error);

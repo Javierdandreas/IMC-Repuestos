@@ -24,7 +24,7 @@ import {
   type PresupuestoItem,
   type ProductoCatalogo
 } from "@/modules/presupuestos";
-import { getUsuarioActual } from "@/modules/auth-presupuestos";
+import { useUser } from "@/context/UserContext";
 import { crearNotificacionSupabase } from "@/modules/notificaciones";
 import { TriangleAlert } from "lucide-react";
 import { useRef } from "react";
@@ -140,14 +140,9 @@ function getRutaRetorno(
 
 export default function NuevoPresupuestoPage() {
   const router = useRouter();
-  const [usuarioActual, setUsuarioActual] = useState<any>(null);
+  const { user: usuarioActual } = useUser();
   const buscarRepuestosRef = useRef<BuscarRepuestosHandle>(null);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setUsuarioActual(getUsuarioActual());
-    }
-  }, []);
 
   const [pageState, setPageState] = useState<PresupuestoPageState>(() =>
     getInitialPageState()
@@ -324,7 +319,7 @@ export default function NuevoPresupuestoPage() {
   };
 
   const guardar = async (estadoFinal: EstadoPresupuesto) => {
-    const usuarioActual = getUsuarioActual();
+    // El usuarioActual ya lo tenemos del hook
     if (usuarioActual?.rol === "deposito") {
       mostrarPermisoDenegado();
       return;

@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, CheckCheck, LogOut, Volume2, VolumeX, ChevronRight } from "lucide-react";
-import { logout, useUsuarioPresupuestosActual } from "@/lib/presupuestos/auth-storage";
+// import { logout, useUsuarioPresupuestosActual } from "@/lib/presupuestos/auth-storage";
 import { supabaseBrowser as supabase } from "@/utils/supabase/client";
+import { useUser } from "@/context/UserContext";
 import { usePermissions } from "@/modules/auth/components/usePermissions";
 import {
   buildNotificationRealtimeFilter,
@@ -69,29 +70,39 @@ export function AppHeader({ onToggleSidebar, onSelectSection }: AppHeaderProps) 
 
   const [notificaciones, setNotificaciones] = useState<NotificacionSistema[]>([]);
   const [noLeidas, setNoLeidas] = useState(0);
-  const { usuarioActual: usuario } = useUsuarioPresupuestosActual();
-  const { hasPermission, rol } = usePermissions();
+  const { user } = useUser();
+  const { hasPermission } = usePermissions();
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      window.location.href = "/login";
+    } catch (error) {
+      console.error("Error al cerrar sesión:", error);
+      window.location.href = "/login";
+    }
+  };
   const puedeVerNotificaciones = hasPermission("notificaciones.ver");
 
   useEffect(() => {
     async function load() {
-      if (!rol || !puedeVerNotificaciones) {
+      if (!user?.rol || !puedeVerNotificaciones) {
         setNotificaciones([]);
         setNoLeidas(0);
         return;
       }
 
-      const data = await obtenerNotificacionesSupabase(rol);
+      const data = await obtenerNotificacionesSupabase(user.rol);
       setNotificaciones(data);
       setNoLeidas(data.filter(n => !n.leida).length);
     }
     load();
     limpiarNotificacionesAntiguasSupabase();
-  }, [puedeVerNotificaciones, refreshKey, rol]);
+  }, [puedeVerNotificaciones, refreshKey, user?.rol]);
 
   useEffect(() => {
-    if (!supabase || !rol || !puedeVerNotificaciones) return;
-    const filter = buildNotificationRealtimeFilter(rol);
+    if (!supabase || !user?.rol || !puedeVerNotificaciones) return;
+    const filter = buildNotificationRealtimeFilter(user.rol);
 
     const channel = supabase
       .channel('notificaciones-realtime')
@@ -112,7 +123,7 @@ export function AppHeader({ onToggleSidebar, onSelectSection }: AppHeaderProps) 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [puedeVerNotificaciones, rol]);
+  }, [puedeVerNotificaciones, user?.rol]);
 
   const playSound = useCallback((userRole: NotificacionSistema["userRole"]) => {
     const audioFile = getNotificationSoundFile(userRole);
@@ -152,11 +163,6 @@ export function AppHeader({ onToggleSidebar, onSelectSection }: AppHeaderProps) 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  const handleLogout = async () => {
-    await logout();
-    router.replace("/login");
-  };
 
   const handleMarcarLeida = async (id: string) => {
     try {
@@ -315,12 +321,12 @@ export function AppHeader({ onToggleSidebar, onSelectSection }: AppHeaderProps) 
             onClick={() => setOpenUser((prev) => !prev)}
             className="flex items-center gap-3 pl-1 pr-3 py-1 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-full shadow-sm hover:shadow-md transition-all h-10"
           >
-            <div className="w-8 h-8 rounded-full bg-slate-900 dark:bg-white flex items-center justify-center text-white dark:text-slate-950 text-[10px] font-bold">
-              {usuario?.nombre?.substring(0, 2).toUpperCase() || 'AD'}
+            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-white dark:border-slate-700 shadow-sm flex items-center justify-center text-[10px] font-bold text-slate-500 overflow-hidden shrink-0">
+              {user?.nombre?.substring(0, 2).toUpperCase() || 'AD'}
             </div>
-            <div className="hidden lg:block text-left">
-              <p className="text-[11px] font-bold leading-none text-slate-900 dark:text-white">{usuario?.nombre || 'Administrador'}</p>
-              <p className="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 uppercase tracking-wider">{usuario?.rol || 'Staff'}</p>
+            <div className="hidden md:block">
+              <p className="text-[11px] font-bold leading-none text-slate-900 dark:text-white">{user?.nombre || 'Administrador'}</p>
+              <p className="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 uppercase tracking-wider">{user?.rol || 'Staff'}</p>
             </div>
           </motion.button>
 
@@ -330,18 +336,20 @@ export function AppHeader({ onToggleSidebar, onSelectSection }: AppHeaderProps) 
                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl shadow-2xl z-[60] overflow-hidden"
+                className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[24px] shadow-2xl z-[100] py-4"
               >
-                <div className="p-2">
-                  <button
-                    onClick={handleLogout}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 rounded-xl text-[12px] font-medium text-slate-600 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 transition-colors"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Cerrar Sesión
-                  </button>
+                <div className="px-5 pb-3 border-b border-slate-50 dark:border-slate-800 mb-2">
+                  <p className="text-[14px] font-bold text-slate-900 dark:text-white">{user?.nombre} {user?.apellido}</p>
+                  <p className="text-[12px] text-slate-400">@{user?.nombreUsuario || 'usuario'}</p>
                 </div>
+                
+                <button 
+                  onClick={() => { handleLogout(); setOpenUser(false); }}
+                  className="w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Cerrar Sesión
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
