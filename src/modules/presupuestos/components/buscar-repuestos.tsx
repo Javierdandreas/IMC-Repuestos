@@ -15,7 +15,7 @@ import {
   Copy
 } from "lucide-react";
 import type { ProductoCatalogo } from "../types/presupuesto";
-import { buscarProductosEnGESU, buscarProductosExacto, buscarMasivoProductos } from "@/lib/api/catalogo";
+import { buscarProductosEnGESU, buscarProductosExacto, buscarMasivoProductos } from "@/modules/presupuestos/repos/catalogo-presupuestos";
 import { parseOEMText } from "@/shared/lib/oem-parser";
 
 type Props = {

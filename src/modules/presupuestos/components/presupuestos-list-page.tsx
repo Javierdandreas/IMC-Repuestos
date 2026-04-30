@@ -28,7 +28,7 @@ import {
   marcarTodoSeparadoDepositoSupabase,
   representarPresupuestoEnPreparacionSupabase
 } from "../repos/presupuestos";
-import { obtenerProductosPorCodigos } from "@/lib/api/catalogo";
+import { obtenerProductosPorCodigos } from "@/modules/presupuestos/repos/catalogo-presupuestos";
 import {
   getTheme,
   formatearFecha,

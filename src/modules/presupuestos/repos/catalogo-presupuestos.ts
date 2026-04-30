@@ -43,11 +43,14 @@ const PRODUCTO_SELECT_QUERY = `
   )
 `;
 
+/**
+ * Buscador de productos optimizado para el flujo de presupuestos.
+ * Realiza una búsqueda flexible multipalabra en códigos, descripción y palabras clave.
+ */
 export async function buscarProductosEnGESU(termino: string): Promise<ProductoCatalogo[]> {
   const searchTerm = termino.trim();
   if (!searchTerm) return [];
-  const cleanTerm = `%${searchTerm}%`;
-
+  
   const words = searchTerm.split(/\s+/).filter(Boolean);
 
   // 1. Consultar productos por campos básicos (Modo flexible multipalabra)
@@ -58,8 +61,6 @@ export async function buscarProductosEnGESU(termino: string): Promise<ProductoCa
   // Aplicamos un filtro .or por cada palabra para que sea AND entre ellas
   words.forEach((word) => {
     const cleanWord = `%${word}%`;
-    // Buscamos en cod_unico (nuevo), codigo (legacy), descripcion, y marca (legacy)
-    // Para buscar en marcas.descripcion (relación) PostgREST es más complejo en .or directo si no es !inner
     query = query.or(
       `cod_unico.ilike.${cleanWord},codigo.ilike.${cleanWord},descripcion.ilike.${cleanWord},marca.ilike.${cleanWord},palabra_clave.ilike.${cleanWord}`
     );
@@ -70,7 +71,7 @@ export async function buscarProductosEnGESU(termino: string): Promise<ProductoCa
     .order("codigo", { ascending: true })
     .limit(100);
 
-  // 2. Consultar palabras clave (Modo flexible multipalabra)
+  // 2. Consultar palabras clave
   let keywordQuery = supabase
     .from("productos")
     .select("id");
@@ -79,9 +80,7 @@ export async function buscarProductosEnGESU(termino: string): Promise<ProductoCa
     keywordQuery = keywordQuery.ilike("palabra_clave", `%${word}%`);
   });
 
-  const promiseKeywords = keywordQuery.limit(1000);
-
-  // 3. Consultar códigos de proveedor (NUEVO - Modo flexible multipalabra)
+  // 3. Consultar códigos de proveedor
   let fuentesQuery = supabase
     .from("producto_proveedor")
     .select("id_producto");
@@ -90,12 +89,10 @@ export async function buscarProductosEnGESU(termino: string): Promise<ProductoCa
     fuentesQuery = fuentesQuery.ilike("codigo_proveedor", `%${word}%`);
   });
 
-  const promiseFuentes = fuentesQuery.limit(1000);
-
   const [resProd, resKeys, resFuentes] = await Promise.all([
     promiseProductos,
-    keywordQuery, // Reutilizamos el query construido
-    fuentesQuery, // Reutilizamos el query construido
+    keywordQuery.limit(1000),
+    fuentesQuery.limit(1000),
   ]);
 
   let items: any[] = resProd.data || [];
@@ -104,7 +101,7 @@ export async function buscarProductosEnGESU(termino: string): Promise<ProductoCa
   // Consolidar IDs de palabras clave y proveedores
   const additionalIds = Array.from(
     new Set([
-      ...(resKeys.data || []).map((k: any) => k.id), // Ahora es de la tabla productos
+      ...(resKeys.data || []).map((k: any) => k.id),
       ...(resFuentes.data || []).map((f: any) => f.id_producto),
     ])
   ).filter((id) => id && !existingIds.has(id));
@@ -131,12 +128,13 @@ export async function buscarProductosEnGESU(termino: string): Promise<ProductoCa
     .map(mapProductoCatalogo);
 }
 
+/**
+ * Búsqueda exacta de productos por palabra clave (normalmente códigos).
+ */
 export async function buscarProductosExacto(termino: string): Promise<ProductoCatalogo[]> {
-  // NORMALIZACIÓN: Quitar espacios al código para busca en palabras clave
   const searchTerm = termino.trim().replace(/\s+/g, "");
   if (!searchTerm) return [];
 
-  // BUSCADOR EXACTO: Apunta a palabra_clave en productos
   const { data: resKeys } = await supabase
     .from("productos")
     .select("id")
@@ -164,29 +162,15 @@ export async function buscarProductosExacto(termino: string): Promise<ProductoCa
     .map(mapProductoCatalogo);
 }
 
+/**
+ * Obtiene una lista de productos por sus códigos únicos o legacy.
+ */
 export async function obtenerProductosPorCodigos(codigos: string[]): Promise<ProductoCatalogo[]> {
   if (!codigos.length) return [];
 
   const { data, error } = await supabase
     .from("productos")
-    .select(
-      `
-      id,
-      cod_unico,
-      codigo,
-      descripcion,
-      marca,
-      marcas (descripcion),
-      producto_precio (
-        precio,
-        tipo_precio (descripcion)
-      ),
-      stock,
-      ubicaciones (
-        descripcion
-      )
-    `
-    )
+    .select(PRODUCTO_SELECT_QUERY)
     .or(`cod_unico.in.(${codigos.join(',')}),codigo.in.(${codigos.join(',')})`);
 
   if (error) {
@@ -199,23 +183,22 @@ export async function obtenerProductosPorCodigos(codigos: string[]): Promise<Pro
   return data.map(mapProductoCatalogo);
 }
 
+/**
+ * Realiza una búsqueda masiva de múltiples códigos en paralelo.
+ */
 export async function buscarMasivoProductos(codigos: string[]): Promise<ProductoCatalogo[]> {
   if (!codigos.length) return [];
 
-  // Ejecutamos búsquedas en paralelo para ser ultra rápidos
   const promiseProds = supabase
     .from("productos")
     .select(PRODUCTO_SELECT_QUERY)
     .or(`cod_unico.in.(${codigos.join(',')}),codigo.in.(${codigos.join(',')})`);
 
-  // Query 2: Product Sources
   const promiseFuentes = supabase
     .from("producto_proveedor")
     .select("id_producto")
     .in("codigo_proveedor", codigos);
 
-  // Query 3: Keywords - Construimos una query OR robusta para detectar cada código
-  // incluso si la fila de palabras clave tiene múltiples valores separados por espacios
   let keywordFilter = "";
   codigos.forEach((code, idx) => {
     const part = `palabra_clave.ilike.${code},palabra_clave.ilike.${code} %,palabra_clave.ilike.% ${code},palabra_clave.ilike.% ${code} %`;
@@ -236,7 +219,6 @@ export async function buscarMasivoProductos(codigos: string[]): Promise<Producto
   let items: any[] = resProd.data || [];
   const existingIds = new Set(items.map((i: any) => i.id));
 
-  // Consolidar IDs de fuentes y palabras clave que no tengamos ya
   const otherIds = [
     ...(resFuentes.data || []).map((f: any) => f.id_producto),
     ...(resKeys.data || []).map((k: any) => k.id),
@@ -256,6 +238,3 @@ export async function buscarMasivoProductos(codigos: string[]): Promise<Producto
 
   return items.map(mapProductoCatalogo);
 }
-
-export { dispararSincronizacionGesu, obtenerEstadoSincronizacion } from "@/modules/sync";
-

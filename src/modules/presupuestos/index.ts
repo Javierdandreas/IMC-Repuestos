@@ -14,4 +14,4 @@ export * from "./components/presupuesto-modals-manager";
 export * from "./components/presupuesto-table";
 export * from "./components/presupuestos-list-page";
 export * from "./components/estadisticas-page";
-
+export * from "./repos/catalogo-presupuestos";
