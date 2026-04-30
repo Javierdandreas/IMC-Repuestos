@@ -1,6 +1,8 @@
 "use client";
 
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { useScrollLock } from "@/hooks/use-scroll-lock";
 
 type Props = {
   title: string;
@@ -13,6 +15,14 @@ type Props = {
 };
 
 export function Modal({ title, open, onClose, children, headerExtra, headerActions, width = "w-[min(96vw,1280px)]" }: Props) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
 
@@ -21,20 +31,24 @@ export function Modal({ title, open, onClose, children, headerExtra, headerActio
     };
 
     document.addEventListener("keydown", handleEscape);
-    document.body.style.overflow = "hidden";
-
+    
     return () => {
       document.removeEventListener("keydown", handleEscape);
-      document.body.style.overflow = "auto";
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity dark:bg-black/60" onClick={onClose} />
-      <div className={`relative z-10 flex max-h-[92vh] ${width} flex-col overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950`}>
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      {/* Backdrop con blur mejorado */}
+      <div 
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-md transition-opacity dark:bg-black/60" 
+        onClick={onClose} 
+      />
+      
+      {/* Modal Container */}
+      <div className={`relative z-10 flex max-h-[92vh] ${width} flex-col overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] dark:border-slate-800 dark:bg-slate-950 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] animate-in zoom-in-95 duration-200`}>
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-800/60">
           <div className="flex flex-1 items-center gap-6">
             <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{title}</h2>
@@ -46,7 +60,7 @@ export function Modal({ title, open, onClose, children, headerExtra, headerActio
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-50 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:bg-slate-900 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -56,8 +70,9 @@ export function Modal({ title, open, onClose, children, headerExtra, headerActio
           </div>
         </div>
 
-        <div className="overflow-y-auto p-0">{children}</div>
+        <div className="overflow-y-auto p-0 flex-1">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

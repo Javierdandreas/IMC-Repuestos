@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { X, ChevronUp, ChevronDown, CheckCircle2, Check, PackageCheck, Plus, Eye, Pencil, Copy, RefreshCcw, Undo2, Trash2, TriangleAlert, Download } from "lucide-react";
 import { formatearFecha, formatearMoneda, getDetalleRowBackground } from "../utils/presupuestos-utils";
 import type { PresupuestoCompleto, PresupuestoItem } from "../types/presupuesto";
+import { useScrollLock } from "@/hooks/use-scroll-lock";
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
@@ -114,6 +115,8 @@ export function PresupuestoModalsManager({
   setMenuAbiertoId,
   menuRef,
 }: Props) {
+  useScrollLock(detalleAbierto || duplicarAbierto || dialogAction.open);
+
   if (typeof document === "undefined") return null;
 
   const confirmButtonClass =

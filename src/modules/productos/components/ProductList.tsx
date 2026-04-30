@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { PencilButton } from "@/components/ui/PencilButton";
@@ -32,6 +33,12 @@ const TOOLTIP_MARGIN = 16;
 export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
   const { categorias, subcategorias, marcas, proveedores } = useMetadata();
   const { hasAnyPermission } = usePermissions();
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const canManageProducts = hasAnyPermission([
     "productos.crear",
     "productos.editar",
@@ -704,80 +711,84 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       </div>
 
       {/* Reverted Original Style Tooltip */}
-      <AnimatePresence>
-        {hoveredProduct && (
-          <motion.div
-            initial={{ opacity: 0, scale: 1 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1 }}
-            className="fixed z-[100] w-[420px] rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800 dark:text-white overflow-y-auto"
-            onMouseEnter={() => {
-              if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-            }}
-            onMouseLeave={handleTooltipLeave}
-            style={{
-              top: tooltipPos.top,
-              left: tooltipPos.left,
-              maxHeight: `calc(100vh - ${tooltipPos.top + TOOLTIP_MARGIN}px)`
-            }}
-          >
-            <div className="space-y-4">
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Números originales</p>
-                {hoveredProduct.originales && hoveredProduct.originales.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {hoveredProduct.originales.map((item) => (
-                      <span key={`orig-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 italic">Sin datos</p>
-                )}
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Números equivalentes</p>
-                {hoveredProduct.equivalentes && hoveredProduct.equivalentes.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {hoveredProduct.equivalentes.map((item) => (
-                      <span key={`equiv-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 italic">Sin datos</p>
-                )}
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Proveedores</p>
-                {hoveredProduct.proveedores_detalle && hoveredProduct.proveedores_detalle.length > 0 ? (
-                  <div className="space-y-1.5">
-                    {hoveredProduct.proveedores_detalle.map((item, index) => (
-                      <div key={`prov-${hoveredProduct.id}-${index}`} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5 text-xs text-slate-700 dark:bg-slate-700/50 dark:border-slate-600 dark:text-slate-200">
-                        <span className="font-bold">{item.proveedor}</span>
-                        <span className="text-slate-400 dark:text-slate-400">— {item.codigo_proveedor || "Sin código"}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 italic">Sin datos</p>
-                )}
-              </div>
-
-              {hoveredProduct.palabra_clave && (
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
-                  <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-blue-500/70 dark:text-blue-400/50">Palabra Clave (Ayuda de búsqueda)</p>
-                  <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase leading-tight bg-blue-50/50 dark:bg-blue-900/10 p-2 rounded-lg border border-blue-100/50 dark:border-blue-800/20">{hoveredProduct.palabra_clave}</p>
+      {mounted && createPortal(
+        <AnimatePresence>
+          {hoveredProduct && (
+            <motion.div
+              initial={{ opacity: 0, scale: 1 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1 }}
+              className="fixed z-[200] w-[420px] rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800 dark:text-white overflow-y-auto"
+              onMouseEnter={() => {
+                if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+              }}
+              onMouseLeave={handleTooltipLeave}
+              style={{
+                top: tooltipPos.top,
+                left: tooltipPos.left,
+                maxHeight: `calc(100vh - ${tooltipPos.top + TOOLTIP_MARGIN}px)`
+              }}
+            >
+              <div className="space-y-4">
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Números originales</p>
+                  {hoveredProduct.originales && hoveredProduct.originales.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {hoveredProduct.originales.map((item) => (
+                        <span key={`orig-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 italic">Sin datos</p>
+                  )}
                 </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Números equivalentes</p>
+                  {hoveredProduct.equivalentes && hoveredProduct.equivalentes.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {hoveredProduct.equivalentes.map((item) => (
+                        <span key={`equiv-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 italic">Sin datos</p>
+                  )}
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Proveedores</p>
+                  {hoveredProduct.proveedores_detalle && hoveredProduct.proveedores_detalle.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {hoveredProduct.proveedores_detalle.map((item, index) => (
+                        <div key={`prov-${hoveredProduct.id}-${index}`} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5 text-xs text-slate-700 dark:bg-slate-700/50 dark:border-slate-600 dark:text-slate-200">
+                          <span className="font-bold">{item.proveedor}</span>
+                          <span className="text-slate-400 dark:text-slate-400">— {item.codigo_proveedor || "Sin código"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 italic">Sin datos</p>
+                  )}
+                </div>
+
+                {hoveredProduct.palabra_clave && (
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
+                    <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-blue-500/70 dark:text-blue-400/50">Palabra Clave (Ayuda de búsqueda)</p>
+                    <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase leading-tight bg-blue-50/50 dark:bg-blue-900/10 p-2 rounded-lg border border-blue-100/50 dark:border-blue-800/20">{hoveredProduct.palabra_clave}</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
       <Modal
         open={openNew}
         onClose={() => setOpenNew(false)}
@@ -892,4 +903,3 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     </>
   );
 }
-
