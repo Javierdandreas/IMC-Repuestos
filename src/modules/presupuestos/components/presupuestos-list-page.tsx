@@ -450,7 +450,7 @@ export function PresupuestosListPage({ title, status }: Props) {
       );
       const todoSeparado = idsSeparados.length === rowSeleccionada.items.length;
       await crearNotificacionSupabase({
-        userRole: "mostrador",
+        userRole: "vendedor",
         titulo: todoSeparado ? `${rowSeleccionada.cliente || "CLIENTE"} separado (${rowSeleccionada.codigo})` : `${rowSeleccionada.cliente || "CLIENTE"} (${rowSeleccionada.codigo} - PARCIAL)`,
         mensaje: todoSeparado ? `El envío ${rowSeleccionada.codigo} de ${rowSeleccionada.cliente || "ESTE CLIENTE"} quedó completamente separado.` : `El envío ${rowSeleccionada.codigo} de ${rowSeleccionada.cliente || "ESTE CLIENTE"} quedó guardado con faltantes.`,
         tipo: todoSeparado ? "deposito" : "deposito_parcial",

@@ -1,4 +1,10 @@
-export type NotificationAudienceRole = "mostrador" | "deposito" | "administrador";
+export type NotificationAudienceRole = 
+  | "admin" 
+  | "supervisor" 
+  | "catalogo" 
+  | "vendedor" 
+  | "deposito" 
+  | "empleado";
 
 export type TipoNotificacion = 'confirmacion' | 'deposito' | 'deposito_parcial' | 'sistema';
 

@@ -1,19 +1,23 @@
+import * as dotenv from "dotenv";
+import path from "path";
+// Cargamos .env.local manualmente para el script
+dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
+
 import { pool } from "../src/utils/database";
 
 async function migrate() {
-  const client = await pool.connect();
   try {
     console.log("Iniciando migración de notificaciones...");
     
     // 1. Agregar columna rol_destino si no existe
-    await client.query(`
+    await pool.query(`
       ALTER TABLE public.notificaciones 
       ADD COLUMN IF NOT EXISTS rol_destino text;
     `);
     console.log("Columna rol_destino agregada.");
 
     // 2. Mapear datos existentes
-    await client.query(`
+    await pool.query(`
       UPDATE public.notificaciones 
       SET rol_destino = CASE 
           WHEN user_role = 'administrador' THEN 'admin'
@@ -29,7 +33,7 @@ async function migrate() {
   } catch (error) {
     console.error("Error durante la migración:", error);
   } finally {
-    client.release();
+    await pool.end();
     process.exit();
   }
 }
