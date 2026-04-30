@@ -1,4 +1,4 @@
-import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { supabaseAdmin as supabase } from '@/utils/supabase/admin';
 
 const GESU_API_BASE_URL = process.env.GESU_API_BASE_URL;
 const GESU_API_TOKEN = process.env.GESU_API_TOKEN;

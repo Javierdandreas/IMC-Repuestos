@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { supabaseBrowser as supabase } from "@/utils/supabase/client";
 import type { ProductoCatalogo } from "@/modules/presupuestos";
 
 const SEARCH_PAGE_SIZE = 1000;

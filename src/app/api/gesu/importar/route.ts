@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { supabaseAdmin } from '@/utils/supabase/admin';
 import { getServerInternalUser } from '@/lib/auth';
 import { tienePermiso } from '@/modules/auth/repos/permissions';
 

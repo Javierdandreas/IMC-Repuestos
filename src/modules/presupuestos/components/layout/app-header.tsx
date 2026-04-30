@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, CheckCheck, LogOut, Volume2, VolumeX, ChevronRight } from "lucide-react";
 import { logout, useUsuarioPresupuestosActual } from "@/lib/presupuestos/auth-storage";
-import { supabase } from "@/lib/supabase";
+import { supabaseBrowser as supabase } from "@/utils/supabase/client";
 import { usePermissions } from "@/modules/auth/components/usePermissions";
 import {
   buildNotificationRealtimeFilter,
