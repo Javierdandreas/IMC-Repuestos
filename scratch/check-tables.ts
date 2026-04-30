@@ -4,16 +4,14 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
 import { pool } from "../src/utils/database";
 
-async function listAllTables() {
+async function checkTables() {
   try {
     const { rows } = await pool.query(`
-      SELECT table_schema, table_name 
+      SELECT table_name 
       FROM information_schema.tables 
-      WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
-      ORDER BY table_schema, table_name
+      WHERE table_schema = 'public'
     `);
-    console.log("Tablas detectadas:");
-    rows.forEach(r => console.log(`${r.table_schema}.${r.table_name}`));
+    console.log("Tablas en public:", rows.map(r => r.table_name));
   } catch (error) {
     console.error("Error:", error);
   } finally {
@@ -22,4 +20,4 @@ async function listAllTables() {
   }
 }
 
-listAllTables();
+checkTables();

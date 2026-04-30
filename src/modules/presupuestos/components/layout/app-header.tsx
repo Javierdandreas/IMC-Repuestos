@@ -325,8 +325,8 @@ export function AppHeader({ onToggleSidebar, onSelectSection }: AppHeaderProps) 
               {user?.nombre?.substring(0, 2).toUpperCase() || 'AD'}
             </div>
             <div className="hidden md:block">
-              <p className="text-[11px] font-bold leading-none text-slate-900 dark:text-white">{user?.nombre || 'Administrador'}</p>
-              <p className="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 uppercase tracking-wider">{user?.rol || 'Staff'}</p>
+              <p className="text-[11px] font-bold leading-none text-slate-900 dark:text-white">{user?.nombre || 'Usuario'}</p>
+              <p className="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 uppercase tracking-wider">{user?.rol || 'Rol'}</p>
             </div>
           </motion.button>
 

@@ -150,7 +150,7 @@ export function PresupuestosListPage({ title, status }: Props) {
     "presupuestos.preparar",
     "presupuestos.entregar",
   ]);
-  const puedeOperarMostrador = hasAnyPermission([
+  const puedeOperarVendedor = hasAnyPermission([
     "presupuestos.crear",
     "presupuestos.editar",
     "presupuestos.eliminar",
@@ -262,7 +262,7 @@ export function PresupuestosListPage({ title, status }: Props) {
   };
 
   const irANuevoPresupuesto = () => {
-    if (!puedeOperarMostrador) { mostrarPermisoDenegado(); return; }
+    if (!puedeOperarVendedor) { mostrarPermisoDenegado(); return; }
     clearEditorDraft();
     router.push("/presupuestos/nuevo");
   };
@@ -314,13 +314,13 @@ export function PresupuestosListPage({ title, status }: Props) {
   };
 
   const editarPresupuesto = (row: PresupuestoCompleto) => {
-    if (!puedeOperarMostrador) { mostrarPermisoDenegado(); return; }
+    if (!puedeOperarVendedor) { mostrarPermisoDenegado(); return; }
     setEditorDraft({ modo: "editar", presupuestoId: row.id, conservarCliente: true, presupuesto: row, sourceView: status });
     router.push("/presupuestos/nuevo");
   };
 
   const abrirDuplicar = (row: PresupuestoCompleto) => {
-    if (!puedeOperarMostrador) { mostrarPermisoDenegado(); return; }
+    if (!puedeOperarVendedor) { mostrarPermisoDenegado(); return; }
     setRowParaDuplicar(row);
     setDuplicarAbierto(true);
     setMenuAbiertoId(null);
@@ -336,7 +336,7 @@ export function PresupuestosListPage({ title, status }: Props) {
   };
 
   const recotizar = async (row: PresupuestoCompleto) => {
-    if (!puedeOperarMostrador) { mostrarPermisoDenegado(); return; }
+    if (!puedeOperarVendedor) { mostrarPermisoDenegado(); return; }
     try {
       const codigos = Array.from(new Set(row.items.map(item => item.codigo)));
       const catalogoActualizado = await obtenerProductosPorCodigos(codigos);
@@ -354,7 +354,7 @@ export function PresupuestosListPage({ title, status }: Props) {
   };
 
   const volverAPendiente = (row: PresupuestoCompleto) => {
-    if (!puedeOperarMostrador) { mostrarPermisoDenegado(); return; }
+    if (!puedeOperarVendedor) { mostrarPermisoDenegado(); return; }
     abrirDialogo({
       title: "Volver a Pendientes",
       description: `¿Querés volver el presupuesto de ${row.cliente || "este cliente"} a Pendientes?`,
@@ -373,7 +373,7 @@ export function PresupuestosListPage({ title, status }: Props) {
   };
 
   const eliminarFila = (row: PresupuestoCompleto) => {
-    if (!puedeOperarMostrador) { mostrarPermisoDenegado(); return; }
+    if (!puedeOperarVendedor) { mostrarPermisoDenegado(); return; }
     abrirDialogo({
       title: "Eliminar presupuesto",
       description: `Esta acción eliminará el presupuesto de ${row.cliente || "este cliente"}. ¿Querés continuar?`,
@@ -403,7 +403,7 @@ export function PresupuestosListPage({ title, status }: Props) {
     setCheckedItems((prev) => prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]);
   };
 
-  const guardarConfirmacionMostrador = async () => {
+  const guardarConfirmacionVendedor = async () => {
     if (!rowSeleccionada || !puedeConfirmar) { mostrarPermisoDenegado(); return; }
     if (checkedItems.length === 0) { window.alert("Seleccioná al menos un ítem para confirmar."); return; }
     try {
@@ -430,7 +430,7 @@ export function PresupuestosListPage({ title, status }: Props) {
   };
 
   const agregarItemsAExistente = () => {
-    if (!rowSeleccionada || !puedeOperarMostrador) { mostrarPermisoDenegado(); return; }
+    if (!rowSeleccionada || !puedeOperarVendedor) { mostrarPermisoDenegado(); return; }
     setEditorDraft({ modo: "editar", presupuestoId: rowSeleccionada.id, conservarCliente: true, presupuesto: rowSeleccionada, sourceView: status });
     router.push("/presupuestos/nuevo");
   };
@@ -477,7 +477,7 @@ export function PresupuestosListPage({ title, status }: Props) {
         idsAMarcar
       );
       await crearNotificacionSupabase({
-        userRole: "mostrador",
+        userRole: "vendedor",
         titulo: `${rowSeleccionada.cliente || "CLIENTE"} separado (${rowSeleccionada.codigo})`,
         mensaje: `Depósito preparó el envío ${rowSeleccionada.codigo} de ${rowSeleccionada.cliente || "ESTE CLIENTE"}.`,
         tipo: "deposito",
@@ -550,7 +550,7 @@ export function PresupuestosListPage({ title, status }: Props) {
           onNuevoPresupuesto={irANuevoPresupuesto}
           onExportarLista={exportarLista}
           theme={theme}
-          puedeOperarMostrador={puedeOperarMostrador}
+          puedeOperarVendedor={puedeOperarVendedor}
         />
 
         <PresupuestoTable
@@ -618,13 +618,13 @@ export function PresupuestosListPage({ title, status }: Props) {
         rowParaMenu={rowParaMenu}
         menuPosition={menuPosition}
         menuDirection={menuDirection}
-        puedeOperarMostrador={puedeOperarMostrador}
+        puedeOperarVendedor={puedeOperarVendedor}
         onCerrarDetalle={cerrarDetalle}
         setMostrarDetalleInfo={setMostrarDetalleInfo}
         setDetailPage={setDetailPage}
         toggleCheckedItem={toggleCheckedItem}
         onAgregarItemsAExistente={agregarItemsAExistente}
-        onGuardarConfirmacionMostrador={guardarConfirmacionMostrador}
+        onGuardarConfirmacionVendedor={guardarConfirmacionVendedor}
         onGuardarDetalleDeposito={guardarDetalleDeposito}
         onMarcarPresupuestoSeparado={marcarPresupuestoSeparado}
         onConfirmarDuplicar={confirmarDuplicar}

@@ -41,7 +41,7 @@ export function buildNotificationRealtimeFilter(
 export function getNotificationSoundFile(
   userRole: NotificationAudienceRole
 ) {
-  return (userRole === "vendedor" || userRole === "mostrador")
+  return userRole === "vendedor"
     ? "/sounds/mostrador.wav"
     : "/sounds/deposito.wav";
 }
@@ -63,7 +63,7 @@ export async function obtenerNotificacionesSupabase(
 
   // Si no es admin, filtramos solo las de su sector o las generales de admin
   if (role !== 'admin') {
-    query = query.or(`rol_destino.eq.${role},rol_destino.eq.admin,user_role.eq.${role},user_role.eq.admin`);
+    query = query.or(`rol_destino.eq.${role},rol_destino.eq.admin`);
   }
 
   const { data, error } = await query
@@ -77,7 +77,7 @@ export async function obtenerNotificacionesSupabase(
 
   return (data || []).map((row: any) => ({
     id: row.id,
-    userRole: (row.rol_destino || row.user_role) as NotificationAudienceRole,
+    userRole: row.rol_destino as NotificationAudienceRole,
     titulo: row.titulo,
     mensaje: row.mensaje,
     tipo: (row.tipo || 'sistema') as TipoNotificacion,
@@ -97,16 +97,9 @@ export async function crearNotificacionSupabase(payload: {
   presupuestoId?: string;
   codigoOP?: string;
 }) {
-  // Mapeo inverso para compatibilidad con user_role legacy
-  let legacyRole = payload.userRole;
-  if (payload.userRole === 'admin') legacyRole = 'administrador';
-  if (payload.userRole === 'vendedor') legacyRole = 'mostrador';
-
   const { error } = await supabase
     .from('notificaciones')
     .insert({
-      // Escribimos en ambas columnas durante la transición
-      user_role: legacyRole,
       rol_destino: payload.userRole,
       titulo: payload.titulo,
       mensaje: payload.mensaje,

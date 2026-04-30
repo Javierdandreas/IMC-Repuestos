@@ -20,7 +20,7 @@ type Props = {
   onNuevoPresupuesto: () => void;
   onExportarLista: () => void;
   theme: any;
-  puedeOperarMostrador: boolean;
+  puedeOperarVendedor: boolean;
 };
 
 export function PresupuestoFilters({
@@ -31,7 +31,7 @@ export function PresupuestoFilters({
   onNuevoPresupuesto,
   onExportarLista,
   theme,
-  puedeOperarMostrador,
+  puedeOperarVendedor,
 }: Props) {
   const cambiarFiltro = (next: Filtro) => {
     setFiltroActivo(next);
@@ -50,7 +50,7 @@ export function PresupuestoFilters({
           <Search className="pointer-events-none absolute right-6 top-1/2 h-6 w-6 -translate-y-1/2 text-[#4b5563]" />
         </div>
 
-        {puedeOperarMostrador && (
+        {puedeOperarVendedor && (
           <button
             onClick={onNuevoPresupuesto}
             className={`flex h-[58px] items-center justify-center gap-3 rounded-[20px] px-6 text-[16px] font-semibold text-white shadow-sm ${theme.newButtonBg} hover:opacity-95`}

@@ -162,11 +162,13 @@ export const Sidebar = () => {
           const data = await response.json();
           
           const nombreCompleto = `${data.nombre || ''} ${data.apellido || ''}`.trim() || "Usuario";
-          const rol = data.rol || "Administrador";
+          const rol = data.rol || "Usuario";
           
           // Get initials
           const initials = nombreCompleto
             .split(" ")
+            .map((n: string) => n[n.length - 1] === '.' ? n.slice(0, -1) : n) // Clean up if any dots
+            .filter(Boolean)
             .map((n: string) => n[0])
             .join("")
             .toUpperCase()

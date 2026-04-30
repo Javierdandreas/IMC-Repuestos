@@ -45,7 +45,7 @@ type Props = {
   rowParaMenu: PresupuestoCompleto | null;
   menuPosition: { top: number; left: number } | null;
   menuDirection: "up" | "down";
-  puedeOperarMostrador: boolean;
+  puedeOperarVendedor: boolean;
 
   // Handlers
   onCerrarDetalle: () => void;
@@ -53,7 +53,7 @@ type Props = {
   setDetailPage: (val: number) => void;
   toggleCheckedItem: (id: string) => void;
   onAgregarItemsAExistente: () => void;
-  onGuardarConfirmacionMostrador: () => void;
+  onGuardarConfirmacionVendedor: () => void;
   onGuardarDetalleDeposito: () => void;
   onMarcarPresupuestoSeparado: () => void;
   onConfirmarDuplicar: (conservar: boolean) => void;
@@ -91,13 +91,13 @@ export function PresupuestoModalsManager({
   rowParaMenu,
   menuPosition,
   menuDirection,
-  puedeOperarMostrador,
+  puedeOperarVendedor,
   onCerrarDetalle,
   setMostrarDetalleInfo,
   setDetailPage,
   toggleCheckedItem,
   onAgregarItemsAExistente,
-  onGuardarConfirmacionMostrador,
+  onGuardarConfirmacionVendedor,
   onGuardarDetalleDeposito,
   onMarcarPresupuestoSeparado,
   onConfirmarDuplicar,
@@ -364,7 +364,7 @@ export function PresupuestoModalsManager({
                   <button
                     type="button"
                     disabled={isProcessing || checkedItems.length === 0}
-                    onClick={onGuardarConfirmacionMostrador}
+                    onClick={onGuardarConfirmacionVendedor}
                     className={`flex h-[40px] sm:h-[36px] items-center justify-center gap-2 rounded-[14px] bg-[#1248a8] px-6 text-[14px] sm:text-[12px] font-semibold text-white shadow-md transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed ${isProcessing ? "cursor-wait" : ""}`}
                   >
                     <CheckCircle2 className="h-4 w-4" />
@@ -522,7 +522,7 @@ export function PresupuestoModalsManager({
             Ver detalle
           </button>
 
-          {puedeOperarMostrador && (
+          {puedeOperarVendedor && (
             <>
               <button
                 type="button"
@@ -574,7 +574,7 @@ export function PresupuestoModalsManager({
             Exportar PDF
           </button>
 
-          {puedeOperarMostrador && (
+          {puedeOperarVendedor && (
             <>
               {rowParaMenu.estado === "confirmado" && (
                 <button
