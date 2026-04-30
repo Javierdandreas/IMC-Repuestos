@@ -20,7 +20,7 @@ export function DashboardHome() {
                 <div>
                     <div className="flex items-center gap-2 mb-3">
                         <span className="px-2 py-1 bg-slate-100 text-slate-900 text-[10px] font-bold uppercase tracking-wider rounded-md border border-slate-200">
-                            IMC-Cerebro V2.0
+                            IMC V2.0
                         </span>
                         <span className="text-slate-300 text-[10px]">•</span>
                         <span className="text-slate-400 text-[10px] flex items-center gap-1">

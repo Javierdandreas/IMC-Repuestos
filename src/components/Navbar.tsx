@@ -150,8 +150,7 @@ export const Navbar = () => {
 
         <div className="flex shrink-0 items-center justify-end gap-3">
           <Link
-            href="https://imc-cerebro.vercel.app/"
-            rel="noopener noreferrer"
+            href="/presupuestos/general"
             className="hidden items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-900 transition-all hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 lg:flex"
           >
             <span className="relative flex h-2 w-2">

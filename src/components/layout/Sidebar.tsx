@@ -20,7 +20,6 @@ import { ThemeToggle } from "./ThemeToggle";
 import LogoutButton from "@/modules/auth/components/LogoutButton";
 import { usePermissions } from "@/modules/auth/components/usePermissions";
 import type { AppModule } from "@/modules/auth/repos/permissions";
-// import { syncLegacyBudgetUserFromInternalSession } from "@/modules/auth-presupuestos/repos/legacy-session-bridge";
 import { useSidebar } from "@/context/SidebarContext";
 import { useTheme } from "@/context/ThemeContext";
 
@@ -56,7 +55,7 @@ const navGroups: NavGroup[] = [
         module: "operaciones",
         sublinks: [
           { href: "/operaciones?tipo=VENTA", label: "Listado de Ventas", module: "operaciones" },
-          { href: "https://imc-cerebro.vercel.app/", label: "Presupuestos", module: "presupuestos", external: true },
+          { href: "/presupuestos/general", label: "Presupuestos", module: "presupuestos" },
         ]
       },
       { href: "/operaciones?tipo=AJUSTE", label: "Ajustes de Stock", module: "operaciones" },
