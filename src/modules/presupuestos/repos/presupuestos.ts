@@ -130,11 +130,11 @@ export async function guardarPresupuestoSupabase(payload: GuardarPresupuestoPayl
   if (codigos.length > 0) {
     const { data: productos, error: prodErr } = await supabase
       .from('productos')
-      .select('id, codigo')
-      .in('codigo', codigos);
+      .select('id, cod_unico')
+      .in('cod_unico', codigos);
 
     if (!prodErr && productos) {
-      mapCodigos = new Map(productos.map((p: any) => [p.codigo, p.id]));
+      mapCodigos = new Map(productos.map((p: any) => [p.cod_unico, p.id]));
     }
   }
 
@@ -274,7 +274,6 @@ export async function getPresupuestosSupabase(viewStatus?: string): Promise<Pres
           created_at
         ),
         productos (
-          marca,
           marcas (descripcion),
           stock,
           ubicaciones (descripcion)
@@ -335,7 +334,7 @@ export async function getPresupuestosSupabase(viewStatus?: string): Promise<Pres
             id: String(item.id),
             codigo: item.codigo,
             descripcion: item.descripcion,
-            marca: prod?.marcas?.descripcion || prod?.marca || "",
+            marca: prod?.marcas?.descripcion || "",
             cantidad: Number(item.cantidad),
             precio: Number(item.precio_unitario),
             stock: stockVal,

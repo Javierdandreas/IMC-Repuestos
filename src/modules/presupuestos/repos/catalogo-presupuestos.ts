@@ -16,9 +16,9 @@ function mapProductoCatalogo(item: any): ProductoCatalogo {
   const ubicacionDesc = item.ubicaciones?.descripcion || "Sin Ubicación";
 
   return {
-    codigo: item.cod_unico || item.codigo || "", // Fallback a codigo legacy si cod_unico está vacío
+    codigo: item.cod_unico || "", 
     descripcion: item.descripcion || "Sin descripción",
-    marca: item.marcas?.descripcion || item.marca || "Desconocida", // Fallback a marca legacy
+    marca: item.marcas?.descripcion || "Desconocida", 
     precio: precioFinal,
     stock: totalStock,
     ubicacion: ubicacionDesc,
@@ -28,11 +28,8 @@ function mapProductoCatalogo(item: any): ProductoCatalogo {
 const PRODUCTO_SELECT_QUERY = `
   id,
   cod_unico,
-  codigo,
   descripcion,
-  marca,
   marcas (descripcion),
-  tipo,
   producto_precio (
     precio,
     tipo_precio (descripcion)
@@ -62,14 +59,13 @@ export async function buscarProductosEnGESU(termino: string): Promise<ProductoCa
   words.forEach((word) => {
     const cleanWord = `%${word}%`;
     query = query.or(
-      `cod_unico.ilike.${cleanWord},codigo.ilike.${cleanWord},descripcion.ilike.${cleanWord},marca.ilike.${cleanWord},palabra_clave.ilike.${cleanWord}`
+      `cod_unico.ilike.${cleanWord},descripcion.ilike.${cleanWord},palabra_clave.ilike.${cleanWord}`
     );
   });
 
   const promiseProductos = query
-    .order("tipo", { ascending: false })
-    .order("codigo", { ascending: true })
-    .limit(100);
+    .order("cod_unico", { ascending: true })
+    .limit(SEARCH_MAX_RESULTS);
 
   // 2. Consultar palabras clave
   let keywordQuery = supabase
@@ -156,8 +152,7 @@ export async function buscarProductosExacto(termino: string): Promise<ProductoCa
   return items
     .sort(
       (a: any, b: any) =>
-        (b.tipo || "").localeCompare(a.tipo || "") ||
-        (a.cod_unico || a.codigo || "").localeCompare(b.cod_unico || b.codigo || "")
+        (a.cod_unico || "").localeCompare(b.cod_unico || "")
     )
     .map(mapProductoCatalogo);
 }
@@ -171,7 +166,7 @@ export async function obtenerProductosPorCodigos(codigos: string[]): Promise<Pro
   const { data, error } = await supabase
     .from("productos")
     .select(PRODUCTO_SELECT_QUERY)
-    .or(`cod_unico.in.(${codigos.join(',')}),codigo.in.(${codigos.join(',')})`);
+    .or(`cod_unico.in.(${codigos.join(',')})`);
 
   if (error) {
     console.error("Error obteniendo productos por códigos en Supabase:", error);
@@ -192,7 +187,7 @@ export async function buscarMasivoProductos(codigos: string[]): Promise<Producto
   const promiseProds = supabase
     .from("productos")
     .select(PRODUCTO_SELECT_QUERY)
-    .or(`cod_unico.in.(${codigos.join(',')}),codigo.in.(${codigos.join(',')})`);
+    .or(`cod_unico.in.(${codigos.join(',')})`);
 
   const promiseFuentes = supabase
     .from("producto_proveedor")
