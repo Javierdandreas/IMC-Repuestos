@@ -31,7 +31,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
       }, 100);
       return () => clearTimeout(timer);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, productId]);
 
   const loadSeries = async () => {
@@ -75,7 +75,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
       await loadSeries();
       toast.success("Serie registrada exitosamente");
       setNewSerial("");
-      
+
       // Mantenemos foco para la pistola láser
       inputRef.current?.focus();
     } catch (error: any) {
@@ -104,7 +104,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
         const err = await res.json();
         throw new Error(err.message || "Error en la operación");
       }
-      
+
       toast.success("Estado cambiado con éxito");
       loadSeries();
     } catch (error: any) {
@@ -196,7 +196,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
                       </>
                     ) : (
                       <>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-wand-2"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-wand-2"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" /><path d="m14 7 3 3" /><path d="M5 6v4" /><path d="M19 14v4" /><path d="M10 2v2" /><path d="M7 8H3" /><path d="M21 16h-4" /><path d="M11 3H9" /></svg>
                         <span>AUTOGENERAR SERIES</span>
                       </>
                     )}
@@ -216,7 +216,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
                       Unidades Registradas ({series.length})
                     </h3>
                   </div>
-                  
+
                   <div className="relative w-64 group">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition group-focus-within:text-blue-500" />
                     <input
@@ -270,15 +270,14 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
                               </div>
                             </div>
                             <div className="flex items-center gap-4">
-                              <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                s.estado === "DISPONIBLE" 
-                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" 
+                              <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${s.estado === "DISPONIBLE"
+                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                                   : s.estado === "VENDIDO"
-                                  ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
-                                  : s.estado === "BAJA"
-                                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                  : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400"
-                              }`}>
+                                    ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                                    : s.estado === "BAJA"
+                                      ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                      : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                                }`}>
                                 {s.estado}
                               </div>
                               {s.estado === "DISPONIBLE" && (

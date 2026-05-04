@@ -21,7 +21,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
   const [readyToPrint, setReadyToPrint] = useState(false);
   const [seriesMap, setSeriesMap] = useState<Record<number, ProductoSerie[]>>({});
   const [customQuantities, setCustomQuantities] = useState<Record<number, number>>({});
-  
+
   // Identificar productos trazables
   const [localProducts, setLocalProducts] = useState<ProductoListado[]>(products);
 
@@ -80,10 +80,10 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
   // Generar etiquetas individuales usando el estado local (localProducts)
   const labelsToPrint = useMemo(() => {
     const list: { product: ProductoListado; serial?: string }[] = [];
-    
+
     localProducts.forEach(p => {
       const targetQty = customQuantities[p.id] ?? Math.max(1, Number(p.stock) || 1);
-      
+
       if (p.usa_numero_serie) {
         const series = seriesMap[p.id] || [];
         // Tomar hasta N series según la cantidad deseada
@@ -101,7 +101,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
   }, [localProducts, seriesMap, customQuantities]);
 
   const handleAutoGenerateMissing = async () => {
-    const productsToFix = products.filter(p => 
+    const productsToFix = products.filter(p =>
       p.usa_numero_serie && (seriesMap[p.id]?.length || 0) < (p.stock || 0)
     );
 
@@ -157,7 +157,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
         });
 
         if (!res.ok) throw new Error("Error al guardar códigos");
-        
+
         const data = await res.json();
         if (data.success && data.updates) {
           // Actualizar localProducts con los nuevos códigos generados antes de imprimir
@@ -170,7 +170,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
           }));
           toast.success(`${data.updates.length} códigos de barras generados profesionalmente.`);
         }
-        
+
         onSuccess();
       } catch (error) {
         toast.error("Error al generar códigos profesionales.");
@@ -178,14 +178,14 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
         return;
       }
     }
-    
+
     setReadyToPrint(true);
     setIsGenerating(false);
   };
 
   const handlePrint = () => {
     const sourceHtml = document.getElementById("labels-print-source")?.innerHTML;
-    
+
     if (!sourceHtml) {
       toast.error("Error al preparar las etiquetas.");
       return;
@@ -279,7 +279,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
     }
   }, [readyToPrint]);
 
-  const hasMissingSeries = products.some(p => 
+  const hasMissingSeries = products.some(p =>
     p.usa_numero_serie && (seriesMap[p.id]?.length || 0) < (p.stock || 0)
   );
 
@@ -288,23 +288,23 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
       <div className="flex flex-col gap-6">
         {/* Source for Printing (Hidden) */}
         <div id="labels-print-source" className="hidden">
-           {labelsToPrint.map((label, idx) => (
-              <div key={`source-${label.product.id}-${idx}`} className="label-card">
-                <Barcode 
-                  value={label.serial || label.product.cod_barra || label.product.cod_unico} 
-                  width={2.5} 
-                  height={45} 
-                  displayValue={false}
-                  margin={0}
-                />
-                <div className="label-detail-row">
-                  <span className="label-detail-text">{label.product.cod_unico}</span>
-                  {label.serial && (
-                    <span className="label-serial-badge">{label.serial}</span>
-                  )}
-                </div>
+          {labelsToPrint.map((label, idx) => (
+            <div key={`source-${label.product.id}-${idx}`} className="label-card">
+              <Barcode
+                value={label.serial || label.product.cod_barra || label.product.cod_unico}
+                width={2.5}
+                height={45}
+                displayValue={false}
+                margin={0}
+              />
+              <div className="label-detail-row">
+                <span className="label-detail-text">{label.product.cod_unico}</span>
+                {label.serial && (
+                  <span className="label-serial-badge">{label.serial}</span>
+                )}
               </div>
-            ))}
+            </div>
+          ))}
         </div>
 
         {/* Panel de Control */}
@@ -335,7 +335,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
                   Generar Series Faltantes
                 </button>
               )}
-              
+
               <button
                 onClick={handleSaveBarcodesAndPrint}
                 disabled={isGenerating || isFetchingSeries}
@@ -365,19 +365,19 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
                   <span className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">{p.cod_unico} • Stock: {p.stock || 0}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => setCustomQuantities(prev => ({ ...prev, [p.id]: Math.max(0, (prev[p.id] || 0) - 1) }))}
                     className="h-8 w-8 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
                   >
                     -
                   </button>
-                  <input 
+                  <input
                     type="number"
                     value={customQuantities[p.id] || 0}
                     onChange={(e) => setCustomQuantities(prev => ({ ...prev, [p.id]: Math.max(0, parseInt(e.target.value) || 0) }))}
                     className="w-12 text-center bg-transparent font-black text-xs text-slate-900 dark:text-white focus:outline-none"
                   />
-                  <button 
+                  <button
                     onClick={() => setCustomQuantities(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }))}
                     className="h-8 w-8 flex items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500 hover:text-white transition-colors"
                   >
@@ -399,7 +399,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
               const firstSerial = hasSeries ? (seriesMap[product.id]?.[0]?.numero_serie || "SERIE-EJEMPLO") : null;
 
               return (
-                <div 
+                <div
                   key={`preview-${product.id}`}
                   className="group relative flex flex-col items-center p-5 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 transition hover:border-blue-500/50 hover:bg-white dark:hover:bg-slate-800"
                 >
@@ -414,12 +414,12 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
                   <span className="text-[11px] font-black text-slate-900 dark:text-white text-center leading-tight mb-3 px-2 truncate w-full">
                     {product.descripcion}
                   </span>
-                  
+
                   <div className="bg-white p-2 rounded-lg border border-slate-200 mb-2 w-full flex justify-center overflow-hidden opacity-80 group-hover:opacity-100 transition-opacity">
-                    <Barcode 
-                      value={firstSerial || product.cod_barra || product.cod_unico} 
-                      width={1.1} 
-                      height={35} 
+                    <Barcode
+                      value={firstSerial || product.cod_barra || product.cod_unico}
+                      width={1.1}
+                      height={35}
                       displayValue={false}
                       fontSize={10}
                       background="#ffffff"
@@ -440,7 +440,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
                 </div>
               );
             })}
-          
+
           {labelsToPrint.length === 0 && (
             <div className="col-span-full py-20 text-center">
               <p className="text-slate-400 font-bold uppercase tracking-widest">No hay etiquetas para mostrar</p>

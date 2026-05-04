@@ -439,11 +439,11 @@ export function ProductForm({
     if (quickAddType === "ubicaciones") setProduct(prev => ({ ...prev, id_ubicacion: id }));
     if (quickAddType === "categorias") setProduct(prev => ({ ...prev, id_categoria: id }));
     if (quickAddType === "subcategorias") setProduct(prev => ({ ...prev, id_subcategoria: id }));
-    
+
     if (quickAddType === "proveedores" && pendingQuickAddIndex !== null) {
       handleProveedorChange(pendingQuickAddIndex, "id_proveedor", id);
     }
-    
+
     setPendingQuickAddIndex(null);
   };
 
@@ -475,8 +475,8 @@ export function ProductForm({
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-all duration-200 ${isActive
-                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white"
-                    : "text-slate-500 hover:bg-white/50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-300"
+                  ? "bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white"
+                  : "text-slate-500 hover:bg-white/50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-300"
                   }`}
               >
                 <Icon className={`h-3.5 w-3.5 ${isActive ? "text-blue-500" : "text-slate-400"}`} />
@@ -750,9 +750,9 @@ export function ProductForm({
           onClose={() => setIsSeriesManagerOpen(false)}
         />
       )}
-      <QuickAddModal 
-        type={quickAddType} 
-        onClose={() => setQuickAddType(null)} 
+      <QuickAddModal
+        type={quickAddType}
+        onClose={() => setQuickAddType(null)}
         onSuccess={handleQuickAddSuccess}
         parentId={quickAddParentId}
       />

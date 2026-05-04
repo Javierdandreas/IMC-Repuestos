@@ -69,7 +69,7 @@ export function SuppliersSection({
     onChange(index, "precio_lista_actual", lookup.precio_lista);
     onChange(index, "ultima_importacion_id", lookup.importacion_id);
     onChange(index, "fecha_ultima_actualizacion", lookup.fecha_importacion);
-    
+
     // Limpiar lookup después de aplicar
     setLastLookup(prev => ({ ...prev, [index]: null }));
     toast.success("Precio aplicado correctamente");

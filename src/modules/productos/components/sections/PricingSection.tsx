@@ -100,7 +100,7 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
   const syncAllPrices = (currentPrecios: PrecioDetalle[]) => {
     const basicTypes = [TIPO_COSTO, TIPO_ML, TIPO_MOSTRADOR, TIPO_MECANICO];
     const missing = basicTypes.filter(id => !currentPrecios.find(p => p.id_tipo_precio === id));
-    
+
     if (missing.length === 0) return currentPrecios;
 
     const added = missing.map(id => ({
@@ -129,7 +129,7 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
   const updatePrecio = (idTipo: number, field: "valor" | "porcentaje_ganancia", val: number) => {
     const basePrecios = syncAllPrices(precios);
     const costo = basePrecios.find(p => p.id_tipo_precio === TIPO_COSTO)?.valor || 0;
-    
+
     const nuevosPrecios = basePrecios.map(p => {
       if (p.id_tipo_precio !== idTipo) return p;
 
@@ -141,13 +141,13 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
         return { ...p, porcentaje_ganancia: round(val), valor: round(nuevoPrecio) };
       }
     });
-    
+
     onChange(nuevosPrecios);
   };
 
   const renderPriceRow = (idTipo: number, label: string, Icon: any, colorClass: string) => {
     const item = precios.find(p => p.id_tipo_precio === idTipo) || { valor: 0, porcentaje_ganancia: 0 };
-    
+
     return (
       <div className="group flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700">
         <div className="flex items-center gap-2">
@@ -205,7 +205,7 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
               <span className="text-[8px] font-bold uppercase text-slate-400 leading-none">Insumo</span>
             </div>
           </div>
-          
+
           <PriceInput
             value={costoItem.valor}
             onChange={handleCostoChange}

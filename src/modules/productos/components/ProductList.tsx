@@ -238,8 +238,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             type="button"
             onClick={() => setActiveTab(tab.id)}
             className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-bold uppercase tracking-wider transition-all duration-200 ${isActive
-                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
-                : "text-slate-500 hover:bg-white/50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-slate-300"
+              ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
+              : "text-slate-500 hover:bg-white/50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-slate-300"
               }`}
           >
             <Icon className={`h-4 w-4 ${isActive ? "text-blue-500" : "text-slate-400"}`} />
@@ -439,8 +439,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   <tr
                     key={product.id}
                     className={`group transition-all ${selectedIds.has(product.id)
-                        ? 'bg-blue-50/50 dark:bg-blue-900/10'
-                        : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/30'
+                      ? 'bg-blue-50/50 dark:bg-blue-900/10'
+                      : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/30'
                       }`}
                   >
                     <td className="px-3 py-4">
@@ -660,8 +660,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                             key={idx}
                             onClick={() => router.push(`?page=${p}`)}
                             className={`h-10 w-10 flex items-center justify-center rounded-xl text-sm font-black transition-all ${currentPage === p
-                                ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30 scale-105"
-                                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400"
+                              ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30 scale-105"
+                              : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400"
                               }`}
                           >
                             {p}
@@ -823,7 +823,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         )}
       </Modal>
 
-      <ExportModal 
+      <ExportModal
         isOpen={openExportModal}
         onClose={() => setOpenExportModal(false)}
         onExport={handleExport}

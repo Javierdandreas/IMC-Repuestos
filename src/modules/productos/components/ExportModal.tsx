@@ -16,7 +16,7 @@ const EXPORT_GROUPS = [
     id: 'basico',
     label: 'Información Básica',
     columns: [
-      "Código Único", "Descripción", "Código de Barras", "Stock", 
+      "Código Único", "Descripción", "Código de Barras", "Stock",
       "Marca", "Categoría", "Subcategoría", "Ubicación", "Palabras Clave"
     ]
   },
@@ -49,7 +49,7 @@ export function ExportModal({ isOpen, onClose, onExport, isExporting }: ExportMo
   );
 
   const toggleColumn = (col: string) => {
-    setSelectedColumns(prev => 
+    setSelectedColumns(prev =>
       prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col]
     );
   };
@@ -64,9 +64,9 @@ export function ExportModal({ isOpen, onClose, onExport, isExporting }: ExportMo
   };
 
   return (
-    <Modal 
-      open={isOpen} 
-      onClose={onClose} 
+    <Modal
+      open={isOpen}
+      onClose={onClose}
       title="Configurar Exportación"
       width="w-[min(96vw,700px)]"
     >
@@ -84,7 +84,7 @@ export function ExportModal({ isOpen, onClose, onExport, isExporting }: ExportMo
               <div key={group.id} className="flex flex-col gap-3 p-4 bg-zinc-900/30 rounded-2xl border border-white/5">
                 <div className="flex items-center justify-between border-b border-white/5 pb-2">
                   <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{group.label}</span>
-                  <button 
+                  <button
                     onClick={() => toggleGroup(group.columns)}
                     className="text-[9px] font-bold text-blue-500 hover:text-blue-400 uppercase tracking-tighter"
                   >
@@ -98,15 +98,13 @@ export function ExportModal({ isOpen, onClose, onExport, isExporting }: ExportMo
                       <button
                         key={col}
                         onClick={() => toggleColumn(col)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-bold transition-all ${
-                          isSelected 
-                          ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' 
-                          : 'bg-transparent border-white/5 text-zinc-500 opacity-60'
-                        }`}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-bold transition-all ${isSelected
+                            ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                            : 'bg-transparent border-white/5 text-zinc-500 opacity-60'
+                          }`}
                       >
-                        <div className={`w-3 h-3 rounded-full border flex items-center justify-center ${
-                          isSelected ? 'bg-blue-500 border-blue-500' : 'border-zinc-700'
-                        }`}>
+                        <div className={`w-3 h-3 rounded-full border flex items-center justify-center ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-zinc-700'
+                          }`}>
                           {isSelected && <HiCheck className="text-white w-2 h-2" />}
                         </div>
                         {col}

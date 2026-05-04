@@ -14,10 +14,10 @@ interface ImageUploadProps {
   folder?: string;
 }
 
-export function ImageUpload({ 
-  value, 
-  onChange, 
-  disabled, 
+export function ImageUpload({
+  value,
+  onChange,
+  disabled,
   bucket = "productos",
   folder = "product-images"
 }: ImageUploadProps) {
@@ -42,7 +42,7 @@ export function ImageUpload({
 
     try {
       setIsUploading(true);
-      
+
       const fileExt = file.name ? file.name.split(".").pop() : "png";
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${folder}/${fileName}`;
@@ -73,7 +73,7 @@ export function ImageUpload({
 
   const handlePaste = useCallback((e: ClipboardEvent) => {
     if (disabled || value || isUploading) return;
-    
+
     const items = e.clipboardData?.items;
     if (!items) return;
 
@@ -103,7 +103,7 @@ export function ImageUpload({
     if (disabled || value || isUploading) return;
     e.preventDefault();
     setIsDragging(false);
-    
+
     const file = e.dataTransfer.files?.[0];
     if (file) {
       processFile(file);
@@ -116,7 +116,7 @@ export function ImageUpload({
 
     const pasteHandler = (e: Event) => handlePaste(e as ClipboardEvent);
     target.addEventListener("paste", pasteHandler);
-    
+
     return () => {
       target.removeEventListener("paste", pasteHandler);
     };
@@ -126,7 +126,7 @@ export function ImageUpload({
     try {
       const parts = url.split(`/${bucket}/`);
       if (parts.length < 2) return;
-      
+
       const path = parts[1];
       const { error } = await supabase.storage.from(bucket).remove([path]);
       if (error) throw error;
@@ -153,7 +153,7 @@ export function ImageUpload({
 
   return (
     <div className="flex flex-col gap-4" ref={containerRef}>
-      <div 
+      <div
         className={`relative flex min-h-[300px] flex-col items-center justify-center rounded-2xl border-2 border-dashed transition outline-none
           ${value ? "border-transparent bg-slate-100" : "border-slate-300 bg-slate-50"}
           ${isDragging ? "border-blue-500 bg-blue-50/50 ring-4 ring-blue-50" : ""}
@@ -169,11 +169,11 @@ export function ImageUpload({
         {value ? (
           <div className="relative h-full w-full p-4 overflow-hidden rounded-xl">
             <div className="relative mx-auto block h-[350px] w-full max-w-full rounded-xl overflow-hidden shadow-md">
-              <Image 
-                src={value} 
-                alt="Producto" 
+              <Image
+                src={value}
+                alt="Producto"
                 fill
-                className="object-contain" 
+                className="object-contain"
                 unoptimized
               />
             </div>
@@ -211,7 +211,7 @@ export function ImageUpload({
         )}
       </div>
 
-      <input 
+      <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileChange}
@@ -219,7 +219,7 @@ export function ImageUpload({
         className="hidden"
         disabled={disabled || isUploading}
       />
-      
+
       {value && !disabled && (
         <button
           type="button"

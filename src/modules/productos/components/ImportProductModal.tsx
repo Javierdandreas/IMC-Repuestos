@@ -89,7 +89,7 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
           const workbook = XLSX.read(data, { type: 'array' });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
-          
+
           const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
           const headers: string[] = [];
           for (let C = range.s.c; C <= range.e.c; ++C) {
@@ -99,7 +99,7 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
               headers.push(cell.v.toString());
             }
           }
-          
+
           setCsvHeaders(headers);
           const jsonData = XLSX.utils.sheet_to_json(worksheet);
           setPreview(jsonData.slice(0, 5));
@@ -375,7 +375,7 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
               <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-500">Auditoría de Cambios en Productos Existentes</h4>
               <span className="text-[9px] font-bold text-blue-400/50 uppercase tracking-tighter">Últimos {Math.min(results.updatedDetails.length, 300)} registros</span>
             </div>
-            
+
             <div className="overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-blue-500/20">
               <div className="flex flex-col gap-2">
                 {results.updatedDetails.slice(0, 300).map((item, i) => (
@@ -443,9 +443,9 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
-            <input 
-              type="checkbox" 
-              className="sr-only peer" 
+            <input
+              type="checkbox"
+              className="sr-only peer"
               checked={isReplaceMode}
               onChange={() => setIsReplaceMode(!isReplaceMode)}
             />
@@ -460,8 +460,8 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
               <div
                 key={field.id}
                 className={`flex flex-col gap-2 rounded-2xl p-3 border transition-all ${isSelected
-                    ? 'bg-blue-50/50 dark:bg-blue-500/5 border-blue-200 dark:border-blue-500/30'
-                    : 'bg-slate-50/50 dark:bg-zinc-900/30 border-slate-200 dark:border-zinc-800 opacity-80'
+                  ? 'bg-blue-50/50 dark:bg-blue-500/5 border-blue-200 dark:border-blue-500/30'
+                  : 'bg-slate-50/50 dark:bg-zinc-900/30 border-slate-200 dark:border-zinc-800 opacity-80'
                   }`}
               >
                 <div className="flex items-center justify-between">
@@ -498,8 +498,8 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
                     value={mappings[field.id].csvHeader}
                     onChange={(e) => updateMapping(field.id, e.target.value)}
                     className={`h-9 w-full rounded-xl border px-3 text-[11px] font-bold transition focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${mappings[field.id].csvHeader
-                        ? 'bg-white dark:bg-zinc-950 border-blue-500/50 text-slate-900 dark:text-white shadow-sm'
-                        : 'bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-400'
+                      ? 'bg-white dark:bg-zinc-950 border-blue-500/50 text-slate-900 dark:text-white shadow-sm'
+                      : 'bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-400'
                       }`}
                   >
                     <option value="">-- IGNORAR ESTE CAMPO --</option>
