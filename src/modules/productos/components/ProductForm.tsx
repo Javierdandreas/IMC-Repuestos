@@ -19,8 +19,6 @@ import { ProductSeriesManager } from "./ProductSeriesManager";
 
 import { ImageUpload } from "./ImageUpload";
 import Image from "next/image";
-import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
-import { QuickAddModal } from "./QuickAddModal";
 import { useMetadata } from "@/context/MetadataContext";
 import {
   Package,

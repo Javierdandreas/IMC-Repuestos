@@ -27,6 +27,20 @@ export function ImageUpload({
   const containerRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
+  const deleteImageFromStorage = useCallback(async (url: string) => {
+    try {
+      const parts = url.split(`/${bucket}/`);
+      if (parts.length < 2) return;
+      
+      const path = parts[1];
+      const { error } = await supabase.storage.from(bucket).remove([path]);
+      if (error) throw error;
+      console.log(`Imagen borrada del storage (${bucket}):`, path);
+    } catch (error) {
+      console.error("Error al borrar imagen del storage:", error);
+    }
+  }, [bucket, supabase]);
+
   const processFile = useCallback(async (file: File) => {
     // Validaciones básicas
     if (!file.type.startsWith("image/")) {
@@ -121,20 +135,6 @@ export function ImageUpload({
     };
   }, [handlePaste]);
 
-  const deleteImageFromStorage = useCallback(async (url: string) => {
-    try {
-      const parts = url.split(`/${bucket}/`);
-      if (parts.length < 2) return;
-      
-      const path = parts[1];
-      const { error } = await supabase.storage.from(bucket).remove([path]);
-      if (error) throw error;
-      console.log(`Imagen borrada del storage (${bucket}):`, path);
-    } catch (error) {
-      console.error("Error al borrar imagen del storage:", error);
-    }
-  }, [bucket, supabase]);
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) processFile(file);
@@ -151,84 +151,59 @@ export function ImageUpload({
   };
 
   return (
-    <div className="flex flex-col gap-4" ref={containerRef}>
-      <div 
-        className={`relative flex min-h-[300px] flex-col items-center justify-center rounded-2xl border-2 border-dashed transition outline-none
-          ${value ? "border-transparent bg-slate-100" : "border-slate-300 bg-slate-50"}
-          ${isDragging ? "border-blue-500 bg-blue-50/50 ring-4 ring-blue-50" : ""}
-          ${!disabled && !value && !isDragging ? "hover:border-blue-400 hover:bg-blue-50/30" : ""}
-          ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
-        `}
-        onClick={() => !disabled && !value && fileInputRef.current?.click()}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        tabIndex={disabled || value ? -1 : 0}
-      >
-        {value ? (
-          <div className="relative h-full w-full p-4 overflow-hidden rounded-xl">
-            <div className="relative mx-auto block h-[350px] w-full max-w-full rounded-xl overflow-hidden shadow-md">
-              <Image 
-                src={value} 
-                alt="Producto" 
-                fill
-                className="object-contain" 
-                unoptimized
-              />
-            </div>
-            {!disabled && (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); removeImage(); }}
-                className="absolute right-6 top-6 flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white shadow-lg transition hover:bg-red-700"
-              >
-                <HiX className="h-5 w-5" />
-              </button>
-            )}
+    <div 
+      ref={containerRef}
+      className={`relative flex flex-col gap-4 ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+    >
+      {value ? (
+        <div className="group relative aspect-square w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
+          <Image
+            src={value}
+            alt="Uploaded image"
+            fill
+            className="object-contain p-4"
+          />
+          <button
+            type="button"
+            onClick={removeImage}
+            className="absolute right-2 top-2 rounded-full bg-red-500 p-1.5 text-white opacity-0 transition group-hover:opacity-100 hover:bg-red-600 shadow-lg"
+          >
+            <HiX className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`
+            flex aspect-square w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed transition-all
+            ${isDragging 
+              ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/20" 
+              : "border-slate-300 hover:border-slate-400 dark:border-slate-700 dark:hover:border-slate-600 bg-slate-50/50 dark:bg-slate-900/30"
+            }
+          `}
+        >
+          <div className={`p-4 rounded-full ${isDragging ? "bg-blue-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+            <HiPhotograph className="h-8 w-8" />
           </div>
-        ) : (
-          <div className="flex flex-col items-center p-8 text-center">
-            {isUploading ? (
-              <div className="flex flex-col items-center gap-2">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-                <span className="text-sm font-medium text-slate-600">Subiendo...</span>
-              </div>
-            ) : (
-              <>
-                <div className={`mb-3 flex h-12 w-12 items-center justify-center rounded-xl transition-transform duration-200 ${isDragging ? "scale-110 bg-blue-600 text-white" : "bg-blue-100 text-blue-600"}`}>
-                  <HiPhotograph className="h-6 w-6" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-bold text-slate-700">
-                    {isDragging ? "¡Soltala acá!" : "Toca, arrastrá o pegá una foto"}
-                  </span>
-                  <span className="text-xs text-slate-500">JPG, PNG o WEBP (Máx. 2MB)</span>
-                </div>
-              </>
-            )}
+          <div className="text-center px-4">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">
+              {isUploading ? "Subiendo..." : "Click o soltá para subir"}
+            </p>
+            <p className="mt-1 text-[10px] font-bold text-slate-400">Podes pegar desde el portapapeles</p>
           </div>
-        )}
-      </div>
-
-      <input 
+        </div>
+      )}
+      
+      <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileChange}
         accept="image/*"
         className="hidden"
-        disabled={disabled || isUploading}
       />
-      
-      {value && !disabled && (
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700 transition"
-        >
-          <HiUpload className="h-4 w-4" />
-          Cambiar imagen
-        </button>
-      )}
     </div>
   );
 }
