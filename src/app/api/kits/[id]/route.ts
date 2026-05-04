@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { getKitById, updateKit, deleteKit } from "@/modules/kits/repos/kits";
 import { requireApiSession, requireApiWriteSession } from "@/modules/auth/repos/api-auth";
 import { jsonError } from "@/lib/api-errors";
@@ -49,6 +50,7 @@ export async function DELETE(
     const id = parseInt(idStr);
 
     await deleteKit(id);
+    revalidatePath("/kits");
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     return jsonError(error, "No se pudo eliminar el kit");

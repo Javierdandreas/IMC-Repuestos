@@ -166,7 +166,7 @@ export async function updateKit(id: number, payload: Kit): Promise<Kit> {
  * Elimina un kit (soft delete).
  */
 export async function deleteKit(id: number): Promise<void> {
-  await query("UPDATE public.kits SET activo = false WHERE id = $1", [id]);
+  await query("UPDATE kits SET activo = false WHERE id = $1", [id]);
 }
 
 /**

@@ -89,7 +89,7 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
       router.refresh();
       setDeletingKit(null);
     } catch (error: any) {
-      toast.error("Error al eliminar el kit");
+      toast.error(error.message || "Error al eliminar el kit");
     } finally {
       setIsDeleting(false);
     }
