@@ -45,6 +45,7 @@ const SYSTEM_FIELDS = [
   { id: 'palabra_clave', label: 'Palabras Clave' },
   { id: 'proveedor', label: 'Proveedor' },
   { id: 'codigo_proveedor', label: 'Código en Proveedor' },
+  { id: 'precio_lista', label: 'Precio de Lista (Proveedor)' },
 ];
 
 export function ImportProductModal({ onClose }: { onClose: () => void }) {
@@ -114,6 +115,8 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
             if (h === 'stock' || h === 'cantidad') newMappings.stock.csvHeader = header;
             if (h === 'marca') newMappings.marca.csvHeader = header;
             if (h === 'proveedor') newMappings.proveedor.csvHeader = header;
+            if (h === 'codigo de proveedor' || h === 'codigo_proveedor' || h === 'cod_proveedor' || h === 'codprov') newMappings.codigo_proveedor.csvHeader = header;
+            if (h === 'precio lista' || h === 'precio_lista' || h === 'preciolista' || h === 'costo') newMappings.precio_lista.csvHeader = header;
             if (h === 'ubicacion' || h === 'pasillo') newMappings.ubicacion.csvHeader = header;
             if (h === 'codigo_barra' || h === 'cod_barra' || h === 'ean') newMappings.cod_barra.csvHeader = header;
           });
@@ -143,6 +146,8 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
               if (h === 'stock' || h === 'cantidad') newMappings.stock.csvHeader = header;
               if (h === 'marca') newMappings.marca.csvHeader = header;
               if (h === 'proveedor') newMappings.proveedor.csvHeader = header;
+              if (h === 'codigo de proveedor' || h === 'codigo_proveedor' || h === 'cod_proveedor' || h === 'codprov') newMappings.codigo_proveedor.csvHeader = header;
+              if (h === 'precio lista' || h === 'precio_lista' || h === 'preciolista' || h === 'costo') newMappings.precio_lista.csvHeader = header;
               if (h === 'ubicacion' || h === 'pasillo') newMappings.ubicacion.csvHeader = header;
               if (h === 'codigo_barra' || h === 'cod_barra' || h === 'ean') newMappings.cod_barra.csvHeader = header;
             });

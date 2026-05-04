@@ -31,7 +31,7 @@ const EXPORT_GROUPS = [
     id: 'economico',
     label: 'Precios y Proveedores',
     columns: [
-      "Precios y Márgenes", "Proveedores y Precios Lista"
+      "Precios y Márgenes", "Proveedor", "Código de Proveedor", "Precio Lista"
     ]
   },
   {

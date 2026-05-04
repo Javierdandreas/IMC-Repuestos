@@ -384,9 +384,30 @@ export async function getProductosParaExportar(filters: {
       
       -- APARTADO PROVEEDORES
       COALESCE(
-        STRING_AGG(DISTINCT prv.descripcion || ' [' || COALESCE(pp_prov.codigo_proveedor, 'S/C') || ']: $' || COALESCE(pp_prov.precio_lista_actual, 0), ' | '),
+        (SELECT prv2.descripcion 
+         FROM producto_proveedor pp2 
+         JOIN proveedores prv2 ON prv2.id = pp2.id_proveedor 
+         WHERE pp2.id_producto = p.id 
+         ORDER BY pp2.id_proveedor ASC 
+         LIMIT 1), 
         ''
-      ) AS "Proveedores y Precios Lista",
+      ) AS "Proveedor",
+      COALESCE(
+        (SELECT pp2.codigo_proveedor 
+         FROM producto_proveedor pp2 
+         WHERE pp2.id_producto = p.id 
+         ORDER BY pp2.id_proveedor ASC 
+         LIMIT 1), 
+        ''
+      ) AS "Código de Proveedor",
+      COALESCE(
+        (SELECT pp2.precio_lista_actual::text 
+         FROM producto_proveedor pp2 
+         WHERE pp2.id_producto = p.id 
+         ORDER BY pp2.id_proveedor ASC 
+         LIMIT 1), 
+        '0'
+      ) AS "Precio Lista",
       
       -- APARTADO SERIES
       CASE WHEN p.usa_numero_serie THEN 'SÍ' ELSE 'NO' END AS "Usa Serie",
@@ -800,7 +821,7 @@ export async function importProductos(
     const v_palabra_clave: (string | null)[] = [];
     
     // Para relación proveedores
-    const supplierLinks: { sku: string; provName: string; codProv: string | null }[] = [];
+    const supplierLinks: { sku: string; provName: string; codProv: string | null; listPrice: number | null }[] = [];
 
     const results = {
       imported: 0,
@@ -857,10 +878,14 @@ export async function importProductos(
             // Relación proveedor
             const provName = mappings.proveedor?.csvHeader ? item[mappings.proveedor.csvHeader] : null;
             if (provName) {
+                const rawPrice = mappings.precio_lista?.csvHeader ? item[mappings.precio_lista.csvHeader] : null;
+                const priceNum = rawPrice ? parseFloat(rawPrice.toString().replace(',', '.')) : null;
+
                 supplierLinks.push({ 
                   sku, 
                   provName: provName.toString(), 
-                  codProv: mappings.codigo_proveedor?.csvHeader ? item[mappings.codigo_proveedor.csvHeader]?.toString() : null 
+                  codProv: mappings.codigo_proveedor?.csvHeader ? item[mappings.codigo_proveedor.csvHeader]?.toString() : null,
+                  listPrice: isNaN(priceNum as any) ? null : priceNum
                 });
             }
         } catch (err: any) {
@@ -938,6 +963,7 @@ export async function importProductos(
           const v_prod_id: number[] = [];
           const v_prov_id: number[] = [];
           const v_cod_prov: (string | null)[] = [];
+          const v_price_lista: (number | null)[] = [];
 
           supplierLinks.forEach(link => {
               const prodId = skuToIdMap.get(link.sku);
@@ -946,19 +972,26 @@ export async function importProductos(
                   v_prod_id.push(prodId);
                   v_prov_id.push(provId);
                   v_cod_prov.push(link.codProv);
+                  v_price_lista.push(link.listPrice);
               }
           });
 
           if (v_prod_id.length > 0) {
               const codProvShouldUpdate = mappings.codigo_proveedor?.updateExisting ?? true;
+              const priceShouldUpdate = mappings.precio_lista?.updateExisting ?? true;
               
               await client.query(`
-                  INSERT INTO producto_proveedor (id_producto, id_proveedor, codigo_proveedor)
-                  SELECT * FROM UNNEST($1::int[], $2::int[], $3::text[])
-                  AS t(id_producto, id_proveedor, codigo_proveedor)
+                  INSERT INTO producto_proveedor (id_producto, id_proveedor, codigo_proveedor, precio_lista_actual, fecha_ultima_actualizacion)
+                  SELECT 
+                      t.id_producto, t.id_proveedor, t.codigo_proveedor, t.precio_lista_actual,
+                      CASE WHEN t.precio_lista_actual IS NOT NULL THEN CURRENT_TIMESTAMP ELSE NULL END
+                  FROM UNNEST($1::int[], $2::int[], $3::text[], $4::numeric[])
+                  AS t(id_producto, id_proveedor, codigo_proveedor, precio_lista_actual)
                   ON CONFLICT (id_producto, id_proveedor) DO UPDATE SET
-                      codigo_proveedor = CASE WHEN $4 THEN EXCLUDED.codigo_proveedor ELSE producto_proveedor.codigo_proveedor END
-              `, [v_prod_id, v_prov_id, v_cod_prov, codProvShouldUpdate]);
+                      codigo_proveedor = CASE WHEN $5 THEN EXCLUDED.codigo_proveedor ELSE producto_proveedor.codigo_proveedor END,
+                      precio_lista_actual = CASE WHEN $6 AND EXCLUDED.precio_lista_actual IS NOT NULL THEN EXCLUDED.precio_lista_actual ELSE producto_proveedor.precio_lista_actual END,
+                      fecha_ultima_actualizacion = CASE WHEN $6 AND EXCLUDED.precio_lista_actual IS NOT NULL THEN CURRENT_TIMESTAMP ELSE producto_proveedor.fecha_ultima_actualizacion END
+              `, [v_prod_id, v_prov_id, v_cod_prov, v_price_lista, codProvShouldUpdate, priceShouldUpdate]);
           }
       }
     } catch (dbErr: any) {
