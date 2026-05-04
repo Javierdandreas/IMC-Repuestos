@@ -25,8 +25,21 @@ export class KitService {
   /**
    * Genera datos para exportaciÃ³n en formato CSV o Excel
    */
-  static async exportKits(format: string) {
-    const data = await getKitsParaExportar();
+  static async exportKits(format: string, columns: string[] = []) {
+    let data = await getKitsParaExportar();
+
+    // Filtro de columnas si se especifican
+    if (columns.length > 0) {
+      data = data.map((item: any) => {
+        const filtered: any = {};
+        columns.forEach(col => {
+          if (item.hasOwnProperty(col)) {
+            filtered[col] = item[col];
+          }
+        });
+        return filtered;
+      });
+    }
 
     if (format === "excel") {
       const worksheet = XLSX.utils.json_to_sheet(data);

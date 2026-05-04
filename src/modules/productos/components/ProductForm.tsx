@@ -4,13 +4,10 @@ import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAppForm } from "@/hooks/useAppForm";
 import { toast } from "sonner";
-import { CatalogoItem } from "@/modules/core";
 import type {
   PiezaBusqueda,
   Producto,
   ProveedorProducto,
-  Subcategoria,
-  ProductoListado
 } from "@/modules/productos/types/productos";
 
 import { PieceSection } from "./sections/PieceSection";
@@ -29,14 +26,10 @@ import {
   Barcode,
   Image as ImageIcon,
   Save,
-  Trash2,
-  ChevronRight,
-  Info,
-  Layers,
-  Truck,
   Plus
 } from "lucide-react";
 import { QuickAddModal, QuickAddType } from "./QuickAddModal";
+import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
 
 export type TabId = "principal" | "pieza" | "precios" | "serial" | "foto";
 
@@ -122,11 +115,9 @@ export function ProductForm({
       ? initialProduct.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
       : initialState.proveedores,
     precios: initialProduct?.precios ?? initialState.precios,
-
   });
 
-
-  const { loading, submit } = useAppForm({
+  const { loading, error: saveError, clearError: clearSaveError, submit } = useAppForm({
     url: productId ? `/api/productos/${productId}` : "/api/productos",
     method: productId ? "PUT" : "POST",
     successMessage: productId ? "Producto actualizado correctamente" : "Producto creado correctamente",
@@ -137,7 +128,7 @@ export function ProductForm({
     },
   });
 
-  const { loading: deleting, submit: runDelete } = useAppForm({
+  const { loading: deleting, error: deleteError, clearError: clearDeleteError, submit: runDelete } = useAppForm({
     url: `/api/productos/${productId}`,
     method: "DELETE",
     successMessage: "Producto eliminado correctamente",
@@ -210,7 +201,6 @@ export function ProductForm({
             ? data.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
             : initialState.proveedores,
           precios: data.precios ?? initialState.precios
-
         });
 
         if (data.pieza) {
@@ -230,12 +220,10 @@ export function ProductForm({
   const selectedPieza = useMemo(() => {
     if (!product.id_pieza) return null;
 
-    // 1. PRIORIDAD: Datos frescos (ya sea cargados de API o seleccionados del buscador)
     if (fetchedPieza && Number(fetchedPieza.id) === Number(product.id_pieza)) {
       return fetchedPieza;
     }
 
-    // 2. Fallback a la pieza inicial si existe
     if (initialProduct?.pieza && Number(initialProduct.pieza.id) === Number(product.id_pieza)) {
       return initialProduct.pieza as unknown as PiezaBusqueda;
     }
@@ -414,14 +402,7 @@ export function ProductForm({
       precios: product.precios || [],
     };
 
-
     await submit(payload);
-  };
-
-  const handleDelete = async () => {
-    if (!productId) return;
-    if (!window.confirm("¿Seguro que querés eliminar este producto?")) return;
-    await runDelete({});
   };
 
   const handleQuickAdd = (type: QuickAddType, index: number | null = null) => {
@@ -463,7 +444,6 @@ export function ProductForm({
 
   return (
     <div className="flex flex-col gap-4 p-6 md:p-8">
-      {/* Tab Navigation - Only shown if not managed by parent */}
       {!externalTab && (
         <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-900/50">
           {tabs.map((tab) => {
@@ -489,7 +469,6 @@ export function ProductForm({
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div className="min-h-[400px]">
-          {/* TAB: PRINCIPAL */}
           {activeTab === "principal" && (
             <div className="grid grid-cols-1 gap-8 animate-in fade-in slide-in-from-bottom-2 duration-300 xl:grid-cols-2">
               <BasicInfoSection
@@ -524,7 +503,6 @@ export function ProductForm({
             </div>
           )}
 
-          {/* TAB: PIEZA */}
           {activeTab === "pieza" && (
             <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <PieceSection
@@ -538,7 +516,6 @@ export function ProductForm({
 
               {selectedPieza && (
                 <div className="grid grid-cols-1 gap-6 border-t border-slate-200 pt-8 dark:border-slate-800 md:grid-cols-2">
-                  {/* MEDIDAS */}
                   <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
                     <div className="mb-4 flex items-center justify-between">
                       <div className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Esquema de Medida</div>
@@ -568,7 +545,6 @@ export function ProductForm({
                     </div>
                   </div>
 
-                  {/* CODIGOS */}
                   <div className="flex flex-col gap-4">
                     <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
                       <div className="mb-4 text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Códigos de Referencia</div>
@@ -605,7 +581,6 @@ export function ProductForm({
             </div>
           )}
 
-          {/* TAB: PRECIOS-PROVEEDORES */}
           {activeTab === "precios" && (
             <div className="grid grid-cols-1 gap-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <PricingSection
@@ -623,7 +598,6 @@ export function ProductForm({
             </div>
           )}
 
-          {/* TAB: SERIALIZACION */}
           {activeTab === "serial" && (
             <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-950">
@@ -704,7 +678,6 @@ export function ProductForm({
             </div>
           )}
 
-          {/* TAB: FOTO */}
           {activeTab === "foto" && (
             <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-950">
@@ -722,7 +695,6 @@ export function ProductForm({
           )}
         </div>
 
-        {/* Action Buttons - Sticky at bottom */}
         <div className="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 flex items-center justify-end gap-3 border-t border-slate-100 bg-white/80 px-8 py-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/80 md:-mx-8 md:-mb-8">
           <button
             type="button"
@@ -750,11 +722,23 @@ export function ProductForm({
           onClose={() => setIsSeriesManagerOpen(false)}
         />
       )}
+
       <QuickAddModal 
         type={quickAddType} 
         onClose={() => setQuickAddType(null)} 
         onSuccess={handleQuickAddSuccess}
         parentId={quickAddParentId}
+      />
+
+      <DetailedErrorModal
+        open={!!saveError || !!deleteError}
+        onClose={() => {
+          clearSaveError();
+          clearDeleteError();
+        }}
+        type={saveError?.type || deleteError?.type}
+        message={saveError?.message || deleteError?.message}
+        details={saveError?.details || deleteError?.details}
       />
     </div>
   );

@@ -22,8 +22,21 @@ export class PiezaService {
   /**
    * Genera datos para exportaciÃ³n en formato CSV o Excel
    */
-  static async exportPiezas(format: string) {
-    const data = await getPiezasParaExportar();
+  static async exportPiezas(format: string, columns: string[] = []) {
+    let data = await getPiezasParaExportar();
+
+    // Filtro de columnas si se especifican
+    if (columns.length > 0) {
+      data = data.map((item: any) => {
+        const filtered: any = {};
+        columns.forEach(col => {
+          if (item.hasOwnProperty(col)) {
+            filtered[col] = item[col];
+          }
+        });
+        return filtered;
+      });
+    }
 
     if (format === "excel") {
       const worksheet = XLSX.utils.json_to_sheet(data);

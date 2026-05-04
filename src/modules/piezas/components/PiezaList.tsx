@@ -23,7 +23,8 @@ import {
 import { PiezaForm } from "./PiezaForm";
 import { ImportPiezaModal } from "./ImportPiezaModal";
 import { HiCloudUpload, HiDownload } from "react-icons/hi";
-import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
+import { DetailedErrorModal, AppErrorType, AppErrorDetail } from "@/components/ui/DetailedErrorModal";
+import { PiezaExportModal } from "./PiezaExportModal";
 
 type Props = {
   piezas: PiezaListado[];
@@ -53,6 +54,7 @@ export function PiezaList({
   const [deletingPieza, setDeletingPieza] = useState<PiezaListado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [openExportModal, setOpenExportModal] = useState(false);
   const [openImport, setOpenImport] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewMedida, setPreviewMedida] = useState<string | null>(null);
@@ -64,10 +66,14 @@ export function PiezaList({
   const [categoria, setCategoria] = useState("");
   const [subcategoria, setSubcategoria] = useState("");
 
-  const handleExport = async (format: "csv" | "excel") => {
+  const handleExport = async (format: "csv" | "excel", columns: string[]) => {
     try {
       setIsExporting(true);
-      const response = await fetch(`/api/piezas/export?format=${format}`);
+      const params = new URLSearchParams();
+      params.set("format", format);
+      if (columns.length > 0) params.set("columns", columns.join(","));
+      
+      const response = await fetch(`/api/piezas/export?${params.toString()}`);
       if (!response.ok) throw new Error("Error al exportar");
 
       const blob = await response.blob();
@@ -82,6 +88,7 @@ export function PiezaList({
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       toast.success(`Catálogo de piezas exportado correctamente`);
+      setOpenExportModal(false);
     } catch (error) {
       toast.error("No se pudo exportar el catálogo de piezas");
     } finally {
@@ -255,12 +262,12 @@ export function PiezaList({
               <div className="flex items-center gap-2 rounded-2xl bg-slate-100 p-1.5 dark:bg-slate-800">
                 <button
                   type="button"
-                  onClick={() => handleExport("excel")}
+                  onClick={() => setOpenExportModal(true)}
                   disabled={isExporting}
                   className="flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-[10px] font-black uppercase tracking-widest text-emerald-600 shadow-sm transition hover:bg-emerald-50 disabled:opacity-50 dark:bg-slate-950 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
                 >
                   <HiDownload className="h-4 w-4" />
-                  Excel
+                  Exportar
                 </button>
                 <button
                   type="button"
@@ -638,6 +645,12 @@ export function PiezaList({
           )}
         </div>
       </Modal>
+      <PiezaExportModal
+        isOpen={openExportModal}
+        onClose={() => setOpenExportModal(false)}
+        onExport={handleExport}
+        isExporting={isExporting}
+      />
       <DetailedErrorModal
         open={!!deleteError}
         onClose={() => setDeleteError(null)}

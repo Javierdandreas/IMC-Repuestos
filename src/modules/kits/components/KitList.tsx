@@ -10,6 +10,7 @@ import { KitListado } from "@/modules/kits/types/kits";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { ImportKitModal } from "./ImportKitModal";
 import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
+import { KitExportModal } from "./KitExportModal";
 
 interface Props {
   kits: KitListado[];
@@ -27,12 +28,17 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [openExportModal, setOpenExportModal] = useState(false);
   const [deleteError, setDeleteError] = useState<{ message: string; type: any; details: any[] } | null>(null);
 
-  const handleExport = async (format: "csv" | "excel") => {
+  const handleExport = async (format: "csv" | "excel", columns: string[]) => {
     try {
       setIsExporting(true);
-      const response = await fetch(`/api/kits/export?format=${format}`);
+      const params = new URLSearchParams();
+      params.set("format", format);
+      if (columns.length > 0) params.set("columns", columns.join(","));
+
+      const response = await fetch(`/api/kits/export?${params.toString()}`);
       if (!response.ok) throw new Error("Error al exportar");
 
       const blob = await response.blob();
@@ -47,6 +53,7 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       toast.success(`Catálogo de kits exportado correctamente`);
+      setOpenExportModal(false);
     } catch (error) {
       toast.error("No se pudo exportar el catálogo de kits");
     } finally {
@@ -107,15 +114,14 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
             <button
-                type="button"
-                onClick={() => handleExport("excel")}
-                disabled={isExporting}
-                className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400 font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+              onClick={() => setOpenExportModal(true)}
+              disabled={isExporting}
+              className="flex items-center gap-2 px-4 h-10 rounded-xl bg-slate-100 text-slate-600 font-bold text-xs uppercase tracking-widest hover:bg-slate-200 transition disabled:opacity-50"
             >
-                <HiDownload className="h-5 w-5" />
-                EXCEL
+              <HiDownload className="w-4 h-4" />
+              Exportar
             </button>
             <button
                 onClick={() => setShowImportModal(true)}
@@ -279,6 +285,13 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
       >
         <ImportKitModal onClose={() => setShowImportModal(false)} />
       </Modal>
+
+      <KitExportModal
+        isOpen={openExportModal}
+        onClose={() => setOpenExportModal(false)}
+        onExport={handleExport}
+        isExporting={isExporting}
+      />
 
       <DetailedErrorModal
         open={!!deleteError}
