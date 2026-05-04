@@ -25,7 +25,6 @@ export function ImageUpload({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const supabase = createClient();
 
   const processFile = useCallback(async (file: File) => {
@@ -69,7 +68,7 @@ export function ImageUpload({
     } finally {
       setIsUploading(false);
     }
-  }, [bucket, folder, onChange, value, supabase]);
+  }, [bucket, folder, onChange, value, supabase, deleteImageFromStorage]);
 
   const handlePaste = useCallback((e: ClipboardEvent) => {
     if (disabled || value || isUploading) return;
@@ -122,7 +121,7 @@ export function ImageUpload({
     };
   }, [handlePaste]);
 
-  const deleteImageFromStorage = async (url: string) => {
+  const deleteImageFromStorage = useCallback(async (url: string) => {
     try {
       const parts = url.split(`/${bucket}/`);
       if (parts.length < 2) return;
@@ -134,7 +133,7 @@ export function ImageUpload({
     } catch (error) {
       console.error("Error al borrar imagen del storage:", error);
     }
-  };
+  }, [bucket, supabase]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

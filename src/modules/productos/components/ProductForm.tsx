@@ -18,6 +18,9 @@ import { PricingSection } from "./sections/PricingSection";
 import { ProductSeriesManager } from "./ProductSeriesManager";
 
 import { ImageUpload } from "./ImageUpload";
+import Image from "next/image";
+import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
+import { QuickAddModal } from "./QuickAddModal";
 import { useMetadata } from "@/context/MetadataContext";
 import {
   Package,
@@ -531,10 +534,11 @@ export function ProductForm({
                           className="group relative h-48 w-full overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:ring-2 hover:ring-blue-100 cursor-pointer shadow-sm"
                           onClick={() => window.open(selectedPieza.imagen_medida_url!, '_blank')}
                         >
-                          <img
+                          <Image
                             src={selectedPieza.imagen_medida_url}
                             alt="Medida Pieza"
-                            className="h-full w-full object-contain p-2 transition contrast-[1.1] dark:invert dark:hue-rotate-180"
+                            fill
+                            className="object-contain p-2 transition contrast-[1.1] dark:invert dark:hue-rotate-180"
                           />
                         </div>
                       ) : (

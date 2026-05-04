@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -104,7 +104,7 @@ export function PresupuestosListPage({ title, status }: Props) {
   const [presupuestos, setPresupuestos] = useState<PresupuestoCompleto[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     const data = await getPresupuestosSupabase(status);
     setPresupuestos(data);
@@ -124,11 +124,11 @@ export function PresupuestosListPage({ title, status }: Props) {
       }
     }
     setLoading(false);
-  };
+  }, [status, rowSeleccionada]);
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -138,7 +138,7 @@ export function PresupuestosListPage({ title, status }: Props) {
       .on("postgres_changes", { event: "*", schema: "public", table: "presupuesto_items" }, () => refresh())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     const mainContainer = document.querySelector("main");

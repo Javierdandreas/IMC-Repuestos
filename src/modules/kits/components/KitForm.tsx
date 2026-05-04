@@ -7,6 +7,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
 import { KitComponenteSearch } from "@/modules/kits/types/kits";
+import { useAppForm } from "@/hooks/useAppForm";
+import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
 
 interface KitItem {
     id_producto: number;
@@ -28,7 +30,16 @@ interface Props {
 export function KitForm({ kitId, initialData }: Props) {
     const router = useRouter();
     const meta = useMetadata();
-    const [loading, setLoading] = useState(false);
+    
+    const { loading, error, clearError, submit } = useAppForm({
+        url: kitId ? `/api/kits/${kitId}` : "/api/kits",
+        method: kitId ? "PUT" : "POST",
+        successMessage: kitId ? "Kit actualizado con éxito" : "Kit creado con éxito",
+        onSuccess: () => {
+            router.refresh();
+            router.push("/kits");
+        },
+    });
     
     // Form fields
     const [nombre, setNombre] = useState(initialData?.nombre || "");
@@ -96,7 +107,7 @@ export function KitForm({ kitId, initialData }: Props) {
             const autoName = items.map(i => `${i.codigo || "???"} X${i.cantidad}`).join(" ");
             setNombre(autoName.toUpperCase());
         }
-    }, [items, kitId]);
+    }, [items, kitId, nombre]);
 
     // Handle Item Search
     useEffect(() => {
@@ -154,16 +165,18 @@ export function KitForm({ kitId, initialData }: Props) {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (items.length === 0) {
-            toast.error("El kit debe tener al menos un componente");
+        
+        if (!nombre || !idSubcategoria || items.length === 0) {
+            toast.error("Por favor completa los campos obligatorios y agrega componentes");
             return;
         }
 
         const payload = {
-            nombre: nombre.toUpperCase(),
-            codigo_kit: codigoManual.toUpperCase(),
-            descripcion: descripcion.toUpperCase(),
-            id_subcategoria: idSubcategoria || null,
+            nombre,
+            codigo_kit: codigoManual,
+            descripcion,
+            id_subcategoria: idSubcategoria,
+            activo: true,
             componentes: items.map(i => ({
                 id_producto: i.id_producto,
                 cantidad: i.cantidad
