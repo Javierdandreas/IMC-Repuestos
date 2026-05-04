@@ -56,7 +56,6 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [deletingProduct, setDeletingProduct] = useState<ProductoListado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<{ type: AppErrorType; message: string; details?: AppErrorDetail[] } | null>(null);
 
   // Estados de filtros (sincronizados con URL)
   const [searchGeneral, setSearchGeneral] = useState(searchParams.get("search") || "");
@@ -191,16 +190,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
     try {
       setIsDeleting(true);
-      setDeleteError(null);
       const response = await fetch(`/api/productos/${deletingProduct.id}`, { method: "DELETE" });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        if (data.type) {
-          setDeleteError(data);
-          return;
-        }
-        throw new Error(data.message || "No se pudo borrar el producto");
+        toast.error(data.message || "No se pudo borrar el producto");
+        setDeletingProduct(null);
+        return;
       }
 
       router.refresh();
@@ -848,14 +844,6 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         onClose={() => setOpenExportModal(false)}
         onExport={handleExport}
         isExporting={isExporting}
-      />
-
-      <DetailedErrorModal
-        open={!!deleteError}
-        onClose={() => setDeleteError(null)}
-        type={deleteError?.type}
-        message={deleteError?.message}
-        details={deleteError?.details}
       />
 
       <ConfirmDeleteModal

@@ -29,7 +29,6 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
   const [isExporting, setIsExporting] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [openExportModal, setOpenExportModal] = useState(false);
-  const [deleteError, setDeleteError] = useState<{ message: string; type: any; details: any[] } | null>(null);
 
   const handleExport = async (format: "csv" | "excel", columns: string[]) => {
     try {
@@ -77,16 +76,12 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
     if (!deletingKit) return;
     try {
       setIsDeleting(true);
-      setDeleteError(null);
       const res = await fetch(`/api/kits/${deletingKit.id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setDeleteError({
-          message: data.message || "Error al eliminar el kit",
-          type: data.type || "server",
-          details: data.details || [],
-        });
+        toast.error(data.message || "Error al eliminar el kit");
+        setDeletingKit(null);
         return;
       }
 
@@ -291,14 +286,6 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
         onClose={() => setOpenExportModal(false)}
         onExport={handleExport}
         isExporting={isExporting}
-      />
-
-      <DetailedErrorModal
-        open={!!deleteError}
-        onClose={() => setDeleteError(null)}
-        type={deleteError?.type}
-        message={deleteError?.message}
-        details={deleteError?.details}
       />
     </div>
   );

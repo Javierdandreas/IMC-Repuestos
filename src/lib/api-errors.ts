@@ -76,7 +76,7 @@ export function jsonError(error: unknown, fallbackMessage: string) {
     console.warn(`⚠️ [API ${appError.status} - ${appError.type}]:`, appError.message);
   }
 
-  const clientMessage = isUnexpected ? fallbackMessage : appError.message;
+  const clientMessage = appError.message;
 
   return NextResponse.json({ 
     message: clientMessage,

@@ -39,6 +39,7 @@ export function useAppForm<T = any>(options: UseAppFormOptions<T>) {
           details: data.details || [],
         };
         setError(errorData);
+        toast.error(errorData.message);
         throw new Error(errorData.message);
       }
 

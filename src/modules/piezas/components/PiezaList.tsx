@@ -59,7 +59,6 @@ export function PiezaList({
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewMedida, setPreviewMedida] = useState<string | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
-  const [deleteError, setDeleteError] = useState<{ message: string; type: any; details: any[] } | null>(null);
 
   const [searchGeneral, setSearchGeneral] = useState("");
   const [searchSpecific, setSearchSpecific] = useState("");
@@ -202,18 +201,14 @@ export function PiezaList({
 
     try {
       setIsDeleting(true);
-      setDeleteError(null);
       const response = await fetch(`/api/piezas/${deletingPieza.id}`, {
         method: "DELETE",
       });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        setDeleteError({
-          message: data.message || "No se pudo borrar la pieza",
-          type: data.type || "server",
-          details: data.details || [],
-        });
+        toast.error(data.message || "No se pudo borrar la pieza");
+        setDeletingPieza(null);
         return;
       }
 
@@ -650,13 +645,6 @@ export function PiezaList({
         onClose={() => setOpenExportModal(false)}
         onExport={handleExport}
         isExporting={isExporting}
-      />
-      <DetailedErrorModal
-        open={!!deleteError}
-        onClose={() => setDeleteError(null)}
-        type={deleteError?.type}
-        message={deleteError?.message}
-        details={deleteError?.details}
       />
     </>
   );
