@@ -197,11 +197,12 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       }
 
       router.refresh();
+      setDeletingProduct(null);
       toast.success("Producto borrado correctamente");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo borrar el producto");
     } finally {
-      setIsExporting(false);
+      setIsDeleting(false);
     }
   };
 

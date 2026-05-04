@@ -455,3 +455,131 @@ export async function deletePieza(id: string | number) {
 
   return deleteResult;
 }
+
+export async function getPiezasParaExportar(): Promise<any[]> {
+  const sql = `
+    SELECT
+      p.codigo_pieza AS "Nro Pieza",
+      p.descripcion AS "Descripción",
+      p.medida AS "Medida",
+      p.imagen_medida_url AS "Imagen URL",
+      c.descripcion AS "Categoría",
+      s.descripcion AS "Subcategoría",
+      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'ORIGINAL'), '') AS "Códigos Originales",
+      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'EQUIVALENTE'), '') AS "Códigos Equivalentes",
+      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'SUSTITUTO'), '') AS "Códigos Sustitutos"
+    FROM pieza p
+    JOIN subcategoria s ON s.id = p.id_subcategoria
+    JOIN categoria c ON c.id = s.id_categoria
+    LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
+    LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
+    GROUP BY p.id, c.id, s.id
+    ORDER BY p.codigo_pieza ASC
+  `;
+  const { rows } = await query(sql);
+  return rows;
+}
+
+export async function importPiezas(
+  items: any[],
+  usuario: string,
+  archivo: string,
+  mappings: Record<string, { csvHeader: string; updateExisting: boolean }>
+) {
+  return await withTransaction(async (client) => {
+    // 1. Cargar metadatos
+    const [categorias, subcategorias] = await Promise.all([
+      client.query("SELECT id, descripcion FROM categoria"),
+      client.query("SELECT id, descripcion FROM subcategoria"),
+    ]);
+
+    const normalize = (text: any) => (text ? String(text).trim().toUpperCase() : "");
+
+    const catMap = new Map<string, number>(categorias.rows.map((r) => [normalize(r.descripcion), r.id]));
+    const subMap = new Map<string, number>(subcategorias.rows.map((r) => [normalize(r.descripcion), r.id]));
+
+    const startTime = Date.now();
+    const results = {
+      imported: 0,
+      updated: 0,
+      ignored: 0,
+      errors: [] as { row: number; error: string; codigo_pieza: string }[],
+    };
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const rowNum = i + 1;
+      const codigoPieza = item[mappings.codigo_pieza?.csvHeader]?.toString().trim();
+
+      try {
+        const desc = item[mappings.descripcion?.csvHeader]?.toString().trim() || "";
+        if (!desc && !codigoPieza) {
+          results.ignored++;
+          continue;
+        }
+
+        const medida = item[mappings.medida?.csvHeader]?.toString().trim() || null;
+        const imagenUrl = item[mappings.imagen_url?.csvHeader]?.toString().trim() || null;
+        let idSubcat = subMap.get(normalize(item[mappings.subcategoria?.csvHeader])) || null;
+        
+        if (!idSubcat) {
+            // Si no hay subcategoría, intentamos buscar por categoría o usamos una por defecto
+            idSubcat = subMap.values().next().value || 1;
+        }
+
+        let piezaId: number;
+
+        if (codigoPieza) {
+          // Intentar actualizar
+          const existing = await client.query("SELECT id FROM pieza WHERE codigo_pieza = $1", [codigoPieza]);
+          if (existing.rows[0] && mappings.descripcion?.updateExisting !== false) {
+            piezaId = existing.rows[0].id;
+            await client.query(
+              `UPDATE pieza SET descripcion = $1, medida = $2, imagen_medida_url = $3, id_subcategoria = $4, updated_at = now() WHERE id = $5`,
+              [desc, medida, imagenUrl, idSubcat, piezaId]
+            );
+            results.updated++;
+          } else if (!existing.rows[0]) {
+            // Insertar con código específico
+            const res = await client.query(
+              `INSERT INTO pieza (codigo_pieza, descripcion, medida, imagen_medida_url, id_subcategoria) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+              [codigoPieza, desc, medida, imagenUrl, idSubcat]
+            );
+            piezaId = res.rows[0].id;
+            results.imported++;
+          } else {
+            results.ignored++;
+            continue;
+          }
+        } else {
+          // Insertar nuevo (autoincrement)
+          const res = await client.query(
+            `INSERT INTO pieza (descripcion, medida, imagen_medida_url, id_subcategoria) VALUES ($1, $2, $3, $4) RETURNING id`,
+            [desc, medida, imagenUrl, idSubcat]
+          );
+          piezaId = res.rows[0].id;
+          results.imported++;
+        }
+
+        // Procesar códigos de referencia
+        const processCodes = async (header: string | undefined, tipo: "ORIGINAL" | "EQUIVALENTE" | "SUSTITUTO") => {
+          if (!header) return;
+          const codesStr = item[header]?.toString() || "";
+          const codes = codesStr.split(/[,|;]/).map((c: string) => c.trim()).filter(Boolean);
+          if (codes.length > 0) {
+            await attachCodigosToPieza(client, piezaId, tipo, codes);
+          }
+        };
+
+        await processCodes(mappings.originales?.csvHeader, "ORIGINAL");
+        await processCodes(mappings.equivalentes?.csvHeader, "EQUIVALENTE");
+        await processCodes(mappings.sustitutos?.csvHeader, "SUSTITUTO");
+
+      } catch (err: any) {
+        results.errors.push({ row: rowNum, error: err.message, codigo_pieza: codigoPieza || "N/A" });
+      }
+    }
+
+    return { ...results, durationMs: Date.now() - startTime };
+  });
+}

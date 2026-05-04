@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { HiPlusCircle, HiTrash, HiPencil, HiCollection, HiSearch, HiRefresh } from "react-icons/hi";
+import { HiPlusCircle, HiTrash, HiPencil, HiCollection, HiSearch, HiRefresh, HiDownload, HiCloudUpload } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 import { Modal } from "@/components/ui/Modal";
 import { toast } from "sonner";
 import { KitListado } from "@/modules/kits/types/kits";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { ImportKitModal } from "./ImportKitModal";
-import { HiCloudUpload } from "react-icons/hi";
+import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
 
 interface Props {
   kits: KitListado[];
@@ -25,7 +25,34 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
   const [search, setSearch] = useState(searchParams.get("search") || "");
   const [deletingKit, setDeletingKit] = useState<KitListado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [deleteError, setDeleteError] = useState<{ message: string; type: any; details: any[] } | null>(null);
+
+  const handleExport = async (format: "csv" | "excel") => {
+    try {
+      setIsExporting(true);
+      const response = await fetch(`/api/kits/export?format=${format}`);
+      if (!response.ok) throw new Error("Error al exportar");
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kits_export_${
+        new Date().toISOString().split("T")[0]
+      }.${format === "excel" ? "xlsx" : "csv"}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success(`Catálogo de kits exportado correctamente`);
+    } catch (error) {
+      toast.error("No se pudo exportar el catálogo de kits");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Sync search with URL
   useEffect(() => {
@@ -43,12 +70,23 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
     if (!deletingKit) return;
     try {
       setIsDeleting(true);
+      setDeleteError(null);
       const res = await fetch(`/api/kits/${deletingKit.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Error al eliminar kit");
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setDeleteError({
+          message: data.message || "Error al eliminar el kit",
+          type: data.type || "server",
+          details: data.details || [],
+        });
+        return;
+      }
+
       toast.success("Kit eliminado correctamente");
       router.refresh();
       setDeletingKit(null);
-    } catch (error) {
+    } catch (error: any) {
       toast.error("Error al eliminar el kit");
     } finally {
       setIsDeleting(false);
@@ -71,18 +109,27 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
 
         <div className="flex items-center gap-2">
             <button
-                onClick={() => setShowImportModal(true)}
-                className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all shadow-sm active:scale-95"
+                type="button"
+                onClick={() => handleExport("excel")}
+                disabled={isExporting}
+                className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400 font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all shadow-sm active:scale-95 disabled:opacity-50"
             >
-                <HiCloudUpload className="h-5 w-5 text-indigo-500" />
-                IMPORTAR KITS
+                <HiDownload className="h-5 w-5" />
+                EXCEL
+            </button>
+            <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all shadow-sm active:scale-95"
+            >
+                <HiCloudUpload className="h-5 w-5" />
+                IMPORTAR
             </button>
             <button
                 onClick={() => router.push("/kits/nuevo")}
                 className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
             >
                 <HiPlusCircle className="h-5 w-5" />
-                NUEVO KIT MANUAL
+                NUEVO KIT
             </button>
         </div>
       </div>
@@ -232,6 +279,14 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
       >
         <ImportKitModal onClose={() => setShowImportModal(false)} />
       </Modal>
+
+      <DetailedErrorModal
+        open={!!deleteError}
+        onClose={() => setDeleteError(null)}
+        type={deleteError?.type}
+        message={deleteError?.message}
+        details={deleteError?.details}
+      />
     </div>
   );
 }

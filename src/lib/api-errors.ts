@@ -3,10 +3,15 @@ import { z } from "zod";
 
 export class AppError extends Error {
   status: number;
-  constructor(message: string, status = 400) {
+  type?: string;
+  details?: any[];
+
+  constructor(message: string, status = 400, type = 'server', details: any[] = []) {
     super(message);
     this.name = "AppError";
     this.status = status;
+    this.type = type;
+    this.details = details;
   }
 }
 
@@ -17,20 +22,39 @@ export function isAppError(error: unknown): error is AppError {
 /**
  * Convierte un error de Zod a un mensaje amigable para el cliente.
  */
-export function formatZodError(error: z.ZodError): string {
-  return error.issues
-    .map((err: any) => {
-      const path = err.path.join(".");
-      return path ? `${path}: ${err.message}` : err.message;
-    })
-    .join(", ");
+export function formatZodError(error: z.ZodError): { message: string, details: any[] } {
+  const details = error.issues.map((err: any) => ({
+    field: err.path.join("."),
+    message: err.message,
+    code: err.code
+  }));
+  
+  const message = details.map(d => `${d.field}: ${d.message}`).join(", ");
+  return { message, details };
 }
 
 export function toAppError(error: unknown, fallbackMessage: string): AppError {
   if (isAppError(error)) return error;
 
+  // Manejo de errores de Zod
   if (error instanceof z.ZodError) {
-    return new AppError(formatZodError(error), 400);
+    const { message, details } = formatZodError(error);
+    return new AppError(message, 400, 'validation', details);
+  }
+
+  // Manejo de errores de Postgres (pg)
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const pgError = error as any;
+    if (pgError.code === "23505") { // Unique violation
+      return new AppError("Ya existe un registro con esos datos (duplicado)", 409, 'conflict', [
+        { field: pgError.column || pgError.detail, message: pgError.detail || "Valor duplicado" }
+      ]);
+    }
+    if (pgError.code === "23503") { // Foreign key violation
+      return new AppError("No se puede realizar la operación porque el registro está en uso en otra parte del sistema", 400, 'foreign_key', [
+        { field: pgError.table || pgError.detail, message: "Restricción de integridad referencial" }
+      ]);
+    }
   }
 
   if (typeof error === "object" && error && "status" in error && typeof (error as any).status === "number") {
@@ -46,16 +70,17 @@ export function jsonError(error: unknown, fallbackMessage: string) {
   const appError = toAppError(error, fallbackMessage);
   const isUnexpected = !isAppError(error) && !(error instanceof z.ZodError);
 
-  // Log detallado en el servidor para el desarrollador
   if (isUnexpected) {
     console.error("❌ [API ERROR]:", error);
   } else {
-    console.warn(`⚠️ [API ${appError.status}]:`, appError.message);
+    console.warn(`⚠️ [API ${appError.status} - ${appError.type}]:`, appError.message);
   }
 
-  // En producción, podrías querer ocultar el mensaje real si es inesperado
-  // para evitar fugas de información de la DB.
   const clientMessage = isUnexpected ? fallbackMessage : appError.message;
 
-  return NextResponse.json({ message: clientMessage }, { status: appError.status });
+  return NextResponse.json({ 
+    message: clientMessage,
+    type: appError.type || 'server',
+    details: appError.details || []
+  }, { status: appError.status });
 }

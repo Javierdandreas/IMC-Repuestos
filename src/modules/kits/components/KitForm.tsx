@@ -159,41 +159,22 @@ export function KitForm({ kitId, initialData }: Props) {
             return;
         }
 
-        setLoading(true);
-        try {
-            const payload = {
-                nombre: nombre.toUpperCase(),
-                codigo_kit: codigoManual.toUpperCase(),
-                descripcion: descripcion.toUpperCase(),
-                id_subcategoria: idSubcategoria || null,
-                componentes: items.map(i => ({
-                    id_producto: i.id_producto,
-                    cantidad: i.cantidad
-                }))
-            };
+        const payload = {
+            nombre: nombre.toUpperCase(),
+            codigo_kit: codigoManual.toUpperCase(),
+            descripcion: descripcion.toUpperCase(),
+            id_subcategoria: idSubcategoria || null,
+            componentes: items.map(i => ({
+                id_producto: i.id_producto,
+                cantidad: i.cantidad
+            }))
+        };
 
-            const res = await fetch(kitId ? `/api/kits/${kitId}` : "/api/kits", {
-                method: kitId ? "PUT" : "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
-
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || "Error al procesar el kit");
-            }
-
-            toast.success(kitId ? "Kit actualizado correctamente" : "Kit creado correctamente");
-            router.push("/kits");
-            router.refresh();
-        } catch (error: any) {
-            toast.error(error.message);
-        } finally {
-            setLoading(false);
-        }
+        await submit(payload);
     };
 
     return (
+        <>
         <form onSubmit={handleSubmit} className="max-w-6xl mx-auto flex flex-col gap-8 pb-20">
             {/* Header Sticky */}
             <div className="sticky top-0 z-20 flex flex-col md:flex-row md:items-center justify-between gap-4 py-6 bg-white/80 dark:bg-black/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800">
@@ -461,5 +442,14 @@ export function KitForm({ kitId, initialData }: Props) {
                 </div>
             </div>
         </form>
+
+        <DetailedErrorModal
+            open={!!error}
+            onClose={clearError}
+            type={error?.type}
+            message={error?.message}
+            details={error?.details}
+        />
+        </>
     );
 }

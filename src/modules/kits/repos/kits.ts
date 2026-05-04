@@ -317,3 +317,24 @@ export async function importKits(items: any[], user: string, fileName: string, m
         return { ...results, durationMs: Date.now() - startTime };
     });
 }
+
+export async function getKitsParaExportar(): Promise<any[]> {
+  const sql = `
+    SELECT
+      k.codigo_kit AS "Código de Kit",
+      k.nombre AS "Nombre",
+      k.descripcion AS "Descripción",
+      c.descripcion AS "Categoría",
+      s.descripcion AS "Subcategoría",
+      p.cod_unico AS "Código Producto",
+      kd.cantidad AS "Cantidad"
+    FROM public.kits k
+    LEFT JOIN public.categoria c ON k.id_categoria = c.id
+    LEFT JOIN public.subcategoria s ON k.id_subcategoria = s.id
+    LEFT JOIN public.kit_detalle kd ON k.id = kd.id_kit
+    LEFT JOIN public.productos p ON kd.id_producto = p.id
+    ORDER BY k.codigo_kit ASC
+  `;
+  const { rows } = await query(sql);
+  return rows;
+}

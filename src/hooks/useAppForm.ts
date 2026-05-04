@@ -17,10 +17,12 @@ interface UseAppFormOptions<T> {
 
 export function useAppForm<T = any>(options: UseAppFormOptions<T>) {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<{ message: string; type: any; details: any[] } | null>(null);
   const router = useRouter();
 
   const submit = async (payload: any) => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch(options.url, {
         method: options.method || "POST",
@@ -29,9 +31,15 @@ export function useAppForm<T = any>(options: UseAppFormOptions<T>) {
       });
 
       const data = await res.json().catch(() => ({}));
-      
+
       if (!res.ok) {
-        throw new Error(data.message || options.errorMessage || "Ocurrió un error al procesar el formulario");
+        const errorData = {
+          message: data.message || options.errorMessage || "Ocurrió un error al procesar el formulario",
+          type: data.type || "server",
+          details: data.details || [],
+        };
+        setError(errorData);
+        throw new Error(errorData.message);
       }
 
       toast.success(options.successMessage || "Operación realizada con éxito");
@@ -55,7 +63,10 @@ export function useAppForm<T = any>(options: UseAppFormOptions<T>) {
       return data;
     } catch (error: any) {
       const msg = error.message || options.errorMessage || "Error inesperado";
-      toast.error(msg);
+      // Si no hay un error estructurado seteado, mostramos toast como fallback
+      if (!error.message) {
+        toast.error(msg);
+      }
       throw error;
     } finally {
       setLoading(false);
@@ -70,6 +81,8 @@ export function useAppForm<T = any>(options: UseAppFormOptions<T>) {
 
   return {
     loading,
+    error,
+    clearError: () => setError(null),
     submit,
     cancel,
   };

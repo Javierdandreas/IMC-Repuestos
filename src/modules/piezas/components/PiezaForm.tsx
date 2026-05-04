@@ -11,6 +11,7 @@ import { PiezaBasicInfoSection } from "./sections/PiezaBasicInfoSection";
 import { PiezaDescriptionSection, PiezaImageSection } from "./sections/PiezaDetailsSection";
 import { PiezaCodesSection } from "./sections/PiezaCodesSection";
 import { QuickAddModal, QuickAddType } from "@/modules/productos/components/QuickAddModal";
+import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
 
 type Props = {
   onSuccess?: () => void;
@@ -62,7 +63,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
   const [quickAddType, setQuickAddType] = useState<QuickAddType | null>(null);
   const [quickAddParentId, setQuickAddParentId] = useState<number | undefined>();
 
-  const { loading, submit, cancel } = useAppForm({
+  const { loading, error, clearError, submit, cancel } = useAppForm({
     url: piezaId ? `/api/piezas/${piezaId}` : "/api/piezas",
     method: piezaId ? "PUT" : "POST",
     successMessage: piezaId ? "Pieza actualizada correctamente" : "Pieza creada correctamente",
@@ -181,6 +182,14 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
         onClose={() => setQuickAddType(null)} 
         onSuccess={handleQuickAddSuccess}
         parentId={quickAddParentId}
+      />
+
+      <DetailedErrorModal
+        open={!!error}
+        onClose={clearError}
+        type={error?.type}
+        message={error?.message}
+        details={error?.details}
       />
     </div>
   );

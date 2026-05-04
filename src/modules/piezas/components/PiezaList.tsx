@@ -21,6 +21,9 @@ import {
 } from "@/modules/piezas/types/piezas";
 
 import { PiezaForm } from "./PiezaForm";
+import { ImportPiezaModal } from "./ImportPiezaModal";
+import { HiCloudUpload, HiDownload } from "react-icons/hi";
+import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
 
 type Props = {
   piezas: PiezaListado[];
@@ -49,14 +52,42 @@ export function PiezaList({
   const [editingPieza, setEditingPieza] = useState<PiezaListado | null>(null);
   const [deletingPieza, setDeletingPieza] = useState<PiezaListado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [openImport, setOpenImport] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewMedida, setPreviewMedida] = useState<string | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [deleteError, setDeleteError] = useState<{ message: string; type: any; details: any[] } | null>(null);
 
   const [searchGeneral, setSearchGeneral] = useState("");
   const [searchSpecific, setSearchSpecific] = useState("");
   const [categoria, setCategoria] = useState("");
   const [subcategoria, setSubcategoria] = useState("");
+
+  const handleExport = async (format: "csv" | "excel") => {
+    try {
+      setIsExporting(true);
+      const response = await fetch(`/api/piezas/export?format=${format}`);
+      if (!response.ok) throw new Error("Error al exportar");
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `piezas_export_${
+        new Date().toISOString().split("T")[0]
+      }.${format === "excel" ? "xlsx" : "csv"}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success(`Catálogo de piezas exportado correctamente`);
+    } catch (error) {
+      toast.error("No se pudo exportar el catálogo de piezas");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const subcategoriasDisponibles = useMemo(() => {
     if (!categoria) return [] as SubcategoriaOption[];
@@ -164,13 +195,19 @@ export function PiezaList({
 
     try {
       setIsDeleting(true);
+      setDeleteError(null);
       const response = await fetch(`/api/piezas/${deletingPieza.id}`, {
         method: "DELETE",
       });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.message || "No se pudo borrar la pieza");
+        setDeleteError({
+          message: data.message || "No se pudo borrar la pieza",
+          type: data.type || "server",
+          details: data.details || [],
+        });
+        return;
       }
 
       setDeletingPieza(null);
@@ -214,28 +251,50 @@ export function PiezaList({
               </div>
             </div>
 
-            {canManagePiezas && (
-              <button
-                type="button"
-                onClick={() => setOpenNew(true)}
-                className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-900 px-6 text-sm font-bold text-white shadow-lg transition hover:bg-slate-800 active:scale-95 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
-              >
-                <svg
-                  className="h-5 w-5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 rounded-2xl bg-slate-100 p-1.5 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => handleExport("excel")}
+                  disabled={isExporting}
+                  className="flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-[10px] font-black uppercase tracking-widest text-emerald-600 shadow-sm transition hover:bg-emerald-50 disabled:opacity-50 dark:bg-slate-950 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                Crear pieza
-              </button>
-            )}
+                  <HiDownload className="h-4 w-4" />
+                  Excel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpenImport(true)}
+                  className="flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-[10px] font-black uppercase tracking-widest text-indigo-600 shadow-sm transition hover:bg-indigo-50 dark:bg-slate-950 dark:text-indigo-400 dark:hover:bg-indigo-950/30"
+                >
+                  <HiCloudUpload className="h-4 w-4" />
+                  Importar
+                </button>
+              </div>
+
+              {canManagePiezas && (
+                <button
+                  type="button"
+                  onClick={() => setOpenNew(true)}
+                  className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-900 px-6 text-sm font-bold text-white shadow-lg transition hover:bg-slate-800 active:scale-95 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+                >
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 4v16m8-8H4"
+                    />
+                  </svg>
+                  Crear pieza
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-end gap-x-4 gap-y-4">
@@ -492,6 +551,14 @@ export function PiezaList({
       </Modal>
 
       <Modal
+        open={openImport}
+        onClose={() => setOpenImport(false)}
+        title="Importar catálogo de piezas"
+      >
+        <ImportPiezaModal onClose={() => setOpenImport(false)} />
+      </Modal>
+
+      <Modal
         open={canManagePiezas && !!editingPieza}
         onClose={() => setEditingPieza(null)}
         title="Editar pieza"
@@ -571,6 +638,13 @@ export function PiezaList({
           )}
         </div>
       </Modal>
+      <DetailedErrorModal
+        open={!!deleteError}
+        onClose={() => setDeleteError(null)}
+        type={deleteError?.type}
+        message={deleteError?.message}
+        details={deleteError?.details}
+      />
     </>
   );
 }
