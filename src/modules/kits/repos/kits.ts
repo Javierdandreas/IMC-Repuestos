@@ -7,11 +7,11 @@ import type { Kit, KitListado, KitComponente } from "@/modules/kits/types/kits";
  * El precio mostrado es la sumatoria del precio de Mercado Libre de sus componentes.
  */
 export async function getKitsListado(page: number = 1, limit: number = 50, search?: string) {
-  let searchClause = "";
+  let whereClause = "WHERE k.activo = true";
   const params: any[] = [];
 
   if (search) {
-    searchClause = `WHERE (k.nombre ILIKE $1 OR k.codigo_kit ILIKE $1)`;
+    whereClause += ` AND (k.nombre ILIKE $1 OR k.codigo_kit ILIKE $1)`;
     params.push(`%${search}%`);
   }
 
@@ -40,11 +40,11 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
     LEFT JOIN public.producto_precio pml ON kd.id_producto = pml.id_producto AND pml.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)
     LEFT JOIN public.producto_precio pmo ON kd.id_producto = pmo.id_producto AND pmo.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)
     LEFT JOIN public.producto_precio pme ON kd.id_producto = pme.id_producto AND pme.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MECANICO' LIMIT 1)
-    ${searchClause}
+    ${whereClause}
     GROUP BY k.id, c.descripcion, s.descripcion
   `;
 
-  return await paginateQuery<KitListado>("log_importaciones", baseQuery, page, limit, params);
+  return await paginateQuery<KitListado>("kits", baseQuery, page, limit, params);
 }
 
 /**
