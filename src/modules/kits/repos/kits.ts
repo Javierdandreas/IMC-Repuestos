@@ -7,11 +7,11 @@ import type { Kit, KitListado, KitComponente } from "@/modules/kits/types/kits";
  * El precio mostrado es la sumatoria del precio de Mercado Libre de sus componentes.
  */
 export async function getKitsListado(page: number = 1, limit: number = 50, search?: string) {
-  let whereClause = "WHERE k.activo = true";
+  let whereClause = "";
   const params: any[] = [];
 
   if (search) {
-    whereClause += ` AND (k.nombre ILIKE $1 OR k.codigo_kit ILIKE $1)`;
+    whereClause = "WHERE (k.nombre ILIKE $1 OR k.codigo_kit ILIKE $1)";
     params.push(`%${search}%`);
   }
 
@@ -166,7 +166,16 @@ export async function updateKit(id: number, payload: Kit): Promise<Kit> {
  * Elimina un kit (soft delete).
  */
 export async function deleteKit(id: number): Promise<void> {
-  await query("UPDATE kits SET activo = false WHERE id = $1", [id]);
+  await withTransaction(async (client) => {
+    // 1. Borrar detalle primero (por si no hay CASCADE)
+    await client.query("DELETE FROM public.kit_detalle WHERE id_kit = $1", [id]);
+    // 2. Borrar el kit físicamente
+    const result = await client.query("DELETE FROM public.kits WHERE id = $1", [id]);
+    
+    if (result.rowCount === 0) {
+      throw new Error("Kit no encontrado");
+    }
+  });
 }
 
 /**

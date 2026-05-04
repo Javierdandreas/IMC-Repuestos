@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, ReactNode, useState, useCallback } from "react";
+import { createContext, useContext, ReactNode, useState, useCallback, useEffect } from "react";
 import { ProductMeta } from "@/modules/productos/repos/productos-meta";
 
 interface MetadataContextType extends ProductMeta {
@@ -11,6 +11,10 @@ const MetadataContext = createContext<MetadataContextType | null>(null);
 
 export function MetadataProvider({ children, initialMeta }: { children: ReactNode; initialMeta: ProductMeta }) {
   const [meta, setMeta] = useState<ProductMeta>(initialMeta);
+
+  useEffect(() => {
+    setMeta(initialMeta);
+  }, [initialMeta]);
 
   const refresh = useCallback(async () => {
     try {

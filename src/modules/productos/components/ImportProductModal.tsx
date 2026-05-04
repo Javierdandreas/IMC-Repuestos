@@ -46,6 +46,7 @@ const SYSTEM_FIELDS = [
   { id: 'proveedor', label: 'Proveedor' },
   { id: 'codigo_proveedor', label: 'Código en Proveedor' },
   { id: 'precio_lista', label: 'Precio de Lista (Proveedor)' },
+  { id: 'precio_venta', label: 'Precio de Venta (Mostrador)' },
 ];
 
 export function ImportProductModal({ onClose }: { onClose: () => void }) {
@@ -110,15 +111,50 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
           const newMappings = { ...mappings };
           headers.forEach(header => {
             const h = header.toLowerCase().trim();
-            if (h === 'codigo' || h === 'cod_unico' || h === 'codigointerno' || h === 'sku') newMappings.cod_unico.csvHeader = header;
-            if (h === 'titulo' || h === 'descripcion' || h === 'nombre') newMappings.titulo.csvHeader = header;
-            if (h === 'stock' || h === 'cantidad') newMappings.stock.csvHeader = header;
-            if (h === 'marca') newMappings.marca.csvHeader = header;
-            if (h === 'proveedor') newMappings.proveedor.csvHeader = header;
-            if (h === 'codigo de proveedor' || h === 'codigo_proveedor' || h === 'cod_proveedor' || h === 'codprov') newMappings.codigo_proveedor.csvHeader = header;
-            if (h === 'precio lista' || h === 'precio_lista' || h === 'preciolista' || h === 'costo') newMappings.precio_lista.csvHeader = header;
-            if (h === 'ubicacion' || h === 'pasillo') newMappings.ubicacion.csvHeader = header;
-            if (h === 'codigo_barra' || h === 'cod_barra' || h === 'ean') newMappings.cod_barra.csvHeader = header;
+            // Código Interno
+            if (['codigo', 'código', 'cod', 'cod_producto', 'codigo_producto', 'cod_unico', 'sku', 'item', 'articulo', 'artículo', 'codigointerno'].includes(h)) {
+              newMappings.cod_unico.csvHeader = header;
+            }
+            // Descripción
+            if (['titulo', 'descripcion', 'descripción', 'detalle', 'producto', 'nombre', 'nombre_producto'].includes(h)) {
+              newMappings.titulo.csvHeader = header;
+            }
+            // Stock
+            if (['stock', 'cantidad', 'existencia', 'disponible', 'disponibilidad'].includes(h)) {
+              newMappings.stock.csvHeader = header;
+            }
+            // Marca
+            if (['marca', 'fabricante', 'brand'].includes(h)) {
+              newMappings.marca.csvHeader = header;
+            }
+            // Proveedor
+            if (['proveedor', 'vendor', 'supplier'].includes(h)) {
+              newMappings.proveedor.csvHeader = header;
+            }
+            // Código Proveedor
+            if (['codigo de proveedor', 'codigo_proveedor', 'cod_proveedor', 'codigo_en_proveedor', 'codigo prov', 'cod prov', 'proveedor_codigo', 'codprov'].includes(h)) {
+              newMappings.codigo_proveedor.csvHeader = header;
+            }
+            // Precio Lista
+            if (['precio lista', 'precio_lista', 'preciolista', 'costo', 'costo_unitario', 'precio_unitario', 'precio lista proveedor'].includes(h)) {
+              newMappings.precio_lista.csvHeader = header;
+            }
+            // Precio Venta
+            if (['precio', 'precio_mostrador', 'precio_venta', 'lista 1', 'l1', 'venta', 'mostrador'].includes(h)) {
+              newMappings.precio_venta.csvHeader = header;
+            }
+            // Ubicación
+            if (['ubicacion', 'pasillo', 'estante', 'ubicación', 'posicion'].includes(h)) {
+              newMappings.ubicacion.csvHeader = header;
+            }
+            // Código de Barras
+            if (['codigo_barra', 'cod_barra', 'ean', 'barcode', 'codigo_barras', 'código de barras'].includes(h)) {
+              newMappings.cod_barra.csvHeader = header;
+            }
+            // Palabra Clave
+            if (['palabra clave', 'palabras clave', 'keywords', 'keyword', 'tags'].includes(h)) {
+              newMappings.palabra_clave.csvHeader = header;
+            }
           });
           setMappings(newMappings);
           setStep('mapping');
@@ -141,15 +177,50 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
             const newMappings = { ...mappings };
             results.meta.fields.forEach(header => {
               const h = header.toLowerCase().trim();
-              if (h === 'codigo' || h === 'cod_unico' || h === 'codigointerno' || h === 'sku') newMappings.cod_unico.csvHeader = header;
-              if (h === 'titulo' || h === 'descripcion' || h === 'nombre') newMappings.titulo.csvHeader = header;
-              if (h === 'stock' || h === 'cantidad') newMappings.stock.csvHeader = header;
-              if (h === 'marca') newMappings.marca.csvHeader = header;
-              if (h === 'proveedor') newMappings.proveedor.csvHeader = header;
-              if (h === 'codigo de proveedor' || h === 'codigo_proveedor' || h === 'cod_proveedor' || h === 'codprov') newMappings.codigo_proveedor.csvHeader = header;
-              if (h === 'precio lista' || h === 'precio_lista' || h === 'preciolista' || h === 'costo') newMappings.precio_lista.csvHeader = header;
-              if (h === 'ubicacion' || h === 'pasillo') newMappings.ubicacion.csvHeader = header;
-              if (h === 'codigo_barra' || h === 'cod_barra' || h === 'ean') newMappings.cod_barra.csvHeader = header;
+              // Código Interno
+              if (['codigo', 'código', 'cod', 'cod_producto', 'codigo_producto', 'cod_unico', 'sku', 'item', 'articulo', 'artículo', 'codigointerno'].includes(h)) {
+                newMappings.cod_unico.csvHeader = header;
+              }
+              // Descripción
+              if (['titulo', 'descripcion', 'descripción', 'detalle', 'producto', 'nombre', 'nombre_producto'].includes(h)) {
+                newMappings.titulo.csvHeader = header;
+              }
+              // Stock
+              if (['stock', 'cantidad', 'existencia', 'disponible', 'disponibilidad'].includes(h)) {
+                newMappings.stock.csvHeader = header;
+              }
+              // Marca
+              if (['marca', 'fabricante', 'brand'].includes(h)) {
+                newMappings.marca.csvHeader = header;
+              }
+              // Proveedor
+              if (['proveedor', 'vendor', 'supplier'].includes(h)) {
+                newMappings.proveedor.csvHeader = header;
+              }
+              // Código Proveedor
+              if (['codigo de proveedor', 'codigo_proveedor', 'cod_proveedor', 'codigo_en_proveedor', 'codigo prov', 'cod prov', 'proveedor_codigo', 'codprov'].includes(h)) {
+                newMappings.codigo_proveedor.csvHeader = header;
+              }
+              // Precio Lista
+              if (['precio lista', 'precio_lista', 'preciolista', 'costo', 'costo_unitario', 'precio_unitario', 'precio lista proveedor'].includes(h)) {
+                newMappings.precio_lista.csvHeader = header;
+              }
+              // Precio Venta
+              if (['precio', 'precio_mostrador', 'precio_venta', 'lista 1', 'l1', 'venta', 'mostrador'].includes(h)) {
+                newMappings.precio_venta.csvHeader = header;
+              }
+              // Ubicación
+              if (['ubicacion', 'pasillo', 'estante', 'ubicación', 'posicion'].includes(h)) {
+                newMappings.ubicacion.csvHeader = header;
+              }
+              // Código de Barras
+              if (['codigo_barra', 'cod_barra', 'ean', 'barcode', 'codigo_barras', 'código de barras'].includes(h)) {
+                newMappings.cod_barra.csvHeader = header;
+              }
+              // Palabra Clave
+              if (['palabra clave', 'palabras clave', 'keywords', 'keyword', 'tags'].includes(h)) {
+                newMappings.palabra_clave.csvHeader = header;
+              }
             });
             setMappings(newMappings);
             setStep('mapping');

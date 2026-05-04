@@ -11,7 +11,8 @@ import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/modules/auth/components/usePermissions";
 import type { AppPermission } from "@/modules/auth/repos/permissions";
 import { toast } from "sonner";
-import { HiSave } from "react-icons/hi";
+import { HiSave, HiCloudUpload } from "react-icons/hi";
+import { MasterDataImportModal } from "@/modules/importaciones/components/MasterDataImportModal";
 
 type CatalogItem = {
   id: number;
@@ -55,6 +56,7 @@ export function CatalogList({
   const [deletingItem, setDeletingItem] = useState<CatalogItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [search, setSearch] = useState(searchParams.get("search") || "");
+  const [openImport, setOpenImport] = useState(false);
 
   // Debounced search sync with URL
   useEffect(() => {
@@ -117,13 +119,24 @@ export function CatalogList({
             </div>
 
             {canManage ? (
-              <button
-                type="button"
-                onClick={() => setOpenNew(true)}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-6 text-sm font-bold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-md active:scale-95"
-              >
-                {createLabel}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setOpenImport(true)}
+                  className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:hover:bg-slate-900 shadow-sm active:scale-95 group"
+                  title="Importar desde CSV"
+                >
+                  <HiCloudUpload className="h-5 w-5 text-slate-400 group-hover:text-blue-500 transition-colors" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOpenNew(true)}
+                  className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-6 text-sm font-bold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-md active:scale-95"
+                >
+                  {createLabel}
+                </button>
+              </>
             ) : null}
           </div>
         </div>
@@ -188,6 +201,23 @@ export function CatalogList({
             router.refresh();
           }}
           onCancel={() => setOpenNew(false)}
+        />
+      </Modal>
+
+      <Modal
+        title={`Importar ${title}`}
+        open={canManage && openImport}
+        onClose={() => setOpenImport(false)}
+        width="w-[min(90vw,500px)]"
+      >
+        <MasterDataImportModal
+          table={apiPath.split('/').pop() || ''}
+          title={title}
+          onClose={() => setOpenImport(false)}
+          onSuccess={() => {
+            setOpenImport(false);
+            router.refresh();
+          }}
         />
       </Modal>
 

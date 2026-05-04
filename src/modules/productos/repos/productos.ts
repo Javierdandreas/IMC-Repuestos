@@ -777,6 +777,8 @@ export async function getAvailableSerialsByProduct(idProducto: string | number):
   return rows.map(r => r.numero_serie);
 }
 
+import { Normalizer } from "@/modules/importaciones/utils/normalization";
+
 export async function importProductos(
   items: any[], 
   usuario: string, 
@@ -794,22 +796,20 @@ export async function importProductos(
       client.query("SELECT id, descripcion FROM proveedores"),
     ]);
 
-    const normalize = (text: any) => {
-      if (text === null || text === undefined) return '';
-      return String(text).trim().toUpperCase();
-    };
+    const normalizeKey = (text: any) => String(text || '').trim().toUpperCase();
 
-    const marcaMap = new Map<string, number>(marcas.rows.map(r => [normalize(r.descripcion), r.id]));
-    const catMap = new Map<string, number>(categorias.rows.map(r => [normalize(r.descripcion), r.id]));
-    const subMap = new Map<string, number>(subcategorias.rows.map(r => [normalize(r.descripcion), r.id]));
-    const ubiMap = new Map<string, number>(ubicaciones.rows.map(r => [normalize(r.descripcion), r.id]));
-    const piezaMap = new Map<string, number>(piezas.rows.map(r => [normalize(r.codigo_pieza), r.id]));
-    const provMap = new Map<string, number>(proveedores.rows.map(r => [normalize(r.descripcion), r.id]));
+    const marcaMap = new Map<string, number>(marcas.rows.map(r => [normalizeKey(r.descripcion), r.id]));
+    const catMap = new Map<string, number>(categorias.rows.map(r => [normalizeKey(r.descripcion), r.id]));
+    const subMap = new Map<string, number>(subcategorias.rows.map(r => [normalizeKey(r.descripcion), r.id]));
+    const ubiMap = new Map<string, number>(ubicaciones.rows.map(r => [normalizeKey(r.descripcion), r.id]));
+    const piezaMap = new Map<string, number>(piezas.rows.map(r => [normalizeKey(r.codigo_pieza), r.id]));
+    const provMap = new Map<string, number>(proveedores.rows.map(r => [normalizeKey(r.descripcion), r.id]));
 
-    const defaultSubcatId = subMap.get(normalize("SIN SUBCATEGORIA"));
+    // Buscamos subcategoría por defecto (ID 1 o la primera disponible)
+    const defaultSubcatId = subMap.values().next().value || 1;
     const startTime = Date.now();
 
-    // Arrays para Bulk Insert
+    // Arrays para Bulk Insert de Productos
     const v_cod_unico: string[] = [];
     const v_desc: string[] = [];
     const v_barra: (string | null)[] = [];
@@ -820,8 +820,9 @@ export async function importProductos(
     const v_id_pieza: (number | null)[] = [];
     const v_palabra_clave: (string | null)[] = [];
     
-    // Para relación proveedores
+    // Para relación proveedores y precios (temporales para procesar después del insert de productos)
     const supplierLinks: { sku: string; provName: string; codProv: string | null; listPrice: number | null }[] = [];
+    const priceLinks: { sku: string; price: number | null }[] = [];
 
     const results = {
       imported: 0,
@@ -831,41 +832,99 @@ export async function importProductos(
       updatedDetails: [] as { cod_unico: string; changes: any }[],
     };
 
-    // 2. Preparar los datos
+    console.log("🚀 [IMPORT DEBUG]: Iniciando importación de", items.length, "items");
+    console.log("📋 [IMPORT DEBUG]: Mappings recibidos:", JSON.stringify(mappings, null, 2));
+
+    // 2. Auto-Crear Metadatos Faltantes (Marcas, Ubicaciones, Proveedores)
+    const missingMarcas = new Set<string>();
+    const missingUbis = new Set<string>();
+    const missingProvs = new Set<string>();
+
+    for (const item of items) {
+      const rawMarca = mappings.marca?.csvHeader ? String(item[mappings.marca.csvHeader] || '').trim() : null;
+      if (rawMarca && !marcaMap.has(normalizeKey(rawMarca))) missingMarcas.add(rawMarca);
+
+      const rawUbi = mappings.ubicacion?.csvHeader ? String(item[mappings.ubicacion.csvHeader] || '').trim() : null;
+      if (rawUbi && !ubiMap.has(normalizeKey(rawUbi))) missingUbis.add(rawUbi);
+
+      const rawProv = mappings.proveedor?.csvHeader ? String(item[mappings.proveedor.csvHeader] || '').trim() : null;
+      if (rawProv && !provMap.has(normalizeKey(rawProv))) missingProvs.add(rawProv);
+    }
+
+    if (missingMarcas.size > 0) {
+      console.log("➕ [IMPORT DEBUG]: Creando marcas faltantes:", Array.from(missingMarcas));
+      const values = Array.from(missingMarcas);
+      const res = await client.query(
+        "INSERT INTO marcas (descripcion) SELECT * FROM UNNEST($1::text[]) RETURNING id, descripcion",
+        [values]
+      );
+      res.rows.forEach(r => marcaMap.set(normalizeKey(r.descripcion), r.id));
+    }
+
+    if (missingUbis.size > 0) {
+      console.log("➕ [IMPORT DEBUG]: Creando ubicaciones faltantes:", Array.from(missingUbis));
+      const values = Array.from(missingUbis);
+      const res = await client.query(
+        "INSERT INTO ubicaciones (descripcion) SELECT * FROM UNNEST($1::text[]) RETURNING id, descripcion",
+        [values]
+      );
+      res.rows.forEach(r => ubiMap.set(normalizeKey(r.descripcion), Number(r.id)));
+    }
+
+    if (missingProvs.size > 0) {
+      console.log("➕ [IMPORT DEBUG]: Creando proveedores faltantes:", Array.from(missingProvs));
+      const values = Array.from(missingProvs);
+      const res = await client.query(
+        "INSERT INTO proveedores (descripcion, descuento_general) SELECT descripcion, 0 FROM UNNEST($1::text[]) AS t(descripcion) RETURNING id, descripcion",
+        [values]
+      );
+      res.rows.forEach(r => provMap.set(normalizeKey(r.descripcion), r.id));
+    }
+
+    // 3. Preparar los datos y normalizarlos
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const rowNum = i + 1;
         
-        const sku = item[mappings.cod_unico?.csvHeader]?.toString().trim();
+        const rawSku = mappings.cod_unico?.csvHeader ? item[mappings.cod_unico.csvHeader] : null;
+        const sku = Normalizer.toCode(rawSku);
+
         if (!sku) {
+            results.errors.push({ row: rowNum, error: "Falta columna obligatoria: Código Interno", cod_unico: "SIN CÓDIGO" });
             results.ignored++;
             continue;
         }
 
         try {
-            // Limpieza de datos básica con protección de límites de la DB
+            // Normalización robusta usando la utilidad Normalizer
             const rawDesc = (mappings.titulo?.csvHeader ? item[mappings.titulo.csvHeader] : null) || sku;
-            const desc = rawDesc ? String(rawDesc).trim().substring(0, 150) : "";
+            const desc = Normalizer.toText(rawDesc, 150) || sku;
             
             const rawBarra = mappings.cod_barra?.csvHeader ? item[mappings.cod_barra.csvHeader] : null;
-            const barra = rawBarra ? String(rawBarra).trim().substring(0, 50) : null;
+            const barra = Normalizer.toCode(rawBarra);
             
             const rawStock = mappings.stock?.csvHeader ? item[mappings.stock.csvHeader] : 0;
-            const stockNum = parseFloat(rawStock?.toString().replace(',', '.') || '0') || 0;
+            const stockNum = Normalizer.toStock(rawStock);
             
-            const idMarca = mappings.marca?.csvHeader ? marcaMap.get(normalize(item[mappings.marca.csvHeader])) || null : null;
+            const rawMarca = mappings.marca?.csvHeader ? item[mappings.marca.csvHeader] : null;
+            const idMarca = rawMarca ? marcaMap.get(normalizeKey(rawMarca)) || null : null;
             
-            // La subcategoría es obligatoria en DB, si no existe usamos la primera o la mapeada
-            let idSubcat = mappings.subcategoria?.csvHeader ? subMap.get(normalize(item[mappings.subcategoria.csvHeader])) : null;
+            const rawSubcat = mappings.subcategoria?.csvHeader ? item[mappings.subcategoria.csvHeader] : null;
+            let idSubcat = rawSubcat ? subMap.get(normalizeKey(rawSubcat)) : null;
             if (!idSubcat) {
-              idSubcat = subMap.values().next().value || 1; 
+              idSubcat = defaultSubcatId; 
             }
 
-            const idUbi = mappings.ubicacion?.csvHeader ? ubiMap.get(normalize(item[mappings.ubicacion.csvHeader])) || null : null;
-            const idPieza = mappings.codigo_pieza?.csvHeader ? piezaMap.get(normalize(item[mappings.codigo_pieza.csvHeader])) || null : null;
-            const keyword = mappings.palabra_clave?.csvHeader ? item[mappings.palabra_clave.csvHeader]?.toString() : null;
+            const rawUbi = mappings.ubicacion?.csvHeader ? item[mappings.ubicacion.csvHeader] : null;
+            const idUbi = rawUbi ? ubiMap.get(normalizeKey(rawUbi)) || null : null;
 
-            v_cod_unico.push(sku.substring(0, 50));
+            const rawPieza = mappings.codigo_pieza?.csvHeader ? item[mappings.codigo_pieza.csvHeader] : null;
+            const idPieza = rawPieza ? piezaMap.get(normalizeKey(rawPieza)) || null : null;
+
+            const rawKeyword = mappings.palabra_clave?.csvHeader ? item[mappings.palabra_clave.csvHeader] : null;
+            const keyword = Normalizer.toText(rawKeyword, 255);
+
+            v_cod_unico.push(sku);
             v_desc.push(desc);
             v_barra.push(barra);
             v_stock.push(stockNum);
@@ -878,18 +937,26 @@ export async function importProductos(
             // Relación proveedor
             const provName = mappings.proveedor?.csvHeader ? item[mappings.proveedor.csvHeader] : null;
             if (provName) {
-                const rawPrice = mappings.precio_lista?.csvHeader ? item[mappings.precio_lista.csvHeader] : null;
-                const priceNum = rawPrice ? parseFloat(rawPrice.toString().replace(',', '.')) : null;
+                const rawPriceLista = mappings.precio_lista?.csvHeader ? item[mappings.precio_lista.csvHeader] : null;
+                const priceLista = Normalizer.toNumber(rawPriceLista);
 
                 supplierLinks.push({ 
                   sku, 
-                  provName: provName.toString(), 
-                  codProv: mappings.codigo_proveedor?.csvHeader ? item[mappings.codigo_proveedor.csvHeader]?.toString() : null,
-                  listPrice: isNaN(priceNum as any) ? null : priceNum
+                  provName: String(provName), 
+                  codProv: mappings.codigo_proveedor?.csvHeader ? Normalizer.toCode(item[mappings.codigo_proveedor.csvHeader]) : null,
+                  listPrice: priceLista
                 });
             }
+
+            // Precio de Venta (Mostrador)
+            const rawPriceVenta = mappings.precio_venta?.csvHeader ? item[mappings.precio_venta.csvHeader] : null;
+            const priceVenta = Normalizer.toNumber(rawPriceVenta);
+            if (priceVenta !== null) {
+              priceLinks.push({ sku, price: priceVenta });
+            }
+
         } catch (err: any) {
-            results.errors.push({ row: rowNum, error: `Error procesando fila: ${err.message}`, cod_unico: sku });
+            results.errors.push({ row: rowNum, error: `Error normalizando datos: ${err.message}`, cod_unico: sku });
         }
     }
 
@@ -913,7 +980,7 @@ export async function importProductos(
           id_ubicacion = CASE WHEN $15 THEN EXCLUDED.id_ubicacion ELSE productos.id_ubicacion END,
           id_pieza = CASE WHEN $16 THEN EXCLUDED.id_pieza ELSE productos.id_pieza END,
           palabra_clave = CASE WHEN $17 THEN EXCLUDED.palabra_clave ELSE productos.palabra_clave END
-        RETURNING *
+        RETURNING id, cod_unico, (xmax = 0) AS is_new
       )
       SELECT * FROM upserted;
     `;
@@ -933,32 +1000,12 @@ export async function importProductos(
 
       const skuToIdMap = new Map<string, number>(upsertRes.rows.map(r => [r.cod_unico, r.id]));
       
-      // Mapeo de campos para el reporte de cambios
-      const mappedFields = Object.entries(mappings)
-        .filter(([_, config]) => !!config.csvHeader && config.updateExisting)
-        .map(([field, _]) => field);
-
       upsertRes.rows.forEach(r => {
-          if (r.is_new) {
-              results.imported++;
-          } else {
-              results.updated++;
-              // Solo guardamos detalles de los actualizados
-              if (results.updatedDetails.length < 500) { // Límite para no saturar memoria
-                  const changes: Record<string, any> = {};
-                  mappedFields.forEach(f => {
-                      // Traducir nombres internos a legibles si es necesario, o usar los originales
-                      changes[f] = r[f];
-                  });
-                  results.updatedDetails.push({
-                      cod_unico: r.cod_unico,
-                      changes
-                  });
-              }
-          }
+          if (r.is_new) results.imported++;
+          else results.updated++;
       });
 
-      // 4. Bulk Upsert de Proveedores (si corresponde)
+      // 4. Bulk Upsert de Proveedores
       if (supplierLinks.length > 0 && mappings.proveedor?.updateExisting !== false) {
           const v_prod_id: number[] = [];
           const v_prov_id: number[] = [];
@@ -967,7 +1014,7 @@ export async function importProductos(
 
           supplierLinks.forEach(link => {
               const prodId = skuToIdMap.get(link.sku);
-              const provId = provMap.get(normalize(link.provName));
+              const provId = provMap.get(normalizeKey(link.provName));
               if (prodId && provId) {
                   v_prod_id.push(prodId);
                   v_prov_id.push(provId);
@@ -994,15 +1041,48 @@ export async function importProductos(
               `, [v_prod_id, v_prov_id, v_cod_prov, v_price_lista, codProvShouldUpdate, priceShouldUpdate]);
           }
       }
+
+      // 5. Bulk Upsert de Precios (MOSTRADOR = ID 3)
+      if (priceLinks.length > 0 && mappings.precio_venta?.updateExisting !== false) {
+          const v_prod_id_price: number[] = [];
+          const v_price_val: number[] = [];
+          const ID_TIPO_PRECIO_MOSTRADOR = 3;
+
+          priceLinks.forEach(link => {
+              const prodId = skuToIdMap.get(link.sku);
+              if (prodId && link.price !== null) {
+                  v_prod_id_price.push(prodId);
+                  v_price_val.push(link.price);
+              }
+          });
+
+          if (v_prod_id_price.length > 0) {
+              await client.query(`
+                  INSERT INTO producto_precio (id_producto, id_tipo_precio, precio, porcentaje_ganancia)
+                  SELECT 
+                      t.id_producto, $2, t.precio, 0
+                  FROM UNNEST($1::int[], $3::numeric[])
+                  AS t(id_producto, precio)
+                  ON CONFLICT (id_producto, id_tipo_precio) DO UPDATE SET
+                      precio = EXCLUDED.precio
+              `, [v_prod_id_price, ID_TIPO_PRECIO_MOSTRADOR, v_price_val]);
+          }
+      }
+
     } catch (dbErr: any) {
       console.error("❌ Error en DB Bulk Upsert:", dbErr.message, dbErr.detail);
       throw new Error(`Error de base de datos: ${dbErr.message}${dbErr.detail ? ' - ' + dbErr.detail : ''}`);
     }
 
-    // 5. Devolver resultados (log lo maneja el cliente consolidando todo)
     const durationMs = Date.now() - startTime;
-
-    return { ...results, durationMs };
+    return { 
+      ...results, 
+      totalRows: items.length,
+      durationMs,
+      mappedColumns: Object.entries(mappings)
+        .filter(([_, m]) => !!m.csvHeader)
+        .map(([field, m]) => ({ field, header: m.csvHeader }))
+    };
   });
 }
 

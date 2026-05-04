@@ -59,8 +59,6 @@ export async function aplicarImportacionAlCatalogo(
     const marcaDescuentos = Object.values(descuentosPorMarca).map(Number);
 
     // 1. Actualizar producto_proveedor vinculados aplicando descuentos
-    // NOTA: Para evitar el error "invalid reference to FROM-clause entry for table 'pp'",
-    // movemos la condición de join con la tabla objetivo (pp) al WHERE.
     const updateResult = await client.query(
       `
         UPDATE public.producto_proveedor pp
@@ -82,7 +80,22 @@ export async function aplicarImportacionAlCatalogo(
       [id_importacion, descuentoGeneral, marcaIds, marcaDescuentos]
     );
 
-    // 2. Marcar importación como APLICADA
+    // 2. Sincronizar con producto_precio (MOSTRADOR = ID 3)
+    // Actualizamos el precio de venta basado en el nuevo precio de lista del proveedor
+    // Solo si el producto_proveedor actualizado es el que acabamos de tocar.
+    await client.query(
+      `
+        UPDATE public.producto_precio pr
+        SET precio = pp.precio_lista_actual * (1 + (pr.porcentaje_ganancia / 100))
+        FROM public.producto_proveedor pp
+        WHERE pr.id_producto = pp.id_producto
+          AND pr.id_tipo_precio = 3
+          AND pp.ultima_importacion_id = $1
+      `,
+      [id_importacion]
+    );
+
+    // 3. Marcar importación como APLICADA
     await client.query(
       `UPDATE public.proveedor_importacion SET estado = 'APLICADA', updated_at = NOW() WHERE id = $1`,
       [id_importacion]

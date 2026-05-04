@@ -269,7 +269,7 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
         onConfirm={handleDelete}
         loading={isDeleting}
         title="Eliminar Kit"
-        description={`¿Estás seguro que deseas eliminar el kit "${deletingKit?.nombre}"? Esta acción marcará el kit como inactivo.`}
+        description={`¿Estás seguro que deseas eliminar el kit "${deletingKit?.nombre}"? Esta acción no se puede deshacer.`}
       />
 
       <Modal
