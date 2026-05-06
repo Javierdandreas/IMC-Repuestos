@@ -1,4 +1,4 @@
-import { listarSectores, listarUbicaciones } from "@/modules/ubicaciones/repos/ubicaciones";
+import { listarSectores, listarUbicacionesPaginadas } from "@/modules/ubicaciones/repos/ubicaciones";
 import { UbicacionesManager } from "@/modules/ubicaciones/components/UbicacionesManager";
 
 export const metadata = {
@@ -6,12 +6,12 @@ export const metadata = {
 };
 
 export default async function UbicacionesPage() {
-  const ubicaciones = await listarUbicaciones();
+  const result = await listarUbicacionesPaginadas({ page: 1, pageSize: 25 });
   const sectores = await listarSectores();
 
   return (
     <div className="container mx-auto py-8">
-      <UbicacionesManager ubicaciones={ubicaciones} sectores={sectores} />
+      <UbicacionesManager initialData={result} sectores={sectores} />
     </div>
   );
 }

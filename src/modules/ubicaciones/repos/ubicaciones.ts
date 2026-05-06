@@ -60,6 +60,75 @@ export async function listarUbicaciones(): Promise<Ubicacion[]> {
   return rows as Ubicacion[];
 }
 
+export interface UbicacionesPaginadasParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}
+
+export interface UbicacionesPaginadasResult {
+  data: Ubicacion[];
+  totalCount: number;
+  totalPages: number;
+  currentPage: number;
+  pageSize: number;
+}
+
+export async function listarUbicacionesPaginadas(params: UbicacionesPaginadasParams): Promise<UbicacionesPaginadasResult> {
+  const page = Math.max(1, params.page || 1);
+  const pageSize = params.pageSize || 25;
+  const search = params.search?.trim() || "";
+
+  let whereClause = "";
+  let queryParams: any[] = [];
+  
+  if (search) {
+    const cleanedSearch = search.toUpperCase();
+    let q = cleanedSearch;
+    if (q.startsWith("UBI:")) {
+      q = q.substring(4);
+    }
+    
+    whereClause = `WHERE (
+      UPPER(codigo) LIKE $1 OR 
+      UPPER(codigo_barra) LIKE $1 OR 
+      UPPER(descripcion) LIKE $1 OR
+      UPPER(sector_codigo) LIKE $1
+    )`;
+    queryParams.push(`%${q}%`);
+  }
+
+  const countQuery = `SELECT COUNT(*)::int AS total FROM ubicaciones ${whereClause}`;
+  const countResult = await query(countQuery, queryParams);
+  const totalCount = countResult.rows[0]?.total || 0;
+  
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  
+  // Ajustar la página si excede el total
+  const currentPage = Math.min(page, totalPages);
+  const offset = (currentPage - 1) * pageSize;
+
+  // Add order by, limit and offset parameters
+  const selectQuery = `
+    SELECT * FROM ubicaciones 
+    ${whereClause} 
+    ORDER BY ${getOrderByClause()} 
+    LIMIT $${queryParams.length + 1} 
+    OFFSET $${queryParams.length + 2}
+  `;
+  
+  const finalParams = [...queryParams, pageSize, offset];
+  const { rows } = await query(selectQuery, finalParams);
+
+  return {
+    data: rows as Ubicacion[],
+    totalCount,
+    totalPages,
+    currentPage,
+    pageSize
+  };
+}
+
 export async function createUbicacion(descripcion: unknown): Promise<Ubicacion> {
   const clean = cleanDescripcion(descripcion);
   if (!clean) throw new Error("La descripción es obligatoria");
@@ -244,17 +313,18 @@ export async function asignarUbicacionAProducto(producto_id: number | string, ub
   });
 }
 
-export async function asignarUbicacionAProductosMasivo(productoIds: number[], ubicacionId: number): Promise<void> {
+export async function asignarUbicacionAProductosMasivo(productoIds: number[], ubicacionId: number): Promise<number> {
   return await withTransaction(async (client) => {
     if (!productoIds.length) throw new Error("No hay productos seleccionados");
 
     const ubicacionRes = await client.query(`SELECT 1 FROM ubicaciones WHERE id = $1`, [ubicacionId]);
     if (ubicacionRes.rows.length === 0) throw new Error("La ubicación destino no existe");
 
-    await client.query(
-      `UPDATE productos SET id_ubicacion = $1 WHERE id = ANY($2::int[])`,
+    const { rowCount } = await client.query(
+      `UPDATE productos SET id_ubicacion = $1 WHERE id = ANY($2::bigint[])`,
       [ubicacionId, productoIds]
     );
+    return rowCount || 0;
   });
 }
 

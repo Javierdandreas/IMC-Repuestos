@@ -1,23 +1,31 @@
 "use client";
 
-import { useState } from "react";
-import { createSectorAction, generateUbicacionesAction } from "../actions";
+import { useState, useEffect, useCallback } from "react";
+import { createSectorAction, generateUbicacionesAction, listarUbicacionesPaginadasAction } from "../actions";
 import { Ubicacion, UbicacionSector } from "../types/ubicaciones";
 import { toast } from "sonner";
-import { Search, Plus, Printer, Box, Check, X } from "lucide-react";
+import { Search, Plus, Printer, Box, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
 import Barcode from "react-barcode";
 import { Modal } from "@/components/ui/Modal";
+import type { UbicacionesPaginadasResult } from "../repos/ubicaciones";
 
 export function UbicacionesManager({
-  ubicaciones,
+  initialData,
   sectores,
 }: {
-  ubicaciones: Ubicacion[];
+  initialData: UbicacionesPaginadasResult;
   sectores: UbicacionSector[];
 }) {
+  const [data, setData] = useState<UbicacionesPaginadasResult>(initialData);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  
   const [showGenerator, setShowGenerator] = useState(false);
   const [showSectorModal, setShowSectorModal] = useState(false);
+  
+  // Imprimir solo las seleccionadas (que pueden persistir al cambiar de pág)
   const [printLabels, setPrintLabels] = useState<Ubicacion[]>([]);
   const [isPrinting, setIsPrinting] = useState(false);
 
@@ -30,14 +38,37 @@ export function UbicacionesManager({
   const [genNiv, setGenNiv] = useState(1);
   const [genPos, setGenPos] = useState(1);
 
-  const filtered = ubicaciones.filter((u) => {
-    const q = search.toLowerCase();
-    return (
-      u.codigo?.toLowerCase().includes(q) ||
-      u.codigo_barra?.toLowerCase().includes(q) ||
-      u.descripcion?.toLowerCase().includes(q)
-    );
-  });
+  // Debounce effect
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1); // Reset page on new search
+    }, 400);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  // Fetch paginated data
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const result = await listarUbicacionesPaginadasAction({
+        page,
+        pageSize: 25,
+        search: debouncedSearch,
+      });
+      setData(result);
+    } catch (error) {
+      toast.error("Error al cargar ubicaciones");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [page, debouncedSearch]);
+
+  useEffect(() => {
+    // Skip initial fetch since we have initialData for empty search and page 1
+    if (page === 1 && debouncedSearch === "" && data.totalCount === initialData.totalCount) return;
+    fetchData();
+  }, [page, debouncedSearch, fetchData, data.totalCount, initialData.totalCount]);
 
   const handleCreateSector = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,6 +89,7 @@ export function UbicacionesManager({
       const res = await generateUbicacionesAction(genSector, genEst, genNiv, genPos);
       toast.success(`Generadas: ${res.generadas}, Existentes (saltadas): ${res.existentes}`);
       setShowGenerator(false);
+      fetchData(); // Reload current page
     } catch (err: any) {
       toast.error(err.message || "Error al generar");
     }
@@ -79,6 +111,22 @@ export function UbicacionesManager({
       setPrintLabels([...printLabels, u]);
     }
   };
+
+  const togglePrintAllPage = () => {
+    const pageIds = new Set(data.data.map(u => u.id));
+    const allPageSelected = data.data.every(u => printLabels.some(p => p.id === u.id));
+    
+    if (allPageSelected) {
+      // Remover los de la pág actual
+      setPrintLabels(printLabels.filter(p => !pageIds.has(p.id)));
+    } else {
+      // Agregar los que faltan de la pág actual
+      const toAdd = data.data.filter(u => !printLabels.some(p => p.id === u.id));
+      setPrintLabels([...printLabels, ...toAdd]);
+    }
+  };
+
+  const allPageSelected = data.data.length > 0 && data.data.every(u => printLabels.some(p => p.id === u.id));
 
   return (
     <div className="p-6 space-y-6">
@@ -104,17 +152,17 @@ export function UbicacionesManager({
             onClick={handlePrint}
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
           >
-            <Printer className="w-4 h-4" /> Imprimir Etiquetas ({printLabels.length})
+            <Printer className="w-4 h-4" /> Imprimir ({printLabels.length})
           </button>
         </div>
       </div>
 
       <div className="relative print:hidden">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isLoading ? 'animate-spin text-blue-500' : 'text-muted-foreground'}`} />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por código, descripción o código de barras..."
+          placeholder="Buscar por código (C4-5), descripción o escanear código de barras (UBI:C4-5)..."
           className="w-full pl-9 pr-4 py-2 border rounded-md"
         />
       </div>
@@ -130,11 +178,18 @@ export function UbicacionesManager({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:hidden">
-        <div className="lg:col-span-2 border rounded-md overflow-hidden">
+        <div className="lg:col-span-2 border rounded-md overflow-hidden bg-card">
           <table className="w-full text-sm text-left">
             <thead className="bg-muted text-muted-foreground">
               <tr>
-                <th className="px-4 py-3"></th>
+                <th className="px-4 py-3 w-[40px]">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    onChange={togglePrintAllPage}
+                    className="rounded border-gray-300"
+                  />
+                </th>
                 <th className="px-4 py-3">Código</th>
                 <th className="px-4 py-3">Código Barras</th>
                 <th className="px-4 py-3">Sector</th>
@@ -143,7 +198,7 @@ export function UbicacionesManager({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((u) => (
+              {data.data.map((u) => (
                 <tr key={u.id} className="border-b last:border-0 hover:bg-muted/50">
                   <td className="px-4 py-3">
                     <input
@@ -162,7 +217,7 @@ export function UbicacionesManager({
                   <td className="px-4 py-3 text-muted-foreground">{u.descripcion}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {data.data.length === 0 && !isLoading && (
                 <tr>
                   <td colSpan={6} className="text-center py-8 text-muted-foreground">
                     No se encontraron ubicaciones
@@ -171,10 +226,37 @@ export function UbicacionesManager({
               )}
             </tbody>
           </table>
+
+          {data.totalPages > 1 && (
+            <div className="flex items-center justify-between p-4 border-t bg-muted/30">
+              <span className="text-sm text-muted-foreground">
+                Mostrando {data.data.length} de {data.totalCount} resultados
+              </span>
+              <div className="flex gap-2">
+                <button
+                  disabled={data.currentPage === 1 || isLoading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="p-1 rounded border bg-background disabled:opacity-50 hover:bg-muted"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <span className="text-sm flex items-center px-2 font-medium">
+                  {data.currentPage} / {data.totalPages}
+                </span>
+                <button
+                  disabled={data.currentPage >= data.totalPages || isLoading}
+                  onClick={() => setPage((p) => p + 1)}
+                  className="p-1 rounded border bg-background disabled:opacity-50 hover:bg-muted"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-6">
-          <div className="border rounded-md p-4">
+          <div className="border rounded-md p-4 bg-card">
             <h2 className="font-semibold mb-4 text-lg">Sectores Registrados</h2>
             <div className="space-y-2">
               {sectores.map((s) => (

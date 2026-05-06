@@ -26,9 +26,21 @@ export async function buscarUbicacionPorCodigoEscaneadoAction(valor: string) {
 }
 
 export async function asignarUbicacionMasivaAction(productoIds: number[], ubicacionId: number) {
+  const { getServerInternalUser } = await import("@/modules/auth/repos/auth");
+  const { tienePermiso } = await import("@/modules/auth/repos/permissions");
+  
+  const user = await getServerInternalUser();
+  if (!user || !user.activo || !tienePermiso(user.rol, "productos.editar")) {
+    throw new Error("No tienes permisos para editar productos");
+  }
+
   const { asignarUbicacionAProductosMasivo } = await import("./repos/ubicaciones");
-  await asignarUbicacionAProductosMasivo(productoIds, ubicacionId);
+  const rowCount = await asignarUbicacionAProductosMasivo(productoIds, ubicacionId);
   revalidatePath("/productos");
+  return rowCount;
 }
 
-
+export async function listarUbicacionesPaginadasAction(params: { page?: number; pageSize?: number; search?: string }) {
+  const { listarUbicacionesPaginadas } = await import("./repos/ubicaciones");
+  return await listarUbicacionesPaginadas(params);
+}

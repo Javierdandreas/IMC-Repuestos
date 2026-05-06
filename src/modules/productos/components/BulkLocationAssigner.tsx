@@ -28,8 +28,8 @@ export function BulkLocationAssigner({ isOpen, onClose, selectedIds, onSuccess }
 
     setIsAssigning(true);
     try {
-      await asignarUbicacionMasivaAction(selectedIds, destino.id as number);
-      toast.success(`${selectedIds.length} productos movidos a ${destino.codigo || destino.descripcion} correctamente`);
+      const count = await asignarUbicacionMasivaAction(selectedIds, destino.id as number);
+      toast.success(`${count} productos movidos a ${destino.codigo || destino.descripcion} correctamente`);
       onSuccess();
       onClose();
       setDestino(null);
