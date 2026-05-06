@@ -276,7 +276,7 @@ export async function getPresupuestosSupabase(viewStatus?: string): Promise<Pres
         productos (
           marcas (descripcion),
           stock,
-          ubicaciones (descripcion)
+          ubicaciones (codigo, descripcion)
         )
       )
     `);
@@ -327,7 +327,7 @@ export async function getPresupuestosSupabase(viewStatus?: string): Promise<Pres
 
           if (prod) {
             stockVal = Number(prod.stock) || 0;
-            ubicacionDesc = prod.ubicaciones?.descripcion || "Sin Ubicación";
+            ubicacionDesc = prod.ubicaciones?.codigo || prod.ubicaciones?.descripcion || "Sin Ubicación";
           }
 
           return {

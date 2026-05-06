@@ -1,24 +1,17 @@
-import { CatalogList } from "@/components/ui/CatalogList";
-import { getPaginatedCatalogo } from "@/lib/repos/catalogos";
+import { listarSectores, listarUbicaciones } from "@/modules/ubicaciones/repos/ubicaciones";
+import { UbicacionesManager } from "@/modules/ubicaciones/components/UbicacionesManager";
 
-type Props = {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+export const metadata = {
+  title: "Gestión de Ubicaciones",
 };
 
-export default async function UbicacionesPage({ searchParams }: Props) {
-  const resolvedParams = await searchParams;
-  const page = Number(resolvedParams?.page) || 1;
-
-  const { data: ubicaciones, totalPages } = await getPaginatedCatalogo("ubicaciones", page, 25);
+export default async function UbicacionesPage() {
+  const ubicaciones = await listarUbicaciones();
+  const sectores = await listarSectores();
 
   return (
-    <CatalogList
-      items={ubicaciones}
-      totalPages={totalPages}
-      apiPath="/api/catalogos/ubicaciones"
-      entityName="ubicación"
-      title="Ubicaciones"
-      createLabel="Nueva ubicación"
-    />
+    <div className="container mx-auto py-8">
+      <UbicacionesManager ubicaciones={ubicaciones} sectores={sectores} />
+    </div>
   );
 }

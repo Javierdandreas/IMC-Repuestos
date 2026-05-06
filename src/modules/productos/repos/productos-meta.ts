@@ -23,5 +23,11 @@ export async function getProductMeta(): Promise<ProductMeta> {
     getProveedores(),
     getUbicaciones(),
   ]);
-  return { marcas, categorias, subcategorias, proveedores, ubicaciones };
+  return { 
+    marcas, 
+    categorias, 
+    subcategorias, 
+    proveedores, 
+    ubicaciones: ubicaciones.map(u => ({ id: u.id, descripcion: u.codigo || u.descripcion }))
+  };
 }

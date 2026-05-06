@@ -13,7 +13,8 @@ function mapProductoCatalogo(item: any): ProductoCatalogo {
 
   // El stock ahora viene directo de la columna productos.stock
   const totalStock = Number(item.stock) || 0;
-  const ubicacionDesc = item.ubicaciones?.descripcion || "Sin Ubicación";
+  const subcategoriaDesc = item.subcategorias?.descripcion || "General";
+  const ubicacionDesc = item.ubicaciones?.codigo || item.ubicaciones?.descripcion || "Sin Ubicación";
 
   return {
     codigo: item.cod_unico || "", 
@@ -36,7 +37,9 @@ const PRODUCTO_SELECT_QUERY = `
   ),
   stock,
   ubicaciones (
-    descripcion
+    id,
+    descripcion,
+    codigo
   )
 `;
 

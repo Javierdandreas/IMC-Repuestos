@@ -240,7 +240,7 @@ export async function getProductosListado(
       s.id AS id_subcategoria,
       s.descripcion AS subcategoria,
       p.id_ubicacion,
-      u.descripcion AS ubicacion,
+      COALESCE(u.codigo, u.descripcion) AS ubicacion,
       p.usa_numero_serie,
       p.palabra_clave,
       STRING_AGG(DISTINCT prv.descripcion, ', ') AS proveedor,
@@ -458,7 +458,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       pc.descripcion AS pieza_categoria,
       pi.medida AS pieza_medida,
       p.id_ubicacion,
-      u.descripcion AS ubicacion,
+      COALESCE(u.codigo, u.descripcion) AS ubicacion,
       p.usa_numero_serie,
       p.palabra_clave,
       COALESCE(
