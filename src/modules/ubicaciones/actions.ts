@@ -19,3 +19,9 @@ export async function generateUbicacionesAction(
   revalidatePath("/ubicaciones");
   return result;
 }
+
+export async function buscarUbicacionPorCodigoEscaneadoAction(valor: string) {
+  const { buscarUbicacionPorCodigoEscaneado } = await import("./repos/ubicaciones");
+  return await buscarUbicacionPorCodigoEscaneado(valor);
+}
+

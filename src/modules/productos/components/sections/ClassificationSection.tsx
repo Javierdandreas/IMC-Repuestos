@@ -23,7 +23,10 @@ type ClassificationSectionProps = {
   onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
   onCategoriaChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
   onQuickAdd: (type: QuickAddType) => void;
+  onUbicacionScanned?: (id: number) => void;
 };
+
+import { UbicacionScannerInput } from "@/modules/ubicaciones/components/UbicacionScannerInput";
 
 export function ClassificationSection({
   stock,
@@ -37,6 +40,7 @@ export function ClassificationSection({
   onChange,
   onCategoriaChange,
   onQuickAdd,
+  onUbicacionScanned,
 }: ClassificationSectionProps) {
   const filteredSubcategories = useMemo(() => {
     const subcategorias = Array.isArray(meta?.subcategorias) ? meta.subcategorias : [];
@@ -117,14 +121,20 @@ export function ClassificationSection({
           <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Ubicación
           </label>
-          <select
-            name="id_ubicacion"
-            value={id_ubicacion ?? ""}
-            onChange={(e) => handleSelectChange(e, "ubicaciones")}
-            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
-          >
-            {renderOptions(meta.ubicaciones, "Seleccionar ubicación", "ubicaciones")}
-          </select>
+          <div className="space-y-2">
+            <UbicacionScannerInput
+              onUbicacionSeleccionada={(u) => onUbicacionScanned?.(u.id as number)}
+              placeholder="Escanear ubicación..."
+            />
+            <select
+              name="id_ubicacion"
+              value={id_ubicacion ?? ""}
+              onChange={(e) => handleSelectChange(e, "ubicaciones")}
+              className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
+            >
+              {renderOptions(meta.ubicaciones, "Seleccionar ubicación manual...", "ubicaciones")}
+            </select>
+          </div>
         </div>
       </div>
 

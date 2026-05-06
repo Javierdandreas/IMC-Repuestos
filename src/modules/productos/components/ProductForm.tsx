@@ -500,6 +500,7 @@ export function ProductForm({
                 onChange={handleChange}
                 onCategoriaChange={handleCategoriaChange}
                 onQuickAdd={(type) => handleQuickAdd(type)}
+                onUbicacionScanned={(id) => setProduct((prev) => ({ ...prev, id_ubicacion: id }))}
               />
             </div>
           )}

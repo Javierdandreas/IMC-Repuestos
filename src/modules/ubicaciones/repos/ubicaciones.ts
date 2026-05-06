@@ -149,6 +149,27 @@ export async function buscarUbicacionPorBarcode(codigo_barra: string): Promise<U
   return rows.length > 0 ? (rows[0] as Ubicacion) : null;
 }
 
+export function normalizarCodigoEscaneado(valor: string): string {
+  let cleaned = valor.trim().toUpperCase();
+  if (cleaned.startsWith("UBI:")) {
+    cleaned = cleaned.substring(4);
+  }
+  return cleaned;
+}
+
+export async function buscarUbicacionPorCodigoEscaneado(valor: string): Promise<Ubicacion | null> {
+  if (!valor) return null;
+  const codigo = normalizarCodigoEscaneado(valor);
+  const codigoBarra = `UBI:${codigo}`;
+  
+  const { rows } = await query(
+    `SELECT * FROM ubicaciones WHERE codigo = $1 OR codigo_barra = $2 OR UPPER(descripcion) = $1 LIMIT 1`,
+    [codigo, codigoBarra]
+  );
+  return rows.length > 0 ? (rows[0] as Ubicacion) : null;
+}
+
+
 export async function generarUbicaciones(
   sector_codigo: string,
   estanterias: number,
