@@ -6,6 +6,7 @@ import { Ubicacion, UbicacionSector } from "../types/ubicaciones";
 import { toast } from "sonner";
 import { Search, Plus, Printer, Box, Check, X } from "lucide-react";
 import Barcode from "react-barcode";
+import { Modal } from "@/components/ui/Modal";
 
 export function UbicacionesManager({
   ubicaciones,
@@ -191,116 +192,116 @@ export function UbicacionesManager({
         </div>
       </div>
 
-      {showSectorModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center print:hidden">
-          <div className="bg-background p-6 rounded-lg shadow-lg w-[400px]">
-            <h2 className="text-xl font-bold mb-4">Crear Sector</h2>
-            <form onSubmit={handleCreateSector} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Código (Letra A-Z)</label>
-                <input
-                  required
-                  pattern="[A-Za-z]"
-                  maxLength={1}
-                  className="w-full border p-2 rounded uppercase"
-                  value={sectorCodigo}
-                  onChange={(e) => setSectorCodigo(e.target.value.toUpperCase())}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Descripción</label>
-                <input
-                  className="w-full border p-2 rounded"
-                  value={sectorDesc}
-                  onChange={(e) => setSectorDesc(e.target.value)}
-                />
-              </div>
-              <div className="flex justify-end gap-2 mt-4">
-                <button type="button" onClick={() => setShowSectorModal(false)} className="px-4 py-2 border rounded">
-                  Cancelar
-                </button>
-                <button type="submit" className="px-4 py-2 bg-primary text-primary-foreground rounded">
-                  Guardar
-                </button>
-              </div>
-            </form>
+      <Modal
+        title="Crear Sector"
+        open={showSectorModal}
+        onClose={() => setShowSectorModal(false)}
+        width="max-w-md"
+      >
+        <form onSubmit={handleCreateSector} className="space-y-4 p-6">
+          <div>
+            <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Código (Letra A-Z)</label>
+            <input
+              required
+              pattern="[A-Za-z]"
+              maxLength={1}
+              className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl uppercase focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none"
+              value={sectorCodigo}
+              onChange={(e) => setSectorCodigo(e.target.value.toUpperCase())}
+            />
           </div>
-        </div>
-      )}
+          <div>
+            <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Descripción</label>
+            <input
+              className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none"
+              value={sectorDesc}
+              onChange={(e) => setSectorDesc(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
+            <button type="button" onClick={() => setShowSectorModal(false)} className="px-4 py-2 border rounded-xl text-sm font-bold">
+              Cancelar
+            </button>
+            <button type="submit" className="px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-bold">
+              Guardar
+            </button>
+          </div>
+        </form>
+      </Modal>
 
-      {showGenerator && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center print:hidden">
-          <div className="bg-background p-6 rounded-lg shadow-lg w-[500px]">
-            <h2 className="text-xl font-bold mb-4">Generador de Lotes</h2>
-            <p className="text-sm text-muted-foreground mb-4">Genera ubicaciones estructuradas automáticamente.</p>
-            <form onSubmit={handleGenerate} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Sector</label>
-                <select
-                  required
-                  value={genSector}
-                  onChange={(e) => setGenSector(e.target.value)}
-                  className="w-full border p-2 rounded"
-                >
-                  <option value="">Seleccione...</option>
-                  {sectores.map((s) => (
-                    <option key={s.codigo} value={s.codigo}>
-                      {s.codigo} - {s.descripcion}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Estanterías</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    className="w-full border p-2 rounded"
-                    value={genEst}
-                    onChange={(e) => setGenEst(Number(e.target.value))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Niveles</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    className="w-full border p-2 rounded"
-                    value={genNiv}
-                    onChange={(e) => setGenNiv(Number(e.target.value))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Posiciones</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    className="w-full border p-2 rounded"
-                    value={genPos}
-                    onChange={(e) => setGenPos(Number(e.target.value))}
-                  />
-                </div>
-              </div>
-              <div className="bg-muted p-3 rounded-md text-sm mt-4">
-                Ejemplo: Se generarán ubicaciones desde <strong>{genSector || "X"}1-1-1</strong> hasta{" "}
-                <strong>{genSector || "X"}{genEst}-{genNiv}-{genPos}</strong>.
-              </div>
-              <div className="flex justify-end gap-2 mt-4">
-                <button type="button" onClick={() => setShowGenerator(false)} className="px-4 py-2 border rounded">
-                  Cancelar
-                </button>
-                <button type="submit" className="px-4 py-2 bg-primary text-primary-foreground rounded flex items-center gap-2">
-                  <Box className="w-4 h-4" /> Generar {genEst * genNiv * genPos}
-                </button>
-              </div>
-            </form>
+      <Modal
+        title="Generador de Lotes"
+        open={showGenerator}
+        onClose={() => setShowGenerator(false)}
+        width="max-w-lg"
+      >
+        <form onSubmit={handleGenerate} className="space-y-4 p-6">
+          <p className="text-sm text-slate-500 mb-4 font-medium">Genera ubicaciones estructuradas automáticamente multiplicando el espacio.</p>
+          <div>
+            <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Sector</label>
+            <select
+              required
+              value={genSector}
+              onChange={(e) => setGenSector(e.target.value)}
+              className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none"
+            >
+              <option value="">Seleccione...</option>
+              {sectores.map((s) => (
+                <option key={s.codigo} value={s.codigo}>
+                  {s.codigo} - {s.descripcion}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
-      )}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Estanterías</label>
+              <input
+                type="number"
+                min="1"
+                required
+                className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 outline-none"
+                value={genEst}
+                onChange={(e) => setGenEst(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Niveles</label>
+              <input
+                type="number"
+                min="1"
+                required
+                className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 outline-none"
+                value={genNiv}
+                onChange={(e) => setGenNiv(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Posiciones</label>
+              <input
+                type="number"
+                min="1"
+                required
+                className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 outline-none"
+                value={genPos}
+                onChange={(e) => setGenPos(Number(e.target.value))}
+              />
+            </div>
+          </div>
+          <div className="bg-blue-50 p-3 rounded-xl text-sm mt-4 border border-blue-100 text-blue-800">
+            Ejemplo: Se generarán ubicaciones desde <strong className="font-mono">{genSector || "X"}1-1-1</strong> hasta{" "}
+            <strong className="font-mono">{genSector || "X"}{genEst}-{genNiv}-{genPos}</strong>.
+          </div>
+          <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
+            <button type="button" onClick={() => setShowGenerator(false)} className="px-4 py-2 border rounded-xl text-sm font-bold">
+              Cancelar
+            </button>
+            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold flex items-center gap-2">
+              <Box className="w-4 h-4" /> Generar {genEst * genNiv * genPos}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

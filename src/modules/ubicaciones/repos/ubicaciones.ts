@@ -243,3 +243,18 @@ export async function asignarUbicacionAProducto(producto_id: number | string, ub
     }
   });
 }
+
+export async function asignarUbicacionAProductosMasivo(productoIds: number[], ubicacionId: number): Promise<void> {
+  return await withTransaction(async (client) => {
+    if (!productoIds.length) throw new Error("No hay productos seleccionados");
+
+    const ubicacionRes = await client.query(`SELECT 1 FROM ubicaciones WHERE id = $1`, [ubicacionId]);
+    if (ubicacionRes.rows.length === 0) throw new Error("La ubicación destino no existe");
+
+    await client.query(
+      `UPDATE productos SET id_ubicacion = $1 WHERE id = ANY($2::int[])`,
+      [ubicacionId, productoIds]
+    );
+  });
+}
+

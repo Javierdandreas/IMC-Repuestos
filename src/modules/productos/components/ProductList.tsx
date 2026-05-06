@@ -20,6 +20,8 @@ import { ImportProductModal } from "./ImportProductModal";
 import { ExportModal } from "./ExportModal";
 import type { ProductoListado, Subcategoria } from "@/modules/productos/types/productos";
 import { BulkLabelPrinter } from "./BulkLabelPrinter";
+import { BulkLocationAssigner } from "./BulkLocationAssigner";
+import { HiOutlineLocationMarker } from "react-icons/hi";
 
 interface Props {
   products: ProductoListado[];
@@ -68,6 +70,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [isZoomed, setIsZoomed] = useState(false);
   const [openImport, setOpenImport] = useState(false);
   const [openLabelPrinter, setOpenLabelPrinter] = useState(false);
+  const [openLocationAssigner, setOpenLocationAssigner] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [openExportModal, setOpenExportModal] = useState(false);
 
@@ -601,6 +604,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </button>
 
                     <button
+                      onClick={() => setOpenLocationAssigner(true)}
+                      className="flex items-center gap-2 rounded-xl bg-slate-700 px-4 py-2 text-xs font-black text-white shadow-lg transition hover:bg-slate-600 hover:scale-105 active:scale-95"
+                    >
+                      <HiOutlineLocationMarker className="h-4 w-4" />
+                      ASIGNAR UBICACIÓN
+                    </button>
+                    <button
                       onClick={() => setOpenLabelPrinter(true)}
                       className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 hover:scale-105 active:scale-95"
                     >
@@ -611,6 +621,16 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 </motion.div>
               )}
             </AnimatePresence>
+
+            <BulkLocationAssigner
+              isOpen={openLocationAssigner}
+              onClose={() => setOpenLocationAssigner(false)}
+              selectedIds={Array.from(selectedIds)}
+              onSuccess={() => {
+                router.refresh();
+                setSelectedIds(new Set());
+              }}
+            />
 
             <BulkLabelPrinter
               isOpen={openLabelPrinter}

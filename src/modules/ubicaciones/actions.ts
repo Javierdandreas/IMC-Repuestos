@@ -25,3 +25,10 @@ export async function buscarUbicacionPorCodigoEscaneadoAction(valor: string) {
   return await buscarUbicacionPorCodigoEscaneado(valor);
 }
 
+export async function asignarUbicacionMasivaAction(productoIds: number[], ubicacionId: number) {
+  const { asignarUbicacionAProductosMasivo } = await import("./repos/ubicaciones");
+  await asignarUbicacionAProductosMasivo(productoIds, ubicacionId);
+  revalidatePath("/productos");
+}
+
+
