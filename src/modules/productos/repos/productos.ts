@@ -564,7 +564,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
 /**
  * Verifica si un código de barra ya está en uso.
  */
-export async function isBarcodeDuplicate(barcode: string, excludeId?: string | number): Promise<boolean> {
+export async function isBarcodeDuplicate(barcode: string, excludeId?: string | number, client?: DbClient): Promise<boolean> {
   if (!barcode) return false;
   
   let sql = "SELECT p.id FROM productos p WHERE p.cod_barra = $1";
@@ -575,14 +575,14 @@ export async function isBarcodeDuplicate(barcode: string, excludeId?: string | n
     params.push(excludeId);
   }
 
-  const { rows } = await query(sql, params);
+  const { rows } = await (client || { query }).query(sql, params);
   return rows.length > 0;
 }
 
 /**
  * Genera un código de barra interno de 13 dígitos empezando por 200.
  */
-export async function generateUniqueBarcode(): Promise<string> {
+export async function generateUniqueBarcode(client?: DbClient): Promise<string> {
   const prefix = "200";
   let isUnique = false;
   let barcode = "";
@@ -592,7 +592,7 @@ export async function generateUniqueBarcode(): Promise<string> {
     const randomSuffix = Math.floor(Math.random() * 10000000000).toString().padStart(10, '0');
     barcode = prefix + randomSuffix;
     
-    const exists = await isBarcodeDuplicate(barcode);
+    const exists = await isBarcodeDuplicate(barcode, undefined, client);
     if (!exists) {
       isUnique = true;
     }
@@ -607,7 +607,7 @@ export async function createProducto(input: ProductoInput) {
     const payload = sanitizeProductoInput(input);
     
     // Validamos duplicado
-    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra)) {
+    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, undefined, client)) {
       const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro producto`);
       (err as any).status = 400;
       throw err;
@@ -666,7 +666,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
     const payload = sanitizeProductoInput(input);
 
     // Validamos duplicado si se cambió el código
-    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, id)) {
+    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, id, client)) {
       const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro producto`);
       (err as any).status = 400;
       throw err;

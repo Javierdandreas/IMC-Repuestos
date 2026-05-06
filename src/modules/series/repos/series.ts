@@ -1,4 +1,4 @@
-import { query, withTransaction } from "@/lib/db-utils";
+import { query, withTransaction, type DbClient } from "@/lib/db-utils";
 import type { ProductoSerie, ProductoSerieMovimiento, EstadoSerie, TipoMovimientoSerie } from "@/modules/series/types/series";
 import { AppError } from "@/lib/api-errors";
 
@@ -31,8 +31,10 @@ export async function getSeriesPorProducto(id_producto: number | string): Promis
  * Validar si uno de los números de serie enviados ya existe en la BD
  * o coincide con algún cod_unico.
  */
-async function validarNumerosDeSerieDisponibles(numeros: string[], excludeIdSerie?: number): Promise<void> {
+async function validarNumerosDeSerieDisponibles(numeros: string[], excludeIdSerie?: number, client?: DbClient): Promise<void> {
   if (!numeros || numeros.length === 0) return;
+
+  const exec = client || { query };
 
   // chequeo en series
   let sqlSeries = `SELECT numero_serie FROM producto_serie WHERE numero_serie = ANY($1::text[])`;
@@ -41,7 +43,7 @@ async function validarNumerosDeSerieDisponibles(numeros: string[], excludeIdSeri
     sqlSeries += ` AND id != $2`;
     params.push(excludeIdSerie);
   }
-  const resSeries = await query(sqlSeries, params);
+  const resSeries = await exec.query(sqlSeries, params);
   if (resSeries.rows.length > 0) {
     const repetidos = resSeries.rows.map(r => r.numero_serie).join(", ");
     throw new AppError(`Los siguientes números de serie ya están registrados: ${repetidos}`, 400);
@@ -49,7 +51,7 @@ async function validarNumerosDeSerieDisponibles(numeros: string[], excludeIdSeri
 
   // chequeo en productos (cod_unico)
   const sqlProd = `SELECT cod_unico FROM productos WHERE cod_unico = ANY($1::text[])`;
-  const resProd = await query(sqlProd, [numeros]);
+  const resProd = await exec.query(sqlProd, [numeros]);
   if (resProd.rows.length > 0) {
     const repetidos = resProd.rows.map(r => r.cod_unico).join(", ");
     throw new AppError(`Los siguientes números coinciden con un código único de producto (cod_unico) y no se pueden usar como serie: ${repetidos}`, 400);
@@ -97,7 +99,7 @@ export async function createSeries(id_producto: number, numeros_serie: string[],
       throw new AppError("Hay series duplicadas en los datos ingresados", 400);
     }
 
-    await validarNumerosDeSerieDisponibles(numerosUnicosInput);
+    await validarNumerosDeSerieDisponibles(numerosUnicosInput, undefined, client);
 
     const nuevasSeries: ProductoSerie[] = [];
 
