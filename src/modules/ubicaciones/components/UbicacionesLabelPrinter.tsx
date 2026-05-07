@@ -37,8 +37,8 @@ export function UbicacionesLabelPrinter({ isOpen, onClose, labelsToPrint, onSucc
           <title>Imprimir Ubicaciones</title>
           <style>
             @page { 
-              size: A4;
-              margin: 10mm;
+              size: 50mm 25mm; 
+              margin: 0; 
             }
             body { 
               margin: 0; 
@@ -47,28 +47,27 @@ export function UbicacionesLabelPrinter({ isOpen, onClose, labelsToPrint, onSucc
               font-family: sans-serif;
             }
             .grid-container {
-              display: grid;
-              grid-template-columns: 1fr;
-              gap: 15mm;
+              display: block;
             }
             .label-card {
-              width: 100%;
-              min-height: 85mm;
+              width: 50mm;
+              height: 25mm;
               display: flex;
               flex-direction: column;
               align-items: center;
               justify-content: center;
+              page-break-after: always;
               page-break-inside: avoid;
               overflow: hidden;
               box-sizing: border-box;
-              padding: 5mm;
+              padding: 1mm;
               text-align: center;
             }
             svg {
               width: 100% !important;
               height: auto !important;
-              max-height: 30mm !important;
-              margin-bottom: 5mm;
+              max-height: 12mm !important;
+              margin-bottom: 0.5mm;
             }
             .label-detail-row {
               width: 100%;
@@ -77,12 +76,12 @@ export function UbicacionesLabelPrinter({ isOpen, onClose, labelsToPrint, onSucc
               align-items: center;
             }
             .label-detail-text { 
-              font-size: 32mm; 
+              font-size: 8mm; 
               font-weight: 900; 
               margin: 0;
-              line-height: 0.9;
+              line-height: 1;
               text-transform: uppercase;
-              letter-spacing: -1.5pt;
+              letter-spacing: -0.5pt;
               color: #000;
             }
           </style>
@@ -125,20 +124,20 @@ export function UbicacionesLabelPrinter({ isOpen, onClose, labelsToPrint, onSucc
              const barcodeValue = label.codigo_barra || (label.codigo ? `UBI:${label.codigo}` : "");
              
              return (
-               <div key={`source-${label.id}-${idx}`} className="label-card">
-                 {hasBarcode && (
-                   <Barcode 
-                     value={barcodeValue} 
-                     width={3} 
-                     height={90} 
-                     displayValue={false}
-                     margin={0}
-                   />
-                 )}
-                 <div className="label-detail-row">
-                   <span className="label-detail-text">{label.codigo || label.descripcion}</span>
-                 </div>
-               </div>
+                <div key={`source-${label.id}-${idx}`} className="label-card">
+                  {hasBarcode && (
+                    <Barcode 
+                      value={barcodeValue} 
+                      width={2} 
+                      height={40} 
+                      displayValue={false}
+                      margin={0}
+                    />
+                  )}
+                  <div className="label-detail-row">
+                    <span className="label-detail-text">{label.codigo || label.descripcion}</span>
+                  </div>
+                </div>
              );
            })}
         </div>
