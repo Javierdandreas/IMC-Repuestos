@@ -93,4 +93,5 @@ export type ProductoListado = {
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
   precios?: PrecioDetalle[];
+  ubicaciones_adicionales_count?: number;
 };

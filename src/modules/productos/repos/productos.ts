@@ -266,7 +266,8 @@ export async function getProductosListado(
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'SUSTITUTO' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
-      ) AS sustitutos
+      ) AS sustitutos,
+      (SELECT COUNT(*)::int FROM public.producto_ubicacion pu_count WHERE pu_count.id_producto = p.id AND pu_count.activo = true AND pu_count.es_principal = false) as ubicaciones_adicionales_count
     FROM productos p
     LEFT JOIN pieza pi ON pi.id = p.id_pieza
     LEFT JOIN marcas m ON m.id = p.id_marca

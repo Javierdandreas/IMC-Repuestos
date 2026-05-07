@@ -27,15 +27,18 @@ import {
   Barcode,
   Image as ImageIcon,
   Save,
-  Plus
+  Plus,
+  MapPin
 } from "lucide-react";
+import { LocationsSection } from "./sections/LocationsSection";
 import { QuickAddModal, QuickAddType } from "./QuickAddModal";
 import { DetailedErrorModal } from "@/components/ui/DetailedErrorModal";
 
-export type TabId = "principal" | "pieza" | "precios" | "serial" | "foto";
+export type TabId = "principal" | "pieza" | "precios" | "serial" | "foto" | "ubicaciones";
 
 export const PRODUCT_TABS = [
   { id: "principal" as const, label: "Principal", icon: Package },
+  { id: "ubicaciones" as const, label: "Ubicaciones", icon: MapPin },
   { id: "pieza" as const, label: "Pieza", icon: Cpu },
   { id: "precios" as const, label: "Precios-Proveedores", icon: DollarSign },
   { id: "serial" as const, label: "Serialización", icon: Barcode },
@@ -693,6 +696,26 @@ export function ProductForm({
                   onChange={(url) => setProduct(prev => ({ ...prev, imagen_url: url }))}
                   disabled={loading}
                 />
+              </section>
+            </div>
+          )}
+
+          {activeTab === "ubicaciones" && (
+            <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                {productId ? (
+                  <LocationsSection productId={productId} />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="p-4 rounded-full bg-slate-100 dark:bg-slate-800 mb-4 text-slate-400">
+                      <MapPin className="h-10 w-10" />
+                    </div>
+                    <h4 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight">Cree el producto primero</h4>
+                    <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">
+                      Podrá gestionar múltiples ubicaciones una vez que el producto esté guardado.
+                    </p>
+                  </div>
+                )}
               </section>
             </div>
           )}

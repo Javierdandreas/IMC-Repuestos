@@ -539,7 +539,16 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{product.subcategoria ?? "-"}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-300">{product.ubicacion ?? "-"}</td>
+                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-300">
+                      <div className="flex items-center gap-1.5">
+                        <span>{product.ubicacion ?? "-"}</span>
+                        {product.ubicaciones_adicionales_count ? (
+                          <span className="px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-black text-[9px] uppercase tracking-tighter">
+                            +{product.ubicaciones_adicionales_count}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-400 truncate max-w-[120px]" title={product.proveedor ?? ""}>
                       {product.proveedor ?? "-"}
                     </td>
