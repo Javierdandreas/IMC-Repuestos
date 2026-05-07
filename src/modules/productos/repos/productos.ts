@@ -1,3 +1,4 @@
+
 import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
 import { pool } from "@/utils/database";
 import type { Producto, ProductoListado, ProveedorProducto, Subcategoria } from "@/modules/productos/types/productos";
@@ -187,7 +188,9 @@ export async function getProductosListado(
       pi.codigo_pieza::text ILIKE $${params.length} OR 
       p.palabra_clave::text ILIKE $${params.length} OR
       p.cod_barra::text ILIKE $${params.length} OR
-      cr.codigo::text ILIKE $${params.length}
+      cr.codigo::text ILIKE $${params.length} OR
+      u.codigo::text ILIKE $${params.length} OR
+      u.descripcion ILIKE $${params.length}
     )`);
   }
 
@@ -295,6 +298,7 @@ export async function getProductosListado(
       p.id_marca,
       p.id_subcategoria,
       p.id_ubicacion,
+      u.codigo,
       u.descripcion,
       p.imagen_url,
       p.usa_numero_serie,
@@ -428,7 +432,7 @@ export async function getProductosParaExportar(filters: {
     LEFT JOIN producto_serie ps ON ps.id_producto = p.id AND ps.estado = 'DISPONIBLE'
     
     WHERE ${whereClauses.join(" AND ")}
-    GROUP BY p.id, pi.id, m.id, c.id, s.id, u.id
+    GROUP BY p.id, pi.id, m.id, c.id, s.id, u.id, u.codigo, u.descripcion
     ORDER BY p.id DESC
   `;
 

@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback } from "react";
 import { createSectorAction, generateUbicacionesAction, listarUbicacionesPaginadasAction } from "../actions";
 import { Ubicacion, UbicacionSector } from "../types/ubicaciones";
 import { toast } from "sonner";
-import { Search, Plus, Printer, Box, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
-import Barcode from "react-barcode";
+import { Search, Plus, Printer, Box, Check, X, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import type { UbicacionesPaginadasResult } from "../repos/ubicaciones";
+import { UbicacionesLabelPrinter } from "./UbicacionesLabelPrinter";
+import { UbicacionEditModal } from "./UbicacionEditModal";
 
 export function UbicacionesManager({
   initialData,
@@ -21,22 +22,24 @@ export function UbicacionesManager({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const [showGenerator, setShowGenerator] = useState(false);
   const [showSectorModal, setShowSectorModal] = useState(false);
-  
+  const [showPrinterModal, setShowPrinterModal] = useState(false);
+
   // Imprimir solo las seleccionadas (que pueden persistir al cambiar de pág)
   const [printLabels, setPrintLabels] = useState<Ubicacion[]>([]);
-  const [isPrinting, setIsPrinting] = useState(false);
 
   // Form states
   const [sectorCodigo, setSectorCodigo] = useState("");
   const [sectorDesc, setSectorDesc] = useState("");
-  
+
   const [genSector, setGenSector] = useState("");
   const [genEst, setGenEst] = useState(1);
   const [genNiv, setGenNiv] = useState(1);
   const [genPos, setGenPos] = useState(1);
+
+  const [editingUbicacion, setEditingUbicacion] = useState<Ubicacion | null>(null);
 
   // Debounce effect
   useEffect(() => {
@@ -95,13 +98,11 @@ export function UbicacionesManager({
     }
   };
 
+
+
   const handlePrint = () => {
     if (printLabels.length === 0) return toast.error("Seleccione ubicaciones para imprimir");
-    setIsPrinting(true);
-    setTimeout(() => {
-      window.print();
-      setIsPrinting(false);
-    }, 500);
+    setShowPrinterModal(true);
   };
 
   const togglePrint = (u: Ubicacion) => {
@@ -115,7 +116,7 @@ export function UbicacionesManager({
   const togglePrintAllPage = () => {
     const pageIds = new Set(data.data.map(u => u.id));
     const allPageSelected = data.data.every(u => printLabels.some(p => p.id === u.id));
-    
+
     if (allPageSelected) {
       // Remover los de la pág actual
       setPrintLabels(printLabels.filter(p => !pageIds.has(p.id)));
@@ -163,18 +164,8 @@ export function UbicacionesManager({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por código (C4-5), descripción o escanear código de barras (UBI:C4-5)..."
-          className="w-full pl-9 pr-4 py-2 border rounded-md"
+          className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-md"
         />
-      </div>
-
-      {/* Grid de impresión (solo visible en @media print si isPrinting es true) */}
-      <div className={`${isPrinting ? "block" : "hidden"} print:block print:w-full space-y-4`}>
-        {printLabels.map((l) => (
-          <div key={l.id} className="border p-4 w-full flex flex-col items-center justify-center break-inside-avoid mb-4">
-            <span className="text-xl font-bold mb-2">{l.codigo || l.descripcion}</span>
-            {l.codigo_barra && <Barcode value={l.codigo_barra} width={2} height={50} displayValue={false} />}
-          </div>
-        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:hidden">
@@ -195,6 +186,7 @@ export function UbicacionesManager({
                 <th className="px-4 py-3">Sector</th>
                 <th className="px-4 py-3">Est/Niv/Pos</th>
                 <th className="px-4 py-3">Descripción (Legacy)</th>
+                <th className="px-4 py-3 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -215,11 +207,22 @@ export function UbicacionesManager({
                     {u.estanteria ? `${u.estanteria} / ${u.nivel} / ${u.posicion}` : "-"}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{u.descripcion}</td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => setEditingUbicacion(u)}
+                        title="Editar ubicación"
+                        className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500 hover:text-blue-600 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {data.data.length === 0 && !isLoading && (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <td colSpan={7} className="text-center py-8 text-muted-foreground">
                     No se encontraron ubicaciones
                   </td>
                 </tr>
@@ -287,15 +290,15 @@ export function UbicacionesManager({
               required
               pattern="[A-Za-z]"
               maxLength={1}
-              className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl uppercase focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none"
+              className="w-full h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 p-2 rounded-xl uppercase focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none"
               value={sectorCodigo}
               onChange={(e) => setSectorCodigo(e.target.value.toUpperCase())}
             />
           </div>
           <div>
-            <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Descripción</label>
+            <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Descripción</label>
             <input
-              className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none"
+              className="w-full h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 p-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none"
               value={sectorDesc}
               onChange={(e) => setSectorDesc(e.target.value)}
             />
@@ -320,12 +323,12 @@ export function UbicacionesManager({
         <form onSubmit={handleGenerate} className="space-y-4 p-6">
           <p className="text-sm text-slate-500 mb-4 font-medium">Genera ubicaciones estructuradas automáticamente multiplicando el espacio.</p>
           <div>
-            <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Sector</label>
+            <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Sector</label>
             <select
               required
               value={genSector}
               onChange={(e) => setGenSector(e.target.value)}
-              className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none"
+              className="w-full h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 p-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none"
             >
               <option value="">Seleccione...</option>
               {sectores.map((s) => (
@@ -337,40 +340,40 @@ export function UbicacionesManager({
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Estanterías</label>
+              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Estanterías</label>
               <input
                 type="number"
-                min="1"
+                min="0"
                 required
-                className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 outline-none"
+                className="w-full h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 p-2 rounded-xl focus:border-blue-500 outline-none"
                 value={genEst}
                 onChange={(e) => setGenEst(Number(e.target.value))}
               />
             </div>
             <div>
-              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Niveles</label>
+              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Niveles</label>
               <input
                 type="number"
-                min="1"
+                min="0"
                 required
-                className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 outline-none"
+                className="w-full h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 p-2 rounded-xl focus:border-blue-500 outline-none"
                 value={genNiv}
                 onChange={(e) => setGenNiv(Number(e.target.value))}
               />
             </div>
             <div>
-              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 mb-1">Posiciones</label>
+              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Posiciones</label>
               <input
                 type="number"
-                min="1"
+                min="0"
                 required
-                className="w-full h-10 border border-slate-200 bg-slate-50 p-2 rounded-xl focus:border-blue-500 outline-none"
+                className="w-full h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 p-2 rounded-xl focus:border-blue-500 outline-none"
                 value={genPos}
                 onChange={(e) => setGenPos(Number(e.target.value))}
               />
             </div>
           </div>
-          <div className="bg-blue-50 p-3 rounded-xl text-sm mt-4 border border-blue-100 text-blue-800">
+          <div className="bg-blue-50 dark:bg-blue-950/50 p-3 rounded-xl text-sm mt-4 border border-blue-100 dark:border-blue-800 text-blue-800 dark:text-blue-300">
             Ejemplo: Se generarán ubicaciones desde <strong className="font-mono">{genSector || "X"}1-1-1</strong> hasta{" "}
             <strong className="font-mono">{genSector || "X"}{genEst}-{genNiv}-{genPos}</strong>.
           </div>
@@ -384,6 +387,19 @@ export function UbicacionesManager({
           </div>
         </form>
       </Modal>
+
+      <UbicacionEditModal
+        ubicacion={editingUbicacion}
+        sectores={sectores}
+        onClose={() => setEditingUbicacion(null)}
+        onSaved={fetchData}
+      />
+
+      <UbicacionesLabelPrinter 
+        isOpen={showPrinterModal} 
+        onClose={() => setShowPrinterModal(false)} 
+        labelsToPrint={printLabels}
+      />
     </div>
   );
 }

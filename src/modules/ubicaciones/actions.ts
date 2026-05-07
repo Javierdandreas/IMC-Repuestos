@@ -44,3 +44,55 @@ export async function listarUbicacionesPaginadasAction(params: { page?: number; 
   const { listarUbicacionesPaginadas } = await import("./repos/ubicaciones");
   return await listarUbicacionesPaginadas(params);
 }
+
+export async function updateLegacyUbicacionAction(
+  id: number | string,
+  sector: string,
+  est: number,
+  niv: number,
+  pos: number
+) {
+  const { getServerInternalUser } = await import("@/modules/auth/repos/auth");
+  const { tienePermiso } = await import("@/modules/auth/repos/permissions");
+
+  const user = await getServerInternalUser();
+  if (!user || !user.activo || !tienePermiso(user.rol, "ubicaciones.editar")) {
+    throw new Error("No tienes permisos para editar ubicaciones");
+  }
+
+  const { updateLegacyUbicacion } = await import("./repos/ubicaciones");
+  const result = await updateLegacyUbicacion(id, sector, est, niv, pos);
+  revalidatePath("/ubicaciones");
+  return result;
+}
+
+export async function actualizarUbicacionAction(
+  id: number | string,
+  data: {
+    descripcion?: string;
+    sector_codigo?: string | null;
+    estanteria?: number | null;
+    nivel?: number | null;
+    posicion?: number | null;
+    observaciones?: string | null;
+  }
+) {
+  const { getServerInternalUser } = await import("@/modules/auth/repos/auth");
+  const { tienePermiso } = await import("@/modules/auth/repos/permissions");
+
+  const user = await getServerInternalUser();
+  if (!user || !user.activo || !tienePermiso(user.rol, "ubicaciones.editar")) {
+    throw new Error("No tienes permisos para editar ubicaciones");
+  }
+
+  const { actualizarUbicacionEstructurada } = await import("./repos/ubicaciones");
+  const result = await actualizarUbicacionEstructurada(id, data);
+  revalidatePath("/ubicaciones");
+  return result;
+}
+
+export async function detectarCodigosAction(texto: string) {
+  const { detectarCodigosEnTexto } = await import("./repos/ubicaciones");
+  return detectarCodigosEnTexto(texto);
+}
+

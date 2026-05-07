@@ -208,6 +208,172 @@ export async function deleteUbicacion(id: string | number): Promise<void> {
 // UBICACIONES ESTRUCTURADAS
 // --------------------------------------------------------------------------------
 
+/**
+ * Detects candidate structured location codes within a free-text description.
+ * Returns an array of parsed candidates with sector, est, niv, pos.
+ * Examples:
+ *   "D8-4-1 D10-11-1" → [{sector:"D",est:8,niv:4,pos:1}, {sector:"D",est:10,niv:11,pos:1}]
+ *   "TALLER-4-1"      → [] (multi-char sector is not auto-convertible)
+ *   "D55-4"           → [] (incomplete — only 2 parts)
+ */
+export interface UbicacionCandidate {
+  raw: string;
+  sector: string;
+  estanteria: number;
+  nivel: number;
+  posicion: number;
+  codigo: string;
+  completo: boolean;
+}
+
+export function detectarCodigosEnTexto(texto: string): UbicacionCandidate[] {
+  if (!texto) return [];
+  // Match patterns like C4-5-3 or D10-11-1 (single letter + digits-digits-digits)
+  const regex = /\b([A-Za-z])(\d+)-(\d+)-(\d+)\b/g;
+  const candidates: UbicacionCandidate[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(texto)) !== null) {
+    const sector = match[1].toUpperCase();
+    const est = parseInt(match[2], 10);
+    const niv = parseInt(match[3], 10);
+    const pos = parseInt(match[4], 10);
+    if (est >= 0 && niv >= 0 && pos >= 0) {
+      candidates.push({
+        raw: match[0],
+        sector,
+        estanteria: est,
+        nivel: niv,
+        posicion: pos,
+        codigo: `${sector}${est}-${niv}-${pos}`,
+        completo: true,
+      });
+    }
+  }
+
+  return candidates;
+}
+
+/**
+ * Checks whether a given canonical code is already taken by another ubicacion.
+ * Returns true if the code is available (safe to use).
+ */
+export async function validarCodigoDisponible(
+  codigo: string,
+  excludeId?: number | string
+): Promise<boolean> {
+  const codigoBarra = `UBI:${codigo}`;
+  const params: any[] = [codigo, codigoBarra];
+  let excludeClause = "";
+  if (excludeId !== undefined) {
+    params.push(excludeId);
+    excludeClause = ` AND id <> $3`;
+  }
+  const { rows } = await query(
+    `SELECT 1 FROM ubicaciones WHERE (codigo = $1 OR codigo_barra = $2)${excludeClause} LIMIT 1`,
+    params
+  );
+  return rows.length === 0;
+}
+
+export interface ActualizarUbicacionData {
+  descripcion?: string;
+  sector_codigo?: string | null;
+  estanteria?: number | null;
+  nivel?: number | null;
+  posicion?: number | null;
+  observaciones?: string | null;
+}
+
+/**
+ * Updates an existing ubicacion by id.
+ * - If all structural fields are provided, the DB trigger will derive codigo & codigo_barra.
+ * - Validates sector exists and canonical code is not duplicated.
+ * - Never changes the id.
+ */
+export async function actualizarUbicacionEstructurada(
+  id: number | string,
+  data: ActualizarUbicacionData
+): Promise<Ubicacion> {
+  return await withTransaction(async (client) => {
+    const isStructural = data.sector_codigo && data.estanteria != null && data.nivel != null && data.posicion != null;
+
+    if (isStructural) {
+      // Validate sector exists
+      const sectorRes = await client.query(
+        `SELECT codigo FROM ubicacion_sector WHERE codigo = $1`,
+        [data.sector_codigo]
+      );
+      if (sectorRes.rows.length === 0) {
+        throw new Error(`El sector "${data.sector_codigo}" no existe.`);
+      }
+
+      // Validate no duplicate code (the trigger will generate the code)
+      const futureCodigo = `${data.sector_codigo}${data.estanteria}-${data.nivel}-${data.posicion}`;
+      const duplicateRes = await client.query(
+        `SELECT id FROM ubicaciones WHERE codigo = $1 AND id <> $2 LIMIT 1`,
+        [futureCodigo, id]
+      );
+      if (duplicateRes.rows.length > 0) {
+        throw new Error(`Ya existe la ubicación ${futureCodigo}`);
+      }
+    }
+
+    // Build dynamic SET clause
+    const sets: string[] = [];
+    const params: any[] = [];
+    let paramIdx = 0;
+
+    const addField = (col: string, val: any) => {
+      paramIdx++;
+      sets.push(`${col} = $${paramIdx}`);
+      params.push(val);
+    };
+
+    if (data.descripcion !== undefined) addField("descripcion", data.descripcion);
+    if (data.sector_codigo !== undefined) addField("sector_codigo", data.sector_codigo);
+    if (data.estanteria !== undefined) addField("estanteria", data.estanteria);
+    if (data.nivel !== undefined) addField("nivel", data.nivel);
+    if (data.posicion !== undefined) addField("posicion", data.posicion);
+    if (data.observaciones !== undefined) addField("observaciones", data.observaciones);
+
+    addField("updated_at", new Date());
+
+    if (sets.length === 1) {
+      // Only updated_at — nothing meaningful to change
+      throw new Error("No se proporcionaron campos para actualizar");
+    }
+
+    paramIdx++;
+    params.push(id);
+
+    const { rows, rowCount } = await client.query(
+      `UPDATE ubicaciones SET ${sets.join(", ")} WHERE id = $${paramIdx} RETURNING *`,
+      params
+    );
+
+    if (!rowCount) {
+      const error = new Error(`Ubicación no encontrada`);
+      (error as any).status = 404;
+      throw error;
+    }
+
+    revalidateTag("meta");
+    return rows[0] as Ubicacion;
+  });
+}
+
+/** Legacy compat wrapper — delegates to actualizarUbicacionEstructurada */
+export async function updateLegacyUbicacion(
+  id: number | string,
+  sector_codigo: string,
+  estanteria: number,
+  nivel: number,
+  posicion: number
+): Promise<Ubicacion> {
+  return actualizarUbicacionEstructurada(id, { sector_codigo, estanteria, nivel, posicion });
+}
+
 export async function buscarUbicacionPorCodigo(codigo: string): Promise<Ubicacion | null> {
   const { rows } = await query(`SELECT * FROM ubicaciones WHERE codigo = $1 LIMIT 1`, [codigo]);
   return rows.length > 0 ? (rows[0] as Ubicacion) : null;
