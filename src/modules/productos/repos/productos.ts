@@ -506,6 +506,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       pc.descripcion,
       pi.medida,
       p.id_ubicacion,
+      u.codigo,
       u.descripcion,
       p.usa_numero_serie,
       p.palabra_clave

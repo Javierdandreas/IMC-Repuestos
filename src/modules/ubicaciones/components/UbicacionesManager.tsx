@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { createSectorAction, generateUbicacionesAction, listarUbicacionesPaginadasAction } from "../actions";
 import { Ubicacion, UbicacionSector } from "../types/ubicaciones";
 import { toast } from "sonner";
-import { Search, Plus, Printer, Box, Check, X, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import { Search, Plus, Printer, Box, Check, X, ChevronLeft, ChevronRight, Pencil, Filter } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import type { UbicacionesPaginadasResult } from "../repos/ubicaciones";
 import { UbicacionesLabelPrinter } from "./UbicacionesLabelPrinter";
@@ -40,6 +40,7 @@ export function UbicacionesManager({
   const [genPos, setGenPos] = useState(1);
 
   const [editingUbicacion, setEditingUbicacion] = useState<Ubicacion | null>(null);
+  const [filterLegacy, setFilterLegacy] = useState(false);
 
   // Debounce effect
   useEffect(() => {
@@ -58,6 +59,7 @@ export function UbicacionesManager({
         page,
         pageSize: 25,
         search: debouncedSearch,
+        onlyLegacy: filterLegacy,
       });
       setData(result);
     } catch (error) {
@@ -65,13 +67,13 @@ export function UbicacionesManager({
     } finally {
       setIsLoading(false);
     }
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, filterLegacy]);
 
   useEffect(() => {
     // Skip initial fetch since we have initialData for empty search and page 1
-    if (page === 1 && debouncedSearch === "" && data.totalCount === initialData.totalCount) return;
+    if (page === 1 && debouncedSearch === "" && !filterLegacy && data.totalCount === initialData.totalCount) return;
     fetchData();
-  }, [page, debouncedSearch, fetchData, data.totalCount, initialData.totalCount]);
+  }, [page, debouncedSearch, filterLegacy, fetchData, data.totalCount, initialData.totalCount]);
 
   const handleCreateSector = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,42 +132,61 @@ export function UbicacionesManager({
   const allPageSelected = data.data.length > 0 && data.data.every(u => printLabels.some(p => p.id === u.id));
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center print:hidden">
+    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
+      {/* Header Section */}
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm print:hidden">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Ubicaciones Estructuradas</h1>
-          <p className="text-muted-foreground">Gestiona sectores y genera ubicaciones automáticamente</p>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Ubicaciones Estructuradas</h1>
+          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mt-1">Gestiona sectores y genera ubicaciones automáticamente</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={() => setShowSectorModal(true)}
-            className="flex items-center gap-2 bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/80"
+            className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700 transition-all active:scale-95 border border-slate-200 dark:border-slate-700"
           >
-            <Plus className="w-4 h-4" /> Nuevo Sector
+            <Plus className="w-4 h-4 text-blue-500" /> Nuevo Sector
           </button>
           <button
             onClick={() => setShowGenerator(true)}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90"
+            className="flex items-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-widest hover:opacity-90 transition-all active:scale-95 shadow-xl shadow-slate-900/10 dark:shadow-white/10"
           >
             <Box className="w-4 h-4" /> Generar Lote
           </button>
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+            disabled={printLabels.length === 0}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95 shadow-xl ${
+              printLabels.length > 0 
+              ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-600/20' 
+              : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+            }`}
           >
             <Printer className="w-4 h-4" /> Imprimir ({printLabels.length})
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="relative print:hidden">
-        <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isLoading ? 'animate-spin text-blue-500' : 'text-muted-foreground'}`} />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por código (C4-5), descripción o escanear código de barras (UBI:C4-5)..."
-          className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-md"
-        />
+      <div className="flex flex-col sm:flex-row gap-3 items-center print:hidden bg-slate-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-slate-200 dark:border-slate-800">
+        <div className="relative flex-1 w-full">
+          <Search className={`absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 ${isLoading ? 'animate-spin text-blue-500' : 'text-slate-400'}`} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por código, descripción o escanear..."
+            className="w-full pl-11 pr-4 h-12 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-2xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all font-medium"
+          />
+        </div>
+        <button
+          onClick={() => { setFilterLegacy(!filterLegacy); setPage(1); }}
+          className={`flex items-center gap-2 h-12 px-6 rounded-2xl text-xs font-black uppercase tracking-widest border transition-all whitespace-nowrap active:scale-95 ${
+            filterLegacy
+              ? 'bg-amber-500 text-white border-amber-500 shadow-lg shadow-amber-500/20'
+              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+          }`}
+        >
+          <Filter className="w-4 h-4" />
+          Legacy Pendientes
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:hidden">

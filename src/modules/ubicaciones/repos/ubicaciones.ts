@@ -64,6 +64,7 @@ export interface UbicacionesPaginadasParams {
   page?: number;
   pageSize?: number;
   search?: string;
+  onlyLegacy?: boolean;
 }
 
 export interface UbicacionesPaginadasResult {
@@ -79,8 +80,8 @@ export async function listarUbicacionesPaginadas(params: UbicacionesPaginadasPar
   const pageSize = params.pageSize || 25;
   const search = params.search?.trim() || "";
 
-  let whereClause = "";
-  let queryParams: any[] = [];
+  const whereParts: string[] = [];
+  const queryParams: any[] = [];
   
   if (search) {
     const cleanedSearch = search.toUpperCase();
@@ -88,15 +89,20 @@ export async function listarUbicacionesPaginadas(params: UbicacionesPaginadasPar
     if (q.startsWith("UBI:")) {
       q = q.substring(4);
     }
-    
-    whereClause = `WHERE (
-      UPPER(codigo) LIKE $1 OR 
-      UPPER(codigo_barra) LIKE $1 OR 
-      UPPER(descripcion) LIKE $1 OR
-      UPPER(sector_codigo) LIKE $1
-    )`;
     queryParams.push(`%${q}%`);
+    whereParts.push(`(
+      UPPER(codigo) LIKE $${queryParams.length} OR 
+      UPPER(codigo_barra) LIKE $${queryParams.length} OR 
+      UPPER(descripcion) LIKE $${queryParams.length} OR
+      UPPER(sector_codigo) LIKE $${queryParams.length}
+    )`);
   }
+
+  if (params.onlyLegacy) {
+    whereParts.push(`(codigo_barra IS NULL OR codigo_barra = '')`);
+  }
+
+  const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
 
   const countQuery = `SELECT COUNT(*)::int AS total FROM ubicaciones ${whereClause}`;
   const countResult = await query(countQuery, queryParams);

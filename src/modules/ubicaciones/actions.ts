@@ -40,7 +40,7 @@ export async function asignarUbicacionMasivaAction(productoIds: number[], ubicac
   return rowCount;
 }
 
-export async function listarUbicacionesPaginadasAction(params: { page?: number; pageSize?: number; search?: string }) {
+export async function listarUbicacionesPaginadasAction(params: { page?: number; pageSize?: number; search?: string; onlyLegacy?: boolean }) {
   const { listarUbicacionesPaginadas } = await import("./repos/ubicaciones");
   return await listarUbicacionesPaginadas(params);
 }

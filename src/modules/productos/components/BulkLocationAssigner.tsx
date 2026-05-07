@@ -56,8 +56,11 @@ export function BulkLocationAssigner({ isOpen, onClose, selectedIds, onSuccess }
           <label className="text-xs font-black uppercase tracking-wider text-slate-500">Ubicación Destino</label>
           <UbicacionScannerInput 
             onUbicacionSeleccionada={(u) => setDestino(u)} 
-            placeholder="Escaneá o ingresá el código de ubicación..."
+            placeholder="Escaneá o buscá la ubicación..."
           />
+          <p className="text-[10px] text-slate-400 mt-1 italic">
+            * Buscá la ubicación por código (ej: D58-2-1111) y presioná Enter o la lupa.
+          </p>
         </div>
 
         {destino && (

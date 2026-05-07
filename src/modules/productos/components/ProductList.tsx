@@ -580,47 +580,53 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             </table>
 
             {/* Barra de Acciones Masivas */}
-            <AnimatePresence>
-              {selectedIds.size > 0 && (
-                <motion.div
-                  initial={{ y: 100, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 100, opacity: 0 }}
-                  className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-6 rounded-2xl bg-slate-900 px-6 py-4 shadow-2xl shadow-blue-500/20 border border-slate-700/50"
-                >
-                  <div className="flex items-center gap-3 border-r border-slate-700/50 pr-6">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-white font-black text-sm">
-                      {selectedIds.size}
+            {typeof document !== 'undefined' && createPortal(
+              <AnimatePresence>
+                {selectedIds.size > 0 && (
+                  <motion.div
+                    initial={{ y: 100, x: "-50%", opacity: 0 }}
+                    animate={{ y: 0, x: "-50%", opacity: 1 }}
+                    exit={{ y: 100, x: "-50%", opacity: 0 }}
+                    className="fixed bottom-10 left-1/2 z-[9999] flex items-center gap-2 sm:gap-6 rounded-2xl bg-slate-900/95 backdrop-blur-xl px-4 py-3 sm:px-6 sm:py-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-slate-700/50 min-w-max pointer-events-auto"
+                  >
+                    <div className="flex items-center gap-3 border-r border-slate-700/50 pr-4 sm:pr-6">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-white font-black text-xs sm:text-sm">
+                        {selectedIds.size}
+                      </div>
+                      <div className="hidden sm:block">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Seleccionados</p>
+                        <p className="text-sm font-black text-white">Productos</p>
+                      </div>
                     </div>
-                    <span className="text-sm font-bold text-slate-300">items seleccionados</span>
-                  </div>
 
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setSelectedIds(new Set())}
-                      className="group flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-800 hover:text-white"
-                    >
-                      Deseleccionar
-                    </button>
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <button
+                        onClick={() => setSelectedIds(new Set())}
+                        className="group flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                      >
+                        Deseleccionar
+                      </button>
 
-                    <button
-                      onClick={() => setOpenLocationAssigner(true)}
-                      className="flex items-center gap-2 rounded-xl bg-slate-700 px-4 py-2 text-xs font-black text-white shadow-lg transition hover:bg-slate-600 hover:scale-105 active:scale-95"
-                    >
-                      <HiOutlineLocationMarker className="h-4 w-4" />
-                      ASIGNAR UBICACIÓN
-                    </button>
-                    <button
-                      onClick={() => setOpenLabelPrinter(true)}
-                      className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 hover:scale-105 active:scale-95"
-                    >
-                      <HiPrinter className="h-4 w-4" />
-                      IMPRIMIR ETIQUETAS
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                      <button
+                        onClick={() => setOpenLocationAssigner(true)}
+                        className="flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 sm:px-4 sm:py-2.5 text-[10px] sm:text-xs font-black text-slate-900 shadow-lg transition hover:bg-white hover:scale-105 active:scale-95"
+                      >
+                        <HiOutlineLocationMarker className="h-4 w-4" />
+                        ASIGNAR UBICACIÓN
+                      </button>
+                      <button
+                        onClick={() => setOpenLabelPrinter(true)}
+                        className="flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 sm:px-4 sm:py-2.5 text-[10px] sm:text-xs font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 hover:scale-105 active:scale-95"
+                      >
+                        <HiPrinter className="h-4 w-4" />
+                        IMPRIMIR ETIQUETAS
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>,
+              document.body
+            )}
 
             <BulkLocationAssigner
               isOpen={openLocationAssigner}

@@ -21,7 +21,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   return (
-    <div className="h-[100dvh] w-full flex overflow-hidden bg-white dark:bg-slate-950 selection:bg-blue-100 selection:text-blue-900 relative">
+    <div className="h-[100dvh] w-full flex overflow-hidden bg-white dark:bg-slate-950 selection:bg-blue-100 selection:text-blue-900 relative print:h-auto print:overflow-visible">
       {/* Premium Background Mesh Glow - Optimized with GPU acceleration */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden transform-gpu">
         <div className="absolute -top-[10%] -right-[10%] w-[40%] h-[40%] bg-blue-50/50 dark:bg-blue-950/20 blur-[120px] rounded-full transform-gpu will-change-transform" />
@@ -30,7 +30,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* Sidebar Wrapper for Hover Control */}
       <div
-        className="flex h-full relative"
+        className="flex h-full relative print:hidden"
         onMouseLeave={() => setActiveSection(null)}
       >
         {/* 1. Primary Sidebar (Rail) */}
@@ -67,16 +67,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* 3. Main Content Wrapper */}
       <div className="flex-1 flex flex-col min-w-0 relative bg-[#fbfbfb] dark:bg-slate-950">
         {/* Header */}
-        <AppHeader
-          onToggleSidebar={() => setActiveSection("operaciones")}
-          onSelectSection={(id) => setActiveSection(id)}
-        />
+        <div className="print:hidden">
+          <AppHeader
+            onToggleSidebar={() => setActiveSection("operaciones")}
+            onSelectSection={(id) => setActiveSection(id)}
+          />
+        </div>
 
         {/* Content Area - Hardware Accelerated Scroll */}
         <main
           id="main-content-area"
           ref={mainRef}
-          className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-8 lg:py-8 transform-gpu [backface-visibility:hidden]"
+          className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-8 lg:py-8 transform-gpu [backface-visibility:hidden] print:overflow-visible print:p-0 print:m-0"
         >
           <AnimatePresence mode="wait">
             <motion.div

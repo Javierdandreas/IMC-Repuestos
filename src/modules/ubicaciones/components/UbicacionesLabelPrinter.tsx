@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Modal } from "@/components/ui/Modal";
 import type { Ubicacion } from "@/modules/ubicaciones/types/ubicaciones";
 import Barcode from "react-barcode";
@@ -17,7 +17,7 @@ interface Props {
 export function UbicacionesLabelPrinter({ isOpen, onClose, labelsToPrint, onSuccess }: Props) {
   const [readyToPrint, setReadyToPrint] = useState(false);
 
-  const handlePrint = () => {
+  const handlePrint = useCallback(() => {
     const sourceHtml = document.getElementById("ubicaciones-print-source")?.innerHTML;
     
     if (!sourceHtml) {
@@ -37,57 +37,66 @@ export function UbicacionesLabelPrinter({ isOpen, onClose, labelsToPrint, onSucc
           <title>Imprimir Ubicaciones</title>
           <style>
             @page { 
-              size: 50mm 25mm; 
-              margin: 0; 
+              size: A4;
+              margin: 10mm;
             }
             body { 
               margin: 0; 
               padding: 0; 
               background: white;
+              font-family: sans-serif;
+            }
+            .grid-container {
+              display: grid;
+              grid-template-columns: 1fr;
+              gap: 15mm;
             }
             .label-card {
-              width: 50mm;
-              height: 25mm;
+              width: 100%;
+              min-height: 85mm;
               display: flex;
               flex-direction: column;
               align-items: center;
               justify-content: center;
-              page-break-after: always;
               page-break-inside: avoid;
               overflow: hidden;
               box-sizing: border-box;
-              padding: 1mm 1mm 0 1mm;
+              padding: 5mm;
               text-align: center;
-              font-family: sans-serif;
             }
             svg {
               width: 100% !important;
               height: auto !important;
-              max-height: 18mm !important;
+              max-height: 30mm !important;
+              margin-bottom: 5mm;
             }
             .label-detail-row {
               width: 100%;
               display: flex;
               flex-direction: column;
               align-items: center;
-              margin-top: 1mm;
             }
             .label-detail-text { 
-              font-size: 8pt; 
-              font-weight: bold; 
+              font-size: 32mm; 
+              font-weight: 900; 
               margin: 0;
-              line-height: 1.1;
+              line-height: 0.9;
+              text-transform: uppercase;
+              letter-spacing: -1.5pt;
+              color: #000;
             }
           </style>
         </head>
         <body>
-          ${sourceHtml}
+          <div class="grid-container">
+            ${sourceHtml}
+          </div>
           <script>
             window.onload = function() {
               setTimeout(() => {
                 window.print();
                 window.close();
-              }, 300);
+              }, 500);
             };
           </script>
         </body>
@@ -97,14 +106,14 @@ export function UbicacionesLabelPrinter({ isOpen, onClose, labelsToPrint, onSucc
     
     if (onSuccess) onSuccess();
     onClose();
-  };
+  }, [onClose, onSuccess]);
 
   useEffect(() => {
     if (readyToPrint) {
       handlePrint();
       setReadyToPrint(false);
     }
-  }, [readyToPrint]);
+  }, [readyToPrint, handlePrint]);
 
   return (
     <Modal open={isOpen} onClose={onClose} title="Impresión de Ubicaciones" width="w-[min(92vw,1000px)]">
@@ -120,8 +129,8 @@ export function UbicacionesLabelPrinter({ isOpen, onClose, labelsToPrint, onSucc
                  {hasBarcode && (
                    <Barcode 
                      value={barcodeValue} 
-                     width={2.5} 
-                     height={45} 
+                     width={3} 
+                     height={90} 
                      displayValue={false}
                      margin={0}
                    />
