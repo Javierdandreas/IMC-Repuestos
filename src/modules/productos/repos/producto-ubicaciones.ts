@@ -49,10 +49,14 @@ export async function listarUbicacionesDeProducto(idProducto: number | string): 
  * Agrega una ubicación a un producto. 
  * Si es la primera, se marca como principal.
  */
-export async function agregarUbicacionAProducto(idProducto: number | string, idUbicacion: number | string) {
-  return await withTransaction(async (client) => {
+export async function agregarUbicacionAProducto(
+  idProducto: number | string, 
+  idUbicacion: number | string,
+  existingClient?: DbClient
+) {
+  const logic = async (client: DbClient) => {
     // Verificar si ya existe
-    const existsSql = "SELECT id, es_principal FROM public.producto_ubicacion WHERE id_producto = $1 AND id_ubicacion = $2";
+    const existsSql = "SELECT id, es_principal, activo FROM public.producto_ubicacion WHERE id_producto = $1 AND id_ubicacion = $2";
     const { rows: existing } = await client.query(existsSql, [idProducto, idUbicacion]);
 
     if (existing.length > 0) {
@@ -79,14 +83,21 @@ export async function agregarUbicacionAProducto(idProducto: number | string, idU
     }
 
     return rows[0];
-  });
+  };
+
+  if (existingClient) return await logic(existingClient);
+  return await withTransaction(logic);
 }
 
 /**
  * Marca una ubicación como principal para un producto.
  */
-export async function marcarUbicacionPrincipal(idProducto: number | string, idUbicacion: number | string) {
-  return await withTransaction(async (client) => {
+export async function marcarUbicacionPrincipal(
+  idProducto: number | string, 
+  idUbicacion: number | string, 
+  existingClient?: DbClient
+) {
+  const logic = async (client: DbClient) => {
     // 1. Quitar principal a todas las demás
     await client.query(
       "UPDATE public.producto_ubicacion SET es_principal = false WHERE id_producto = $1",
@@ -114,32 +125,47 @@ export async function marcarUbicacionPrincipal(idProducto: number | string, idUb
     await sincronizarPrincipalConProducto(idProducto, idUbicacion, client);
 
     return rows[0];
-  });
+  };
+
+  if (existingClient) return await logic(existingClient);
+  return await withTransaction(logic);
 }
 
 /**
  * Quita una ubicación de un producto (la desactiva).
  */
-export async function quitarUbicacionDeProducto(idProducto: number | string, idUbicacion: number | string) {
-  return await withTransaction(async (client) => {
-    const { rows } = await client.query(
-      "UPDATE public.producto_ubicacion SET activo = false, es_principal = false WHERE id_producto = $1 AND id_ubicacion = $2 RETURNING *",
+export async function quitarUbicacionDeProducto(
+  idProducto: number | string, 
+  idUbicacion: number | string,
+  existingClient?: DbClient
+) {
+  const logic = async (client: DbClient) => {
+    // Primero verificamos si es la principal antes de quitarla
+    const checkSql = "SELECT es_principal FROM public.producto_ubicacion WHERE id_producto = $1 AND id_ubicacion = $2 AND activo = true";
+    const { rows: check } = await client.query(checkSql, [idProducto, idUbicacion]);
+    const wasPrincipal = check.length > 0 && check[0].es_principal;
+
+    await client.query(
+      "UPDATE public.producto_ubicacion SET activo = false, es_principal = false WHERE id_producto = $1 AND id_ubicacion = $2",
       [idProducto, idUbicacion]
     );
 
-    if (rows.length > 0 && rows[0].es_principal) {
+    if (wasPrincipal) {
       // Si quitamos la principal, buscamos otra para heredar el puesto
-      const nextSql = "SELECT id_ubicacion FROM public.producto_ubicacion WHERE id_producto = $1 AND activo = true LIMIT 1";
+      const nextSql = "SELECT id_ubicacion FROM public.producto_ubicacion WHERE id_producto = $1 AND activo = true ORDER BY id ASC LIMIT 1";
       const { rows: next } = await client.query(nextSql, [idProducto]);
       
       if (next.length > 0) {
-        await marcarUbicacionPrincipal(idProducto, next[0].id_ubicacion);
+        await marcarUbicacionPrincipal(idProducto, next[0].id_ubicacion, client);
       } else {
         // No quedan ubicaciones, limpiamos productos.id_ubicacion
         await client.query("UPDATE public.productos SET id_ubicacion = NULL WHERE id = $1", [idProducto]);
       }
     }
-  });
+  };
+
+  if (existingClient) return await logic(existingClient);
+  return await withTransaction(logic);
 }
 
 /**
@@ -205,3 +231,18 @@ async function sincronizarPrincipalConProducto(idProducto: number | string, idUb
     [idProducto, idUbicacion]
   );
 }
+
+/**
+ * Obtiene los IDs de productos asociados a una ubicación (ya sea como principal o adicional).
+ */
+export async function obtenerProductosAsociadosAUbicacion(idUbicacion: number | string): Promise<number[]> {
+  const sql = `
+    SELECT DISTINCT p.id
+    FROM public.productos p
+    LEFT JOIN public.producto_ubicacion pu ON p.id = pu.id_producto AND pu.activo = true
+    WHERE p.id_ubicacion = $1 OR pu.id_ubicacion = $1
+  `;
+  const { rows } = await query(sql, [idUbicacion]);
+  return rows.map(r => r.id);
+}
+

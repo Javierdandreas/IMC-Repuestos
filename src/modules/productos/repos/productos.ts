@@ -24,6 +24,7 @@ export type ProductoInput = {
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
   precios?: { id_tipo_precio: number; valor: number; porcentaje_ganancia: number }[];
+  ubicacionIds?: number[];
 };
 
 
@@ -63,6 +64,7 @@ function sanitizeProductoInput(input: ProductoInput) {
     usa_numero_serie: Boolean(input.usa_numero_serie),
     palabra_clave: input.id_pieza ? null : sanitizeNullableString(input.palabra_clave),
     precios: Array.isArray(input.precios) ? input.precios : [],
+    ubicacionIds: input.ubicacionIds,
   };
 }
 
@@ -86,6 +88,73 @@ async function syncProductoPrecios(
       [productId, item.id_tipo_precio, item.valor, item.porcentaje_ganancia || 0]
     );
 
+  }
+}
+
+async function syncProductoUbicaciones(
+  client: DbClient,
+  productId: number | string,
+  ubicacionIds?: number[],
+  idUbicacionPrincipal?: number | null
+) {
+  if (ubicacionIds === undefined) return;
+
+  // 1. Obtener ubicaciones actuales activas
+  const { rows: currentRels } = await client.query(
+    "SELECT id_ubicacion FROM producto_ubicacion WHERE id_producto = $1 AND activo = true",
+    [productId]
+  );
+  const currentIds = currentRels.map(r => r.id_ubicacion);
+
+  // 2. Desactivar las que ya no están
+  const toRemove = currentIds.filter(id => !ubicacionIds.includes(id));
+  if (toRemove.length > 0) {
+    await client.query(
+      "UPDATE producto_ubicacion SET activo = false, es_principal = false WHERE id_producto = $1 AND id_ubicacion = ANY($2::int[])",
+      [productId, toRemove]
+    );
+  }
+
+  // 3. Agregar o reactivar las nuevas
+  for (const uId of ubicacionIds) {
+    await client.query(`
+      INSERT INTO producto_ubicacion (id_producto, id_ubicacion, es_principal, activo)
+      VALUES ($1, $2, $3, true)
+      ON CONFLICT (id_producto, id_ubicacion) DO UPDATE
+      SET activo = true, es_principal = EXCLUDED.es_principal
+    `, [productId, uId, uId === idUbicacionPrincipal]);
+  }
+
+  // 4. Asegurar que haya una principal si no hay ninguna
+  const { rows: mainCheck } = await client.query(
+    "SELECT id_ubicacion FROM producto_ubicacion WHERE id_producto = $1 AND es_principal = true AND activo = true",
+    [productId]
+  );
+
+  if (mainCheck.length === 0 && ubicacionIds.length > 0) {
+    // Si hay un idUbicacionPrincipal definido pero no estaba en el array (raro pero posible), 
+    // o simplemente no hay principal, usamos el idUbicacionPrincipal o el primero.
+    const finalMainId = idUbicacionPrincipal || ubicacionIds[0];
+    
+    await client.query(
+      "UPDATE producto_ubicacion SET es_principal = true, activo = true WHERE id_producto = $1 AND id_ubicacion = $2",
+      [productId, finalMainId]
+    );
+    // Sincronizar tabla productos
+    await client.query("UPDATE productos SET id_ubicacion = $1 WHERE id = $2", [finalMainId, productId]);
+  } else if (mainCheck.length > 0 && mainCheck[0].id_ubicacion !== idUbicacionPrincipal && idUbicacionPrincipal) {
+    // Si el principal en la tabla intermedia es distinto al del payload, mandamos el del payload
+    await client.query(
+      "UPDATE producto_ubicacion SET es_principal = false WHERE id_producto = $1",
+      [productId]
+    );
+    await client.query(
+      "UPDATE producto_ubicacion SET es_principal = true, activo = true WHERE id_producto = $1 AND id_ubicacion = $2",
+      [productId, idUbicacionPrincipal]
+    );
+  } else if (ubicacionIds.length === 0) {
+    // Si se quitaron todas, limpiar productos.id_ubicacion
+    await client.query("UPDATE productos SET id_ubicacion = NULL WHERE id = $1", [productId]);
   }
 }
 
@@ -477,7 +546,8 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'SUSTITUTO' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
-      ) AS sustitutos
+      ) AS sustitutos,
+      (SELECT ARRAY_AGG(id_ubicacion) FROM public.producto_ubicacion WHERE id_producto = p.id AND activo = true) AS ubicacion_ids
     FROM productos p
     LEFT JOIN subcategoria s ON s.id = p.id_subcategoria
     LEFT JOIN pieza pi ON pi.id = p.id_pieza
@@ -545,6 +615,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
     medida: row.pieza_medida ?? "",
     id_ubicacion: row.id_ubicacion,
     ubicacion: row.ubicacion,
+    ubicacionIds: (row as any).ubicacion_ids ?? [],
   };
 
   if (product.id_pieza) {
@@ -656,6 +727,7 @@ export async function createProducto(input: ProductoInput) {
     await Promise.all([
       syncProductoProveedores(client, newProduct.id, payload.proveedores),
       syncProductoPrecios(client, newProduct.id, payload.precios),
+      syncProductoUbicaciones(client, newProduct.id, payload.ubicacionIds, payload.id_ubicacion),
     ]);
 
 
@@ -721,6 +793,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
     await Promise.all([
       syncProductoProveedores(client, id, payload.proveedores),
       syncProductoPrecios(client, id, payload.precios),
+      syncProductoUbicaciones(client, id, payload.ubicacionIds, payload.id_ubicacion),
     ]);
 
 

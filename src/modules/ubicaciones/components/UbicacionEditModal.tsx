@@ -4,34 +4,10 @@ import { useState, useEffect, useMemo } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Ubicacion, UbicacionSector } from "../types/ubicaciones";
 import { actualizarUbicacionAction } from "../actions";
+import { detectarCodigosUbicacionEnTexto, UbicacionCandidate } from "../utils/parsing";
 import { toast } from "sonner";
 
-interface UbicacionCandidate {
-  raw: string;
-  sector: string;
-  estanteria: number;
-  nivel: number;
-  posicion: number;
-  codigo: string;
-  completo: boolean;
-}
 
-function detectarCodigosEnTexto(texto: string): UbicacionCandidate[] {
-  if (!texto) return [];
-  const regex = /\b([A-Za-z])(\d+)-(\d+)-(\d+)\b/g;
-  const candidates: UbicacionCandidate[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(texto)) !== null) {
-    const sector = match[1].toUpperCase();
-    const est = parseInt(match[2], 10);
-    const niv = parseInt(match[3], 10);
-    const pos = parseInt(match[4], 10);
-    if (est >= 0 && niv >= 0 && pos >= 0) {
-      candidates.push({ raw: match[0], sector, estanteria: est, nivel: niv, posicion: pos, codigo: `${sector}${est}-${niv}-${pos}`, completo: true });
-    }
-  }
-  return candidates;
-}
 
 interface Props {
   ubicacion: Ubicacion | null;
@@ -46,7 +22,6 @@ export function UbicacionEditModal({ ubicacion, sectores, onClose, onSaved }: Pr
   const [est, setEst] = useState<number | "">(1);
   const [niv, setNiv] = useState<number | "">(1);
   const [pos, setPos] = useState<number | "">(1);
-  const [obs, setObs] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -56,14 +31,13 @@ export function UbicacionEditModal({ ubicacion, sectores, onClose, onSaved }: Pr
       setEst(ubicacion.estanteria || "");
       setNiv(ubicacion.nivel || "");
       setPos(ubicacion.posicion || "");
-      setObs((ubicacion as any).observaciones || "");
     }
   }, [ubicacion]);
 
   // Detect candidates from description (pure function, no server call needed)
   const candidates = useMemo<UbicacionCandidate[]>(() => {
     if (!ubicacion || ubicacion.sector_codigo) return [];
-    return detectarCodigosEnTexto(ubicacion.descripcion || "");
+    return detectarCodigosUbicacionEnTexto(ubicacion.descripcion || "");
   }, [ubicacion]);
 
   const applyCandidate = (c: UbicacionCandidate) => {
@@ -95,7 +69,6 @@ export function UbicacionEditModal({ ubicacion, sectores, onClose, onSaved }: Pr
         estanteria: hasStructure ? Number(est) : undefined,
         nivel: hasStructure ? Number(niv) : undefined,
         posicion: hasStructure ? Number(pos) : undefined,
-        observaciones: obs || null,
       });
       toast.success("Ubicación actualizada");
       onSaved();
@@ -209,17 +182,6 @@ export function UbicacionEditModal({ ubicacion, sectores, onClose, onSaved }: Pr
             Barras: <strong className="font-mono">UBI:{previewCode}</strong>
           </div>
         )}
-
-        {/* Observaciones */}
-        <div>
-          <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Observaciones</label>
-          <textarea
-            value={obs}
-            onChange={(e) => setObs(e.target.value)}
-            rows={2}
-            className="w-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 p-2 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none resize-none"
-          />
-        </div>
 
         {/* Buttons */}
         <div className="flex justify-end gap-2 pt-4 border-t">

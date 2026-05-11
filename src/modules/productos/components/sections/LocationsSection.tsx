@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { UbicacionScannerInput } from "@/modules/ubicaciones/components/UbicacionScannerInput";
 import { Ubicacion } from "@/modules/ubicaciones/types/ubicaciones";
 import { 
@@ -8,8 +8,8 @@ import {
   agregarUbicacionAProductoAction, 
   quitarUbicacionDeProductoAction, 
   marcarUbicacionPrincipalAction,
-  ProductoUbicacionRel
 } from "@/modules/productos/producto-ubicaciones-actions";
+import type { ProductoUbicacionRel } from "@/modules/productos/repos/producto-ubicaciones";
 import { toast } from "sonner";
 import { 
   MapPin, 
@@ -23,58 +23,111 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 
 interface LocationsSectionProps {
-  productId: number | string;
+  productId?: number | string;
+  onUbicacionesChange?: (ids: number[]) => void;
+  initialUbicacionIds?: number[];
 }
 
-export function LocationsSection({ productId }: LocationsSectionProps) {
+export function LocationsSection({ 
+  productId, 
+  onUbicacionesChange, 
+  initialUbicacionIds = [] 
+}: LocationsSectionProps) {
   const [rels, setRels] = useState<ProductoUbicacionRel[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!productId);
 
-  const fetchLocations = async () => {
+  const fetchLocations = useCallback(async () => {
     if (!productId) return;
     setLoading(true);
     try {
       const data = await listarUbicacionesDeProductoAction(productId);
       setRels(data);
+      onUbicacionesChange?.(data.map(r => r.id_ubicacion));
     } catch (error) {
       toast.error("Error al cargar ubicaciones");
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchLocations();
   }, [productId]);
 
-  const handleAddLocation = async (ubicacion: Ubicacion) => {
-    try {
-      await agregarUbicacionAProductoAction(productId, ubicacion.id);
-      toast.success("Ubicación agregada");
+  useEffect(() => {
+    if (productId) {
       fetchLocations();
-    } catch (error: any) {
-      toast.error(error.message);
+    } else {
+      // Si no hay productId, es modo creación. 
+      // Podríamos cargar detalles de ubicaciones iniciales si fuera necesario, 
+      // pero por ahora empezamos vacío o con lo que diga el padre.
+      setLoading(false);
+    }
+  }, [fetchLocations, productId]);
+
+  const handleAddLocation = async (ubicacion: Ubicacion) => {
+    if (productId) {
+      try {
+        await agregarUbicacionAProductoAction(productId, ubicacion.id);
+        toast.success("Ubicación agregada");
+        await fetchLocations();
+      } catch (error: any) {
+        toast.error(error.message);
+      }
+    } else {
+      // Modo creación: actualizar estado local
+      if (rels.some(r => r.id_ubicacion === ubicacion.id)) {
+        toast.error("Esta ubicación ya está agregada");
+        return;
+      }
+      const newRel: ProductoUbicacionRel = {
+        id: Math.random(),
+        id_producto: 0,
+        id_ubicacion: ubicacion.id,
+        es_principal: rels.length === 0,
+        activo: true,
+        ubicacion
+      };
+      const newRels = [...rels, newRel];
+      setRels(newRels);
+      onUbicacionesChange?.(newRels.map(r => r.id_ubicacion));
     }
   };
 
   const handleRemove = async (idUbi: number) => {
     if (!confirm("¿Está seguro de quitar esta ubicación?")) return;
-    try {
-      await quitarUbicacionDeProductoAction(productId, idUbi);
-      toast.success("Ubicación quitada");
-      fetchLocations();
-    } catch (error: any) {
-      toast.error(error.message);
+    
+    if (productId) {
+      try {
+        await quitarUbicacionDeProductoAction(productId, idUbi);
+        toast.success("Ubicación quitada");
+        await fetchLocations();
+      } catch (error: any) {
+        toast.error(error.message);
+      }
+    } else {
+      const newRels = rels.filter(r => r.id_ubicacion !== idUbi);
+      // Si quitamos la principal, poner otra como principal
+      if (rels.find(r => r.id_ubicacion === idUbi)?.es_principal && newRels.length > 0) {
+        newRels[0].es_principal = true;
+      }
+      setRels(newRels);
+      onUbicacionesChange?.(newRels.map(r => r.id_ubicacion));
     }
   };
 
   const handleSetPrincipal = async (idUbi: number) => {
-    try {
-      await marcarUbicacionPrincipalAction(productId, idUbi);
-      toast.success("Ubicación principal actualizada");
-      fetchLocations();
-    } catch (error: any) {
-      toast.error(error.message);
+    if (productId) {
+      try {
+        await marcarUbicacionPrincipalAction(productId, idUbi);
+        toast.success("Ubicación principal actualizada");
+        await fetchLocations();
+      } catch (error: any) {
+        toast.error(error.message);
+      }
+    } else {
+      const newRels = rels.map(r => ({
+        ...r,
+        es_principal: r.id_ubicacion === idUbi
+      }));
+      setRels(newRels);
+      onUbicacionesChange?.(newRels.map(r => r.id_ubicacion));
     }
   };
 

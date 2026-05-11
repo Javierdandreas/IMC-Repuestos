@@ -15,7 +15,6 @@ export type Ubicacion = CatalogoItem & {
   codigo?: string | null;
   codigo_barra?: string | null;
   activo?: boolean;
-  observaciones?: string | null;
   created_at?: Date | string;
   updated_at?: Date | string;
 };

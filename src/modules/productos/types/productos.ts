@@ -1,6 +1,5 @@
 import { CatalogoItem } from "@/modules/core";
 
-
 export type Subcategoria = {
   id: number;
   descripcion: string;
@@ -39,7 +38,6 @@ export type PrecioDetalle = {
   porcentaje_ganancia: number;
 };
 
-
 export type Producto = {
   id?: number;
   cod_unico: string;
@@ -62,6 +60,7 @@ export type Producto = {
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
   precios?: PrecioDetalle[];
+  ubicacionIds?: number[];
 };
 
 export type ProductoListado = {

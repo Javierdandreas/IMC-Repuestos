@@ -65,6 +65,7 @@ export interface UbicacionesPaginadasParams {
   pageSize?: number;
   search?: string;
   onlyLegacy?: boolean;
+  onlyMulti?: boolean;
 }
 
 export interface UbicacionesPaginadasResult {
@@ -80,7 +81,7 @@ export async function listarUbicacionesPaginadas(params: UbicacionesPaginadasPar
   const pageSize = params.pageSize || 25;
   const search = params.search?.trim() || "";
 
-  const whereParts: string[] = [];
+  const whereParts: string[] = ["activo = true"];
   const queryParams: any[] = [];
   
   if (search) {
@@ -100,6 +101,11 @@ export async function listarUbicacionesPaginadas(params: UbicacionesPaginadasPar
 
   if (params.onlyLegacy) {
     whereParts.push(`(codigo_barra IS NULL OR codigo_barra = '')`);
+  }
+
+  if (params.onlyMulti) {
+    // Regex para detectar al menos dos candidatos en el mismo texto
+    whereParts.push(`descripcion ~ '\\b[A-Za-z]\\d+-\\d+-\\d+\\b.*\\b[A-Za-z]\\d+-\\d+-\\d+\\b'`);
   }
 
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
@@ -288,7 +294,6 @@ export interface ActualizarUbicacionData {
   estanteria?: number | null;
   nivel?: number | null;
   posicion?: number | null;
-  observaciones?: string | null;
 }
 
 /**
@@ -341,7 +346,6 @@ export async function actualizarUbicacionEstructurada(
     if (data.estanteria !== undefined) addField("estanteria", data.estanteria);
     if (data.nivel !== undefined) addField("nivel", data.nivel);
     if (data.posicion !== undefined) addField("posicion", data.posicion);
-    if (data.observaciones !== undefined) addField("observaciones", data.observaciones);
 
     addField("updated_at", new Date());
 
@@ -499,4 +503,101 @@ export async function asignarUbicacionAProductosMasivo(productoIds: number[], ub
     return rowCount || 0;
   });
 }
+
+/**
+ * Resuelve una ubicación legacy que contiene múltiples códigos.
+ */
+export async function resolverUbicacionMultipleRepo(params: {
+  idLegacy: number;
+  codigoParaActual: string;
+  codigosAdicionales: string[];
+  codigoPrincipal: string; // Cuál de todos será la principal (el actual o uno adicional)
+  productoIds: number[];
+}) {
+  const { idLegacy, codigoParaActual, codigosAdicionales, codigoPrincipal, productoIds } = params;
+
+  return await withTransaction(async (client) => {
+    // 1. Convertir la ubicación actual (idLegacy) o reutilizar si ya existe
+    const candidates = require("../utils/parsing").detectarCodigosUbicacionEnTexto(codigoParaActual);
+    if (candidates.length === 0) throw new Error("Código actual inválido");
+    const cActual = candidates[0];
+
+    // Verificar si el código ya existe en otro registro
+    const { rows: existActual } = await client.query("SELECT id FROM public.ubicaciones WHERE codigo = $1", [cActual.codigo]);
+    
+    let idFinalActual = idLegacy;
+    if (existActual.length > 0 && existActual[0].id !== idLegacy) {
+      // El código ya existe en otro registro. No podemos duplicarlo.
+      idFinalActual = existActual[0].id;
+      
+      // Marcamos el legacy como INACTIVO y transferido para que desaparezca de la lista
+      await client.query(`UPDATE public.ubicaciones SET activo = false, descripcion = $1 WHERE id = $2`, 
+        [`[RESUELTO -> ${cActual.codigo}] ${codigoParaActual}`, idLegacy]);
+      
+      // Desactivar vinculaciones previas del producto con este ID legacy, ya que ahora usará idFinalActual
+      await client.query(`UPDATE public.producto_ubicacion SET activo = false WHERE id_ubicacion = $1`, [idLegacy]);
+    } else {
+      // Proceder con la conversión normal del registro actual
+      await client.query(`
+        UPDATE public.ubicaciones 
+        SET sector_codigo = $1, estanteria = $2, nivel = $3, posicion = $4, codigo = $5, codigo_barra = $6, descripcion = $7, activo = true
+        WHERE id = $8
+      `, [cActual.sector, cActual.estanteria, cActual.nivel, cActual.posicion, cActual.codigo, `UBI:${cActual.codigo}`, cActual.codigo, idLegacy]);
+    }
+
+
+    // 2. Procesar adicionales (buscar o crear)
+    const mapCodigosAIds: Record<string, number> = { [cActual.codigo]: idFinalActual };
+
+    for (const cod of codigosAdicionales) {
+      // Si el código ya es el que procesamos arriba, saltar
+      if (cod === cActual.codigo) continue;
+
+      const { rows: exist } = await client.query("SELECT id FROM public.ubicaciones WHERE codigo = $1", [cod]);
+      if (exist.length > 0) {
+        mapCodigosAIds[cod] = exist[0].id;
+      } else {
+        const candidatesAdd = require("../utils/parsing").detectarCodigosUbicacionEnTexto(cod);
+        if (candidatesAdd.length === 0) continue;
+        const cAdd = candidatesAdd[0];
+
+        const { rows: nuevo } = await client.query(`
+          INSERT INTO public.ubicaciones (sector_codigo, estanteria, nivel, posicion, codigo, codigo_barra, descripcion)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING id
+        `, [cAdd.sector, cAdd.estanteria, cAdd.nivel, cAdd.posicion, cAdd.codigo, `UBI:${cAdd.codigo}`, cAdd.codigo]);
+
+        mapCodigosAIds[cod] = nuevo[0].id;
+      }
+    }
+
+    // 3. Vincular productos a todas las ubicaciones resultantes
+    const allIds = Object.values(mapCodigosAIds);
+    const idPrincipal = mapCodigosAIds[codigoPrincipal];
+
+    for (const pId of productoIds) {
+      // Desactivar principales actuales para este producto en producto_ubicacion
+      await client.query("UPDATE public.producto_ubicacion SET es_principal = false WHERE id_producto = $1", [pId]);
+
+      for (const uId of allIds) {
+        const esPrincipal = uId === idPrincipal;
+        
+        await client.query(`
+          INSERT INTO public.producto_ubicacion (id_producto, id_ubicacion, es_principal, activo)
+          VALUES ($1, $2, $3, true)
+          ON CONFLICT (id_producto, id_ubicacion) DO UPDATE
+          SET es_principal = EXCLUDED.es_principal, activo = true
+        `, [pId, uId, esPrincipal]);
+
+        if (esPrincipal) {
+          // Sincronizar productos.id_ubicacion
+          await client.query("UPDATE public.productos SET id_ubicacion = $1 WHERE id = $2", [uId, pId]);
+        }
+      }
+    }
+
+    return { status: "ok", principalId: idPrincipal };
+  });
+}
+
 

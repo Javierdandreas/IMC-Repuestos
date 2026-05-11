@@ -204,7 +204,8 @@ export function ProductForm({
           proveedores: data.proveedores && data.proveedores.length > 0
             ? data.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
             : initialState.proveedores,
-          precios: data.precios ?? initialState.precios
+          precios: data.precios ?? initialState.precios,
+          ubicacionIds: data.ubicacionIds ?? []
         });
 
         if (data.pieza) {
@@ -404,6 +405,7 @@ export function ProductForm({
       usa_numero_serie: product.usa_numero_serie ?? false,
       palabra_clave: product.palabra_clave || null,
       precios: product.precios || [],
+      ubicacionIds: product.ubicacionIds || [],
     };
 
     await submit(payload);
@@ -703,19 +705,11 @@ export function ProductForm({
           {activeTab === "ubicaciones" && (
             <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                {productId ? (
-                  <LocationsSection productId={productId} />
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-20 text-center">
-                    <div className="p-4 rounded-full bg-slate-100 dark:bg-slate-800 mb-4 text-slate-400">
-                      <MapPin className="h-10 w-10" />
-                    </div>
-                    <h4 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight">Cree el producto primero</h4>
-                    <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">
-                      Podrá gestionar múltiples ubicaciones una vez que el producto esté guardado.
-                    </p>
-                  </div>
-                )}
+                <LocationsSection 
+                  productId={productId} 
+                  onUbicacionesChange={(ids) => setProduct(prev => ({ ...prev, ubicacionIds: ids }))}
+                  initialUbicacionIds={product.ubicacionIds}
+                />
               </section>
             </div>
           )}

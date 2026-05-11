@@ -6,7 +6,6 @@ import {
   quitarUbicacionDeProducto as removeRepo, 
   marcarUbicacionPrincipal as setPrincipalRepo,
   asignarUbicacionAProductosMasivo as bulkRepo,
-  ProductoUbicacionRel
 } from "./repos/producto-ubicaciones";
 import { revalidatePath } from "next/cache";
 import { getServerInternalUser } from "@/modules/auth/repos/auth";

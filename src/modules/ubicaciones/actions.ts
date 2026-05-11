@@ -40,7 +40,7 @@ export async function asignarUbicacionMasivaAction(productoIds: number[], ubicac
   return rowCount;
 }
 
-export async function listarUbicacionesPaginadasAction(params: { page?: number; pageSize?: number; search?: string; onlyLegacy?: boolean }) {
+export async function listarUbicacionesPaginadasAction(params: { page?: number; pageSize?: number; search?: string; onlyLegacy?: boolean; onlyMulti?: boolean }) {
   const { listarUbicacionesPaginadas } = await import("./repos/ubicaciones");
   return await listarUbicacionesPaginadas(params);
 }
@@ -74,7 +74,6 @@ export async function actualizarUbicacionAction(
     estanteria?: number | null;
     nivel?: number | null;
     posicion?: number | null;
-    observaciones?: string | null;
   }
 ) {
   const { getServerInternalUser } = await import("@/modules/auth/repos/auth");
@@ -92,7 +91,36 @@ export async function actualizarUbicacionAction(
 }
 
 export async function detectarCodigosAction(texto: string) {
-  const { detectarCodigosEnTexto } = await import("./repos/ubicaciones");
-  return detectarCodigosEnTexto(texto);
+  const { detectarCodigosUbicacionEnTexto } = await import("./utils/parsing");
+  return detectarCodigosUbicacionEnTexto(texto);
 }
+
+export async function obtenerProductosAsociadosAUbicacionAction(idUbicacion: number | string) {
+  const { obtenerProductosAsociadosAUbicacion } = await import("@/modules/productos/repos/producto-ubicaciones");
+  return await obtenerProductosAsociadosAUbicacion(idUbicacion);
+}
+
+export async function resolverUbicacionMultipleAction(params: {
+  idLegacy: number;
+  codigoParaActual: string;
+  codigosAdicionales: string[];
+  codigoPrincipal: string;
+  productoIds: number[];
+}) {
+  const { getServerInternalUser } = await import("@/modules/auth/repos/auth");
+  const { tienePermiso } = await import("@/modules/auth/repos/permissions");
+
+  const user = await getServerInternalUser();
+  if (!user || !user.activo || !tienePermiso(user.rol, "ubicaciones.editar") || !tienePermiso(user.rol, "productos.editar")) {
+    throw new Error("No tienes permisos suficientes (ubicaciones y productos) para esta operación.");
+  }
+
+  const { resolverUbicacionMultipleRepo } = await import("./repos/ubicaciones");
+  const result = await resolverUbicacionMultipleRepo(params);
+  
+  revalidatePath("/ubicaciones");
+  revalidatePath("/productos");
+  return result;
+}
+
 
