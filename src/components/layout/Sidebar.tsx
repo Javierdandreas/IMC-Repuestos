@@ -63,7 +63,7 @@ const navGroups: NavGroup[] = [
     icon: HiOutlineCube,
     links: [
       { href: "/", label: "Items" },
-      { href: "/piezas", label: "Piezas" },
+      { href: "/piezas", label: "Items asociados" },
       { href: "/kits", label: "Kits" },
     ],
   },
@@ -74,7 +74,9 @@ const navGroups: NavGroup[] = [
       { href: "/importaciones", label: "Importaciones" },
       { href: "/marcas", label: "Marcas" },
       { href: "/categorias", label: "Categorías" },
+      { href: "/configuracion/precios", label: "Listas de precio" },
       { href: "/ubicaciones", label: "Ubicaciones" },
+      { href: "/ubicaciones/inventario", label: "Inventario ubicaciones" },
     ],
   },
   {

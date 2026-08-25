@@ -15,13 +15,13 @@ export async function GET(
     const idProducto = Number(resolvedParams.id);
     
     if (isNaN(idProducto) || idProducto <= 0) {
-      return NextResponse.json({ message: "ID de producto inválido" }, { status: 400 });
+      return NextResponse.json({ message: "ID de item inválido" }, { status: 400 });
     }
 
     const series = await getSeriesPorProducto(idProducto);
     return NextResponse.json(series);
   } catch (error: unknown) {
-    return jsonError(error, "No se pudieron obtener las series del producto");
+    return jsonError(error, "No se pudieron obtener las series del item");
   }
 }
 
@@ -36,7 +36,7 @@ export async function POST(
     const idProducto = Number(resolvedParams.id);
 
     if (isNaN(idProducto) || idProducto <= 0) {
-      return NextResponse.json({ message: "ID de producto inválido" }, { status: 400 });
+      return NextResponse.json({ message: "ID de item inválido" }, { status: 400 });
     }
 
     const body = await request.json();
@@ -52,6 +52,6 @@ export async function POST(
 
     return NextResponse.json(nuevasSeries, { status: 201 });
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo registrar la serie para el producto");
+    return jsonError(error, "No se pudo registrar la serie para el item");
   }
 }

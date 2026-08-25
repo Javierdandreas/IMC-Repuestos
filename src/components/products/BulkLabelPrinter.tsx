@@ -349,7 +349,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
           {missingBarcodes.length > 0 && (
             <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl border border-blue-100 text-[10px] font-bold dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400">
               <HiCheckCircle className="h-4 w-4" />
-              {missingBarcodes.length} productos generarán códigos de barras de 13 dígitos automáticamente.
+              {missingBarcodes.length} items generarán códigos de barras de 13 dígitos automáticamente.
             </div>
           )}
         </div>
@@ -389,7 +389,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
           </div>
         </div>
 
-        {/* Grid de Previsualización (Minimalista: 1 por producto) */}
+        {/* Grid de Previsualización (minimalista: 1 por item) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[45vh] overflow-y-auto p-4 bg-white dark:bg-slate-950 rounded-3xl border border-slate-200 dark:border-slate-800 print:hidden shadow-inner">
           {products
             .filter(p => (customQuantities[p.id] || 0) > 0)

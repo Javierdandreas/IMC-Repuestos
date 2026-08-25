@@ -29,13 +29,11 @@ export default async function Home({ searchParams }: Props) {
   const canManage = canManageContent(session?.rol);
 
   return (
-    <div className="bg-white dark:bg-black p-6">
-      <ProductList
-        products={products}
-        totalPages={totalPages}
-        totalCount={totalCount}
-        currentPage={page}
-      />
-    </div>
+    <ProductList
+      products={products}
+      totalPages={totalPages}
+      totalCount={totalCount}
+      currentPage={page}
+    />
   );
 }

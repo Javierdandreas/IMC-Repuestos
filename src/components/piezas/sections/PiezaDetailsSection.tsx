@@ -44,7 +44,7 @@ export function PiezaDescriptionSection({
 
       <div>
         <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          Medida (Texto)
+          Medida
         </label>
         <input
           type="text"

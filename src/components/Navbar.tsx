@@ -31,8 +31,8 @@ const navGroups: NavGroup[] = [
   {
     label: "Ítems",
     links: [
-      { href: "/", label: "Catálogo Productos" },
-      { href: "/piezas", label: "Piezas / Componentes" },
+      { href: "/", label: "Catálogo de Items" },
+      { href: "/piezas", label: "Items Asociados" },
       { href: "/importaciones", label: "Historial Importaciones" },
     ],
   },
@@ -49,6 +49,7 @@ const navGroups: NavGroup[] = [
       { href: "/marcas", label: "Marcas" },
       { href: "/categorias", label: "Categorías" },
       { href: "/ubicaciones", label: "Ubicaciones" },
+      { href: "/ubicaciones/inventario", label: "Inventario ubicaciones" },
     ],
   },
 ];
@@ -82,7 +83,7 @@ export const Navbar = () => {
         <Link href="/" className="flex shrink-0 items-center transition hover:opacity-80">
           <Image
             src="/imc-navbar-logo.png"
-            alt="IMC Repuestos"
+            alt="IMC Items"
             width={440}
             height={148}
             priority
@@ -90,7 +91,7 @@ export const Navbar = () => {
           />
           <Image
             src="/imc-navbar-logo-negro.png"
-            alt="IMC Repuestos"
+            alt="IMC Items"
             width={440}
             height={148}
             priority

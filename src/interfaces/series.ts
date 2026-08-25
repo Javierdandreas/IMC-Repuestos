@@ -1,5 +1,6 @@
 export type EstadoSerie =
   | "DISPONIBLE"
+  | "MOSTRADOR"
   | "RESERVADO"
   | "VENDIDO"
   | "DEVUELTO"
@@ -41,4 +42,19 @@ export type ProductoSerieMovimiento = {
   observacion: string | null;
   usuario_id: number;
   created_at: Date;
+};
+
+export type ProductoSerieMovimientoHistorial = {
+  id: number;
+  tipo: TipoMovimientoSerie;
+  id_operacion: number | null;
+  id_ubicacion_origen: number | null;
+  ubicacion_origen: string | null;
+  id_ubicacion_destino: number | null;
+  ubicacion_destino: string | null;
+  referencia: string | null;
+  observacion: string | null;
+  usuario_id: number | null;
+  usuario: string | null;
+  created_at: string;
 };

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOperaciones, createOperacion } from "@/lib/repos/operaciones";
-import { requireApiSession } from "@/lib/api-auth";
+import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
+import { jsonError } from "@/lib/api-errors";
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,13 +13,13 @@ export async function GET(request: NextRequest) {
     const data = await getOperaciones({ tipo: tipo || undefined });
     return NextResponse.json(data);
   } catch (error: any) {
-    return NextResponse.json({ message: error.message || "Error al obtener operaciones" }, { status: 500 });
+    return jsonError(error, "Error al obtener operaciones");
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireApiSession(request);
+    const session = await requireApiWriteSession(request);
     const body = await request.json();
 
     // Basic Validation
@@ -39,6 +40,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ id: newId, message: "Operación creada exitosamente." }, { status: 201 });
   } catch (error: any) {
-    return NextResponse.json({ message: error.message || "Error interno al crear operación" }, { status: 500 });
+    return jsonError(error, "Error interno al crear operación");
   }
 }

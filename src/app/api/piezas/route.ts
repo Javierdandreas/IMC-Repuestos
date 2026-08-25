@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const result = await getPiezasListado(page, limit);
     return NextResponse.json(result);
   } catch (error: unknown) {
-    return jsonError(error, "No se pudieron obtener las piezas");
+    return jsonError(error, "No se pudieron obtener los items asociados");
   }
 }
 
@@ -27,6 +27,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ...result.pieza, warning: result.warning });
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo crear la pieza");
+    return jsonError(error, "No se pudo crear el item asociado");
   }
 }

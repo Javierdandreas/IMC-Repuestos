@@ -20,6 +20,7 @@ type Props = {
   entityId?: number;
   /** Valor inicial de la descripción */
   initialDescripcion?: string;
+  initialDocumento?: string | null;
   /** Callback al guardar con éxito */
   onSuccess?: () => void;
   /** Callback al cancelar */
@@ -39,12 +40,14 @@ export function CatalogForm({
   placeholder,
   entityId,
   initialDescripcion = "",
+  initialDocumento = "",
   onSuccess,
   onCancel,
   triggerSave,
 }: Props) {
   const router = useRouter();
   const [descripcion, setDescripcion] = useState(initialDescripcion.toUpperCase());
+  const [documento, setDocumento] = useState((initialDocumento ?? "").toUpperCase());
   const [loading, setLoading] = useState(false);
 
   // Estados para descuentos (solo proveedores)
@@ -79,7 +82,7 @@ export function CatalogForm({
       const resName = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ descripcion }),
+        body: JSON.stringify({ descripcion, documento }),
       });
 
       if (!resName.ok) {
@@ -114,7 +117,7 @@ export function CatalogForm({
     } finally {
       setLoading(false);
     }
-  }, [apiPath, descripcion, descuentoGeneral, descuentosPorMarca, entityId, entityName, isEditing, isProveedor, loading, onSuccess, router]);
+  }, [apiPath, descripcion, descuentoGeneral, descuentosPorMarca, documento, entityId, entityName, isEditing, isProveedor, loading, onSuccess, router]);
 
   // Escuchar trigger externo
   useEffect(() => {
@@ -127,24 +130,24 @@ export function CatalogForm({
     if (!isEditing || !isProveedor || !entityId) return null;
 
     return (
-      <div className="p-8 lg:p-10">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="py-5">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,0.8fr)_minmax(520px,1.2fr)] animate-in fade-in slide-in-from-bottom-4 duration-500">
           {/* COLUMNA IZQUIERDA */}
-          <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-4">
             {/* Información General */}
-            <div className="rounded-[2.5rem] border border-slate-800 bg-[#0f172a] p-8 shadow-sm transition-all hover:shadow-md">
-              <div className="mb-8 flex items-center gap-4">
-                <h3 className="text-2xl font-black uppercase tracking-[0.1em] text-white">Información General</h3>
+            <div className="rounded-2xl border border-slate-800 bg-[#0f172a] p-5 shadow-sm">
+              <div className="mb-5 flex items-center gap-3">
+                <h3 className="text-sm font-black uppercase tracking-widest text-white">Información General</h3>
                 <div className="h-px flex-1 bg-slate-800" />
               </div>
-              <div className="space-y-6">
-                <div className="space-y-3">
-                  <label className="block text-sm font-black uppercase tracking-[0.2em] text-blue-400 px-1">Nombre del Proveedor</label>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="block px-1 text-[10px] font-black uppercase tracking-widest text-blue-400">Nombre del Proveedor</label>
                   <input
                     type="text"
                     value={descripcion}
                     onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
-                    className="w-full border-2 rounded-2xl p-5 uppercase outline-none transition border-slate-800 bg-slate-950 text-xl font-black text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 shadow-inner"
+                    className="h-12 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 text-sm font-black uppercase text-white shadow-inner outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                     placeholder={placeholder ?? `Ingresar ${entityName}`}
                     required
                   />
@@ -153,9 +156,9 @@ export function CatalogForm({
             </div>
 
             {/* Configuración de Descuentos */}
-            <div className="rounded-[2.5rem] border border-slate-800 bg-[#0f172a] p-8 shadow-sm transition-all hover:shadow-md">
-              <div className="mb-8 flex items-center gap-4">
-                <h3 className="text-2xl font-black uppercase tracking-[0.1em] text-white">Configuración de Descuentos</h3>
+            <div className="rounded-2xl border border-slate-800 bg-[#0f172a] p-5 shadow-sm">
+              <div className="mb-5 flex items-center gap-3">
+                <h3 className="text-sm font-black uppercase tracking-widest text-white">Configuración de Descuentos</h3>
                 <div className="h-px flex-1 bg-slate-800" />
               </div>
               <ProveedorDiscountSettings 
@@ -171,11 +174,11 @@ export function CatalogForm({
           </div>
 
           {/* COLUMNA DERECHA */}
-          <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-4">
             {/* Asistente de Importación */}
-            <div className="rounded-[2.5rem] border border-slate-800 bg-[#0f172a] p-8 shadow-sm transition-all hover:shadow-md">
-              <div className="mb-8 flex items-center gap-4">
-                <h3 className="text-2xl font-black uppercase tracking-[0.1em] text-white">Asistente de Importación</h3>
+            <div className="rounded-2xl border border-slate-800 bg-[#0f172a] p-5 shadow-sm">
+              <div className="mb-5 flex items-center gap-3">
+                <h3 className="text-sm font-black uppercase tracking-widest text-white">Asistente de Importación</h3>
                 <div className="h-px flex-1 bg-slate-800" />
               </div>
               <ProveedorImportSection 
@@ -186,12 +189,12 @@ export function CatalogForm({
             </div>
 
             {/* Historial de Importaciones */}
-            <div className="rounded-[2.5rem] border border-slate-800 bg-[#0f172a] p-8 shadow-sm flex-1 transition-all hover:shadow-md">
-              <div className="mb-8 flex items-center gap-4">
-                <h3 className="text-2xl font-black uppercase tracking-[0.1em] text-white">Historial de Importaciones</h3>
+            <div className="rounded-2xl border border-slate-800 bg-[#0f172a] p-5 shadow-sm">
+              <div className="mb-5 flex items-center gap-3">
+                <h3 className="text-sm font-black uppercase tracking-widest text-white">Historial de Importaciones</h3>
                 <div className="h-px flex-1 bg-slate-800" />
               </div>
-              <div className="max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="max-h-[360px] overflow-y-auto pr-2 custom-scrollbar">
                 <ProveedorImportHistory id_proveedor={entityId} />
               </div>
             </div>

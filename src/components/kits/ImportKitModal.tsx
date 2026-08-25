@@ -30,7 +30,7 @@ interface MappingConfig {
 const KIT_FIELDS = [
   { id: 'codigo_kit', label: 'Código del Kit', required: true },
   { id: 'nombre_kit', label: 'Nombre del Kit' },
-  { id: 'cod_producto', label: 'Código del Producto (Componente)', required: true },
+  { id: 'cod_producto', label: 'Código del Item (Componente)', required: true },
   { id: 'cantidad', label: 'Cantidad' },
 ];
 
@@ -363,7 +363,7 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
           <HiExclamation className="h-5 w-5 text-indigo-500 shrink-0" />
           <div className="text-xs text-indigo-700 dark:text-indigo-400 font-medium">
             <p className="font-black uppercase tracking-tight mb-1">Formato requerido:</p>
-            <p>El CSV debe contener el <strong>Código del Kit</strong> y el <strong>Código del Producto</strong> por cada componente.</p>
+            <p>El CSV debe contener el <strong>Código del Kit</strong> y el <strong>Código del Item</strong> por cada componente.</p>
           </div>
         </div>
       </div>

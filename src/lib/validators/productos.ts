@@ -8,7 +8,7 @@ import {
 } from "./common";
 
 /**
- * Esquema de validación para Proveedores de Producto
+ * Esquema de validación para proveedores de item
  */
 const proveedorProductoSchema = z.object({
   id_proveedor: idSchema,
@@ -21,14 +21,23 @@ const precioProductoSchema = z.object({
   porcentaje_ganancia: z.number().optional().default(0),
 });
 
+const barcodeSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  },
+  z.string().regex(/^\d+$/, "El código de barra solo puede contener números").nullable().optional()
+);
+
 
 /**
- * Esquema de validación para Productos
+ * Esquema de validación para items
  */
 export const productoPayloadSchema = z.object({
   cod_unico: uppercaseNonEmptyStringSchema,
   descripcion: uppercaseNonEmptyStringSchema,
-  cod_barra: z.string().trim().regex(/^\d+$/, "El código de barra solo puede contener números").nullable().optional(),
+  cod_barra: barcodeSchema,
   stock: z.number().nonnegative().optional().default(0),
   id_pieza: nullableIdSchema.optional(),
   id_subcategoria: idSchema,
@@ -44,7 +53,7 @@ export const productoPayloadSchema = z.object({
 export type ProductoPayload = z.infer<typeof productoPayloadSchema>;
 
 /**
- * Validador de payloads para Productos
+ * Validador de payloads para items
  */
 export function validateProductoPayload(body: any): ProductoPayload {
   return validateWithSchema(productoPayloadSchema, body);

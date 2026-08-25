@@ -18,9 +18,11 @@ import { ClassificationSection } from "./sections/ClassificationSection";
 import { SuppliersSection } from "./sections/SuppliersSection";
 import { PricingSection } from "./sections/PricingSection";
 import { ProductSeriesManager } from "./ProductSeriesManager";
+import { ProductLocationsTab } from "./ProductLocationsTab";
 
 import { ImageUpload } from "./ImageUpload";
 import { useMetadata } from "@/context/MetadataContext";
+import { useAppError } from "@/context/AppErrorContext";
 import {
   Package,
   Cpu,
@@ -33,16 +35,18 @@ import {
   Info,
   Layers,
   Truck,
-  Plus
+  Plus,
+  MapPin
 } from "lucide-react";
 import { QuickAddModal, QuickAddType } from "./QuickAddModal";
 
-export type TabId = "principal" | "pieza" | "precios" | "serial" | "foto";
+export type TabId = "principal" | "pieza" | "precios" | "ubicaciones" | "serial" | "foto";
 
 export const PRODUCT_TABS = [
   { id: "principal" as const, label: "Principal", icon: Package },
-  { id: "pieza" as const, label: "Pieza", icon: Cpu },
+  { id: "pieza" as const, label: "Item asociado", icon: Cpu },
   { id: "precios" as const, label: "Precios-Proveedores", icon: DollarSign },
+  { id: "ubicaciones" as const, label: "Ubicaciones", icon: MapPin },
   { id: "serial" as const, label: "Serialización", icon: Barcode },
   { id: "foto" as const, label: "Foto", icon: ImageIcon },
 ];
@@ -85,6 +89,7 @@ export function ProductForm({
 }: ProductFormProps) {
   const router = useRouter();
   const meta = useMetadata();
+  const { showError, showMessage } = useAppError();
   const [internalTab, setInternalTab] = useState<TabId>("principal");
 
   const activeTab = externalTab || internalTab;
@@ -93,6 +98,8 @@ export function ProductForm({
   const [isGeneratingBarcode, setIsGeneratingBarcode] = useState(false);
   const [series, setSeries] = useState<any[]>([]);
   const [isLoadingSeries, setIsLoadingSeries] = useState(false);
+  const [persistedUsesSeries, setPersistedUsesSeries] = useState(Boolean(initialProduct?.usa_numero_serie));
+  const [isSavingTraceability, setIsSavingTraceability] = useState(false);
 
   // Quick Add State
   const [quickAddType, setQuickAddType] = useState<QuickAddType | null>(null);
@@ -128,7 +135,7 @@ export function ProductForm({
   const { loading, submit } = useAppForm({
     url: productId ? `/api/productos/${productId}` : "/api/productos",
     method: productId ? "PUT" : "POST",
-    successMessage: productId ? "Producto actualizado correctamente" : "Producto creado correctamente",
+    successMessage: productId ? "Item actualizado correctamente" : "Item creado correctamente",
     onSuccess: () => {
       if (onSuccess) onSuccess();
       router.refresh();
@@ -139,7 +146,7 @@ export function ProductForm({
   const { loading: deleting, submit: runDelete } = useAppForm({
     url: `/api/productos/${productId}`,
     method: "DELETE",
-    successMessage: "Producto eliminado correctamente",
+    successMessage: "Item eliminado correctamente",
     onSuccess: () => {
       if (onSuccess) onSuccess();
       router.refresh();
@@ -189,6 +196,7 @@ export function ProductForm({
     fetch(`/api/productos/${productId}`)
       .then((res) => res.json())
       .then((data: Producto) => {
+        setPersistedUsesSeries(Boolean(data.usa_numero_serie));
         setProduct({
           ...initialState,
           ...data,
@@ -218,7 +226,7 @@ export function ProductForm({
         }
       })
       .catch((err) => {
-        toast.error("No se pudo cargar el producto.");
+        toast.error("No se pudo cargar el item.");
         console.error(err);
       })
       .finally(() => {
@@ -383,10 +391,9 @@ export function ProductForm({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const cleanProveedores = product.proveedores
+  const buildProductPayload = (overrides: Partial<Producto> = {}) => {
+    const source = { ...product, ...overrides };
+    const cleanProveedores = source.proveedores
       .filter((item) => item.id_proveedor)
       .map((item) => ({
         id_proveedor: item.id_proveedor,
@@ -397,29 +404,93 @@ export function ProductForm({
         ultima_importacion_id: item.ultima_importacion_id || null,
       }));
 
-    const payload = {
-      cod_unico: product.cod_unico,
-      descripcion: product.descripcion,
-      cod_barra: product.cod_barra,
-      stock: product.stock,
-      id_pieza: product.id_pieza ?? null,
-      id_subcategoria: product.id_subcategoria ?? null,
-      id_marca: product.id_marca ?? null,
-      id_ubicacion: product.id_ubicacion ?? null,
-      imagen_url: product.imagen_url ?? null,
+    return {
+      cod_unico: source.cod_unico,
+      descripcion: source.descripcion,
+      cod_barra: source.cod_barra?.replace(/\D/g, "") || null,
+      stock: source.stock,
+      id_pieza: source.id_pieza ?? null,
+      id_subcategoria: source.id_subcategoria ?? null,
+      id_marca: source.id_marca ?? null,
+      id_ubicacion: source.id_ubicacion ?? null,
+      imagen_url: source.imagen_url ?? null,
       proveedores: cleanProveedores,
-      usa_numero_serie: product.usa_numero_serie ?? false,
-      palabra_clave: product.palabra_clave || null,
-      precios: product.precios || [],
+      usa_numero_serie: source.usa_numero_serie ?? false,
+      palabra_clave: source.palabra_clave || null,
+      precios: source.precios || [],
     };
+  };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const payload = buildProductPayload();
 
     await submit(payload);
+    setPersistedUsesSeries(Boolean(payload.usa_numero_serie));
+  };
+
+  const handleTraceabilityToggle = async () => {
+    const nextValue = !product.usa_numero_serie;
+
+    if (!nextValue) {
+      setProduct(prev => ({ ...prev, usa_numero_serie: false }));
+      setPersistedUsesSeries(false);
+      return;
+    }
+
+    setProduct(prev => ({ ...prev, usa_numero_serie: true }));
+
+    if (!productId || persistedUsesSeries) return;
+
+    setIsSavingTraceability(true);
+    try {
+      const payload = buildProductPayload({ usa_numero_serie: true });
+      const res = await fetch(`/api/productos/${productId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.message || "No se pudo activar la trazabilidad");
+      }
+
+      setPersistedUsesSeries(true);
+      setProduct(prev => ({
+        ...prev,
+        usa_numero_serie: true,
+        cod_barra: data.cod_barra?.replace(/\D/g, "") ?? prev.cod_barra,
+      }));
+      toast.success("Trazabilidad activada correctamente");
+      router.refresh();
+    } catch (error: unknown) {
+      setProduct(prev => ({ ...prev, usa_numero_serie: false }));
+      setPersistedUsesSeries(false);
+      showError(error, "No se pudo activar la trazabilidad");
+    } finally {
+      setIsSavingTraceability(false);
+    }
+  };
+
+  const handleOpenSeriesManager = () => {
+    if (!productId) {
+      showMessage("Primero guardá el item para poder cargar números de serie.");
+      return;
+    }
+
+    if (!persistedUsesSeries) {
+      showMessage("Primero activá la trazabilidad y esperá a que se guarde el cambio.");
+      return;
+    }
+
+    setIsSeriesManagerOpen(true);
   };
 
   const handleDelete = async () => {
     if (!productId) return;
-    if (!window.confirm("¿Seguro que querés eliminar este producto?")) return;
+    if (!window.confirm("¿Seguro que querés eliminar este item?")) return;
     await runDelete({});
   };
 
@@ -453,7 +524,7 @@ export function ProductForm({
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
-        <span className="font-bold uppercase tracking-widest text-[10px]">Cargando producto...</span>
+        <span className="font-bold uppercase tracking-widest text-[10px]">Cargando item...</span>
       </div>
     );
   }
@@ -464,7 +535,7 @@ export function ProductForm({
     <div className="flex flex-col gap-4 p-6 md:p-8">
       {/* Tab Navigation - Only shown if not managed by parent */}
       {!externalTab && (
-        <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-900/50">
+        <div className="sticky top-0 z-30 -mx-6 -mt-6 flex flex-wrap gap-1 border-b border-slate-200 bg-white/95 p-3 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/95 md:-mx-8 md:-mt-8 md:px-8">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -505,14 +576,12 @@ export function ProductForm({
               <ClassificationSection
                 stock={product.stock}
                 id_marca={product.id_marca}
-                id_ubicacion={product.id_ubicacion ?? null}
                 id_categoria={product.id_categoria}
                 id_subcategoria={product.id_subcategoria}
                 isPiezaLinked={!!product.id_pieza}
                 selectedPieza={selectedPieza}
                 meta={{
                   marcas: meta.marcas,
-                  ubicaciones: meta.ubicaciones,
                   categorias: meta.categorias,
                   subcategorias: meta.subcategorias,
                 }}
@@ -523,7 +592,7 @@ export function ProductForm({
             </div>
           )}
 
-          {/* TAB: PIEZA */}
+          {/* TAB: ITEM ASOCIADO */}
           {activeTab === "pieza" && (
             <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <PieceSection
@@ -555,7 +624,7 @@ export function ProductForm({
                         >
                           <img
                             src={selectedPieza.imagen_medida_url}
-                            alt="Medida Pieza"
+                            alt="Medida del item asociado"
                             className="h-full w-full object-contain p-2 transition contrast-[1.1] dark:invert dark:hue-rotate-180"
                           />
                         </div>
@@ -622,6 +691,13 @@ export function ProductForm({
             </div>
           )}
 
+          {/* TAB: UBICACIONES */}
+          {activeTab === "ubicaciones" && (
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <ProductLocationsTab productId={productId} />
+            </div>
+          )}
+
           {/* TAB: SERIALIZACION */}
           {activeTab === "serial" && (
             <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -629,11 +705,12 @@ export function ProductForm({
                 <div className="mb-6 flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white">Control de Trazabilidad</h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Activá el uso de números de serie para este producto.</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Activá el uso de números de serie para este item.</p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setProduct(prev => ({ ...prev, usa_numero_serie: !prev.usa_numero_serie }))}
+                    onClick={handleTraceabilityToggle}
+                    disabled={isSavingTraceability}
                     className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none ${product.usa_numero_serie ? "bg-blue-600" : "bg-slate-300 dark:bg-slate-700"
                       }`}
                   >
@@ -650,13 +727,22 @@ export function ProductForm({
                       <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">Estado de Series</h4>
                       <button
                         type="button"
-                        onClick={() => setIsSeriesManagerOpen(true)}
-                        className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900"
+                        onClick={handleOpenSeriesManager}
+                        disabled={!persistedUsesSeries || isSavingTraceability}
+                        className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-900"
                       >
                         <Plus className="h-3 w-3" />
-                        Gestionar Series
+                        {isSavingTraceability ? "Activando..." : "Gestionar Series"}
                       </button>
                     </div>
+
+                    {!persistedUsesSeries && (
+                      <div className="rounded-xl bg-amber-50 p-4 dark:bg-amber-900/20">
+                        <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                          La trazabilidad se estÃ¡ activando. Cuando termine, vas a poder gestionar las series.
+                        </p>
+                      </div>
+                    )}
 
                     {isLoadingSeries ? (
                       <div className="flex animate-pulse flex-col gap-2">
@@ -690,7 +776,7 @@ export function ProductForm({
                 ) : product.usa_numero_serie && !productId ? (
                   <div className="rounded-xl bg-amber-50 p-4 dark:bg-amber-900/20">
                     <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
-                      Primero debés crear el producto para poder empezar a cargar números de serie.
+                      Primero debés crear el item para poder empezar a cargar números de serie.
                     </p>
                   </div>
                 ) : (
@@ -708,7 +794,7 @@ export function ProductForm({
             <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-950">
                 <div className="mb-6">
-                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">Imagen del producto</h2>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">Imagen del item</h2>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Subí una foto clara del repuesto. Esta imagen será visible en el catálogo principal.</p>
                 </div>
                 <ImageUpload

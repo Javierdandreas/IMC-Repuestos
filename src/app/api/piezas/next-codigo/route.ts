@@ -9,6 +9,6 @@ export async function GET(request: NextRequest) {
     const codigo_pieza = await getNextCodigoPieza();
     return NextResponse.json({ codigo_pieza });
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo obtener el próximo número de pieza");
+    return jsonError(error, "No se pudo obtener el próximo número de item asociado");
   }
 }

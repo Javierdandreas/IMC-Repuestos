@@ -1,6 +1,19 @@
 import { query, withTransaction } from "@/lib/db-utils";
-import type { ProductoSerie, ProductoSerieMovimiento, EstadoSerie, TipoMovimientoSerie } from "@/interfaces/series";
+import type {
+  ProductoSerie,
+  ProductoSerieMovimiento,
+  ProductoSerieMovimientoHistorial,
+  EstadoSerie,
+  TipoMovimientoSerie,
+} from "@/interfaces/series";
 import { AppError } from "@/lib/api-errors";
+import {
+  getTipoMovimientoSeriePorEstado,
+  puedeCambiarEstadoSerie,
+  requiereObservacionCambioSerie,
+  SERIE_ESTADO_LABELS,
+  SERIE_ESTADOS_CON_STOCK_FISICO,
+} from "@/lib/serie-estados";
 
 /**
  * Obtener todas las series de un producto
@@ -25,6 +38,43 @@ export async function getSeriesPorProducto(id_producto: number | string): Promis
   `;
   const { rows } = await query(sql, [id_producto]);
   return rows as ProductoSerie[];
+}
+
+export async function getSerieMovimientos(idSerie: number | string): Promise<ProductoSerieMovimientoHistorial[]> {
+  const { rows } = await query(
+    `
+      SELECT
+        m.id,
+        m.tipo,
+        m.id_operacion,
+        m.id_ubicacion_origen,
+        uo.descripcion AS ubicacion_origen,
+        m.id_ubicacion_destino,
+        ud.descripcion AS ubicacion_destino,
+        m.referencia,
+        m.observacion,
+        m.usuario_id,
+        usr.nombre_usuario AS usuario,
+        m.created_at
+      FROM producto_serie_movimiento m
+      LEFT JOIN ubicaciones uo ON uo.id = m.id_ubicacion_origen
+      LEFT JOIN ubicaciones ud ON ud.id = m.id_ubicacion_destino
+      LEFT JOIN usuario usr ON usr.id = m.usuario_id
+      WHERE m.id_producto_serie = $1
+      ORDER BY m.created_at DESC, m.id DESC
+    `,
+    [idSerie]
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    id: Number(row.id),
+    id_operacion: row.id_operacion === null ? null : Number(row.id_operacion),
+    id_ubicacion_origen: row.id_ubicacion_origen === null ? null : Number(row.id_ubicacion_origen),
+    id_ubicacion_destino: row.id_ubicacion_destino === null ? null : Number(row.id_ubicacion_destino),
+    usuario_id: row.usuario_id === null ? null : Number(row.usuario_id),
+    created_at: row.created_at ? new Date(row.created_at).toISOString() : "",
+  })) as ProductoSerieMovimientoHistorial[];
 }
 
 /**
@@ -52,7 +102,7 @@ async function validarNumerosDeSerieDisponibles(numeros: string[], excludeIdSeri
   const resProd = await query(sqlProd, [numeros]);
   if (resProd.rows.length > 0) {
     const repetidos = resProd.rows.map(r => r.cod_unico).join(", ");
-    throw new AppError(`Los siguientes números coinciden con un código único de producto (cod_unico) y no se pueden usar como serie: ${repetidos}`, 400);
+    throw new AppError(`Los siguientes números coinciden con un código único de item (cod_unico) y no se pueden usar como serie: ${repetidos}`, 400);
   }
 }
 
@@ -68,10 +118,10 @@ export async function createSeries(id_producto: number, numeros_serie: string[],
     );
 
     if (prodRows.length === 0) {
-      throw new AppError("Producto no encontrado", 404);
+      throw new AppError("Item no encontrado", 404);
     }
     if (!prodRows[0].usa_numero_serie) {
-      throw new AppError("El producto no admite asignación de números de serie", 400);
+      throw new AppError("El item no admite asignación de números de serie", 400);
     }
 
     const { id_ubicacion: prodUbicacion, stock: prodStock } = prodRows[0];
@@ -84,8 +134,8 @@ export async function createSeries(id_producto: number, numeros_serie: string[],
     
     // Validar Límite de Stock
     const { rows: currentSeriesCountRows } = await client.query(
-      "SELECT COUNT(*) as total FROM producto_serie WHERE id_producto = $1 AND estado = 'DISPONIBLE'",
-      [id_producto]
+      "SELECT COUNT(*) as total FROM producto_serie WHERE id_producto = $1 AND estado = ANY($2::text[])",
+      [id_producto, SERIE_ESTADOS_CON_STOCK_FISICO]
     );
     const existingSeries = parseInt(currentSeriesCountRows[0].total, 10);
     const availableSlots = (prodStock || 0) - existingSeries;
@@ -136,7 +186,7 @@ export async function createSeries(id_producto: number, numeros_serie: string[],
 export async function updateSeriesState(
   ids_series: number[],
   estado: EstadoSerie,
-  tipo_movimiento: TipoMovimientoSerie,
+  _tipo_movimiento: TipoMovimientoSerie,
   id_usuario: number,
   id_ubicacion_destino?: number | null,
   referencia?: string | null,
@@ -148,13 +198,32 @@ export async function updateSeriesState(
     }
 
     const { rows: currentSeries } = await client.query(
-      "SELECT id, id_ubicacion FROM producto_serie WHERE id = ANY($1::bigint[]) FOR UPDATE",
+      "SELECT id, id_ubicacion, estado FROM producto_serie WHERE id = ANY($1::bigint[]) FOR UPDATE",
       [ids_series]
     );
 
     if (currentSeries.length !== ids_series.length) {
       throw new AppError("Una o más series no existen o no están disponibles", 404);
     }
+
+    for (const serie of currentSeries) {
+      const estadoActual = serie.estado as EstadoSerie;
+      if (!puedeCambiarEstadoSerie(estadoActual, estado)) {
+        throw new AppError(
+          `No se puede cambiar la serie ${serie.id} de ${SERIE_ESTADO_LABELS[estadoActual]} a ${SERIE_ESTADO_LABELS[estado]}`,
+          400
+        );
+      }
+
+      if (requiereObservacionCambioSerie(estadoActual, estado) && String(observacion ?? "").trim().length < 5) {
+        throw new AppError(
+          `Indicá una observación para cambiar la serie ${serie.id} de ${SERIE_ESTADO_LABELS[estadoActual]} a ${SERIE_ESTADO_LABELS[estado]}`,
+          400
+        );
+      }
+    }
+
+    const tipoMovimientoEstado = getTipoMovimientoSeriePorEstado(estado);
 
     // Actualizar estado general en la tabla base
     await client.query(
@@ -181,7 +250,7 @@ export async function updateSeriesState(
         `,
         [
           s.id, 
-          tipo_movimiento, 
+          tipoMovimientoEstado, 
           s.id_ubicacion, // origen
           id_ubicacion_destino || s.id_ubicacion, // destino
           referencia || null, 
@@ -204,20 +273,20 @@ export async function generateAutoSeriesForProduct(id_producto: number, id_usuar
     "SELECT stock, usa_numero_serie FROM productos WHERE id = $1",
     [id_producto]
   );
-  if (prodRows.length === 0) throw new AppError("Producto no encontrado", 404);
-  if (!prodRows[0].usa_numero_serie) throw new AppError("El producto no admite asignación de números de serie", 400);
+  if (prodRows.length === 0) throw new AppError("Item no encontrado", 404);
+  if (!prodRows[0].usa_numero_serie) throw new AppError("El item no admite asignación de números de serie", 400);
 
   const prodStock = prodRows[0].stock || 0;
 
   const { rows: currentSeriesCountRows } = await query(
-    "SELECT COUNT(*) as total FROM producto_serie WHERE id_producto = $1 AND estado = 'DISPONIBLE'",
-    [id_producto]
+    "SELECT COUNT(*) as total FROM producto_serie WHERE id_producto = $1 AND estado = ANY($2::text[])",
+    [id_producto, SERIE_ESTADOS_CON_STOCK_FISICO]
   );
   const existingSeries = parseInt(currentSeriesCountRows[0].total, 10);
   const availableSlots = prodStock - existingSeries;
 
   if (availableSlots <= 0) {
-    throw new AppError("El producto ya tiene todas sus series activas según el stock declarado.", 400);
+    throw new AppError("El item ya tiene todas sus series activas según el stock declarado.", 400);
   }
 
   const generatedSerials = new Set<string>();
@@ -247,9 +316,9 @@ export async function getSeriesPorVariosProductos(ids: (number | string)[]): Pro
       fecha_ingreso
     FROM producto_serie
     WHERE id_producto = ANY($1::bigint[])
-    AND estado = 'DISPONIBLE'
+    AND estado = ANY($2::text[])
     ORDER BY id_producto, numero_serie
   `;
-  const { rows } = await query(sql, [ids]);
+  const { rows } = await query(sql, [ids, SERIE_ESTADOS_CON_STOCK_FISICO]);
   return rows as ProductoSerie[];
 }

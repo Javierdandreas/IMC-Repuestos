@@ -65,13 +65,13 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
           </div>
           <div>
             <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Kits & Combos</h1>
-            <p className="text-sm font-medium text-slate-500">Agrupaciones de productos con precios dinámicos</p>
+            <p className="text-sm font-medium text-slate-500">Agrupaciones de items con precios dinámicos</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
             <button
-                onClick={() => setShowImportModal(true)}
+                onClick={() => router.push("/kits/importar")}
                 className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all shadow-sm active:scale-95"
             >
                 <HiCloudUpload className="h-5 w-5 text-indigo-500" />
@@ -154,7 +154,7 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-tighter w-24 text-right">Mecánico</span>
+                                        <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-tighter w-24 text-right">Cta. Cte.</span>
                                         <span className="text-base font-black text-indigo-600 dark:text-indigo-400 font-mono w-32 text-right">
                                             $ {Number(kit.precio_mecanico_total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                         </span>

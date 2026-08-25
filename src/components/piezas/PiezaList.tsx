@@ -80,7 +80,7 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
         ? true
         : generalTextTokens.every((token) => generalHaystackText.includes(token));
 
-      // Candidatos de códigos (Pieza, Originales, Equivalentes)
+      // Candidatos de códigos (item asociado, originales, equivalentes)
       const codeCandidates = [
         String(pieza.codigo_pieza),
         ...(pieza.originales ?? []).filter(Boolean),
@@ -141,14 +141,14 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.message || "No se pudo borrar la pieza");
+        throw new Error(data.message || "No se pudo borrar el item asociado");
       }
 
       setDeletingPieza(null);
-      toast.success("Pieza eliminada correctamente");
+      toast.success("Item asociado eliminado correctamente");
       router.refresh();
     } catch (error: any) {
-      toast.error(error.message || "No se pudo borrar la pieza");
+      toast.error(error.message || "No se pudo borrar el item asociado");
     } finally {
       setIsDeleting(false);
     }
@@ -167,20 +167,20 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
                 </svg>
               </div>
               <div>
-                <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Piezas</h1>
-                <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Gestión de componentes técnicos</p>
+                <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Items asociados</h1>
+                <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Gestión de items técnicos vinculables</p>
               </div>
             </div>
             
             {canManage && (
               <button
-                onClick={() => setOpenNew(true)}
+                onClick={() => router.push("/piezas/nueva")}
                 className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-900 px-6 text-sm font-bold text-white shadow-lg transition hover:bg-slate-800 active:scale-95 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                 </svg>
-                Crear pieza
+                Crear item asociado
               </button>
             )}
           </div>
@@ -279,7 +279,7 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
               {filteredPiezas.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12 text-center text-sm font-medium text-slate-500 dark:text-slate-500">
-                    {piezas.length === 0 ? "Todavía no hay piezas cargadas." : "No hay piezas que coincidan con los filtros."}
+                    {piezas.length === 0 ? "Todavía no hay items asociados cargados." : "No hay items asociados que coincidan con los filtros."}
                   </td>
                 </tr>
               ) : (
@@ -342,11 +342,11 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
                       <div className="flex items-center justify-center gap-2.5">
                         {canManage ? (<>
                           <PencilButton
-                            label={`Editar pieza ${pieza.codigo_pieza}`}
-                            onClick={() => setEditingPieza(pieza)}
+                            label={`Editar item asociado ${pieza.codigo_pieza}`}
+                            onClick={() => router.push(`/piezas/editar/${pieza.id}`)}
                           />
                           <TrashButton
-                            label={`Borrar pieza ${pieza.codigo_pieza}`}
+                            label={`Borrar item asociado ${pieza.codigo_pieza}`}
                             onClick={() => setDeletingPieza(pieza)}
                           />
                         </>) : <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>}
@@ -365,7 +365,7 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
         )}
       </div>
 
-      <Modal open={canManage && openNew} onClose={() => setOpenNew(false)} title="Crear pieza">
+      <Modal open={canManage && openNew} onClose={() => setOpenNew(false)} title="Crear item asociado">
         <PiezaForm
           categorias={categorias}
           subcategorias={subcategorias}
@@ -376,7 +376,7 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
       </Modal>
 
 
-      <Modal open={canManage && !!editingPieza} onClose={() => setEditingPieza(null)} title="Editar pieza">
+      <Modal open={canManage && !!editingPieza} onClose={() => setEditingPieza(null)} title="Editar item asociado">
         <PiezaForm
           piezaId={editingPieza?.id}
           initialPieza={mapToForm(editingPieza)}
@@ -389,10 +389,10 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
 
       <ConfirmDeleteModal
         open={canManage && !!deletingPieza}
-        title="Eliminar pieza"
+        title="Eliminar item asociado"
         description={
           deletingPieza
-            ? `¿Querés borrar la pieza ${deletingPieza.codigo_pieza}? Esta acción no se puede deshacer.`
+            ? `¿Querés borrar el item asociado ${deletingPieza.codigo_pieza}? Esta acción no se puede deshacer.`
             : ""
         }
         confirmLabel="Eliminar"

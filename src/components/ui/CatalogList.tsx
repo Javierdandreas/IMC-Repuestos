@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { CatalogForm } from "@/components/ui/CatalogForm";
-import { PencilButton } from "@/components/ui/PencilButton";
+import { PencilButton, PencilLink } from "@/components/ui/PencilButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/components/auth/usePermissions";
@@ -30,6 +30,8 @@ type Props = {
   createLabel: string;
   /** Total de paginas para la paginacion */
   totalPages?: number;
+  /** Ruta base opcional para editar en pagina en vez de modal */
+  editPathBase?: string;
 };
 
 /**
@@ -43,6 +45,7 @@ export function CatalogList({
   title,
   createLabel,
   totalPages = 1,
+  editPathBase,
 }: Props) {
   const router = useRouter();
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -147,10 +150,17 @@ export function CatalogList({
                     <div className="px-5 py-4 text-sm font-bold text-slate-800 dark:text-slate-200">{item.descripcion}</div>
                     <div className="px-5 py-4 flex items-center justify-center gap-2.5 border-l border-slate-50 dark:border-slate-800/50">
                       {canManage ? (<>
-                        <PencilButton
-                          label={`Editar ${entityName} ${item.descripcion}`}
-                          onClick={() => setEditingItem(item)}
-                        />
+                        {editPathBase ? (
+                          <PencilLink
+                            label={`Editar ${entityName} ${item.descripcion}`}
+                            href={`${editPathBase}/${item.id}`}
+                          />
+                        ) : (
+                          <PencilButton
+                            label={`Editar ${entityName} ${item.descripcion}`}
+                            onClick={() => setEditingItem(item)}
+                          />
+                        )}
                         <TrashButton
                           label={`Borrar ${entityName} ${item.descripcion}`}
                           onClick={() => setDeletingItem(item)}

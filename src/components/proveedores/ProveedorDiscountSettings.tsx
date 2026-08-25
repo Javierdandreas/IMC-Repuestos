@@ -55,67 +55,67 @@ export function ProveedorDiscountSettings({ id_proveedor, externalState }: Props
   };
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="space-y-6">
+    <div className="flex flex-col gap-4">
+      <div className="space-y-4">
         {/* Coeficiente General */}
-        <div className="space-y-4">
-          <label className="text-base font-black uppercase tracking-[0.2em] text-blue-400">Descuento General (%) / Coeficiente</label>
+        <div className="space-y-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Descuento General (%) / Coeficiente</label>
           <div className="relative">
             <input
               type="number"
               step="0.0001"
               value={descuentoGeneral}
               onChange={(e) => setDescuentoGeneral(parseFloat(e.target.value) || 0)}
-              className="w-full h-16 rounded-2xl border-2 border-slate-800 bg-slate-950 px-6 text-xl font-black text-white transition outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 shadow-inner"
+              className="h-12 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 text-sm font-black text-white shadow-inner outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
               placeholder="Ej: 1.1032"
             />
-            <div className="absolute right-6 top-5 text-[10px] font-black text-slate-500 uppercase tracking-widest bg-slate-900 px-2 py-1 rounded-lg">MULT</div>
+            <div className="absolute right-4 top-3.5 rounded-md bg-slate-900 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-slate-500">MULT</div>
           </div>
         </div>
 
         {/* Coeficientes por Marca */}
-        <div className="space-y-5 pt-4">
-          <label className="text-base font-black uppercase tracking-[0.2em] text-blue-400">Descuentos por Marca</label>
+        <div className="space-y-3 pt-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Descuentos por Marca</label>
           
-          <div className="flex gap-4">
+          <div className="grid grid-cols-[1fr_110px_44px] gap-2">
             <select
               value={selectedMarcaId}
               onChange={(e) => setSelectedMarcaId(e.target.value)}
-              className="flex-1 h-16 rounded-2xl border-2 border-slate-800 bg-slate-950 px-6 text-sm font-black text-white outline-none transition focus:border-blue-500 tracking-widest shadow-inner"
+              className="h-11 min-w-0 rounded-xl border border-slate-800 bg-slate-950 px-3 text-xs font-black tracking-wider text-white shadow-inner outline-none transition focus:border-blue-500"
             >
               <option value="">Seleccionar Marca...</option>
               {marcas.map((m: any) => (
                 <option key={m.id} value={m.id}>{m.descripcion}</option>
               ))}
             </select>
-            <div className="relative w-40">
+            <div className="relative">
               <input
                 type="number"
                 step="0.0001"
                 value={marcaDiscountValue}
                 onChange={(e) => setMarcaDiscountValue(e.target.value)}
-                className="w-full h-16 rounded-2xl border-2 border-slate-800 bg-slate-950 px-6 text-lg font-black text-center text-white transition outline-none focus:border-blue-500 shadow-inner"
+                className="h-11 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 text-center text-xs font-black text-white shadow-inner outline-none transition focus:border-blue-500"
                 placeholder="1.1032"
               />
-              <div className="absolute right-4 top-5.5 text-xs font-black text-slate-500">x</div>
+              <div className="absolute right-3 top-3 text-xs font-black text-slate-500">x</div>
             </div>
             <button
               onClick={addMarcaDiscount}
-              className="h-16 w-16 flex items-center justify-center rounded-2xl bg-blue-600 text-white transition hover:bg-blue-500 active:scale-95 shadow-lg shadow-blue-500/20"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-500 active:scale-95"
             >
-              <HiPlus className="h-7 w-7" />
+              <HiPlus className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+          <div className="max-h-[180px] space-y-2 overflow-y-auto pr-2 custom-scrollbar">
             {Object.entries(descuentosPorMarca).map(([marcaId, discount]) => {
               const marca = marcas.find((m: any) => m.id === parseInt(marcaId));
               return (
-                <div key={marcaId} className="flex items-center justify-between p-5 rounded-2xl bg-slate-900/50 border-2 border-slate-800 group transition-all hover:border-blue-500/50">
-                  <span className="text-sm font-black text-slate-300 uppercase tracking-widest">{marca?.descripcion}: <span className="text-blue-400 font-black">x{discount}</span></span>
+                <div key={marcaId} className="group flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/50 px-3 py-2.5 transition-all hover:border-blue-500/50">
+                  <span className="truncate text-[11px] font-black uppercase tracking-wider text-slate-300">{marca?.descripcion}: <span className="font-black text-blue-400">x{discount}</span></span>
                   <button
                     onClick={() => removeMarcaDiscount(parseInt(marcaId))}
-                    className="p-2 rounded-xl text-red-500 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100"
+                    className="rounded-lg p-1.5 text-red-500 opacity-0 transition-colors hover:bg-red-500/10 group-hover:opacity-100"
                   >
                     <HiTrash className="h-4 w-4" />
                   </button>

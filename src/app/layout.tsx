@@ -7,6 +7,7 @@ import { MetadataProvider } from "@/context/MetadataContext";
 import { getProductMeta } from "@/lib/productos-meta";
 import { UserProvider } from "@/context/UserContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { AppErrorProvider } from "@/context/AppErrorContext";
 import { getServerInternalUser } from "@/lib/auth";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/react";
@@ -15,8 +16,8 @@ import SessionTimeout from "@/components/auth/SessionTimeout";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "IMC Repuestos",
-  description: "Panel interno de productos, piezas y catálogos",
+  title: "IMC Items",
+  description: "Panel interno de items, items asociados y catálogos",
   icons: {
     icon: "/icon.ico",
   },
@@ -55,7 +56,9 @@ export default async function RootLayout({
           <UserProvider initialUser={user}>
             <SessionTimeout />
             <MetadataProvider initialMeta={meta}>
-              <AppShell>{children}</AppShell>
+              <AppErrorProvider>
+                <AppShell>{children}</AppShell>
+              </AppErrorProvider>
               <Toaster richColors position="top-right" />
               <SpeedInsights />
               <Analytics />

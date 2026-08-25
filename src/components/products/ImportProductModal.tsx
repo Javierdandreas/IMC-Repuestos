@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import Papa from "papaparse";
 import { toast } from "sonner";
-import { HiCloudUpload, HiCheck, HiExclamation, HiX, HiDownload, HiChevronRight, HiAdjustments, HiPlay } from "react-icons/hi";
+import { HiCheck, HiCloudUpload, HiExclamation, HiPlay, HiRefresh, HiSparkles } from "react-icons/hi";
 import { useRouter } from "next/navigation";
 import { useMetadata } from "@/context/MetadataContext";
 import { HiTrash } from "react-icons/hi";
@@ -31,35 +31,108 @@ interface MappingConfig {
   csvHeader: string;
   updateExisting: boolean;
   isRequired?: boolean;
+  autoMatched?: boolean;
+  confidence?: "high" | "medium" | "low";
 }
 
+type ImportValidationIssue = {
+  type: "error" | "warning";
+  message: string;
+};
+
 const SYSTEM_FIELDS = [
-  { id: 'cod_unico', label: 'Código Interno (Identificador)', required: true },
-  { id: 'titulo', label: 'Título / Descripción' },
-  { id: 'cod_barra', label: 'Código de Barras' },
-  { id: 'stock', label: 'Stock Actual' },
-  { id: 'marca', label: 'Marca' },
-  { id: 'subcategoria', label: 'Subcategoría' },
-  { id: 'ubicacion', label: 'Ubicación Interna' },
-  { id: 'codigo_pieza', label: 'Código de Pieza / Parte' },
-  { id: 'palabra_clave', label: 'Palabras Clave' },
-  { id: 'proveedor', label: 'Proveedor' },
-  { id: 'codigo_proveedor', label: 'Código en Proveedor' },
+  { id: 'cod_unico', label: 'Código interno', description: 'Identificador único del item', group: 'Datos principales', required: true, aliases: ['codigo', 'codigo unico', 'codigo único', 'codigo interno', 'cod unico', 'cod_unico', 'sku', 'item', 'codigo producto', 'id producto'] },
+  { id: 'titulo', label: 'Descripción', description: 'Nombre o título del item', group: 'Datos principales', aliases: ['titulo', 'descripcion', 'descripción', 'nombre', 'producto', 'articulo', 'artículo', 'detalle'] },
+  { id: 'cod_barra', label: 'Código de barras', description: 'EAN, barcode o código escaneable', group: 'Datos principales', aliases: ['codigo barra', 'codigo de barras', 'cod barra', 'cod_barra', 'barcode', 'ean', 'gtin'] },
+  { id: 'stock', label: 'Stock actual', description: 'Cantidad disponible', group: 'Datos principales', aliases: ['stock', 'cantidad', 'existencia', 'existencias', 'disponible', 'inventario', 'qty'] },
+  { id: 'marca', label: 'Marca', description: 'Marca o fabricante', group: 'Clasificación', aliases: ['marca', 'brand', 'fabricante'] },
+  { id: 'subcategoria', label: 'Subcategoría', description: 'Rubro/subrubro que existe en el sistema', group: 'Clasificación', aliases: ['subcategoria', 'subcategoría', 'sub categoria', 'sub categoría', 'subrubro', 'rubro', 'familia'] },
+  { id: 'ubicacion', label: 'Ubicación', description: 'Ubicación interna inicial', group: 'Clasificación', aliases: ['ubicacion', 'ubicación', 'location', 'deposito', 'depósito', 'almacen', 'almacén', 'pasillo', 'estante', 'rack'] },
+  { id: 'codigo_pieza', label: 'Código de item asociado', description: 'Número del item asociado o referencia', group: 'Item asociado y proveedor', aliases: ['codigo pieza', 'codigo de pieza', 'cod pieza', 'nro pieza', 'nro item asociado', 'numero pieza', 'número pieza', 'parte', 'part number', 'numero parte', 'número parte', 'codigo item asociado', 'item asociado'] },
+  { id: 'palabra_clave', label: 'Palabras clave', description: 'Texto auxiliar de búsqueda', group: 'Item asociado y proveedor', aliases: ['palabra clave', 'palabras clave', 'keywords', 'keyword', 'clave', 'etiquetas', 'tags'] },
+  { id: 'proveedor', label: 'Proveedor', description: 'Proveedor asociado al item', group: 'Item asociado y proveedor', aliases: ['proveedor', 'supplier', 'vendor'] },
+  { id: 'codigo_proveedor', label: 'Código proveedor', description: 'Código del item en el proveedor', group: 'Item asociado y proveedor', aliases: ['codigo proveedor', 'codigo en proveedor', 'cod proveedor', 'sku proveedor', 'item proveedor', 'referencia proveedor', 'codigo lista'] },
+  { id: 'precio_lista_proveedor', label: 'Precio lista proveedor', description: 'Precio informado por el proveedor', group: 'Item asociado y proveedor', aliases: ['precio lista proveedor', 'precio proveedor', 'lista proveedor', 'precio lista', 'costo proveedor', 'precio de proveedor'] },
 ];
 
-export function ImportProductModal({ onClose }: { onClose: () => void }) {
+const normalizeHeader = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const createInitialMappings = (): Record<string, MappingConfig> => {
+  const initial: Record<string, MappingConfig> = {};
+  SYSTEM_FIELDS.forEach(field => {
+    initial[field.id] = {
+      csvHeader: '',
+      updateExisting: true,
+      isRequired: field.required,
+    };
+  });
+  return initial;
+};
+
+const scoreHeaderForField = (header: string, field: typeof SYSTEM_FIELDS[number]) => {
+  const normalizedHeader = normalizeHeader(header);
+  let score = 0;
+
+  if (
+    (field.id === 'proveedor' || field.id === 'codigo_proveedor') &&
+    normalizedHeader.includes('precio') &&
+    normalizedHeader.includes('lista')
+  ) {
+    return 0;
+  }
+
+  field.aliases.forEach(alias => {
+    const normalizedAlias = normalizeHeader(alias);
+    if (normalizedHeader === normalizedAlias) score = Math.max(score, 100);
+    else if (normalizedHeader.includes(normalizedAlias)) score = Math.max(score, 82);
+    else if (normalizedAlias.includes(normalizedHeader) && normalizedHeader.length >= 4) score = Math.max(score, 70);
+  });
+
+  return score;
+};
+
+const autoMapHeaders = (headers: string[]): Record<string, MappingConfig> => {
+  const next = createInitialMappings();
+  const usedHeaders = new Set<string>();
+
+  SYSTEM_FIELDS.forEach(field => {
+    const candidates = headers
+      .filter(header => !usedHeaders.has(header))
+      .map(header => ({ header, score: scoreHeaderForField(header, field) }))
+      .filter(candidate => candidate.score >= 70)
+      .sort((a, b) => b.score - a.score);
+
+    const match = candidates[0];
+    if (match) {
+      usedHeaders.add(match.header);
+      next[field.id] = {
+        ...next[field.id],
+        csvHeader: match.header,
+        autoMatched: true,
+        confidence: match.score >= 95 ? "high" : match.score >= 82 ? "medium" : "low",
+      };
+    }
+  });
+
+  return next;
+};
+
+export function ImportProductModal({ onClose, variant = "modal" }: { onClose: () => void; variant?: "modal" | "page" }) {
   const router = useRouter();
+  const isPage = variant === "page";
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [preview, setPreview] = useState<any[]>([]);
-  const [mappings, setMappings] = useState<Record<string, MappingConfig>>(() => {
-    const initial: Record<string, MappingConfig> = {};
-    SYSTEM_FIELDS.forEach(f => {
-      initial[f.id] = { csvHeader: '', updateExisting: true, isRequired: f.required };
-    });
-    return initial;
-  });
+  const [mappings, setMappings] = useState<Record<string, MappingConfig>>(createInitialMappings);
 
   const { proveedores } = useMetadata();
   const [isReplaceMode, setIsReplaceMode] = useState(false);
@@ -105,19 +178,7 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
           setPreview(jsonData.slice(0, 5));
           setTotalRows(jsonData.length);
 
-          // Auto-mapeo inteligente
-          const newMappings = { ...mappings };
-          headers.forEach(header => {
-            const h = header.toLowerCase().trim();
-            if (h === 'codigo' || h === 'cod_unico' || h === 'codigointerno' || h === 'sku') newMappings.cod_unico.csvHeader = header;
-            if (h === 'titulo' || h === 'descripcion' || h === 'nombre') newMappings.titulo.csvHeader = header;
-            if (h === 'stock' || h === 'cantidad') newMappings.stock.csvHeader = header;
-            if (h === 'marca') newMappings.marca.csvHeader = header;
-            if (h === 'proveedor') newMappings.proveedor.csvHeader = header;
-            if (h === 'ubicacion' || h === 'pasillo') newMappings.ubicacion.csvHeader = header;
-            if (h === 'codigo_barra' || h === 'cod_barra' || h === 'ean') newMappings.cod_barra.csvHeader = header;
-          });
-          setMappings(newMappings);
+          setMappings(autoMapHeaders(headers));
           setStep('mapping');
         } catch (err) {
           toast.error("Error al leer el archivo Excel");
@@ -134,19 +195,7 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
             setPreview(results.data.slice(0, 5));
             setTotalRows(results.data.length);
 
-            // Auto-mapeo inteligente
-            const newMappings = { ...mappings };
-            results.meta.fields.forEach(header => {
-              const h = header.toLowerCase().trim();
-              if (h === 'codigo' || h === 'cod_unico' || h === 'codigointerno' || h === 'sku') newMappings.cod_unico.csvHeader = header;
-              if (h === 'titulo' || h === 'descripcion' || h === 'nombre') newMappings.titulo.csvHeader = header;
-              if (h === 'stock' || h === 'cantidad') newMappings.stock.csvHeader = header;
-              if (h === 'marca') newMappings.marca.csvHeader = header;
-              if (h === 'proveedor') newMappings.proveedor.csvHeader = header;
-              if (h === 'ubicacion' || h === 'pasillo') newMappings.ubicacion.csvHeader = header;
-              if (h === 'codigo_barra' || h === 'cod_barra' || h === 'ean') newMappings.cod_barra.csvHeader = header;
-            });
-            setMappings(newMappings);
+            setMappings(autoMapHeaders(results.meta.fields));
             setStep('mapping');
           }
         },
@@ -156,6 +205,10 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
 
   const handleImport = async () => {
     if (!file) return;
+    if (blockingImportIssues.length > 0) {
+      toast.error("Revisa el mapeo antes de importar");
+      return;
+    }
 
     try {
       setStep('importing');
@@ -319,8 +372,139 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
   const updateMapping = (fieldId: string, header: string) => {
     setMappings(prev => ({
       ...prev,
-      [fieldId]: { ...prev[fieldId], csvHeader: header }
+      [fieldId]: {
+        ...prev[fieldId],
+        csvHeader: header,
+        autoMatched: false,
+        confidence: undefined,
+      }
     }));
+  };
+
+  const mappedCount = useMemo(
+    () => SYSTEM_FIELDS.filter(field => Boolean(mappings[field.id]?.csvHeader)).length,
+    [mappings]
+  );
+
+  const missingRequiredFields = useMemo(
+    () => SYSTEM_FIELDS.filter(field => field.required && !mappings[field.id]?.csvHeader),
+    [mappings]
+  );
+
+  const mappedHeaders = useMemo(
+    () => new Set(Object.values(mappings).map(mapping => mapping.csvHeader).filter(Boolean)),
+    [mappings]
+  );
+
+  const unmappedHeaders = useMemo(
+    () => csvHeaders.filter(header => !mappedHeaders.has(header)),
+    [csvHeaders, mappedHeaders]
+  );
+
+  const importValidationIssues = useMemo<ImportValidationIssue[]>(() => {
+    const issues: ImportValidationIssue[] = [];
+    const selectedEntries = Object.entries(mappings).filter(([, config]) => Boolean(config.csvHeader));
+    const selectedHeaderCounts = new Map<string, string[]>();
+
+    selectedEntries.forEach(([fieldId, config]) => {
+      const key = config.csvHeader;
+      selectedHeaderCounts.set(key, [...(selectedHeaderCounts.get(key) || []), fieldId]);
+    });
+
+    selectedHeaderCounts.forEach((fieldIds, header) => {
+      if (fieldIds.length > 1) {
+        const labels = fieldIds
+          .map((fieldId) => SYSTEM_FIELDS.find((field) => field.id === fieldId)?.label || fieldId)
+          .join(", ");
+        issues.push({
+          type: "error",
+          message: `La columna "${header}" esta asignada a varios campos: ${labels}. Elegi una columna distinta para cada dato.`,
+        });
+      }
+    });
+
+    missingRequiredFields.forEach((field) => {
+      issues.push({
+        type: "error",
+        message: `Falta mapear el campo obligatorio "${field.label}".`,
+      });
+    });
+
+    const providerHeader = mappings.proveedor?.csvHeader;
+    const supplierFieldLabels = [
+      { fieldId: "codigo_proveedor", label: "Codigo proveedor" },
+      { fieldId: "precio_lista_proveedor", label: "Precio lista proveedor" },
+    ];
+
+    supplierFieldLabels.forEach(({ fieldId, label }) => {
+      if (mappings[fieldId]?.csvHeader && !providerHeader) {
+        issues.push({
+          type: "error",
+          message: `Para importar "${label}" tambien tenes que mapear "Proveedor".`,
+        });
+      }
+    });
+
+    const combinedSupplierColumnFields = ["proveedor", "codigo_proveedor", "precio_lista_proveedor"].filter((fieldId) => {
+      const header = mappings[fieldId]?.csvHeader;
+      return header && normalizeHeader(header).includes("proveedores y precios lista");
+    });
+
+    if (combinedSupplierColumnFields.length > 0) {
+      issues.push({
+        type: "error",
+        message: `No uses la columna combinada "Proveedores y Precios Lista" para importar. Usa las columnas separadas: Proveedor, Codigo Proveedor y Precio Lista Proveedor.`,
+      });
+    }
+
+    if (providerHeader && !mappings.codigo_proveedor?.csvHeader && !mappings.precio_lista_proveedor?.csvHeader) {
+      issues.push({
+        type: "warning",
+        message: "Se va a vincular el proveedor, pero no se importara codigo proveedor ni precio de lista.",
+      });
+    }
+
+    return issues;
+  }, [mappings, missingRequiredFields]);
+
+  const blockingImportIssues = useMemo(
+    () => importValidationIssues.filter((issue) => issue.type === "error"),
+    [importValidationIssues]
+  );
+
+  const interpretedPreview = useMemo(() => {
+    const getValue = (row: any, fieldId: string) => {
+      const header = mappings[fieldId]?.csvHeader;
+      if (!header) return "-";
+      const value = row?.[header];
+      if (value === null || value === undefined || String(value).trim() === "") return "-";
+      return String(value);
+    };
+
+    return preview.slice(0, 6).map((row, index) => ({
+      rowNumber: index + 2,
+      cod_unico: getValue(row, "cod_unico"),
+      descripcion: getValue(row, "titulo"),
+      stock: getValue(row, "stock"),
+      proveedor: getValue(row, "proveedor"),
+      codigo_proveedor: getValue(row, "codigo_proveedor"),
+      precio_lista_proveedor: getValue(row, "precio_lista_proveedor"),
+    }));
+  }, [mappings, preview]);
+
+  const runAutoMapping = () => {
+    setMappings(autoMapHeaders(csvHeaders));
+  };
+
+  const sampleForHeader = (header: string) => {
+    if (!header) return "Sin columna";
+    const sample = preview.find(row => {
+      const value = row?.[header];
+      return value !== undefined && value !== null && String(value).trim() !== "";
+    })?.[header];
+
+    if (sample === undefined || sample === null || String(sample).trim() === "") return "Sin ejemplo";
+    return String(sample);
   };
 
   const toggleUpdate = (fieldId: string) => {
@@ -328,6 +512,77 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
       ...prev,
       [fieldId]: { ...prev[fieldId], updateExisting: !prev[fieldId].updateExisting }
     }));
+  };
+
+  const renderMappingField = (field: typeof SYSTEM_FIELDS[number]) => {
+    const mapping = mappings[field.id];
+    const isMapped = Boolean(mapping.csvHeader);
+    const isSelected = mapping.updateExisting;
+    const sample = sampleForHeader(mapping.csvHeader);
+
+    return (
+      <div key={field.id} className="grid grid-cols-1 gap-2 border-b border-slate-200 px-3 py-2 last:border-b-0 dark:border-slate-800 md:grid-cols-[minmax(180px,0.75fr)_minmax(260px,1fr)_minmax(180px,0.85fr)_88px] md:items-center">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-xs font-black text-slate-800 dark:text-slate-100" title={field.label}>
+              {field.label}
+            </span>
+            {field.required && <span className="text-xs font-black text-red-500">*</span>}
+            {isMapped && mapping.autoMatched && (
+              <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-blue-500 ring-1 ring-blue-500/20">
+                Auto
+              </span>
+            )}
+          </div>
+          <p className="truncate text-[10px] font-medium text-slate-400 dark:text-slate-500" title={field.description}>
+            {field.description}
+          </p>
+        </div>
+
+        <select
+          value={mapping.csvHeader}
+          onChange={(e) => updateMapping(field.id, e.target.value)}
+          className={`h-10 w-full min-w-0 rounded-lg border px-3 text-xs font-bold outline-none transition focus:ring-2 focus:ring-blue-500/30 ${
+            isMapped
+              ? 'border-blue-500/50 bg-white text-slate-900 dark:bg-slate-950 dark:text-white'
+              : 'border-amber-300 bg-amber-100 text-amber-950 dark:border-amber-500/40 dark:bg-amber-400 dark:text-slate-950'
+          }`}
+        >
+          <option value="">NO IMPORTAR ESTE CAMPO</option>
+          {csvHeaders.map((h) => (
+            <option key={h} value={h}>
+              {h}
+            </option>
+          ))}
+        </select>
+
+        <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Ejemplo</p>
+          <p className="truncate text-xs font-bold text-slate-700 dark:text-slate-200" title={sample}>
+            {sample}
+          </p>
+        </div>
+
+        {field.id !== 'cod_unico' ? (
+          <label className="flex h-10 items-center justify-between rounded-lg border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950 md:justify-center" title="Actualizar items existentes">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 md:hidden">Actualiza</span>
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => toggleUpdate(field.id)}
+              className="sr-only"
+            />
+            <div className={`relative h-5 w-9 rounded-full transition-colors ${isSelected ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-800'}`}>
+              <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isSelected ? 'translate-x-4' : 'translate-x-0.5'}`} />
+            </div>
+          </label>
+        ) : (
+          <div className="flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-[9px] font-black uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500">
+            Identificador
+          </div>
+        )}
+      </div>
+    );
   };
 
   // Renderizado por pasos
@@ -372,7 +627,7 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
         {results.updatedDetails && results.updatedDetails.length > 0 && (
           <div className="flex flex-col gap-3 rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 max-h-[400px] overflow-hidden">
             <div className="flex items-center justify-between">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-500">Auditoría de Cambios en Productos Existentes</h4>
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-500">Auditoría de cambios en items existentes</h4>
               <span className="text-[9px] font-bold text-blue-400/50 uppercase tracking-tighter">Últimos {Math.min(results.updatedDetails.length, 300)} registros</span>
             </div>
             
@@ -420,116 +675,198 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
 
   if (step === 'mapping') {
     return (
-      <div className="flex flex-col gap-5 animate-in fade-in duration-300">
-        <div className="flex items-center justify-between bg-slate-50 dark:bg-zinc-900/50 rounded-2xl p-4 border border-slate-200 dark:border-zinc-800">
-          <div>
-            <h3 className="text-lg font-black text-slate-900 dark:text-white">Configuración de Columnas</h3>
-            <p className="text-xs text-slate-500 dark:text-zinc-400">Mapea los datos de tu CSV a los campos de la base de datos.</p>
-          </div>
-          <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
-            <HiAdjustments className="h-5 w-5" />
-          </div>
-        </div>
-
-        {/* MODO REEMPLAZO TOTAL */}
-        <div className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${isReplaceMode ? 'bg-red-500/10 border-red-500/40 text-red-500' : 'bg-slate-50 dark:bg-zinc-900/50 border-slate-200 dark:border-zinc-800 text-slate-500'}`}>
-          <div className="flex items-center gap-3">
-            <div className={`h-10 w-10 flex items-center justify-center rounded-xl ${isReplaceMode ? 'bg-red-500 text-white' : 'bg-slate-200 dark:bg-zinc-800'}`}>
-              <HiTrash className="h-5 w-5" />
-            </div>
+      <div className="flex flex-col gap-4 animate-in fade-in duration-300">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-widest">Modo Reemplazo Total</p>
-              <p className="text-[10px] opacity-70">Borra la lista actual del proveedor antes de importar la nueva.</p>
+              <div className="flex items-center gap-2">
+                <HiSparkles className="h-5 w-5 text-blue-500" />
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Mapeo inteligente de columnas</h3>
+              </div>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Revisá qué columna del archivo corresponde a cada campo del sistema antes de importar.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest">
+              <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+                {totalRows} filas
+              </span>
+              <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+                {csvHeaders.length} columnas
+              </span>
+              <span className={`rounded-lg border px-3 py-2 ${
+                missingRequiredFields.length === 0
+                  ? 'border-green-500/20 bg-green-500/10 text-green-500'
+                  : 'border-red-500/20 bg-red-500/10 text-red-500'
+              }`}>
+                {mappedCount}/{SYSTEM_FIELDS.length} mapeados
+              </span>
+              <button
+                type="button"
+                onClick={runAutoMapping}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-blue-500 transition hover:bg-blue-500/20"
+              >
+                <HiRefresh className="h-3.5 w-3.5" />
+                Detectar otra vez
+              </button>
             </div>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input 
-              type="checkbox" 
-              className="sr-only peer" 
-              checked={isReplaceMode}
-              onChange={() => setIsReplaceMode(!isReplaceMode)}
-            />
-            <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-zinc-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
-          </label>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto pr-2 px-1 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-zinc-700">
-          {SYSTEM_FIELDS.map((field) => {
-            const isSelected = mappings[field.id].updateExisting;
-            return (
-              <div
-                key={field.id}
-                className={`flex flex-col gap-2 rounded-2xl p-3 border transition-all ${isSelected
-                    ? 'bg-blue-50/50 dark:bg-blue-500/5 border-blue-200 dark:border-blue-500/30'
-                    : 'bg-slate-50/50 dark:bg-zinc-900/30 border-slate-200 dark:border-zinc-800 opacity-80'
+          {importValidationIssues.length > 0 && (
+            <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+              {importValidationIssues.map((issue, index) => (
+                <div
+                  key={`${issue.type}-${index}`}
+                  className={`rounded-xl border px-3 py-2 text-xs font-bold ${
+                    issue.type === "error"
+                      ? "border-red-500/20 bg-red-500/10 text-red-500"
+                      : "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300"
                   }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className={`text-[10px] font-black uppercase tracking-widest ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-zinc-400'
-                    }`}>
-                    {field.label} {field.required && <span className="text-red-500">*</span>}
-                  </span>
-
-                  {field.id !== 'cod_unico' && (
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <span className={`text-[8px] font-black tracking-widest transition-colors ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-zinc-600'
-                        }`}>
-                        {isSelected ? 'SINCRONIZAR' : 'OMITIR'}
-                      </span>
-
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleUpdate(field.id)}
-                        className="sr-only"
-                      />
-
-                      <div className={`w-7 h-4 rounded-full transition-colors relative ${isSelected ? 'bg-blue-500' : 'bg-slate-300 dark:bg-zinc-800'
-                        }`}>
-                        <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${isSelected ? 'translate-x-[13px]' : 'translate-x-0.5'
-                          }`} />
-                      </div>
-                    </label>
-                  )}
+                >
+                  {issue.message}
                 </div>
+              ))}
+            </div>
+          )}
 
-                {isSelected && (
-                  <select
-                    value={mappings[field.id].csvHeader}
-                    onChange={(e) => updateMapping(field.id, e.target.value)}
-                    className={`h-9 w-full rounded-xl border px-3 text-[11px] font-bold transition focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${mappings[field.id].csvHeader
-                        ? 'bg-white dark:bg-zinc-950 border-blue-500/50 text-slate-900 dark:text-white shadow-sm'
-                        : 'bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-400'
-                      }`}
-                  >
-                    <option value="">-- IGNORAR ESTE CAMPO --</option>
-                    {csvHeaders.map((h) => (
-                      <option key={h} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            );
-          })}
+          {unmappedHeaders.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <span className="py-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Sin usar:</span>
+              {unmappedHeaders.slice(0, 8).map(header => (
+                <span key={header} className="rounded-md bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+                  {header}
+                </span>
+              ))}
+              {unmappedHeaders.length > 8 && (
+                <span className="rounded-md bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+                  +{unmappedHeaders.length - 8}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="flex gap-3 pt-2">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+            <div className="hidden grid-cols-[minmax(180px,0.75fr)_minmax(260px,1fr)_minmax(180px,0.85fr)_88px] border-b border-slate-200 bg-slate-100 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 md:grid">
+              <span>Campo del sistema</span>
+              <span>Columna del archivo</span>
+              <span>Dato detectado</span>
+              <span className="text-center">Actualiza</span>
+            </div>
+            {SYSTEM_FIELDS.map(renderMappingField)}
+          </div>
+
+          <aside className="flex flex-col gap-3">
+            <div className={`rounded-xl border p-4 transition-all ${isReplaceMode ? 'border-red-500/40 bg-red-500/10 text-red-500' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/40'}`}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${isReplaceMode ? 'bg-red-500 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>
+                    <HiTrash className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest">Reemplazar lista del proveedor</p>
+                    <p className="mt-1 text-[11px] font-medium opacity-75">Borra la lista actual del proveedor antes de importar. Requiere mapear proveedor.</p>
+                  </div>
+                </div>
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={isReplaceMode}
+                    onChange={() => setIsReplaceMode(!isReplaceMode)}
+                  />
+                  <div className="h-6 w-11 rounded-full bg-slate-200 peer-checked:bg-red-500 peer-focus:outline-none dark:bg-slate-800 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white"></div>
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Lectura rápida</p>
+              <div className="mt-3 space-y-2 text-xs font-bold text-slate-600 dark:text-slate-300">
+                <div className="flex items-center justify-between">
+                  <span>Campos mapeados</span>
+                  <span className="text-blue-500">{mappedCount}/{SYSTEM_FIELDS.length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Sin usar</span>
+                  <span>{unmappedHeaders.length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Archivo</span>
+                  <span className="max-w-[170px] truncate text-right" title={file?.name}>{file?.name}</span>
+                </div>
+              </div>
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                Los campos en amarillo no se importan. El interruptor indica si ese dato actualiza items ya existentes.
+              </div>
+              <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+                Los margenes no se importan aca. Se van a manejar desde listas de precio.
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h4 className="text-xs font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">Vista previa interpretada</h4>
+              <p className="mt-1 text-[11px] font-medium text-slate-400">
+                Asi se leeran las primeras filas con el mapeo actual.
+              </p>
+            </div>
+            <span className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:bg-slate-950">
+              {interpretedPreview.length} filas de ejemplo
+            </span>
+          </div>
+
+          <div className="grid grid-cols-[64px_minmax(120px,0.9fr)_minmax(180px,1.4fr)_80px_minmax(140px,1fr)_minmax(130px,1fr)_minmax(120px,0.8fr)] border-b border-slate-200 bg-slate-100 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+            <span>Fila</span>
+            <span>Codigo</span>
+            <span>Descripcion</span>
+            <span>Stock</span>
+            <span>Proveedor</span>
+            <span>Codigo prov.</span>
+            <span>Precio prov.</span>
+          </div>
+
+          <div>
+            {interpretedPreview.map((row) => (
+              <div key={row.rowNumber} className="grid grid-cols-[64px_minmax(120px,0.9fr)_minmax(180px,1.4fr)_80px_minmax(140px,1fr)_minmax(130px,1fr)_minmax(120px,0.8fr)] border-b border-slate-200 px-3 py-2 text-[11px] font-bold text-slate-700 last:border-b-0 dark:border-slate-800 dark:text-slate-200">
+                <span className="text-slate-400">{row.rowNumber}</span>
+                <span className="truncate font-mono" title={row.cod_unico}>{row.cod_unico}</span>
+                <span className="truncate" title={row.descripcion}>{row.descripcion}</span>
+                <span className="truncate" title={row.stock}>{row.stock}</span>
+                <span className="truncate" title={row.proveedor}>{row.proveedor}</span>
+                <span className="truncate" title={row.codigo_proveedor}>{row.codigo_proveedor}</span>
+                <span className="truncate" title={row.precio_lista_proveedor}>{row.precio_lista_proveedor}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={`flex flex-col gap-3 pt-1 sm:flex-row sm:items-center ${isPage ? 'sticky bottom-0 z-10 -mx-1 border-t border-slate-200 bg-white/90 p-3 backdrop-blur dark:border-slate-800 dark:bg-black/90' : ''}`}>
           <button
             onClick={() => setStep('upload')}
-            className="h-12 flex-1 rounded-2xl bg-white dark:bg-zinc-800 font-bold text-slate-600 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 text-xs"
+            className="h-12 flex-1 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             Atrás
           </button>
 
+          {blockingImportIssues.length > 0 && (
+            <p className="text-center text-[11px] font-bold text-red-500 sm:max-w-[260px]">
+              Corregi los problemas del mapeo antes de importar.
+            </p>
+          )}
+
           <button
             onClick={handleImport}
-            disabled={!mappings.cod_unico.csvHeader}
-            className="h-12 flex-[2] flex items-center justify-center gap-2 rounded-2xl bg-blue-600 font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:opacity-50 text-xs uppercase tracking-widest"
+            disabled={blockingImportIssues.length > 0}
+            className="flex h-12 flex-[2] items-center justify-center gap-2 rounded-xl bg-blue-600 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <HiPlay className="h-5 w-5" />
-            Importar CSV
+            Importar items
           </button>
         </div>
       </div>
@@ -542,21 +879,21 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
         <div className="relative">
           <div className="h-40 w-40 animate-spin rounded-full border-4 border-zinc-800 border-t-blue-500" />
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-3xl font-black text-white">
+            <span className="text-3xl font-black text-slate-900 dark:text-white">
               {Math.round((processedCount / (totalRows || 1)) * 100)}%
             </span>
             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Status</span>
           </div>
         </div>
         <div className="text-center max-w-sm">
-          <h3 className="text-xl font-black text-white mb-2">Procesando {file?.name}</h3>
-          <p className="text-sm text-zinc-400 leading-relaxed italic">&quot;Sincronizando registros con alta fidelidad...&quot;</p>
+          <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">Procesando {file?.name}</h3>
+          <p className="text-sm text-zinc-400 leading-relaxed">Importando registros y actualizando datos mapeados.</p>
 
           <div className="mt-8 flex flex-col gap-3">
             <div className="flex justify-between text-[11px] font-bold uppercase tracking-widest px-1">
               <span className="text-blue-400">{processedCount}</span>
               <span className="text-zinc-600">DE</span>
-              <span className="text-zinc-300">{totalRows} PRODUCTOS</span>
+              <span className="text-zinc-300">{totalRows} ITEMS</span>
             </div>
             <div className="h-2 w-72 overflow-hidden rounded-full bg-zinc-800 p-0.5 border border-zinc-700">
               <div
@@ -571,28 +908,46 @@ export function ImportProductModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className={`grid grid-cols-1 gap-4 ${isPage ? 'xl:grid-cols-[minmax(0,1fr)_360px]' : ''}`}>
       <div className="flex flex-col gap-4">
-        <label className="group relative flex h-56 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-800 dark:bg-slate-950">
+        <label className={`group relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-800 dark:bg-slate-950 ${isPage ? 'min-h-[360px]' : 'h-40'}`}>
           <input type="file" className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileChange} />
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-100 transition group-hover:scale-110 group-hover:ring-blue-200 dark:bg-slate-900 dark:ring-slate-800">
-            <HiCloudUpload className="h-8 w-8 text-blue-500" />
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-100 transition group-hover:scale-110 group-hover:ring-blue-200 dark:bg-slate-900 dark:ring-slate-800">
+            <HiCloudUpload className="h-7 w-7 text-blue-500" />
           </div>
-          <span className="text-base font-black text-slate-900 dark:text-white">Seleccionar CSV o Excel</span>
+          <span className="text-lg font-black text-slate-900 dark:text-white">Seleccionar CSV o Excel</span>
           <span className="mt-1 text-xs font-medium text-slate-400">Arrastra tu archivo aquí o haz clic para buscar</span>
+          <span className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 dark:border-slate-800 dark:bg-slate-900">
+            .csv, .xlsx o .xls
+          </span>
         </label>
 
       </div>
 
-      <div className="rounded-2xl bg-amber-50 p-4 border border-amber-100 dark:bg-amber-900/20 dark:border-amber-800/40">
-        <div className="flex gap-3">
-          <HiExclamation className="h-5 w-5 text-amber-500 shrink-0" />
+      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+        <div className="flex gap-3 rounded-lg border border-amber-100 bg-amber-50 p-3 dark:border-amber-800/40 dark:bg-amber-900/20">
+          <HiExclamation className="h-5 w-5 shrink-0 text-amber-500" />
           <div>
-            <p className="text-sm font-black text-amber-900 dark:text-amber-400 leading-tight uppercase tracking-tight">Personalización de importación:</p>
-            <p className="mt-1 text-xs text-amber-700 dark:text-amber-500 font-medium">
-              En el siguiente paso podrás elegir exactamente qué columnas de tu Excel corresponden a cada campo del sistema y decidir si quieres actualizar los productos existentes o solo añadir los nuevos.
+            <p className="text-sm font-black leading-tight text-amber-900 dark:text-amber-400">Importación configurable</p>
+            <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-500">
+              En el siguiente paso vas a confirmar qué columna del archivo se conecta con cada campo del sistema.
             </p>
           </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {[
+            "El código interno identifica si el item se crea o se actualiza.",
+            "Proveedor, código proveedor y precio se tratan como campos separados.",
+            "Podés decidir qué campos actualizan items existentes."
+          ].map((item) => (
+            <div key={item} className="flex items-start gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
+              <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white">
+                <HiCheck className="h-3 w-3" />
+              </span>
+              <span>{item}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

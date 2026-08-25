@@ -124,7 +124,7 @@ export function KitForm({ kitId, initialData }: Props) {
 
     const addItem = (comp: KitComponenteSearch) => {
         if (items.some(i => i.id_producto === comp.id)) {
-            toast.error("El producto ya está en el kit");
+            toast.error("El item ya está en el kit");
             return;
         }
 
@@ -317,7 +317,7 @@ export function KitForm({ kitId, initialData }: Props) {
                             <input
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value.toUpperCase())}
-                                placeholder="ESCRIBÍ EL CÓDIGO DEL PRODUCTO..."
+                                placeholder="ESCRIBÍ EL CÓDIGO DEL ITEM..."
                                 className="w-full pl-14 pr-4 py-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm font-black focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all placeholder:text-slate-300 uppercase tracking-wider"
                             />
                             

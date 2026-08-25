@@ -6,7 +6,7 @@ import {
 } from "./common";
 
 /**
- * Esquema de validación para Piezas
+ * Esquema de validación para items asociados
  */
 export const piezaPayloadSchema = z.object({
   descripcion: uppercaseNonEmptyStringSchema,
@@ -21,7 +21,7 @@ export const piezaPayloadSchema = z.object({
 export type PiezaPayload = z.infer<typeof piezaPayloadSchema>;
 
 /**
- * Validador de payloads para Piezas
+ * Validador de payloads para items asociados
  */
 export function validatePiezaPayload(body: any): PiezaPayload {
   return validateWithSchema(piezaPayloadSchema, body);

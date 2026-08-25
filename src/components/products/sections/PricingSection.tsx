@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { PrecioDetalle } from "@/interfaces/productos";
-import { Package2, Percent, DollarSign, TrendingUp, ShoppingBag, Users, Wrench } from "lucide-react";
+import { Package2, ShoppingBag, Users, CreditCard, BadgePercent } from "lucide-react";
+import { useMetadata } from "@/context/MetadataContext";
 
 interface PricingSectionProps {
   precios: PrecioDetalle[];
@@ -12,7 +13,8 @@ interface PricingSectionProps {
 const TIPO_COSTO = 1;
 const TIPO_ML = 2;
 const TIPO_MOSTRADOR = 3;
-const TIPO_MECANICO = 4;
+const TIPO_CUENTA_CORRIENTE_FALLBACK = 4;
+const TIPO_OFERTA_FALLBACK = 5;
 
 const round = (num: number) => Math.round(num * 100) / 100;
 
@@ -89,36 +91,68 @@ function PriceInput({ value, onChange, prefix, className, placeholder }: PriceIn
 }
 
 export function PricingSection({ precios, onChange }: PricingSectionProps) {
+  const { tiposPrecio } = useMetadata();
+
+  const findTipoPrecio = (descripciones: string[], fallbackId: number, fallbackDescripcion: string) => {
+    const match = descripciones
+      .map(descripcion => descripcion.toUpperCase())
+      .map(descripcion => tiposPrecio.find(item => item.descripcion.toUpperCase() === descripcion))
+      .find(Boolean);
+
+    return {
+      id: match?.id ?? fallbackId,
+      descripcion: match?.descripcion ?? fallbackDescripcion,
+      margen_default: match?.margen_default ?? 0,
+      activo: match?.activo !== false,
+    };
+  };
+
+  const tipoCosto = findTipoPrecio(["PRECIO COSTO"], TIPO_COSTO, "PRECIO COSTO");
+  const tipoMercadoLibre = findTipoPrecio(["MERCADO LIBRE"], TIPO_ML, "MERCADO LIBRE");
+  const tipoMostrador = findTipoPrecio(["MOSTRADOR"], TIPO_MOSTRADOR, "MOSTRADOR");
+  const tipoCuentaCorriente = findTipoPrecio(["CUENTA CORRIENTE", "MECANICO"], TIPO_CUENTA_CORRIENTE_FALLBACK, "CUENTA CORRIENTE");
+  const tipoOferta = findTipoPrecio(["OFERTA"], TIPO_OFERTA_FALLBACK, "OFERTA");
+
+  const tiposVenta = [tipoMercadoLibre, tipoMostrador, tipoCuentaCorriente, tipoOferta].filter(tipo => tipo.activo);
+  const tiposBase = [tipoCosto, ...tiposVenta];
+
   // Inicializamos Costo
-  const costoItem = precios.find(p => p.id_tipo_precio === TIPO_COSTO) || {
-    id_tipo_precio: TIPO_COSTO,
-    tipo_descripcion: "PRECIO COSTO",
+  const costoItem = precios.find(p => p.id_tipo_precio === tipoCosto.id) || {
+    id_tipo_precio: tipoCosto.id,
+    tipo_descripcion: tipoCosto.descripcion,
     valor: 0,
     porcentaje_ganancia: 0
   };
 
-  const syncAllPrices = (currentPrecios: PrecioDetalle[]) => {
-    const basicTypes = [TIPO_COSTO, TIPO_ML, TIPO_MOSTRADOR, TIPO_MECANICO];
+  const syncAllPrices = (currentPrecios: PrecioDetalle[], costoBase?: number) => {
+    const basicTypes = tiposBase.map(tipo => tipo.id);
     const missing = basicTypes.filter(id => !currentPrecios.find(p => p.id_tipo_precio === id));
     
     if (missing.length === 0) return currentPrecios;
 
-    const added = missing.map(id => ({
-      id_tipo_precio: id,
-      tipo_descripcion: id === TIPO_COSTO ? "PRECIO COSTO" : id === TIPO_ML ? "MERCADO LIBRE" : id === TIPO_MOSTRADOR ? "MOSTRADOR" : "MECANICO",
-      valor: 0,
-      porcentaje_ganancia: 0
-    }));
+    const costo = costoBase ?? currentPrecios.find(p => p.id_tipo_precio === tipoCosto.id)?.valor ?? 0;
+    const added = missing.map(id => {
+      const tipo = tiposBase.find(item => item.id === id);
+      const margen = id === tipoCosto.id ? 0 : tipo?.margen_default ?? 0;
+      return {
+        id_tipo_precio: id,
+        tipo_descripcion: tipo?.descripcion ?? "PRECIO",
+        valor: round(costo * (1 + margen / 100)),
+        porcentaje_ganancia: margen
+      };
+    });
 
     return [...currentPrecios, ...added];
   };
 
   const handleCostoChange = (val: number) => {
-    const basePrecios = syncAllPrices(precios);
+    const basePrecios = syncAllPrices(precios, val);
+    const tiposVentaActivos = new Set(tiposVenta.map(tipo => tipo.id));
     const nuevosPrecios = basePrecios.map(p => {
-      if (p.id_tipo_precio === TIPO_COSTO) {
+      if (p.id_tipo_precio === tipoCosto.id) {
         return { ...p, valor: round(val) };
       }
+      if (!tiposVentaActivos.has(p.id_tipo_precio)) return p;
       const nuevoValor = val * (1 + (p.porcentaje_ganancia || 0) / 100);
       return { ...p, valor: round(nuevoValor) };
     });
@@ -128,7 +162,7 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
 
   const updatePrecio = (idTipo: number, field: "valor" | "porcentaje_ganancia", val: number) => {
     const basePrecios = syncAllPrices(precios);
-    const costo = basePrecios.find(p => p.id_tipo_precio === TIPO_COSTO)?.valor || 0;
+    const costo = basePrecios.find(p => p.id_tipo_precio === tipoCosto.id)?.valor || 0;
     
     const nuevosPrecios = basePrecios.map(p => {
       if (p.id_tipo_precio !== idTipo) return p;
@@ -216,10 +250,11 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
         </div>
 
         {/* Selling Prices - Horizontal Row */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {renderPriceRow(TIPO_ML, "Mercado Libre", ShoppingBag, "bg-amber-500 text-amber-500")}
-          {renderPriceRow(TIPO_MOSTRADOR, "Mostrador", Users, "bg-emerald-500 text-emerald-500")}
-          {renderPriceRow(TIPO_MECANICO, "Mecánico", Wrench, "bg-indigo-500 text-indigo-500")}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {tipoMercadoLibre.activo && renderPriceRow(tipoMercadoLibre.id, tipoMercadoLibre.descripcion, ShoppingBag, "bg-amber-500 text-amber-500")}
+          {tipoMostrador.activo && renderPriceRow(tipoMostrador.id, tipoMostrador.descripcion, Users, "bg-emerald-500 text-emerald-500")}
+          {tipoCuentaCorriente.activo && renderPriceRow(tipoCuentaCorriente.id, tipoCuentaCorriente.descripcion, CreditCard, "bg-indigo-500 text-indigo-500")}
+          {tipoOferta.activo && renderPriceRow(tipoOferta.id, tipoOferta.descripcion, BadgePercent, "bg-rose-500 text-rose-500")}
         </div>
       </div>
     </section>

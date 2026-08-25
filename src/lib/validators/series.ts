@@ -6,7 +6,7 @@ import { validateWithSchema, uppercaseNonEmptyStringSchema } from "./common";
  * Múltiples números de serie para un solo producto id.
  */
 export const createSeriesPayloadSchema = z.object({
-  id_producto: z.number().int().positive("El ID del producto debe ser válido"),
+  id_producto: z.number().int().positive("El ID del item debe ser válido"),
   numeros_serie: z.array(uppercaseNonEmptyStringSchema)
     .min(1, "Debe ingresar al menos un número de serie")
     .max(200, "No puede ingresar más de 200 series a la vez"),
@@ -18,7 +18,7 @@ export function validateCreateSeriesPayload(body: any): CreateSeriesPayload {
   return validateWithSchema(createSeriesPayloadSchema, body);
 }
 
-const estadoSerieSchema = z.enum(["DISPONIBLE", "RESERVADO", "VENDIDO", "DEVUELTO", "GARANTIA", "REPARACION", "BAJA"]);
+const estadoSerieSchema = z.enum(["DISPONIBLE", "MOSTRADOR", "RESERVADO", "VENDIDO", "DEVUELTO", "GARANTIA", "REPARACION", "BAJA"]);
 const tipoMovimientoSchema = z.enum(["INGRESO", "TRANSFERENCIA", "RESERVA", "VENTA", "DEVOLUCION", "GARANTIA", "REPARACION", "BAJA"]);
 
 export const updateSeriesStatePayloadSchema = z.object({

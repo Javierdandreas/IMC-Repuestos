@@ -17,6 +17,8 @@ export interface OperacionDetalleListado {
   id_producto: number;
   cantidad: number;
   precio_unitario: number;
+  id_ubicacion: number | null;
+  ubicacion: string | null;
   producto_descripcion: string;
   producto_codigo: string;
   imagen_url: string | null;

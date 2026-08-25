@@ -61,7 +61,7 @@ export function PieceSection({
   return (
     <section className="space-y-4">
       <div className="mb-1">
-        <h2 className="text-lg font-bold text-slate-900 dark:text-white">Vincular pieza</h2>
+        <h2 className="text-lg font-bold text-slate-900 dark:text-white">Vincular item asociado</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Buscá por categoría, subcategoría, código interno, número original o equivalencia.
         </p>
@@ -71,7 +71,7 @@ export function PieceSection({
         {selectedPieza ? (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 dark:border-blue-900/50 dark:bg-blue-950/30">
             <div className="text-sm text-blue-900 dark:text-blue-200">
-              <span className="font-bold text-blue-950 uppercase tracking-widest text-[10px] mb-1 block dark:text-blue-400">Pieza seleccionada</span>
+              <span className="font-bold text-blue-950 uppercase tracking-widest text-[10px] mb-1 block dark:text-blue-400">Item asociado seleccionado</span>
               <span className="font-mono font-black text-blue-950 dark:text-white">{selectedPieza.codigo_pieza}</span> · {selectedPieza.descripcion}
             </div>
             <button
@@ -79,7 +79,7 @@ export function PieceSection({
               onClick={onClearPieza}
               className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-red-300 bg-red-50 px-5 text-sm font-semibold text-red-600 transition hover:bg-red-600 hover:text-white"
             >
-              Quitar pieza
+              Quitar item asociado
             </button>
           </div>
         ) : (
@@ -87,7 +87,7 @@ export function PieceSection({
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
               <div className="flex-1 relative">
                 <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Buscador de pieza
+                  Buscador de item asociado
                 </label>
                 <input
                   type="text"
@@ -108,10 +108,10 @@ export function PieceSection({
               {paginatedPieces.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-400 md:col-span-2 lg:col-span-3">
                   {piezaSearch.trim() === "" 
-                    ? "Escribí arriba para buscar piezas."
+                    ? "Escribí arriba para buscar items asociados."
                     : isLoading 
                       ? "Buscando..." 
-                      : "No encontramos piezas con ese criterio."}
+                      : "No encontramos items asociados con ese criterio."}
                 </div>
               ) : (
                 paginatedPieces.map((pieza) => {

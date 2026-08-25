@@ -1,6 +1,13 @@
 export type CatalogoItem = {
   id: number;
   descripcion: string;
+  documento?: string | null;
+};
+
+export type TipoPrecio = CatalogoItem & {
+  margen_default?: number | null;
+  activo?: boolean;
+  orden?: number | null;
 };
 
 export type Subcategoria = {
@@ -95,4 +102,5 @@ export type ProductoListado = {
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
   precios?: PrecioDetalle[];
+  ubicaciones_resumen?: { id_ubicacion: number | null; ubicacion: string; cantidad: number }[];
 };

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateCatalogo, deleteCatalogo } from "@/lib/repos/catalogos";
+import { updateCatalogo, deleteCatalogo, updateProveedorCompleto } from "@/lib/repos/catalogos";
 import { requireApiWriteSession } from "@/lib/api-auth";
-import { jsonError, AppError } from "@/lib/api-errors";
+import { jsonError } from "@/lib/api-errors";
 
 const ALLOWED_TABLES = ["marcas", "proveedores", "ubicaciones"];
 
@@ -19,8 +19,10 @@ export async function PUT(
       return NextResponse.json({ message: "Catálogo no encontrado" }, { status: 404 });
     }
 
-    const { descripcion } = await request.json();
-    const result = await updateCatalogo(table as any, id, descripcion);
+    const body = await request.json();
+    const result = table === "proveedores"
+      ? await updateProveedorCompleto(id, body)
+      : await updateCatalogo(table as any, id, body.descripcion);
     return NextResponse.json(result);
   } catch (error: any) {
     return jsonError(error, "No se pudo actualizar el registro");

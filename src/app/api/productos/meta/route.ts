@@ -22,6 +22,6 @@ export async function GET(request: NextRequest) {
       tipos: tipos.rows,
     });
   } catch (error: unknown) {
-    return jsonError(error, "No se pudieron obtener los metadatos de productos");
+    return jsonError(error, "No se pudieron obtener los metadatos de items");
   }
 }

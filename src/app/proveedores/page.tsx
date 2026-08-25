@@ -20,6 +20,7 @@ export default async function ProveedoresPage({ searchParams }: Props) {
       entityName="proveedor"
       title="Proveedores"
       createLabel="Nuevo proveedor"
+      editPathBase="/proveedores/editar"
     />
   );
 }

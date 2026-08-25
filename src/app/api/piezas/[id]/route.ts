@@ -16,12 +16,12 @@ export async function GET(
     const pieza = await getPiezaById(numericId);
 
     if (!pieza) {
-      return NextResponse.json({ message: "Pieza no encontrada" }, { status: 404 });
+      return NextResponse.json({ message: "Item asociado no encontrado" }, { status: 404 });
     }
 
     return NextResponse.json(pieza);
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo obtener la pieza");
+    return jsonError(error, "No se pudo obtener el item asociado");
   }
 }
 
@@ -40,7 +40,7 @@ export async function PUT(
 
     return NextResponse.json({ ...result.pieza, warning: result.warning });
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo actualizar la pieza");
+    return jsonError(error, "No se pudo actualizar el item asociado");
   }
 }
 
@@ -55,6 +55,6 @@ export async function DELETE(
     await deletePieza(numericId);
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo borrar la pieza");
+    return jsonError(error, "No se pudo borrar el item asociado");
   }
 }

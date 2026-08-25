@@ -101,7 +101,7 @@ export function buildConflictMessage(prefix: string, conflicts: ConflictRow[]) {
   );
 
   return `${prefix}: ${unique
-    .map((item) => `${item.codigo} (pieza ${item.codigo_pieza})`)
+    .map((item) => `${item.codigo} (item asociado ${item.codigo_pieza})`)
     .join(", ")}`;
 }
 
@@ -110,8 +110,8 @@ export function buildWarningMessage(conflicts: ConflictRow[]) {
     new Map(conflicts.map((item) => [`${item.codigo}@@${item.codigo_pieza}`, item])).values()
   );
 
-  return `Atención: estas equivalencias ya existen en otras piezas: ${unique
-    .map((item) => `${item.codigo} (pieza ${item.codigo_pieza})`)
+  return `Atención: estas equivalencias ya existen en otros items asociados: ${unique
+    .map((item) => `${item.codigo} (item asociado ${item.codigo_pieza})`)
     .join(", ")}`;
 }
 
@@ -331,7 +331,7 @@ export async function createPieza(input: PiezaInput) {
     const originalConflicts = await findCodeConflicts(client, payload.originales, "ORIGINAL");
     if (originalConflicts.length > 0) {
       const err = new Error(
-        buildConflictMessage("Estos números originales ya existen en otras piezas", originalConflicts)
+        buildConflictMessage("Estos números originales ya existen en otros items asociados", originalConflicts)
       );
       (err as Error & { status?: number }).status = 409;
       throw err;
@@ -375,7 +375,7 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
     const originalConflicts = await findCodeConflicts(client, payload.originales, "ORIGINAL", numericId);
     if (originalConflicts.length > 0) {
       const err = new Error(
-        buildConflictMessage("Estos números originales ya existen en otras piezas", originalConflicts)
+        buildConflictMessage("Estos números originales ya existen en otros items asociados", originalConflicts)
       );
       (err as Error & { status?: number }).status = 409;
       throw err;
@@ -398,7 +398,7 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
     );
 
     if ((updateResult.rowCount ?? 0) === 0) {
-      const err = new Error("Pieza no encontrada");
+      const err = new Error("Item asociado no encontrado");
       (err as Error & { status?: number }).status = 404;
       throw err;
     }
@@ -429,7 +429,7 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
 export async function deletePieza(id: string | number) {
   const usage = await query(`SELECT 1 FROM productos WHERE id_pieza = $1 LIMIT 1`, [id]);
   if (usage.rows[0]) {
-    const err = new Error("No se puede eliminar la pieza porque está asociada a productos");
+    const err = new Error("No se puede eliminar el item asociado porque está vinculado a items");
     (err as Error & { status?: number }).status = 409;
     throw err;
   }

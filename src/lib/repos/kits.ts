@@ -2,6 +2,14 @@ import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
 import type { DbClient } from "@/lib/db-utils";
 import type { Kit, KitListado, KitComponente } from "@/interfaces/kits";
 
+const TIPO_CUENTA_CORRIENTE_SQL = `
+  SELECT id
+  FROM public.tipo_precio
+  WHERE descripcion IN ('CUENTA CORRIENTE', 'MECANICO')
+  ORDER BY CASE WHEN descripcion = 'CUENTA CORRIENTE' THEN 0 ELSE 1 END
+  LIMIT 1
+`;
+
 /**
  * Obtiene el listado de kits con paginación.
  * El precio mostrado es la sumatoria del precio de Mercado Libre de sus componentes.
@@ -39,7 +47,7 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
     LEFT JOIN public.productos p ON kd.id_producto = p.id
     LEFT JOIN public.producto_precio pml ON kd.id_producto = pml.id_producto AND pml.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)
     LEFT JOIN public.producto_precio pmo ON kd.id_producto = pmo.id_producto AND pmo.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)
-    LEFT JOIN public.producto_precio pme ON kd.id_producto = pme.id_producto AND pme.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MECANICO' LIMIT 1)
+    LEFT JOIN public.producto_precio pme ON kd.id_producto = pme.id_producto AND pme.id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})
     ${searchClause}
     GROUP BY k.id, c.descripcion, s.descripcion
   `;
@@ -74,7 +82,7 @@ export async function getKitById(id: number): Promise<Kit | null> {
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'PRECIO COSTO' LIMIT 1)), 0) AS precio_costo,
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)), 0) AS precio_ml,
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)), 0) AS precio_mostrador,
-      COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MECANICO' LIMIT 1)), 0) AS precio_mecanico
+      COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})), 0) AS precio_mecanico
     FROM public.kit_detalle kd
     JOIN public.productos p ON kd.id_producto = p.id
     WHERE kd.id_kit = $1
@@ -184,7 +192,7 @@ export async function searchComponentesForKit(search: string) {
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'PRECIO COSTO' LIMIT 1)), 0) AS precio_costo,
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)), 0) AS precio_ml,
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)), 0) AS precio_mostrador,
-      COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MECANICO' LIMIT 1)), 0) AS precio_mecanico
+      COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})), 0) AS precio_mecanico
     FROM public.productos p
     WHERE p.cod_unico ILIKE $1
     LIMIT 10

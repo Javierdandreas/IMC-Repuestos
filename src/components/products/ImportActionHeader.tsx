@@ -1,12 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { HiCollection, HiCloudUpload } from "react-icons/hi";
-import { Modal } from "@/components/ui/Modal";
-import { ImportProductModal } from "@/components/products/ImportProductModal";
+import { useRouter } from "next/navigation";
 
 export function ImportActionHeader() {
-  const [openImport, setOpenImport] = useState(false);
+  const router = useRouter();
 
   return (
     <>
@@ -20,14 +18,14 @@ export function ImportActionHeader() {
               Importaciones
             </h1>
             <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              Auditoría y ejecución de carga masiva de productos.
+              Auditoría y ejecución de carga masiva de items.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setOpenImport(true)}
+            onClick={() => router.push("/productos/importar")}
             className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-900 px-6 text-sm font-bold text-white shadow-lg shadow-slate-500/20 transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 active:scale-95"
           >
             <HiCloudUpload className="h-5 w-5" />
@@ -36,13 +34,6 @@ export function ImportActionHeader() {
         </div>
       </div>
 
-      <Modal
-        open={openImport}
-        onClose={() => setOpenImport(false)}
-        title="Importar Productos (CSV)"
-      >
-        <ImportProductModal onClose={() => setOpenImport(false)} />
-      </Modal>
     </>
   );
 }

@@ -8,6 +8,7 @@ import {
   sanitizeStock 
 } from "@/utils/sanitization";
 import { deleteFileFromStorage } from "@/lib/storage-cleanup";
+import { SERIE_ESTADOS_CON_STOCK_FISICO } from "@/lib/serie-estados";
 
 export type ProductoInput = {
   cod_unico: string;
@@ -221,6 +222,9 @@ export async function getProductosListado(
     whereClauses.push(`prv.id = $${params.length}`);
   }
 
+  params.push(SERIE_ESTADOS_CON_STOCK_FISICO);
+  const estadosStockFisicoParam = params.length;
+
   const sql = `
     SELECT 
       p.id,
@@ -245,6 +249,7 @@ export async function getProductosListado(
       p.palabra_clave,
       STRING_AGG(DISTINCT prv.descripcion, ', ') AS proveedor,
       STRING_AGG(DISTINCT NULLIF(TRIM(pp.codigo_proveedor), ''), ', ') AS codigo_proveedor,
+      COALESCE(loc.ubicaciones_resumen, '[]'::jsonb) AS ubicaciones_resumen,
       COALESCE(
         JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT(
           'proveedor', COALESCE(prv.descripcion, ''),
@@ -272,6 +277,40 @@ export async function getProductosListado(
     LEFT JOIN producto_proveedor pp ON pp.id_producto = p.id
     LEFT JOIN proveedores prv ON prv.id = pp.id_proveedor
     LEFT JOIN ubicaciones u ON u.id = p.id_ubicacion
+    LEFT JOIN LATERAL (
+      SELECT JSONB_AGG(
+        JSONB_BUILD_OBJECT(
+          'id_ubicacion', src.id_ubicacion,
+          'ubicacion', src.ubicacion,
+          'cantidad', src.cantidad
+        )
+        ORDER BY src.ubicacion ASC
+      ) AS ubicaciones_resumen
+      FROM (
+        SELECT
+          ps.id_ubicacion,
+          COALESCE(us.descripcion, 'SIN UBICACION') AS ubicacion,
+          COUNT(*)::int AS cantidad
+        FROM producto_serie ps
+        LEFT JOIN ubicaciones us ON us.id = ps.id_ubicacion
+        WHERE ps.id_producto = p.id
+          AND ps.estado = ANY($${estadosStockFisicoParam}::text[])
+          AND p.usa_numero_serie = true
+        GROUP BY ps.id_ubicacion, COALESCE(us.descripcion, 'SIN UBICACION')
+
+        UNION ALL
+
+        SELECT
+          psu.id_ubicacion,
+          un.descripcion AS ubicacion,
+          psu.cantidad::int AS cantidad
+        FROM producto_stock_ubicacion psu
+        JOIN ubicaciones un ON un.id = psu.id_ubicacion
+        WHERE psu.id_producto = p.id
+          AND psu.cantidad > 0
+          AND COALESCE(p.usa_numero_serie, false) = false
+      ) src
+    ) loc ON true
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = pi.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     WHERE ${whereClauses.join(" AND ")}
@@ -298,7 +337,8 @@ export async function getProductosListado(
       u.descripcion,
       p.imagen_url,
       p.usa_numero_serie,
-      p.palabra_clave
+      p.palabra_clave,
+      loc.ubicaciones_resumen
     ORDER BY p.id DESC
   `;
 
@@ -370,8 +410,8 @@ export async function getProductosParaExportar(filters: {
       u.descripcion AS "Ubicación",
       p.palabra_clave AS "Palabras Clave",
       
-      -- APARTADO PIEZA
-      pi.codigo_pieza AS "Nro Pieza",
+      -- APARTADO ITEM ASOCIADO
+      pi.codigo_pieza AS "Nro Item Asociado",
       COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'ORIGINAL'), '') AS "Códigos Originales",
       COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'EQUIVALENTE'), '') AS "Códigos Equivalentes",
       COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'SUSTITUTO'), '') AS "Códigos Sustitutos",
@@ -383,6 +423,18 @@ export async function getProductosParaExportar(filters: {
       ) AS "Precios y Márgenes",
       
       -- APARTADO PROVEEDORES
+      COALESCE(
+        STRING_AGG(DISTINCT prv.descripcion, ' | ') FILTER (WHERE prv.descripcion IS NOT NULL),
+        ''
+      ) AS "Proveedor",
+      COALESCE(
+        STRING_AGG(DISTINCT NULLIF(TRIM(pp_prov.codigo_proveedor), ''), ' | '),
+        ''
+      ) AS "Código Proveedor",
+      COALESCE(
+        STRING_AGG(DISTINCT pp_prov.precio_lista_actual::text, ' | ') FILTER (WHERE pp_prov.precio_lista_actual IS NOT NULL),
+        ''
+      ) AS "Precio Lista Proveedor",
       COALESCE(
         STRING_AGG(DISTINCT prv.descripcion || ' [' || COALESCE(pp_prov.codigo_proveedor, 'S/C') || ']: $' || COALESCE(pp_prov.precio_lista_actual, 0), ' | '),
         ''
@@ -587,7 +639,7 @@ export async function createProducto(input: ProductoInput) {
     
     // Validamos duplicado
     if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra)) {
-      const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro producto`);
+      const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro item`);
       (err as any).status = 400;
       throw err;
     }
@@ -646,7 +698,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
 
     // Validamos duplicado si se cambió el código
     if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, id)) {
-      const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro producto`);
+      const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro item`);
       (err as any).status = 400;
       throw err;
     }
@@ -686,7 +738,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
     );
 
     if (result.rowCount === 0) {
-      const err = new Error("Producto no encontrado");
+      const err = new Error("Item no encontrado");
       (err as Error & { status?: number }).status = 404;
       throw err;
     }
@@ -732,7 +784,7 @@ export async function deleteProducto(id: string | number) {
     const result = await client.query("DELETE FROM productos WHERE id = $1 RETURNING *", [id]);
 
     if (result.rowCount === 0) {
-      const err = new Error("Producto no encontrado");
+      const err = new Error("Item no encontrado");
       (err as Error & { status?: number }).status = 404;
       throw err;
     }
@@ -750,8 +802,8 @@ export async function deleteProducto(id: string | number) {
 
 export async function getAvailableSerialsByProduct(idProducto: string | number): Promise<string[]> {
   const { rows } = await query(
-    `SELECT numero_serie FROM producto_serie WHERE id_producto = $1 AND estado = 'DISPONIBLE' ORDER BY created_at ASC`,
-    [idProducto]
+    `SELECT numero_serie FROM producto_serie WHERE id_producto = $1 AND estado = ANY($2::text[]) ORDER BY created_at ASC`,
+    [idProducto, SERIE_ESTADOS_CON_STOCK_FISICO]
   );
   return rows.map(r => r.numero_serie);
 }
@@ -799,8 +851,25 @@ export async function importProductos(
     const v_id_pieza: (number | null)[] = [];
     const v_palabra_clave: (string | null)[] = [];
     
+    const parseNullableNumber = (value: any): number | null => {
+      if (value === null || value === undefined || value === "") return null;
+      const raw = String(value)
+        .replace(/\$/g, "")
+        .replace(/\s/g, "")
+        .trim();
+      const hasComma = raw.includes(",");
+      const hasDot = raw.includes(".");
+      const normalized = hasComma && hasDot
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : hasComma
+          ? raw.replace(",", ".")
+          : raw;
+      const parsed = Number.parseFloat(normalized);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
     // Para relación proveedores
-    const supplierLinks: { sku: string; provName: string; codProv: string | null }[] = [];
+    const supplierLinks: { sku: string; provName: string; codProv: string | null; precioLista: number | null }[] = [];
 
     const results = {
       imported: 0,
@@ -860,7 +929,10 @@ export async function importProductos(
                 supplierLinks.push({ 
                   sku, 
                   provName: provName.toString(), 
-                  codProv: mappings.codigo_proveedor?.csvHeader ? item[mappings.codigo_proveedor.csvHeader]?.toString() : null 
+                  codProv: mappings.codigo_proveedor?.csvHeader ? item[mappings.codigo_proveedor.csvHeader]?.toString() : null,
+                  precioLista: mappings.precio_lista_proveedor?.csvHeader
+                    ? parseNullableNumber(item[mappings.precio_lista_proveedor.csvHeader])
+                    : null
                 });
             }
         } catch (err: any) {
@@ -870,7 +942,7 @@ export async function importProductos(
 
     if (v_cod_unico.length === 0) return { ...results, durationMs: Date.now() - startTime };
 
-    // 3. Ejecutar Bulk Upsert de Productos
+    // 3. Ejecutar Bulk Upsert de items
     const upsertQuery = `
       WITH upserted AS (
         INSERT INTO productos (
@@ -938,6 +1010,7 @@ export async function importProductos(
           const v_prod_id: number[] = [];
           const v_prov_id: number[] = [];
           const v_cod_prov: (string | null)[] = [];
+          const v_precio_lista: (number | null)[] = [];
 
           supplierLinks.forEach(link => {
               const prodId = skuToIdMap.get(link.sku);
@@ -946,19 +1019,23 @@ export async function importProductos(
                   v_prod_id.push(prodId);
                   v_prov_id.push(provId);
                   v_cod_prov.push(link.codProv);
+                  v_precio_lista.push(link.precioLista);
               }
           });
 
           if (v_prod_id.length > 0) {
-              const codProvShouldUpdate = mappings.codigo_proveedor?.updateExisting ?? true;
+              const codProvShouldUpdate = Boolean(mappings.codigo_proveedor?.csvHeader) && (mappings.codigo_proveedor?.updateExisting ?? true);
+              const precioListaShouldUpdate = Boolean(mappings.precio_lista_proveedor?.csvHeader) && (mappings.precio_lista_proveedor?.updateExisting ?? true);
               
               await client.query(`
-                  INSERT INTO producto_proveedor (id_producto, id_proveedor, codigo_proveedor)
-                  SELECT * FROM UNNEST($1::int[], $2::int[], $3::text[])
-                  AS t(id_producto, id_proveedor, codigo_proveedor)
+                  INSERT INTO producto_proveedor (id_producto, id_proveedor, codigo_proveedor, precio_lista_actual, fecha_ultima_actualizacion)
+                  SELECT *, NOW() FROM UNNEST($1::int[], $2::int[], $3::text[], $4::numeric[])
+                  AS t(id_producto, id_proveedor, codigo_proveedor, precio_lista_actual)
                   ON CONFLICT (id_producto, id_proveedor) DO UPDATE SET
-                      codigo_proveedor = CASE WHEN $4 THEN EXCLUDED.codigo_proveedor ELSE producto_proveedor.codigo_proveedor END
-              `, [v_prod_id, v_prov_id, v_cod_prov, codProvShouldUpdate]);
+                      codigo_proveedor = CASE WHEN $5 THEN EXCLUDED.codigo_proveedor ELSE producto_proveedor.codigo_proveedor END,
+                      precio_lista_actual = CASE WHEN $6 THEN EXCLUDED.precio_lista_actual ELSE producto_proveedor.precio_lista_actual END,
+                      fecha_ultima_actualizacion = CASE WHEN $6 THEN NOW() ELSE producto_proveedor.fecha_ultima_actualizacion END
+              `, [v_prod_id, v_prov_id, v_cod_prov, v_precio_lista, codProvShouldUpdate, precioListaShouldUpdate]);
           }
       }
     } catch (dbErr: any) {

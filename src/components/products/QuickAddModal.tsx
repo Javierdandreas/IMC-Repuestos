@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
+import { useAppError } from "@/context/AppErrorContext";
 
 export type QuickAddType = "marcas" | "proveedores" | "ubicaciones" | "categorias" | "subcategorias";
 
@@ -12,12 +13,18 @@ interface Props {
   onClose: () => void;
   onSuccess: (id: number) => void;
   parentId?: number; // Para subcategorias
+  initialDescripcion?: string;
 }
 
-export function QuickAddModal({ type, onClose, onSuccess, parentId }: Props) {
+export function QuickAddModal({ type, onClose, onSuccess, parentId, initialDescripcion = "" }: Props) {
   const [descripcion, setDescripcion] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { refresh } = useMetadata();
+  const { showError } = useAppError();
+
+  useEffect(() => {
+    if (type) setDescripcion(initialDescripcion);
+  }, [initialDescripcion, type]);
 
   if (!type) return null;
 
@@ -52,10 +59,10 @@ export function QuickAddModal({ type, onClose, onSuccess, parentId }: Props) {
         toast.success("Registro creado correctamente");
       } else {
         const error = await res.json();
-        toast.error(error.message || "Error al crear el registro");
+        showError(error.message || "Error al crear el registro");
       }
     } catch (error) {
-      toast.error("Error de conexión");
+      showError(error, "Error de conexión");
     } finally {
       setIsSubmitting(false);
     }

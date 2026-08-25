@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const result = await getProductosListado(page, limit);
     return NextResponse.json(result);
   } catch (error: unknown) {
-    return jsonError(error, "No se pudieron obtener los productos");
+    return jsonError(error, "No se pudieron obtener los items");
   }
 }
 
@@ -26,6 +26,6 @@ export async function POST(request: NextRequest) {
     const newProduct = await createProducto(payload);
     return NextResponse.json(newProduct);
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo crear el producto");
+    return jsonError(error, "No se pudo crear el item");
   }
 }

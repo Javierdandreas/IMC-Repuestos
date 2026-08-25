@@ -7,6 +7,8 @@ import { ProductoListado } from "@/interfaces/productos";
 import useSWR from "swr";
 import Image from "next/image";
 import { createClient } from "@/utils/supabase/client";
+import { useMetadata } from "@/context/MetadataContext";
+import { useAppError } from "@/context/AppErrorContext";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
@@ -20,6 +22,7 @@ interface ItemCarrito {
   cantidad: number;
   precio_unitario: number;
   numeros_serie: string[];
+  id_ubicacion: number | null;
 }
 
 // Helper to generate a unique reference
@@ -32,6 +35,8 @@ const generateRef = () => {
 
 export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProps) {
   const { mutate } = useSWRConfig();
+  const { ubicaciones } = useMetadata();
+  const { showError, showMessage } = useAppError();
   
   // Step 1: Datos de Operación
   const [entidadNombre, setEntidadNombre] = useState("");
@@ -89,11 +94,13 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
 
   const handleAddProducto = (prod: ProductoListado) => {
     if (!carrito.find(i => i.producto.id === prod.id)) {
+        const firstLocation = prod.ubicaciones_resumen?.[0]?.id_ubicacion ?? prod.id_ubicacion ?? ubicaciones[0]?.id ?? null;
         setCarrito([...carrito, { 
             producto: prod, 
             cantidad: 1, 
             precio_unitario: 0, 
-            numeros_serie: []
+            numeros_serie: [],
+            id_ubicacion: firstLocation
         }]);
     }
     setSearchTerm(""); // Reset search after adding
@@ -111,12 +118,18 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
     setCarrito(newCart);
   }
 
+  const updateUbicacion = (index: number, idUbicacion: number | null) => {
+    const newCart = [...carrito];
+    newCart[index].id_ubicacion = idUbicacion;
+    setCarrito(newCart);
+  };
+
   const handleAutoGenerateSeries = (index: number) => {
     const item = carrito[index];
     const newCart = [...carrito];
     const count = item.cantidad;
     
-    if (count <= 0) return toast.error("La cantidad debe ser mayor a 0 para generar series");
+    if (count <= 0) return showMessage("La cantidad debe ser mayor a 0 para generar series");
     
     const newSerials: string[] = [];
     const timestamp = new Date().getTime().toString().slice(-6);
@@ -132,12 +145,15 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
   };
 
   const handleSubmit = async () => {
-      if (carrito.length === 0) return toast.error("El carrito está vacío");
+      if (carrito.length === 0) return showMessage("El carrito está vacío");
 
       // Validate serials if required
       for (const item of carrito) {
           if (item.producto.usa_numero_serie && item.numeros_serie.length !== Math.abs(item.cantidad)) {
-              return toast.error(`El producto ${item.producto.descripcion} requiere exactamente ${Math.abs(item.cantidad)} números de serie.`);
+              return showMessage(`El item ${item.producto.descripcion} requiere exactamente ${Math.abs(item.cantidad)} números de serie.`);
+          }
+          if (!item.id_ubicacion) {
+              return showMessage(`Seleccioná una ubicación para ${item.producto.descripcion}.`);
           }
       }
 
@@ -157,7 +173,8 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
                     id_producto: i.producto.id,
                     cantidad: cant,
                     precio_unitario: i.precio_unitario,
-                    numeros_serie: i.numeros_serie
+                    numeros_serie: i.numeros_serie,
+                    id_ubicacion: i.id_ubicacion
                   };
               })
           };
@@ -175,7 +192,7 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
           mutate(`/api/operaciones?tipo=${tipo}`);
           onClose();
       } catch (error: any) {
-          toast.error(error.message || "Error al registrar la operación");
+          showError(error, "Error al registrar la operación");
       } finally {
           setIsSubmitting(false);
       }
@@ -250,7 +267,7 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
                             </div>
                             <input 
                                 type="text" 
-                                placeholder="Buscar producto..." 
+                                placeholder="Buscar item..." 
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
                                 className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white" 
@@ -302,7 +319,7 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
                              <div className="max-w-[240px]">
                                 <HiOutlineShoppingCart className="mx-auto h-12 w-12 text-slate-200 dark:text-slate-700" />
                                 <p className="mt-4 text-sm font-medium text-slate-400 dark:text-slate-500">
-                                    {tipo === 'AJUSTE' ? 'Buscá un producto para iniciar el ajuste.' : 'El carrito está vacío.'}
+                                    {tipo === 'AJUSTE' ? 'Buscá un item para iniciar el ajuste.' : 'El carrito está vacío.'}
                                 </p>
                              </div>
                          </div>
@@ -328,6 +345,19 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
                                          <div>
                                              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Cantidad</label>
                                              <input type="number" min="1" value={item.cantidad} onChange={e => updateCantidad(index, Number(e.target.value))} className="w-20 rounded-lg border border-slate-200 p-1.5 text-sm text-center font-bold outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+                                         </div>
+                                         <div>
+                                             <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Ubicación</label>
+                                             <select
+                                                value={item.id_ubicacion ?? ""}
+                                                onChange={e => updateUbicacion(index, e.target.value ? Number(e.target.value) : null)}
+                                                className="w-44 rounded-lg border border-slate-200 bg-white p-1.5 text-xs font-bold outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                                             >
+                                                <option value="">Seleccionar</option>
+                                                {ubicaciones.map((ubicacion) => (
+                                                    <option key={ubicacion.id} value={ubicacion.id}>{ubicacion.descripcion}</option>
+                                                ))}
+                                             </select>
                                          </div>
                                      </div>
 
@@ -407,6 +437,7 @@ export function NuevaOperacionWizard({ onClose, tipo }: NuevaOperacionWizardProp
 // Sub-component for picking serials in BAJA mode
 function SeriesSelector({ idProducto, selected, max, onSelect }: { idProducto: number, selected: string[], max: number, onSelect: (s: string[]) => void }) {
     const { data: available, isLoading } = useSWR<string[]>(idProducto ? `/api/productos/${idProducto}/serials` : null, fetcher);
+    const { showMessage } = useAppError();
 
     const toggle = (serial: string) => {
         if (selected.includes(serial)) {
@@ -415,7 +446,7 @@ function SeriesSelector({ idProducto, selected, max, onSelect }: { idProducto: n
             if (selected.length < max) {
                 onSelect([...selected, serial]);
             } else {
-                toast.error(`Solo podés seleccionar hasta ${max} series.`);
+                showMessage(`Solo podes seleccionar hasta ${max} series.`);
             }
         }
     };

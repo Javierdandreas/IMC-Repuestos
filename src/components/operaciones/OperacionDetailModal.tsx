@@ -103,6 +103,9 @@ export function OperacionDetailModal({ operacionId, onClose }: OperacionDetailMo
                                     </td>
                                     <td className="px-6 py-4 align-top">
                                         <h4 className="font-bold text-slate-900 dark:text-white text-sm mb-2">{det.producto_descripcion}</h4>
+                                        <div className="mb-2 inline-flex rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                                            {det.ubicacion || "SIN UBICACION"}
+                                        </div>
                                         
                                         {/* Series Vertical List */}
                                         {det.usa_numero_serie && movimientos.length > 0 && (

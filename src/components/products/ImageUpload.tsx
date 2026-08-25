@@ -171,7 +171,7 @@ export function ImageUpload({
             <div className="relative mx-auto block h-[350px] w-full max-w-full rounded-xl overflow-hidden shadow-md">
               <Image 
                 src={value} 
-                alt="Producto" 
+                alt="Item" 
                 fill
                 className="object-contain" 
                 unoptimized

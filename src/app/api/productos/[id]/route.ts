@@ -16,12 +16,12 @@ export async function GET(
     const product = await getProductoById(numericId);
 
     if (!product) {
-      return NextResponse.json({ message: "Producto no encontrado" }, { status: 404 });
+      return NextResponse.json({ message: "Item no encontrado" }, { status: 404 });
     }
 
     return NextResponse.json(product);
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo obtener el producto");
+    return jsonError(error, "No se pudo obtener el item");
   }
 }
 
@@ -38,7 +38,7 @@ export async function PUT(
     const product = await updateProducto(numericId, payload);
     return NextResponse.json(product);
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo actualizar el producto");
+    return jsonError(error, "No se pudo actualizar el item");
   }
 }
 
@@ -51,8 +51,8 @@ export async function DELETE(
     const { id } = await params;
     const numericId = parseIdParam(id);
     await deleteProducto(numericId);
-    return NextResponse.json({ message: "Producto eliminado correctamente" });
+    return NextResponse.json({ message: "Item eliminado correctamente" });
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo eliminar el producto");
+    return jsonError(error, "No se pudo eliminar el item");
   }
 }

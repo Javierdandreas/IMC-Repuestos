@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Search, Barcode, CheckCircle2, History, Trash2, PackageSearch } from "lucide-react";
 import { toast } from "sonner";
 import { ProductoSerie } from "@/interfaces/series";
+import { useAppError } from "@/context/AppErrorContext";
 
 interface ProductSeriesManagerProps {
   productId: number;
@@ -13,6 +14,7 @@ interface ProductSeriesManagerProps {
 }
 
 export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeriesManagerProps) {
+  const { showError, showMessage } = useAppError();
   const [series, setSeries] = useState<ProductoSerie[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -43,7 +45,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
       setSeries(data);
     } catch (error) {
       console.error(error);
-      toast.error("Hubo un error recuperando el historial de series");
+      showError(error, "Hubo un error recuperando el historial de series");
     } finally {
       setIsLoading(false);
     }
@@ -54,7 +56,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
     if (!newSerial.trim()) return;
 
     if (series.find((s) => s.numero_serie.toUpperCase() === newSerial.trim().toUpperCase())) {
-      toast.error("Este número de serie ya está en este producto");
+      showMessage("Este número de serie ya está en este item");
       setNewSerial("");
       return;
     }
@@ -79,7 +81,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
       // Mantenemos foco para la pistola láser
       inputRef.current?.focus();
     } catch (error: any) {
-      toast.error(error.message);
+      showError(error, "No se pudo registrar la serie");
     } finally {
       setIsSubmitting(false);
     }
@@ -109,12 +111,12 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
       loadSeries();
     } catch (error: any) {
       console.error(error);
-      toast.error(error.message || "Ocurrió un error dando de baja la serie");
+      showError(error, "Ocurrió un error dando de baja la serie");
     }
   };
 
   const handleAutoGenerate = async () => {
-    if (!confirm("¿Autocompletar virtualmente (IMC-XXXXXXXX) las series faltantes hasta alcanzar el stock total del producto?")) return;
+    if (!confirm("¿Autocompletar virtualmente (IMC-XXXXXXXX) las series faltantes hasta alcanzar el stock total del item?")) return;
 
     setIsAutoGenerating(true);
     try {
@@ -130,7 +132,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
       await loadSeries();
       toast.success("Series autogeneradas con éxito");
     } catch (error: any) {
-      toast.error(error.message);
+      showError(error, "No se pudieron autogenerar las series");
     } finally {
       setIsAutoGenerating(false);
     }
@@ -162,7 +164,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
                 </div>
                 <div>
                   <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Gestión de Trazabilidad</h2>
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Administrá las series físicas asociadas al producto</p>
+                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Administrá las series físicas asociadas al item</p>
                 </div>
               </div>
               <button
@@ -202,7 +204,7 @@ export function ProductSeriesManager({ productId, isOpen, onClose }: ProductSeri
                     )}
                   </button>
                   <p className="text-center text-[10px] uppercase font-bold tracking-wider text-slate-400">
-                    Crea automáticamente etiquetas para llegar al stock de este producto bajo el formato estándar IMC-XXXXXXXX
+                    Crea automáticamente etiquetas para llegar al stock de este item bajo el formato estándar IMC-XXXXXXXX
                   </p>
                 </div>
               </div>

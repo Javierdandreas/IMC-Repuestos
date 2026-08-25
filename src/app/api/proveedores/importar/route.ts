@@ -21,7 +21,18 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Ejecutar importación
-    const importacion = await createImportacion(body);
+    const cleanItems = body.items
+      .map((item) => ({
+        codigo_proveedor: String(item.codigo_proveedor ?? "").trim().toUpperCase(),
+        precio_lista: Number(item.precio_lista),
+      }))
+      .filter((item) => item.codigo_proveedor && Number.isFinite(item.precio_lista));
+
+    if (cleanItems.length === 0) {
+      return NextResponse.json({ error: "No hay filas validas para importar" }, { status: 400 });
+    }
+
+    const importacion = await createImportacion({ ...body, items: cleanItems });
 
     return NextResponse.json({
       message: "Importación creada exitosamente",

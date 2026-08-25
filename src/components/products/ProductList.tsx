@@ -14,8 +14,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ProductForm, PRODUCT_TABS, TabId } from "@/components/products/ProductForm";
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
-import { ImportProductModal } from "@/components/products/ImportProductModal";
-import { ExportModal } from "@/components/products/ExportModal";
+import { useAppError } from "@/context/AppErrorContext";
 import { ProductoListado, Subcategoria } from "@/interfaces/productos";
 import { BulkLabelPrinter } from "@/components/products/BulkLabelPrinter";
 
@@ -31,6 +30,7 @@ const TOOLTIP_MARGIN = 16;
 
 export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
   const { categorias, subcategorias, marcas, proveedores } = useMetadata();
+  const { showError } = useAppError();
   const { canManage } = usePermissions();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -52,10 +52,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [proveedor, setProveedor] = useState(searchParams.get("proveedor") || "");
 
   const [isZoomed, setIsZoomed] = useState(false);
-  const [openImport, setOpenImport] = useState(false);
   const [openLabelPrinter, setOpenLabelPrinter] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [openExportModal, setOpenExportModal] = useState(false);
 
   // Hover state
   const [hoveredProductId, setHoveredProductId] = useState<number | null>(null);
@@ -180,49 +177,15 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.message || "No se pudo borrar el producto");
+        throw new Error(data.message || "No se pudo borrar el item");
       }
 
       router.refresh();
-      toast.success("Producto borrado correctamente");
+      toast.success("Item borrado correctamente");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo borrar el producto");
+      showError(error, "No se pudo borrar el item");
     } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handleExport = async (format: 'csv' | 'excel', columns: string[]) => {
-    try {
-      setIsExporting(true);
-      const params = new URLSearchParams();
-      if (searchGeneral) params.set("search", searchGeneral);
-      if (searchSpecific) params.set("searchSpecific", searchSpecific);
-      if (categoria) params.set("categoria", categoria);
-      if (subcategoria) params.set("subcategoria", subcategoria);
-      if (marca) params.set("marca", marca);
-      if (proveedor) params.set("proveedor", proveedor);
-      params.set("format", format);
-      params.set("columns", columns.join(","));
-
-      const response = await fetch(`/api/productos/export?${params.toString()}`);
-      if (!response.ok) throw new Error("Error al exportar");
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `productos_export_${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'csv'}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      toast.success(`Catálogo exportado a ${format.toUpperCase()} correctamente`);
-      setOpenExportModal(false);
-    } catch (error) {
-      toast.error(`No se pudo exportar el catálogo a ${format.toUpperCase()}`);
-    } finally {
-      setIsExporting(false);
+      setIsDeleting(false);
     }
   };
 
@@ -252,10 +215,10 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
   return (
     <>
-      <div className="flex min-h-screen flex-col bg-slate-50 dark:bg-slate-950 p-4 transition-colors duration-200 md:p-4 md:pt-2">
-        <div className="w-full max-w-[1500px] space-y-3">
+      <div className="flex min-h-screen flex-col bg-slate-50 p-4 transition-colors duration-200 dark:bg-slate-950 md:p-6">
+        <div className="w-full space-y-4">
           {/* Encabezado y Filtros */}
-          <section className="flex flex-col gap-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900/40 dark:backdrop-blur-sm">
+          <section className="flex flex-col gap-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/45">
             <div className="flex flex-col items-center justify-between gap-4 md:flex-row pb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-lg">
@@ -264,7 +227,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   </svg>
                 </div>
                 <div>
-                  <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Productos</h1>
+                  <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Items</h1>
                   <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Gestión de catálogo optimizada</p>
                 </div>
               </div>
@@ -272,7 +235,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               {canManage && (
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setOpenImport(true)}
+                    onClick={() => router.push("/productos/importar")}
                     className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-100 px-6 text-sm font-bold text-slate-900 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700 active:scale-95"
                   >
                     <HiCloudUpload className="h-5 w-5" />
@@ -280,20 +243,27 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   </button>
 
                   <button
-                    onClick={() => setOpenExportModal(true)}
+                    onClick={() => {
+                      const params = new URLSearchParams();
+                      if (categoria) params.set("categoria", categoria);
+                      if (subcategoria) params.set("subcategoria", subcategoria);
+                      if (marca) params.set("marca", marca);
+                      if (proveedor) params.set("proveedor", proveedor);
+                      router.push(`/productos/exportar${params.toString() ? `?${params.toString()}` : ""}`);
+                    }}
                     className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-100 px-6 text-sm font-bold text-slate-900 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700 active:scale-95"
                   >
                     <HiDownload className="h-5 w-5" />
                     Exportar
                   </button>
                   <button
-                    onClick={() => setOpenNew(true)}
+                    onClick={() => router.push("/productos/nuevo")}
                     className="inline-flex h-12 items-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-700 hover:shadow-blue-500/40 active:scale-95"
                   >
                     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                     </svg>
-                    Nuevo Producto
+                    Nuevo Item
                   </button>
                 </div>
               )}
@@ -306,7 +276,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="DESCRIPCIÓN, PIEZA, PALABRAS..."
+                    placeholder="DESCRIPCIÓN, ITEM ASOCIADO, PALABRAS..."
                     value={searchGeneral}
                     onChange={(e) => setSearchGeneral(e.target.value)}
                     className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pl-9 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
@@ -408,7 +378,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
           </section>
 
           {/* Tabla de Resultados */}
-          <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900/30">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/45">
             <table className="w-full border-collapse text-left">
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>
@@ -428,7 +398,6 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   <th className="w-[60px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Med.</th>
                   <th className="w-[80px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Marca</th>
                   <th className="w-[120px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Rubro</th>
-                  <th className="w-[100px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Ubicación</th>
                   <th className="w-[120px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Proveedores</th>
                   <th className="w-[50px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Stock</th>
                   <th className="w-[120px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Acciones</th>
@@ -453,7 +422,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         />
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-5 py-4">
+                    <td
+                      className="whitespace-nowrap px-5 py-4 cursor-help"
+                      onMouseEnter={(e) => handleTooltipEnter(product.id, e)}
+                      onMouseLeave={handleTooltipLeave}
+                    >
                       <div className="flex flex-col">
                         <span className="font-mono text-sm font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
                         <span className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 tracking-wider">
@@ -461,11 +434,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         </span>
                       </div>
                     </td>
-                    <td
-                      className="px-3 py-3 cursor-help border-r border-slate-50 dark:border-slate-800/50"
-                      onMouseEnter={(e) => handleTooltipEnter(product.id, e)}
-                      onMouseLeave={handleTooltipLeave}
-                    >
+                    <td className="px-3 py-3 border-r border-slate-50 dark:border-slate-800/50">
                       <div className="flex flex-col">
                         <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-2" title={product.descripcion}>
                           {product.descripcion}
@@ -520,7 +489,6 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{product.subcategoria ?? "-"}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-300">{product.ubicacion ?? "-"}</td>
                     <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-400 truncate max-w-[120px]" title={product.proveedor ?? ""}>
                       {product.proveedor ?? "-"}
                     </td>
@@ -530,15 +498,15 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         {canManage ? (
                           <>
                             <PencilButton
-                              label={`Editar producto ${product.descripcion}`}
-                              onClick={() => setEditingProduct(product)}
+                              label={`Editar item ${product.descripcion}`}
+                              onClick={() => router.push(`/productos/edit/${product.id}`)}
                             />
                             <CopyButton
-                              label={`Duplicar producto ${product.descripcion}`}
-                              onClick={() => setDuplicatingProduct(product)}
+                              label={`Duplicar item ${product.descripcion}`}
+                              onClick={() => router.push(`/productos/duplicar/${product.id}`)}
                             />
                             <TrashButton
-                              label={`Borrar producto ${product.descripcion}`}
+                              label={`Borrar item ${product.descripcion}`}
                               onClick={() => setDeletingProduct(product)}
                               disabled={isDeleting && deletingProduct?.id === product.id}
                             />
@@ -553,7 +521,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 {products.length === 0 && (
                   <tr>
                     <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
-                      No hay productos que coincidan con los filtros.
+                      No hay items que coincidan con los filtros.
                     </td>
                   </tr>
                 )}
@@ -699,7 +667,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         </div>
       </div>
 
-      {/* Reverted Original Style Tooltip */}
+      {/* Ubicaciones por item */}
       <AnimatePresence>
         {hoveredProduct && (
           <motion.div
@@ -717,58 +685,27 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               maxHeight: `calc(100vh - ${tooltipPos.top + TOOLTIP_MARGIN}px)`
             }}
           >
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Números originales</p>
-                {hoveredProduct.originales && hoveredProduct.originales.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {hoveredProduct.originales.map((item) => (
-                      <span key={`orig-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
-                        {item}
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ubicaciones</p>
+                <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_unico}</p>
+              </div>
+
+              {hoveredProduct.ubicaciones_resumen && hoveredProduct.ubicaciones_resumen.length > 0 ? (
+                <div className="space-y-1.5">
+                  {hoveredProduct.ubicaciones_resumen.map((item, index) => (
+                    <div key={`${hoveredProduct.id}-ubi-${item.id_ubicacion ?? index}`} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-700/50">
+                      <span className="font-bold text-slate-700 dark:text-slate-200">{item.ubicacion}</span>
+                      <span className="rounded-md bg-slate-900 px-2 py-0.5 font-mono text-[11px] font-black text-white dark:bg-white dark:text-slate-900">
+                        {item.cantidad}
                       </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 italic">Sin datos</p>
-                )}
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Números equivalentes</p>
-                {hoveredProduct.equivalentes && hoveredProduct.equivalentes.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {hoveredProduct.equivalentes.map((item) => (
-                      <span key={`equiv-${hoveredProduct.id}-${item}`} className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-200">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 italic">Sin datos</p>
-                )}
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Proveedores</p>
-                {hoveredProduct.proveedores_detalle && hoveredProduct.proveedores_detalle.length > 0 ? (
-                  <div className="space-y-1.5">
-                    {hoveredProduct.proveedores_detalle.map((item, index) => (
-                      <div key={`prov-${hoveredProduct.id}-${index}`} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5 text-xs text-slate-700 dark:bg-slate-700/50 dark:border-slate-600 dark:text-slate-200">
-                        <span className="font-bold">{item.proveedor}</span>
-                        <span className="text-slate-400 dark:text-slate-400">— {item.codigo_proveedor || "Sin código"}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 italic">Sin datos</p>
-                )}
-              </div>
-
-              {hoveredProduct.palabra_clave && (
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
-                  <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-blue-500/70 dark:text-blue-400/50">Palabra Clave (Ayuda de búsqueda)</p>
-                  <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase leading-tight bg-blue-50/50 dark:bg-blue-900/10 p-2 rounded-lg border border-blue-100/50 dark:border-blue-800/20">{hoveredProduct.palabra_clave}</p>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-bold text-slate-400 dark:border-slate-700">
+                  Sin stock ubicado
+                </p>
               )}
             </div>
           </motion.div>
@@ -780,7 +717,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       <Modal
         open={openNew}
         onClose={() => setOpenNew(false)}
-        title="Crear producto"
+        title="Crear item"
         headerExtra={formTabs}
       >
         <ProductForm
@@ -793,7 +730,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       <Modal
         open={!!editingProduct}
         onClose={() => setEditingProduct(null)}
-        title="Editar producto"
+        title="Editar item"
         headerExtra={formTabs}
       >
         {editingProduct && (
@@ -810,7 +747,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       <Modal
         open={!!duplicatingProduct}
         onClose={() => setDuplicatingProduct(null)}
-        title="Duplicar producto"
+        title="Duplicar item"
         headerExtra={formTabs}
       >
         {duplicatingProduct && (
@@ -823,19 +760,12 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         )}
       </Modal>
 
-      <ExportModal 
-        isOpen={openExportModal}
-        onClose={() => setOpenExportModal(false)}
-        onExport={handleExport}
-        isExporting={isExporting}
-      />
-
       <ConfirmDeleteModal
         open={canManage && !!deletingProduct}
-        title="Borrar producto"
+        title="Borrar item"
         description={
           deletingProduct
-            ? `¿Seguro que querés borrar el producto "${deletingProduct.descripcion}"? Esta acción no se puede deshacer.`
+            ? `¿Seguro que querés borrar el item "${deletingProduct.descripcion}"? Esta acción no se puede deshacer.`
             : ""
         }
         loading={isDeleting}
@@ -849,7 +779,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
           setPreviewImage(null);
           setIsZoomed(false);
         }}
-        title={previewImage?.includes('/medidas/') ? "Esquema de Medidas" : "Previsualización de producto"}
+        title={previewImage?.includes('/medidas/') ? "Esquema de Medidas" : "Previsualización de item"}
         width="w-fit max-w-[95vw]"
       >
         <div className="flex items-center justify-center p-4">
@@ -869,7 +799,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             >
               <Image
                 src={previewImage}
-                alt="Producto"
+                alt="Item"
                 width={1200}
                 height={1200}
                 priority
@@ -881,13 +811,6 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         </div>
       </Modal>
 
-      <Modal
-        open={openImport}
-        onClose={() => setOpenImport(false)}
-        title="Importar Productos (CSV)"
-      >
-        <ImportProductModal onClose={() => setOpenImport(false)} />
-      </Modal>
     </>
   );
 }

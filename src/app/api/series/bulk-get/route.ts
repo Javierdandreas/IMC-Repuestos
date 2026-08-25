@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
 
     if (!Array.isArray(productIds) || productIds.length === 0) {
       return NextResponse.json(
-        { error: "Se requiere un array de IDs de productos" },
+        { error: "Se requiere un array de IDs de items" },
         { status: 400 }
       );
     }

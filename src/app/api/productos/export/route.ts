@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
     if (format === "excel") {
       const worksheet = XLSX.utils.json_to_sheet(data);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Productos");
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Items");
       
       // Generar buffer
       const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
         status: 200,
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "Content-Disposition": `attachment; filename="productos_export_${new Date().toISOString().split('T')[0]}.xlsx"`,
+          "Content-Disposition": `attachment; filename="items_export_${new Date().toISOString().split('T')[0]}.xlsx"`,
         },
       });
     }
@@ -69,13 +69,13 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="productos_export_${new Date().toISOString().split('T')[0]}.csv"`,
+        "Content-Disposition": `attachment; filename="items_export_${new Date().toISOString().split('T')[0]}.csv"`,
       },
     });
   } catch (error: any) {
     console.error("❌ Error en exportación:", error);
     return NextResponse.json(
-      { message: "Error al exportar productos", error: error.message },
+      { message: "Error al exportar items", error: error.message },
       { status: 500 }
     );
   }

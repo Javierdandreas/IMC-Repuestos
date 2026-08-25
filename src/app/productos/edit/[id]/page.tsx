@@ -1,7 +1,6 @@
 import { ProductForm } from "@/components/products/ProductForm";
-import { getProductMeta } from "@/lib/productos-meta";
 import { getProductoById } from "@/lib/repos/productos";
-import { MetadataProvider } from "@/context/MetadataContext";
+import { notFound } from "next/navigation";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -10,18 +9,15 @@ interface Props {
 export default async function EditProductPage({ params }: Props) {
   const { id } = await params;
 
-  const [product, meta] = await Promise.all([
-    getProductoById(id),
-    getProductMeta()
-  ]);
+  const product = await getProductoById(id);
 
-  if (!product) {
-    throw new Error("Producto no encontrado");
-  }
+  if (!product) notFound();
 
   return (
-    <MetadataProvider initialMeta={meta}>
-      <ProductForm productId={id} initialProduct={product} />
-    </MetadataProvider>
+    <div className="min-h-screen bg-white p-4 dark:bg-black md:p-6">
+      <div className="mx-auto w-full max-w-[1500px] bg-white dark:bg-black">
+        <ProductForm productId={id} initialProduct={product} />
+      </div>
+    </div>
   );
 }

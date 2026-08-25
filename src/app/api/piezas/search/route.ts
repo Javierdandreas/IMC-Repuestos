@@ -16,6 +16,6 @@ export async function GET(request: NextRequest) {
     const result = await getPiezasBusquedaLive(query);
     return NextResponse.json(result);
   } catch (error: unknown) {
-    return jsonError(error, "No se pudo realizar la búsqueda de piezas");
+    return jsonError(error, "No se pudo realizar la búsqueda de items asociados");
   }
 }

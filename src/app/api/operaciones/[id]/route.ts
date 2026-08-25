@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOperacionById } from "@/lib/repos/operaciones";
 import { requireApiSession } from "@/lib/api-auth";
+import { jsonError } from "@/lib/api-errors";
 import { parseIdParam } from "@/lib/validators/catalogos";
 
 export async function GET(
@@ -20,7 +21,7 @@ export async function GET(
     }
 
     return NextResponse.json(data);
-  } catch (error: any) {
-    return NextResponse.json({ message: error.message || "Error al obtener operación" }, { status: 500 });
+  } catch (error: unknown) {
+    return jsonError(error, "Error al obtener la operacion");
   }
 }

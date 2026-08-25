@@ -65,7 +65,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
   const { loading, submit, cancel } = useAppForm({
     url: piezaId ? `/api/piezas/${piezaId}` : "/api/piezas",
     method: piezaId ? "PUT" : "POST",
-    successMessage: piezaId ? "Pieza actualizada correctamente" : "Pieza creada correctamente",
+    successMessage: piezaId ? "Item asociado actualizado correctamente" : "Item asociado creado correctamente",
     onSuccess: () => {
       if (onSuccess) onSuccess();
       router.refresh();
@@ -171,7 +171,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
             disabled={loading}
             className="bg-slate-900 text-white px-8 py-2.5 rounded-xl font-bold transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-lg active:scale-95"
           >
-            {loading ? "Guardando..." : piezaId ? "Actualizar pieza" : "Guardar pieza"}
+            {loading ? "Guardando..." : piezaId ? "Actualizar item asociado" : "Guardar item asociado"}
           </button>
         </div>
       </form>

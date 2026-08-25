@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { useAppError } from "@/context/AppErrorContext";
 
 interface UseAppFormOptions<T> {
   url: string;
@@ -18,6 +19,7 @@ interface UseAppFormOptions<T> {
 export function useAppForm<T = any>(options: UseAppFormOptions<T>) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { showError } = useAppError();
 
   const submit = async (payload: any) => {
     setLoading(true);
@@ -55,7 +57,7 @@ export function useAppForm<T = any>(options: UseAppFormOptions<T>) {
       return data;
     } catch (error: any) {
       const msg = error.message || options.errorMessage || "Error inesperado";
-      toast.error(msg);
+      showError(msg);
       throw error;
     } finally {
       setLoading(false);

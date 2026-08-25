@@ -12,7 +12,7 @@ export async function GET(
     const { id } = await params;
     
     if (!id) {
-      return NextResponse.json({ message: "ID de producto requerido" }, { status: 400 });
+      return NextResponse.json({ message: "ID de item requerido" }, { status: 400 });
     }
 
     const serials = await getAvailableSerialsByProduct(id);
