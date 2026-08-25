@@ -15,15 +15,67 @@ interface Props {
   onSuccess: () => void;
 }
 
+type PrintMode = "manual" | "stock" | "series";
+
+const PRINT_MODE_OPTIONS: { value: PrintMode; label: string; description: string }[] = [
+  {
+    value: "manual",
+    label: "Manual",
+    description: "Arranca con 1 etiqueta por producto.",
+  },
+  {
+    value: "stock",
+    label: "Según stock",
+    description: "Carga la cantidad según el stock actual.",
+  },
+  {
+    value: "series",
+    label: "Por series",
+    description: "Prepara una etiqueta por número de serie existente.",
+  },
+];
+
+const buildQuantitiesForMode = (
+  mode: PrintMode,
+  selectedProducts: ProductoListado[],
+  selectedSeriesMap: Record<number, ProductoSerie[]>
+) => {
+  const nextQuantities: Record<number, number> = {};
+
+  selectedProducts.forEach((product) => {
+    if (mode === "manual") {
+      nextQuantities[product.id] = 1;
+      return;
+    }
+
+    if (mode === "series") {
+      nextQuantities[product.id] = product.usa_numero_serie
+        ? selectedSeriesMap[product.id]?.length || 0
+        : 0;
+      return;
+    }
+
+    nextQuantities[product.id] = Math.max(0, Number(product.stock) || 0);
+  });
+
+  return nextQuantities;
+};
+
 export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isFetchingSeries, setIsFetchingSeries] = useState(false);
   const [readyToPrint, setReadyToPrint] = useState(false);
   const [seriesMap, setSeriesMap] = useState<Record<number, ProductoSerie[]>>({});
   const [customQuantities, setCustomQuantities] = useState<Record<number, number>>({});
+  const [printMode, setPrintMode] = useState<PrintMode>("manual");
   
   // Identificar productos trazables
   const [localProducts, setLocalProducts] = useState<ProductoListado[]>(products);
+
+  const handlePrintModeChange = (mode: PrintMode) => {
+    setPrintMode(mode);
+    setCustomQuantities(buildQuantitiesForMode(mode, products, seriesMap));
+  };
 
   // Sincronizar localProducts cuando cambian los products props
   useEffect(() => {
@@ -57,6 +109,9 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
             map[s.id_producto].push(s);
           });
           setSeriesMap(map);
+          if (printMode === "series") {
+            setCustomQuantities(buildQuantitiesForMode(printMode, products, map));
+          }
         }
       } catch (error) {
         console.error("Error fetching series:", error);
@@ -68,21 +123,16 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
 
     if (isOpen) {
       fetchSeries();
-      // Inicializar cantidades
-      const initialQtys: Record<number, number> = {};
-      products.forEach(p => {
-        initialQtys[p.id] = Math.max(1, Number(p.stock) || 1);
-      });
-      setCustomQuantities(initialQtys);
+      setCustomQuantities(buildQuantitiesForMode(printMode, products, {}));
     }
-  }, [isOpen, products]);
+  }, [isOpen, products, printMode]);
 
   // Generar etiquetas individuales usando el estado local (localProducts)
   const labelsToPrint = useMemo(() => {
     const list: { product: ProductoListado; serial?: string }[] = [];
     
     localProducts.forEach(p => {
-      const targetQty = customQuantities[p.id] ?? Math.max(1, Number(p.stock) || 1);
+      const targetQty = customQuantities[p.id] ?? 0;
       
       if (p.usa_numero_serie) {
         const series = seriesMap[p.id] || [];
@@ -102,7 +152,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
 
   const handleAutoGenerateMissing = async () => {
     const productsToFix = products.filter(p => 
-      p.usa_numero_serie && (seriesMap[p.id]?.length || 0) < (p.stock || 0)
+      p.usa_numero_serie && (seriesMap[p.id]?.length || 0) < (customQuantities[p.id] || 0)
     );
 
     if (productsToFix.length === 0) return;
@@ -279,9 +329,10 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
     }
   }, [readyToPrint]);
 
-  const hasMissingSeries = products.some(p => 
-    p.usa_numero_serie && (seriesMap[p.id]?.length || 0) < (p.stock || 0)
+  const seriesShortages = products.filter(p =>
+    p.usa_numero_serie && (seriesMap[p.id]?.length || 0) < (customQuantities[p.id] || 0)
   );
+  const hasMissingSeries = seriesShortages.length > 0;
 
   return (
     <Modal open={isOpen} onClose={onClose} title="Impresión de Etiquetas" width="w-[min(92vw,1000px)]">
@@ -309,7 +360,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
 
         {/* Panel de Control */}
         <div className="flex flex-col gap-4 p-5 rounded-3xl bg-slate-50 border border-slate-200 dark:bg-slate-900/50 dark:border-slate-800">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-4">
               <div className="p-3 rounded-2xl bg-blue-500 text-white shadow-xl shadow-blue-500/20">
                 <HiPrinter className="h-6 w-6" />
@@ -338,7 +389,7 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
               
               <button
                 onClick={handleSaveBarcodesAndPrint}
-                disabled={isGenerating || isFetchingSeries}
+                disabled={isGenerating || isFetchingSeries || labelsToPrint.length === 0}
                 className="flex items-center gap-3 px-8 py-3 bg-blue-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-500 hover:-translate-y-0.5 transition-all active:translate-y-0 disabled:opacity-50"
               >
                 {isGenerating ? "PROCESANDO..." : "CONFIRMAR E IMPRIMIR"}
@@ -346,10 +397,48 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
             </div>
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {PRINT_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handlePrintModeChange(option.value)}
+                className={`text-left p-3 rounded-2xl border transition-all ${
+                  printMode === option.value
+                    ? "bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20"
+                    : "bg-white text-slate-700 border-slate-200 hover:border-blue-300 dark:bg-slate-950 dark:text-slate-300 dark:border-slate-800"
+                }`}
+              >
+                <span className="block text-[11px] font-black uppercase tracking-widest">
+                  {option.label}
+                </span>
+                <span className={`block text-[10px] font-bold mt-1 ${
+                  printMode === option.value ? "text-blue-100" : "text-slate-400"
+                }`}>
+                  {option.description}
+                </span>
+              </button>
+            ))}
+          </div>
+
           {missingBarcodes.length > 0 && (
             <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl border border-blue-100 text-[10px] font-bold dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400">
               <HiCheckCircle className="h-4 w-4" />
               {missingBarcodes.length} items generarán códigos de barras de 13 dígitos automáticamente.
+            </div>
+          )}
+
+          {hasMissingSeries && (
+            <div className="flex items-start gap-2 px-4 py-3 bg-amber-50 text-amber-700 rounded-xl border border-amber-100 text-[10px] font-bold dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300">
+              <HiExclamation className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="uppercase tracking-widest">
+                  {seriesShortages.length} producto(s) tienen menos series disponibles que etiquetas pedidas.
+                </p>
+                <p className="mt-1 text-amber-600 dark:text-amber-400">
+                  Solo se imprimirán las series existentes. Si corresponde, podés generar las faltantes antes de imprimir.
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -394,8 +483,11 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
           {products
             .filter(p => (customQuantities[p.id] || 0) > 0)
             .map((product) => {
-              const qty = customQuantities[product.id] || 0;
+              const requestedQty = customQuantities[product.id] || 0;
               const hasSeries = product.usa_numero_serie;
+              const seriesAvailable = seriesMap[product.id]?.length || 0;
+              const printableQty = hasSeries ? Math.min(requestedQty, seriesAvailable) : requestedQty;
+              const hasShortage = hasSeries && printableQty < requestedQty;
               const firstSerial = hasSeries ? (seriesMap[product.id]?.[0]?.numero_serie || "SERIE-EJEMPLO") : null;
 
               return (
@@ -404,8 +496,12 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
                   className="group relative flex flex-col items-center p-5 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 transition hover:border-blue-500/50 hover:bg-white dark:hover:bg-slate-800"
                 >
                   {/* Badge de Cantidad Minimalista */}
-                  <div className="absolute top-3 right-3 px-2 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-black shadow-lg shadow-blue-600/20 z-10">
-                    x{qty}
+                  <div className={`absolute top-3 right-3 px-2 py-1 text-white rounded-lg text-[10px] font-black shadow-lg z-10 ${
+                    hasShortage
+                      ? "bg-amber-500 shadow-amber-500/20"
+                      : "bg-blue-600 shadow-blue-600/20"
+                  }`}>
+                    x{printableQty}{hasShortage ? `/${requestedQty}` : ""}
                   </div>
 
                   <span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter mb-1">
@@ -432,8 +528,12 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
                       Cód: {product.cod_unico}
                     </span>
                     {hasSeries && (
-                      <div className="flex items-center gap-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full text-[9px] font-black tracking-widest uppercase border border-blue-500/20">
-                        {qty} {qty === 1 ? 'Serie' : 'Series'} configuradas
+                      <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black tracking-widest uppercase border ${
+                        hasShortage
+                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                          : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                      }`}>
+                        {seriesAvailable} {seriesAvailable === 1 ? 'Serie' : 'Series'} disponibles
                       </div>
                     )}
                   </div>
