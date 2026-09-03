@@ -27,6 +27,7 @@ interface Props {
 
 const TOOLTIP_WIDTH = 420;
 const TOOLTIP_MARGIN = 16;
+type TooltipContent = "locations" | "details";
 
 export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
   const { categorias, subcategorias, marcas, proveedores } = useMetadata();
@@ -56,6 +57,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
   // Hover state
   const [hoveredProductId, setHoveredProductId] = useState<number | null>(null);
+  const [tooltipContent, setTooltipContent] = useState<TooltipContent>("locations");
   const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -118,7 +120,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     [products, hoveredProductId]
   );
 
-  const handleTooltipEnter = (productId: number, event: React.MouseEvent) => {
+  const handleTooltipEnter = (productId: number, content: TooltipContent, event: React.MouseEvent) => {
     if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
 
     const rect = event.currentTarget.getBoundingClientRect();
@@ -149,6 +151,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     top = Math.max(TOOLTIP_MARGIN, top);
 
     setTooltipPos({ top, left });
+    setTooltipContent(content);
     setHoveredProductId(productId);
   };
 
@@ -424,7 +427,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </td>
                     <td
                       className="whitespace-nowrap px-5 py-4 cursor-help"
-                      onMouseEnter={(e) => handleTooltipEnter(product.id, e)}
+                      onMouseEnter={(e) => handleTooltipEnter(product.id, "locations", e)}
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
@@ -434,7 +437,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         </span>
                       </div>
                     </td>
-                    <td className="px-3 py-3 border-r border-slate-50 dark:border-slate-800/50">
+                    <td
+                      className="cursor-help px-3 py-3 border-r border-slate-50 dark:border-slate-800/50"
+                      onMouseEnter={(e) => handleTooltipEnter(product.id, "details", e)}
+                      onMouseLeave={handleTooltipLeave}
+                    >
                       <div className="flex flex-col">
                         <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-2" title={product.descripcion}>
                           {product.descripcion}
@@ -667,7 +674,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         </div>
       </div>
 
-      {/* Ubicaciones por item */}
+      {/* Informacion adicional por item */}
       <AnimatePresence>
         {hoveredProduct && (
           <motion.div
@@ -686,26 +693,75 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             }}
           >
             <div className="space-y-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ubicaciones</p>
-                <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_unico}</p>
-              </div>
+              {tooltipContent === "locations" ? (
+                <>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ubicaciones</p>
+                    <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_unico}</p>
+                  </div>
 
-              {hoveredProduct.ubicaciones_resumen && hoveredProduct.ubicaciones_resumen.length > 0 ? (
-                <div className="space-y-1.5">
-                  {hoveredProduct.ubicaciones_resumen.map((item, index) => (
-                    <div key={`${hoveredProduct.id}-ubi-${item.id_ubicacion ?? index}`} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-700/50">
-                      <span className="font-bold text-slate-700 dark:text-slate-200">{item.ubicacion}</span>
-                      <span className="rounded-md bg-slate-900 px-2 py-0.5 font-mono text-[11px] font-black text-white dark:bg-white dark:text-slate-900">
-                        {item.cantidad}
-                      </span>
+                  {hoveredProduct.ubicaciones_resumen && hoveredProduct.ubicaciones_resumen.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {hoveredProduct.ubicaciones_resumen.map((item, index) => (
+                        <div key={`${hoveredProduct.id}-ubi-${item.id_ubicacion ?? index}`} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-700/50">
+                          <span className="font-bold text-slate-700 dark:text-slate-200">{item.ubicacion}</span>
+                          <span className="rounded-md bg-slate-900 px-2 py-0.5 font-mono text-[11px] font-black text-white dark:bg-white dark:text-slate-900">
+                            {item.cantidad}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-bold text-slate-400 dark:border-slate-700">
+                      Sin stock ubicado
+                    </p>
+                  )}
+                </>
               ) : (
-                <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-bold text-slate-400 dark:border-slate-700">
-                  Sin stock ubicado
-                </p>
+                <>
+                  {hoveredProduct.cod_barra && (
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Codigo de barras</p>
+                      <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_barra}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Numeros originales</p>
+                    {hoveredProduct.originales && hoveredProduct.originales.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {hoveredProduct.originales.map((codigo) => (
+                          <span key={codigo} className="rounded-md bg-slate-100 px-2 py-1 font-mono text-[11px] font-bold text-slate-700 dark:bg-slate-700/60 dark:text-slate-200">{codigo}</span>
+                        ))}
+                      </div>
+                    ) : <p className="mt-1 text-xs text-slate-400">Sin datos</p>}
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Numeros equivalentes</p>
+                    {hoveredProduct.equivalentes && hoveredProduct.equivalentes.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {hoveredProduct.equivalentes.map((codigo) => (
+                          <span key={codigo} className="rounded-md bg-slate-100 px-2 py-1 font-mono text-[11px] font-bold text-slate-700 dark:bg-slate-700/60 dark:text-slate-200">{codigo}</span>
+                        ))}
+                      </div>
+                    ) : <p className="mt-1 text-xs text-slate-400">Sin datos</p>}
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Proveedores</p>
+                    {hoveredProduct.proveedores_detalle && hoveredProduct.proveedores_detalle.length > 0 ? (
+                      <div className="mt-1.5 space-y-1.5">
+                        {hoveredProduct.proveedores_detalle.map((item, index) => (
+                          <div key={`${hoveredProduct.id}-provider-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-700/50">
+                            <span className="min-w-0 truncate font-bold text-slate-700 dark:text-slate-200">{item.proveedor}</span>
+                            <span className="shrink-0 font-mono text-[11px] text-slate-500 dark:text-slate-400">{item.codigo_proveedor || "Sin codigo"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : <p className="mt-1 text-xs text-slate-400">Sin proveedores asociados</p>}
+                  </div>
+                </>
               )}
             </div>
           </motion.div>

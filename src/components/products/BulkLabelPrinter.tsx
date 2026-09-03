@@ -153,9 +153,6 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
     setLocalProducts(products);
   }, [products]);
 
-  // Identificar productos sin barcode en el estado local
-  const missingBarcodes = localProducts.filter(p => !p.cod_barra || p.cod_barra.trim() === "");
-
   // Cargar series para productos trazables
   useEffect(() => {
     const fetchSeries = async () => {
@@ -227,6 +224,14 @@ export function BulkLabelPrinter({ isOpen, onClose, products, onSuccess }: Props
 
     return list;
   }, [localProducts, seriesMap, customQuantities, selectedSeriesIds]);
+
+  const missingBarcodes = useMemo(() => {
+    const printableProductsWithoutBarcode = labelsToPrint
+      .filter(({ product, serial }) => !serial && (!product.cod_barra || product.cod_barra.trim() === ""))
+      .map(({ product }) => [product.id, product] as const);
+
+    return Array.from(new Map(printableProductsWithoutBarcode).values());
+  }, [labelsToPrint]);
 
   const handleAutoGenerateMissing = async () => {
     const requests = seriesShortages
