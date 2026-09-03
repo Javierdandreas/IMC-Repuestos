@@ -37,7 +37,7 @@ function getRequiredEnv(name: string): string {
 
 function createRequestSupabaseClient(request: NextRequest) {
   const supabaseUrl = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
-  const supabaseKey = getRequiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  const supabaseKey = getRequiredEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 
   return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
