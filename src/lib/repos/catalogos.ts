@@ -6,7 +6,66 @@ import { sanitizeRequiredString as cleanDescripcion } from "@/utils/sanitization
 
 type CatalogTable = 'marcas' | 'proveedores' | 'categoria' | 'ubicaciones';
 type FkCheck = { table: string, column: string, message: string };
-type ProveedorInput = { descripcion?: unknown; documento?: unknown };
+type ProveedorInput = {
+  descripcion?: unknown;
+  documento?: unknown;
+  condicion_iva?: unknown;
+  comprobante_default?: unknown;
+  contacto?: unknown;
+  telefono?: unknown;
+  email?: unknown;
+  domicilio_fiscal?: unknown;
+  provincia?: unknown;
+  localidad?: unknown;
+  codigo_postal?: unknown;
+  activo?: unknown;
+  observaciones?: unknown;
+};
+
+type ProveedorFiscalData = {
+  documento: string | null;
+  condicion_iva: string | null;
+  comprobante_default: string | null;
+};
+
+type ProveedorPerfilData = {
+  contacto: string | null;
+  telefono: string | null;
+  email: string | null;
+  domicilio_fiscal: string | null;
+  provincia: string | null;
+  localidad: string | null;
+  codigo_postal: string | null;
+  activo: boolean;
+  observaciones: string | null;
+};
+
+type ProveedorImportItem = {
+  fila?: unknown;
+  nombre?: unknown;
+  documento?: unknown;
+  condicion_iva?: unknown;
+  comprobante_default?: unknown;
+  contacto?: unknown;
+  telefono?: unknown;
+  email?: unknown;
+  domicilio_fiscal?: unknown;
+  provincia?: unknown;
+  localidad?: unknown;
+  codigo_postal?: unknown;
+  activo?: unknown;
+  observaciones?: unknown;
+};
+
+const CONDICIONES_IVA_VALIDAS = new Set([
+  "RESPONSABLE_INSCRIPTO",
+  "MONOTRIBUTO",
+  "EXENTO",
+  "CONSUMIDOR_FINAL",
+  "NO_RESPONSABLE",
+]);
+
+const COMPROBANTES_VALIDOS = new Set(["FACTURA_A", "FACTURA_B"]);
 
 const FK_CHECKS: Record<CatalogTable, FkCheck> = {
   marcas: { table: 'productos', column: 'id_marca', message: 'No se puede borrar la marca porque está asociada a uno o más productos' },
@@ -60,9 +119,134 @@ function cleanOptionalText(value: unknown): string | null {
   return clean || null;
 }
 
+function cleanProveedorDocumento(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const withoutFormat = raw.replace(/[.\s-]/g, "");
+  if (!/^\d+$/.test(withoutFormat)) {
+    const error = new Error("CUIT / DNI invalido. Solo se permiten numeros, espacios, puntos y guiones.");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+
+  if (withoutFormat.length < 7 || withoutFormat.length > 11) {
+    const error = new Error("CUIT / DNI invalido. Debe tener entre 7 y 11 digitos. Ejemplos: DNI 12345678 o CUIT 20-12345678-9.");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+
+  return withoutFormat;
+}
+
+function cleanProveedorFiscalData(input?: ProveedorInput): ProveedorFiscalData {
+  const condicionIva = cleanOptionalText(input?.condicion_iva);
+  const comprobanteDefault = cleanOptionalText(input?.comprobante_default);
+
+  if (condicionIva && !CONDICIONES_IVA_VALIDAS.has(condicionIva)) {
+    const error = new Error("La condicion de IVA seleccionada no es valida");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+
+  if (comprobanteDefault && !COMPROBANTES_VALIDOS.has(comprobanteDefault)) {
+    const error = new Error("El comprobante predeterminado debe ser Factura A o Factura B");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+
+  return {
+    documento: cleanProveedorDocumento(input?.documento),
+    condicion_iva: condicionIva,
+    comprobante_default: comprobanteDefault,
+  };
+}
+
+function cleanProveedorPerfilData(input?: ProveedorInput): ProveedorPerfilData {
+  const email = input?.email === null || input?.email === undefined
+    ? null
+    : String(input.email).trim().toLowerCase() || null;
+
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    const error = new Error("El email del proveedor no tiene un formato valido");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+
+  const cleanText = (value: unknown) => {
+    if (value === null || value === undefined) return null;
+    const text = String(value).trim();
+    return text || null;
+  };
+  const activeValue = input?.activo;
+  const activo = activeValue === false || activeValue === "false" || activeValue === 0 || activeValue === "0"
+    ? false
+    : true;
+
+  return {
+    contacto: cleanText(input?.contacto),
+    telefono: cleanText(input?.telefono),
+    email,
+    domicilio_fiscal: cleanText(input?.domicilio_fiscal),
+    provincia: cleanText(input?.provincia),
+    localidad: cleanText(input?.localidad),
+    codigo_postal: cleanText(input?.codigo_postal),
+    activo,
+    observaciones: cleanText(input?.observaciones),
+  };
+}
+
+async function assertDocumentoProveedorDisponible(
+  client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }> },
+  documento: string | null,
+  excludedId?: string | number
+) {
+  if (!documento) return;
+
+  const params: unknown[] = [documento];
+  let where = "documento = $1";
+  if (excludedId !== undefined) {
+    params.push(excludedId);
+    where += " AND id <> $2";
+  }
+
+  const duplicate = await client.query(
+    `SELECT 1 FROM proveedores WHERE ${where} LIMIT 1`,
+    params
+  );
+
+  if (duplicate.rows.length > 0) {
+    const error = new Error("Ya existe un proveedor con ese CUIT o DNI");
+    (error as Error & { status?: number }).status = 409;
+    throw error;
+  }
+}
+
+async function getProveedorSelectColumns(): Promise<string> {
+  const optionalColumns = [
+    "documento", "condicion_iva", "comprobante_default", "contacto", "telefono", "email",
+    "domicilio_fiscal", "provincia", "localidad", "codigo_postal", "activo", "observaciones",
+  ];
+  const availableColumns = await Promise.all(
+    optionalColumns.map(async (column) => ({
+      column,
+      exists: await hasTableColumn("proveedores", column),
+    }))
+  );
+
+  const columns = ["id", "descripcion"];
+  availableColumns.forEach(({ column, exists }) => {
+    if (exists) columns.push(column);
+  });
+
+  return columns.join(", ");
+}
+
 export async function getCatalogoById(table: CatalogTable, id: string | number): Promise<CatalogoItem | null> {
-  const select = table === 'proveedores' && await hasTableColumn('proveedores', 'documento')
-    ? 'id, descripcion, documento'
+  const select = table === 'proveedores'
+    ? await getProveedorSelectColumns()
     : 'id, descripcion';
 
   const { rows } = await query(`SELECT ${select} FROM ${table} WHERE id = $1 LIMIT 1`, [id]);
@@ -81,7 +265,11 @@ export async function getPaginatedCatalogo(
   
   if (search) {
     params.push(`%${search}%`);
-    where = `descripcion ILIKE $${params.length}`;
+    if (table === 'proveedores' && await hasTableColumn('proveedores', 'documento')) {
+      where = `(descripcion ILIKE $${params.length} OR documento ILIKE $${params.length})`;
+    } else {
+      where = `descripcion ILIKE $${params.length}`;
+    }
   }
 
   const countResult = await query(`SELECT COUNT(*) FROM ${table} WHERE ${where}`, params);
@@ -94,16 +282,22 @@ export async function getPaginatedCatalogo(
   const offsetParam = params.length + 2;
   params.push(limit, offset);
 
+  const select = table === 'proveedores'
+    ? await getProveedorSelectColumns()
+    : 'id, descripcion';
+
   const { rows } = await query(
-    `SELECT id, descripcion FROM ${table} WHERE ${where} ORDER BY ${getOrderByClause(table)} LIMIT $${limitParam} OFFSET $${offsetParam}`, 
+    `SELECT ${select} FROM ${table} WHERE ${where} ORDER BY ${getOrderByClause(table)} LIMIT $${limitParam} OFFSET $${offsetParam}`,
     params
   );
   return { data: rows as CatalogoItem[], totalCount, totalPages };
 }
 
-export async function createCatalogo(table: CatalogTable, descripcion: unknown): Promise<CatalogoItem> {
+export async function createCatalogo(table: CatalogTable, descripcion: unknown, extra?: ProveedorInput): Promise<CatalogoItem> {
   const clean = cleanDescripcion(descripcion);
   if (!clean) throw new Error("La descripción es obligatoria");
+  const proveedorFiscalData = table === "proveedores" ? cleanProveedorFiscalData(extra) : null;
+  const proveedorPerfilData = table === "proveedores" ? cleanProveedorPerfilData(extra) : null;
 
   return await withTransaction(async (client) => {
     const entityName = ENTITY_NAMES[table];
@@ -117,10 +311,43 @@ export async function createCatalogo(table: CatalogTable, descripcion: unknown):
       throw error;
     }
 
-    const { rows } = await client.query(
-      `INSERT INTO ${table} (descripcion) VALUES ($1) RETURNING *`,
-      [clean]
-    );
+    let insertSql = `INSERT INTO ${table} (descripcion) VALUES ($1) RETURNING *`;
+    let insertParams: unknown[] = [clean];
+
+    if (table === 'proveedores') {
+      await assertDocumentoProveedorDisponible(client, proveedorFiscalData?.documento ?? null);
+
+      const providerColumns = [
+        { name: 'documento', value: proveedorFiscalData?.documento ?? null },
+        { name: 'condicion_iva', value: proveedorFiscalData?.condicion_iva ?? null },
+        { name: 'comprobante_default', value: proveedorFiscalData?.comprobante_default ?? null },
+        { name: 'contacto', value: proveedorPerfilData?.contacto ?? null },
+        { name: 'telefono', value: proveedorPerfilData?.telefono ?? null },
+        { name: 'email', value: proveedorPerfilData?.email ?? null },
+        { name: 'domicilio_fiscal', value: proveedorPerfilData?.domicilio_fiscal ?? null },
+        { name: 'provincia', value: proveedorPerfilData?.provincia ?? null },
+        { name: 'localidad', value: proveedorPerfilData?.localidad ?? null },
+        { name: 'codigo_postal', value: proveedorPerfilData?.codigo_postal ?? null },
+        { name: 'activo', value: proveedorPerfilData?.activo ?? true },
+        { name: 'observaciones', value: proveedorPerfilData?.observaciones ?? null },
+      ];
+      const availableColumns = [];
+
+      for (const column of providerColumns) {
+        if (await hasTableColumn('proveedores', column.name)) {
+          availableColumns.push(column);
+        }
+      }
+
+      if (availableColumns.length > 0) {
+        const columns = ['descripcion', ...availableColumns.map((column) => column.name)];
+        insertParams = [clean, ...availableColumns.map((column) => column.value)];
+        const placeholders = columns.map((_, index) => `$${index + 1}`);
+        insertSql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`;
+      }
+    }
+
+    const { rows } = await client.query(insertSql, insertParams);
     
     revalidateTag("meta");
     
@@ -128,9 +355,11 @@ export async function createCatalogo(table: CatalogTable, descripcion: unknown):
   });
 }
 
-export async function updateCatalogo(table: CatalogTable, id: string | number, descripcion: unknown, extra?: { documento?: unknown }): Promise<CatalogoItem> {
+export async function updateCatalogo(table: CatalogTable, id: string | number, descripcion: unknown, extra?: ProveedorInput): Promise<CatalogoItem> {
   const clean = cleanDescripcion(descripcion);
   if (!clean) throw new Error("La descripción es obligatoria");
+  const proveedorFiscalData = table === "proveedores" ? cleanProveedorFiscalData(extra) : null;
+  const proveedorPerfilData = table === "proveedores" ? cleanProveedorPerfilData(extra) : null;
 
   return await withTransaction(async (client) => {
     const entityName = ENTITY_NAMES[table];
@@ -144,13 +373,43 @@ export async function updateCatalogo(table: CatalogTable, id: string | number, d
       throw error;
     }
 
-    const hasDocumento = table === 'proveedores' && await hasTableColumn('proveedores', 'documento');
-    const updateSql = hasDocumento
-      ? `UPDATE ${table} SET descripcion = $1, documento = $2 WHERE id = $3 RETURNING *`
-      : `UPDATE ${table} SET descripcion = $1 WHERE id = $2 RETURNING *`;
-    const updateParams = hasDocumento
-      ? [clean, cleanOptionalText(extra?.documento), id]
-      : [clean, id];
+    let updateSql = `UPDATE ${table} SET descripcion = $1 WHERE id = $2 RETURNING *`;
+    let updateParams: unknown[] = [clean, id];
+
+    if (table === 'proveedores') {
+      await assertDocumentoProveedorDisponible(client, proveedorFiscalData?.documento ?? null, id);
+
+      const providerColumns = [
+        { name: 'documento', value: proveedorFiscalData?.documento ?? null },
+        { name: 'condicion_iva', value: proveedorFiscalData?.condicion_iva ?? null },
+        { name: 'comprobante_default', value: proveedorFiscalData?.comprobante_default ?? null },
+        { name: 'contacto', value: proveedorPerfilData?.contacto ?? null },
+        { name: 'telefono', value: proveedorPerfilData?.telefono ?? null },
+        { name: 'email', value: proveedorPerfilData?.email ?? null },
+        { name: 'domicilio_fiscal', value: proveedorPerfilData?.domicilio_fiscal ?? null },
+        { name: 'provincia', value: proveedorPerfilData?.provincia ?? null },
+        { name: 'localidad', value: proveedorPerfilData?.localidad ?? null },
+        { name: 'codigo_postal', value: proveedorPerfilData?.codigo_postal ?? null },
+        { name: 'activo', value: proveedorPerfilData?.activo ?? true },
+        { name: 'observaciones', value: proveedorPerfilData?.observaciones ?? null },
+      ];
+      const availableColumns = [];
+
+      for (const column of providerColumns) {
+        if (await hasTableColumn('proveedores', column.name)) {
+          availableColumns.push(column);
+        }
+      }
+
+      if (availableColumns.length > 0) {
+        const assignments = [
+          'descripcion = $1',
+          ...availableColumns.map((column, index) => `${column.name} = $${index + 2}`),
+        ];
+        updateParams = [clean, ...availableColumns.map((column) => column.value), id];
+        updateSql = `UPDATE ${table} SET ${assignments.join(', ')} WHERE id = $${updateParams.length} RETURNING *`;
+      }
+    }
 
     const { rows, rowCount } = await client.query(updateSql, updateParams);
     if (!rowCount) {
@@ -222,16 +481,221 @@ export async function createProveedor(descripcion: unknown) {
   return createCatalogo('proveedores', descripcion);
 }
 
+export async function createProveedorCompleto(input: ProveedorInput) {
+  return createCatalogo('proveedores', input.descripcion, input);
+}
+
 export async function updateProveedor(id: string | number, descripcion: unknown) {
   return updateCatalogo('proveedores', id, descripcion);
 }
 
 export async function updateProveedorCompleto(id: string | number, input: ProveedorInput) {
-  return updateCatalogo('proveedores', id, input.descripcion, { documento: input.documento });
+  return updateCatalogo('proveedores', id, input.descripcion, input);
 }
 
 export async function deleteProveedor(id: string | number) {
   return deleteCatalogo('proveedores', id);
+}
+
+export async function getProveedoresParaExportar(): Promise<Array<Record<string, string | null>>> {
+  const { rows } = await query(`
+    SELECT
+      descripcion AS "Nombre",
+      documento AS "CUIT / DNI",
+      condicion_iva AS "Condición IVA",
+      comprobante_default AS "Comprobante predeterminado",
+      contacto AS "Contacto principal",
+      telefono AS "Telefono",
+      email AS "Email",
+      domicilio_fiscal AS "Domicilio fiscal",
+      provincia AS "Provincia",
+      localidad AS "Localidad",
+      codigo_postal AS "Codigo postal",
+      CASE WHEN activo THEN 'Activo' ELSE 'Inactivo' END AS "Estado",
+      observaciones AS "Observaciones"
+    FROM proveedores
+    ORDER BY descripcion ASC
+  `);
+  return rows as Array<Record<string, string | null>>;
+}
+
+function cleanProveedorImportText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function cleanProveedorImportActivo(value: unknown): boolean | null {
+  const text = cleanProveedorImportText(value);
+  if (!text) return null;
+
+  const normalized = text.toLocaleLowerCase("es-AR");
+  if (["activo", "si", "sí", "true", "1"].includes(normalized)) return true;
+  if (["inactivo", "no", "false", "0"].includes(normalized)) return false;
+
+  const error = new Error("El Estado debe ser Activo o Inactivo");
+  (error as Error & { status?: number }).status = 400;
+  throw error;
+}
+
+export async function importProveedores(items: ProveedorImportItem[]) {
+  const results = {
+    creados: 0,
+    actualizados: 0,
+    ignorados: 0,
+    errores: [] as Array<{ fila: number; mensaje: string; nombre: string }>,
+  };
+
+  await withTransaction(async (client) => {
+    const { rows } = await client.query(`
+      SELECT
+        id, descripcion, documento, condicion_iva, comprobante_default,
+        contacto, telefono, email, domicilio_fiscal, provincia, localidad,
+        codigo_postal, activo, observaciones
+      FROM proveedores
+    `);
+    const normalize = (value: unknown) => String(value ?? "").trim().toUpperCase();
+    const existingByName = new Map(rows.map((row) => [normalize(row.descripcion), row]));
+    const existingByDocument = new Map(
+      rows
+        .filter((row) => row.documento)
+        .map((row) => [String(row.documento), row])
+    );
+    const seenNames = new Set<string>();
+    const seenDocuments = new Set<string>();
+
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      const fila = Number(item.fila) || index + 2;
+      const nombre = cleanDescripcion(item.nombre);
+
+      if (!nombre) {
+        results.ignorados += 1;
+        results.errores.push({ fila, mensaje: "El nombre del proveedor es obligatorio", nombre: "" });
+        continue;
+      }
+
+      try {
+        const fiscal = cleanProveedorFiscalData({
+          documento: item.documento,
+          condicion_iva: item.condicion_iva,
+          comprobante_default: item.comprobante_default,
+        });
+        const perfil = cleanProveedorPerfilData({
+          contacto: item.contacto,
+          telefono: item.telefono,
+          email: item.email,
+          domicilio_fiscal: item.domicilio_fiscal,
+          provincia: item.provincia,
+          localidad: item.localidad,
+          codigo_postal: item.codigo_postal,
+          observaciones: item.observaciones,
+        });
+        const activoImportado = cleanProveedorImportActivo(item.activo);
+        const normalizedName = normalize(nombre);
+
+        if (seenNames.has(normalizedName) || (fiscal.documento && seenDocuments.has(fiscal.documento))) {
+          results.ignorados += 1;
+          results.errores.push({ fila, mensaje: "El proveedor aparece repetido en el archivo", nombre });
+          continue;
+        }
+
+        const byName = existingByName.get(normalizedName);
+        const byDocument = fiscal.documento ? existingByDocument.get(fiscal.documento) : undefined;
+        if (byName && byDocument && byName.id !== byDocument.id) {
+          results.ignorados += 1;
+          results.errores.push({ fila, mensaje: "El nombre y el CUIT/DNI corresponden a proveedores distintos", nombre });
+          continue;
+        }
+
+        const existing = byDocument ?? byName;
+        const documento = fiscal.documento ?? existing?.documento ?? null;
+        const condicionIva = fiscal.condicion_iva ?? existing?.condicion_iva ?? null;
+        const comprobanteDefault = fiscal.comprobante_default ?? existing?.comprobante_default ?? null;
+        const contacto = perfil.contacto ?? existing?.contacto ?? null;
+        const telefono = perfil.telefono ?? existing?.telefono ?? null;
+        const email = perfil.email ?? existing?.email ?? null;
+        const domicilioFiscal = perfil.domicilio_fiscal ?? existing?.domicilio_fiscal ?? null;
+        const provincia = perfil.provincia ?? existing?.provincia ?? null;
+        const localidad = perfil.localidad ?? existing?.localidad ?? null;
+        const codigoPostal = perfil.codigo_postal ?? existing?.codigo_postal ?? null;
+        const activo = activoImportado ?? existing?.activo ?? true;
+        const observaciones = perfil.observaciones ?? existing?.observaciones ?? null;
+
+        if (existing) {
+          const { rows: updatedRows } = await client.query(
+            `
+              UPDATE proveedores
+              SET descripcion = $1,
+                  documento = $2,
+                  condicion_iva = $3,
+                  comprobante_default = $4,
+                  contacto = $5,
+                  telefono = $6,
+                  email = $7,
+                  domicilio_fiscal = $8,
+                  provincia = $9,
+                  localidad = $10,
+                  codigo_postal = $11,
+                  activo = $12,
+                  observaciones = $13
+              WHERE id = $14
+              RETURNING
+                id, descripcion, documento, condicion_iva, comprobante_default,
+                contacto, telefono, email, domicilio_fiscal, provincia, localidad,
+                codigo_postal, activo, observaciones
+            `,
+            [
+              nombre, documento, condicionIva, comprobanteDefault,
+              contacto, telefono, email, domicilioFiscal, provincia, localidad,
+              codigoPostal, activo, observaciones, existing.id,
+            ]
+          );
+          const updated = updatedRows[0];
+          existingByName.set(normalize(updated.descripcion), updated);
+          if (updated.documento) existingByDocument.set(updated.documento, updated);
+          results.actualizados += 1;
+        } else {
+          const { rows: createdRows } = await client.query(
+            `
+              INSERT INTO proveedores (
+                descripcion, documento, condicion_iva, comprobante_default,
+                contacto, telefono, email, domicilio_fiscal, provincia, localidad,
+                codigo_postal, activo, observaciones
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+              RETURNING
+                id, descripcion, documento, condicion_iva, comprobante_default,
+                contacto, telefono, email, domicilio_fiscal, provincia, localidad,
+                codigo_postal, activo, observaciones
+            `,
+            [
+              nombre, documento, condicionIva, comprobanteDefault,
+              contacto, telefono, email, domicilioFiscal, provincia, localidad,
+              codigoPostal, activo, observaciones,
+            ]
+          );
+          const created = createdRows[0];
+          existingByName.set(normalize(created.descripcion), created);
+          if (created.documento) existingByDocument.set(created.documento, created);
+          results.creados += 1;
+        }
+
+        seenNames.add(normalizedName);
+        if (fiscal.documento) seenDocuments.add(fiscal.documento);
+      } catch (error) {
+        results.ignorados += 1;
+        results.errores.push({
+          fila,
+          mensaje: error instanceof Error ? error.message : "No se pudo procesar el proveedor",
+          nombre,
+        });
+      }
+    }
+  });
+
+  revalidateTag("meta");
+  return results;
 }
 
 // ==========================================

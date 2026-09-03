@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, ReactNode, useState, useCallback } from "react";
+import { createContext, useContext, ReactNode, useState, useCallback, useEffect } from "react";
 import { ProductMeta } from "@/lib/productos-meta";
 
 interface MetadataContextType extends ProductMeta {
@@ -14,7 +14,7 @@ export function MetadataProvider({ children, initialMeta }: { children: ReactNod
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/metadata");
+      const res = await fetch("/api/metadata", { cache: "no-store" });
       if (res.ok) {
         const newData = await res.json();
         setMeta(newData);
@@ -23,6 +23,10 @@ export function MetadataProvider({ children, initialMeta }: { children: ReactNod
       console.error("Error refreshing metadata:", error);
     }
   }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   return (
     <MetadataContext.Provider value={{ ...meta, refresh }}>

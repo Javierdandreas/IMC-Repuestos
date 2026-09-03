@@ -12,7 +12,14 @@ export async function getOperaciones(params?: {
       o.id,
       o.tipo,
       o.entidad_nombre,
+      o.id_proveedor,
+      p.descripcion AS proveedor,
       o.numero_comprobante,
+      o.tipo_comprobante,
+      o.fecha_operacion,
+      o.moneda,
+      o.estado,
+      o.actualiza_costo_proveedor,
       o.total,
       o.usuario_id,
       o.created_at,
@@ -21,6 +28,7 @@ export async function getOperaciones(params?: {
       (SELECT COUNT(*) FROM operacion_detalle od WHERE od.id_operacion = o.id) AS cantidad_items,
       (SELECT SUM(od.cantidad) FROM operacion_detalle od WHERE od.id_operacion = o.id) AS total_unidades
     FROM operacion o
+    LEFT JOIN proveedores p ON p.id = o.id_proveedor
     LEFT JOIN usuario u ON u.id = o.usuario_id
     WHERE 1=1
   `;
@@ -31,7 +39,7 @@ export async function getOperaciones(params?: {
     sql += ` AND o.tipo = $${values.length}`;
   }
 
-  sql += ` ORDER BY o.created_at DESC`;
+  sql += ` ORDER BY o.fecha_operacion DESC, o.created_at DESC`;
 
   if (params?.limit) {
     values.push(params.limit);
@@ -48,13 +56,21 @@ export async function getOperacionById(id: string | number) {
       o.id,
       o.tipo,
       o.entidad_nombre,
+      o.id_proveedor,
+      p.descripcion AS proveedor,
       o.numero_comprobante,
+      o.tipo_comprobante,
+      o.fecha_operacion,
+      o.moneda,
+      o.estado,
+      o.actualiza_costo_proveedor,
       o.total,
       o.usuario_id,
       o.created_at,
       o.observacion,
       u.nombre_usuario AS creador
     FROM operacion o
+    LEFT JOIN proveedores p ON p.id = o.id_proveedor
     LEFT JOIN usuario u ON u.id = o.usuario_id
     WHERE o.id = $1
   `, [id]);
@@ -68,6 +84,9 @@ export async function getOperacionById(id: string | number) {
       od.id_producto,
       od.cantidad,
       od.precio_unitario,
+      od.codigo_proveedor,
+      od.descuento_porcentaje,
+      od.iva_porcentaje,
       od.id_ubicacion,
       u.descripcion AS ubicacion,
       p.descripcion AS producto_descripcion,
@@ -104,7 +123,12 @@ export async function createOperacion(
   payload: {
     tipo: "COMPRA" | "VENTA" | "AJUSTE";
     entidad_nombre?: string;
+    id_proveedor?: number | null;
     numero_comprobante?: string;
+    tipo_comprobante?: string | null;
+    fecha_operacion?: string;
+    moneda?: "ARS";
+    actualiza_costo_proveedor?: boolean;
     observacion?: string;
     usuario_id: number;
     detalles: {
@@ -113,23 +137,80 @@ export async function createOperacion(
       precio_unitario: number;
       numeros_serie: string[];
       id_ubicacion?: number | null;
+      codigo_proveedor?: string | null;
+      descuento_porcentaje?: number;
+      iva_porcentaje?: number;
     }[];
   }
 ) {
   return await withTransaction(async (client: DBClient) => {
+    const esCompra = payload.tipo === "COMPRA";
+    const idProveedor = payload.id_proveedor ? Number(payload.id_proveedor) : null;
+    const fechaOperacion = String(payload.fecha_operacion || new Date().toISOString().slice(0, 10));
+    const moneda = payload.moneda || "ARS";
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaOperacion)) {
+      throw new AppError("La fecha de la operacion no es valida", 400);
+    }
+    if (moneda !== "ARS") {
+      throw new AppError("Por ahora las operaciones se registran en pesos argentinos", 400);
+    }
+    if (esCompra && (!idProveedor || !Number.isInteger(idProveedor))) {
+      throw new AppError("Selecciona un proveedor para registrar la compra", 400);
+    }
+
+    let entidadNombre = String(payload.entidad_nombre || "").trim() || null;
+    if (idProveedor) {
+      const proveedorRes = await client.query(
+        "SELECT id, descripcion FROM proveedores WHERE id = $1",
+        [idProveedor]
+      );
+      if (proveedorRes.rows.length === 0) {
+        throw new AppError("El proveedor seleccionado no existe", 404);
+      }
+      entidadNombre = proveedorRes.rows[0].descripcion;
+    }
+
     let total = 0;
     for (const d of payload.detalles) {
-      total += Math.abs(d.cantidad) * d.precio_unitario;
+      const cantidad = Number(d.cantidad);
+      const precioUnitario = Number(d.precio_unitario);
+      const descuento = Number(d.descuento_porcentaje ?? 0);
+      const iva = Number(d.iva_porcentaje ?? 0);
+      if (!Number.isInteger(cantidad) || cantidad === 0) {
+        throw new AppError("Cada item debe tener una cantidad entera distinta de cero", 400);
+      }
+      if (esCompra && cantidad < 0) {
+        throw new AppError("Una compra no puede incluir cantidades negativas", 400);
+      }
+      if (!Number.isFinite(precioUnitario) || precioUnitario < 0) {
+        throw new AppError("El costo unitario debe ser un numero mayor o igual a cero", 400);
+      }
+      if (!Number.isFinite(descuento) || descuento < 0 || descuento > 100) {
+        throw new AppError("El descuento debe estar entre 0 y 100", 400);
+      }
+      if (!Number.isFinite(iva) || iva < 0 || iva > 100) {
+        throw new AppError("El IVA debe estar entre 0 y 100", 400);
+      }
+      total += Math.abs(cantidad) * precioUnitario * (1 - descuento / 100) * (1 + iva / 100);
     }
 
     const opRes = await client.query(`
-      INSERT INTO operacion (tipo, entidad_nombre, numero_comprobante, total, observacion, usuario_id)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO operacion (
+        tipo, entidad_nombre, id_proveedor, numero_comprobante, tipo_comprobante,
+        fecha_operacion, moneda, estado, actualiza_costo_proveedor, total, observacion, usuario_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'CONFIRMADA', $8, $9, $10, $11)
       RETURNING id
     `, [
       payload.tipo,
-      payload.entidad_nombre || null,
+      entidadNombre,
+      idProveedor,
       payload.numero_comprobante || null,
+      payload.tipo_comprobante || null,
+      fechaOperacion,
+      moneda,
+      Boolean(payload.actualiza_costo_proveedor),
       total,
       payload.observacion || null,
       payload.usuario_id,
@@ -192,6 +273,11 @@ export async function createOperacion(
     };
 
     for (const d of payload.detalles) {
+      const cantidad = Number(d.cantidad);
+      const precioUnitario = Number(d.precio_unitario);
+      const descuentoPorcentaje = Number(d.descuento_porcentaje ?? 0);
+      const ivaPorcentaje = Number(d.iva_porcentaje ?? 0);
+      const codigoProveedor = String(d.codigo_proveedor || "").trim().toUpperCase() || null;
       const prodRes = await client.query(
         `
           SELECT id, usa_numero_serie, id_ubicacion, stock
@@ -210,37 +296,57 @@ export async function createOperacion(
       const idUbicacion = Number(d.id_ubicacion || producto.id_ubicacion || await getSinUbicacionId());
 
       await client.query(`
-        INSERT INTO operacion_detalle (id_operacion, id_producto, cantidad, precio_unitario, id_ubicacion)
-        VALUES ($1, $2, $3, $4, $5)
-      `, [operacionId, d.id_producto, d.cantidad, d.precio_unitario, idUbicacion]);
+        INSERT INTO operacion_detalle (
+          id_operacion, id_producto, cantidad, precio_unitario, id_ubicacion,
+          codigo_proveedor, descuento_porcentaje, iva_porcentaje
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        operacionId,
+        d.id_producto,
+        cantidad,
+        precioUnitario,
+        idUbicacion,
+        codigoProveedor,
+        descuentoPorcentaje,
+        ivaPorcentaje,
+      ]);
 
       if (producto.usa_numero_serie) {
-        if (!d.numeros_serie || d.numeros_serie.length === 0) {
+        const numerosSerie = (d.numeros_serie || []).map((numero) => String(numero).trim().toUpperCase()).filter(Boolean);
+        if (numerosSerie.length !== Math.abs(cantidad)) {
           throw new AppError("El item serializado requiere numeros de serie", 400);
         }
 
-        for (const ns of d.numeros_serie) {
+        if (new Set(numerosSerie).size !== numerosSerie.length) {
+          throw new AppError("No se puede repetir un numero de serie dentro de la misma compra", 400);
+        }
+
+        for (const ns of numerosSerie) {
           const srRes = await client.query(
             `SELECT id, estado, id_ubicacion FROM producto_serie WHERE numero_serie = $1 AND id_producto = $2 FOR UPDATE`,
             [ns, d.id_producto]
           );
 
           let idSerie: number | string;
-          const esBaja = d.cantidad < 0 || payload.tipo === "VENTA";
+          const esBaja = cantidad < 0 || payload.tipo === "VENTA";
           const origen = srRes.rows[0]?.id_ubicacion || null;
 
           if (srRes.rows.length === 0) {
-            if (payload.tipo === "COMPRA" || (payload.tipo === "AJUSTE" && d.cantidad > 0)) {
+            if (payload.tipo === "COMPRA" || (payload.tipo === "AJUSTE" && cantidad > 0)) {
               const newSr = await client.query(`
                 INSERT INTO producto_serie (id_producto, numero_serie, estado, id_ubicacion, costo_unitario)
                 VALUES ($1, $2, 'DISPONIBLE', $3, $4)
                 RETURNING id
-              `, [d.id_producto, ns, idUbicacion, d.precio_unitario]);
+              `, [d.id_producto, ns, idUbicacion, precioUnitario * (1 - descuentoPorcentaje / 100)]);
               idSerie = newSr.rows[0].id;
             } else {
               throw new AppError(`El numero de serie ${ns} no existe para este producto`, 400);
             }
           } else {
+            if (esCompra) {
+              throw new AppError(`El numero de serie ${ns} ya existe para este item`, 400);
+            }
             idSerie = srRes.rows[0].id;
             const estadoActual = srRes.rows[0].estado;
 
@@ -287,10 +393,27 @@ export async function createOperacion(
           ]);
         }
       } else {
-        await applyStockUbicacion(d.id_producto, idUbicacion, d.cantidad);
+        await applyStockUbicacion(d.id_producto, idUbicacion, cantidad);
       }
 
-      await client.query("UPDATE productos SET stock = stock + $1 WHERE id = $2", [d.cantidad, d.id_producto]);
+      await client.query("UPDATE productos SET stock = stock + $1 WHERE id = $2", [cantidad, d.id_producto]);
+
+      if (esCompra && idProveedor && payload.actualiza_costo_proveedor) {
+        const costoNeto = Math.round(precioUnitario * (1 - descuentoPorcentaje / 100) * 100) / 100;
+        await client.query(
+          `
+            INSERT INTO producto_proveedor (
+              id_producto, id_proveedor, codigo_proveedor, costo_actual, fecha_ultima_actualizacion
+            )
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (id_producto, id_proveedor) DO UPDATE
+            SET codigo_proveedor = COALESCE(NULLIF(EXCLUDED.codigo_proveedor, ''), producto_proveedor.codigo_proveedor),
+                costo_actual = EXCLUDED.costo_actual,
+                fecha_ultima_actualizacion = EXCLUDED.fecha_ultima_actualizacion
+          `,
+          [d.id_producto, idProveedor, codigoProveedor, costoNeto]
+        );
+      }
     }
 
     return operacionId;

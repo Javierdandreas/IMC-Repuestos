@@ -9,6 +9,9 @@ import {
 } from "@/utils/sanitization";
 import { deleteFileFromStorage } from "@/lib/storage-cleanup";
 import { SERIE_ESTADOS_CON_STOCK_FISICO } from "@/lib/serie-estados";
+import { getTiposPrecio } from "@/lib/repos/catalogos";
+import { calcularCostoBase, normalizarCriterioCosto, recalcularPreciosDesdeCosto } from "@/lib/costos";
+import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
 
 export type ProductoInput = {
   cod_unico: string;
@@ -24,6 +27,7 @@ export type ProductoInput = {
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
   precios?: { id_tipo_precio: number; valor: number; porcentaje_ganancia: number }[];
+  criterio_costo?: "MANUAL" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
 };
 
 
@@ -63,7 +67,14 @@ function sanitizeProductoInput(input: ProductoInput) {
     usa_numero_serie: Boolean(input.usa_numero_serie),
     palabra_clave: input.id_pieza ? null : sanitizeNullableString(input.palabra_clave),
     precios: Array.isArray(input.precios) ? input.precios : [],
+    criterio_costo: normalizarCriterioCosto(input.criterio_costo),
   };
+}
+
+function aplicarCriterioCosto(payload: ReturnType<typeof sanitizeProductoInput>) {
+  const costo = calcularCostoBase(payload.proveedores, payload.criterio_costo);
+  if (costo === null) return payload.precios;
+  return recalcularPreciosDesdeCosto(payload.precios, costo);
 }
 
 async function syncProductoPrecios(
@@ -253,7 +264,9 @@ export async function getProductosListado(
       COALESCE(
         JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT(
           'proveedor', COALESCE(prv.descripcion, ''),
-          'codigo_proveedor', COALESCE(NULLIF(TRIM(pp.codigo_proveedor), ''), '')
+          'codigo_proveedor', COALESCE(NULLIF(TRIM(pp.codigo_proveedor), ''), ''),
+          'precio_lista_actual', pp.precio_lista_actual,
+          'costo_actual', pp.costo_actual
         )) FILTER (WHERE prv.descripcion IS NOT NULL),
         '[]'::jsonb
       ) AS proveedores_detalle,
@@ -337,6 +350,7 @@ export async function getProductosListado(
       u.descripcion,
       p.imagen_url,
       p.usa_numero_serie,
+      p.criterio_costo,
       p.palabra_clave,
       loc.ubicaciones_resumen
     ORDER BY p.id DESC
@@ -352,7 +366,7 @@ export async function getProductosParaExportar(filters: {
   subcategoria?: string;
   marca?: string;
   proveedor?: string;
-} = {}): Promise<any[]> {
+} = {}, options: { detalleProveedor?: boolean } = {}): Promise<any[]> {
   const params: any[] = [];
   let whereClauses = ["1=1"];
 
@@ -398,31 +412,13 @@ export async function getProductosParaExportar(filters: {
     whereClauses.push(`prv.id = $${params.length}`);
   }
 
-  const sql = `
-    SELECT 
-      p.cod_unico AS "Código Único",
-      p.descripcion AS "Descripción",
-      p.cod_barra AS "Código de Barras",
-      p.stock AS "Stock",
-      m.descripcion AS "Marca",
-      c.descripcion AS "Categoría",
-      s.descripcion AS "Subcategoría",
-      u.descripcion AS "Ubicación",
-      p.palabra_clave AS "Palabras Clave",
-      
-      -- APARTADO ITEM ASOCIADO
-      pi.codigo_pieza AS "Nro Item Asociado",
-      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'ORIGINAL'), '') AS "Códigos Originales",
-      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'EQUIVALENTE'), '') AS "Códigos Equivalentes",
-      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'SUSTITUTO'), '') AS "Códigos Sustitutos",
-      
-      -- APARTADO PRECIOS (Formateado como string para compatibilidad total)
-      COALESCE(
-        STRING_AGG(DISTINCT tp.descripcion || ': $' || pp_p.precio || ' (' || COALESCE(pp_p.porcentaje_ganancia, 0) || '%)', ' | '), 
-        ''
-      ) AS "Precios y Márgenes",
-      
-      -- APARTADO PROVEEDORES
+  const providerColumns = options.detalleProveedor
+    ? `
+      prv.descripcion AS "Proveedor",
+      NULLIF(TRIM(pp_prov.codigo_proveedor), '') AS "Codigo Proveedor",
+      pp_prov.precio_lista_actual AS "Precio Lista Proveedor",
+    `
+    : `
       COALESCE(
         STRING_AGG(DISTINCT prv.descripcion, ' | ') FILTER (WHERE prv.descripcion IS NOT NULL),
         ''
@@ -430,7 +426,7 @@ export async function getProductosParaExportar(filters: {
       COALESCE(
         STRING_AGG(DISTINCT NULLIF(TRIM(pp_prov.codigo_proveedor), ''), ' | '),
         ''
-      ) AS "Código Proveedor",
+      ) AS "Codigo Proveedor",
       COALESCE(
         STRING_AGG(DISTINCT pp_prov.precio_lista_actual::text, ' | ') FILTER (WHERE pp_prov.precio_lista_actual IS NOT NULL),
         ''
@@ -439,10 +435,47 @@ export async function getProductosParaExportar(filters: {
         STRING_AGG(DISTINCT prv.descripcion || ' [' || COALESCE(pp_prov.codigo_proveedor, 'S/C') || ']: $' || COALESCE(pp_prov.precio_lista_actual, 0), ' | '),
         ''
       ) AS "Proveedores y Precios Lista",
+    `;
+  const providerGroupBy = options.detalleProveedor
+    ? ", pp_prov.id_proveedor, prv.id, pp_prov.codigo_proveedor, pp_prov.precio_lista_actual"
+    : "";
+
+  const sql = `
+    SELECT 
+      p.cod_unico AS "Codigo Unico",
+      p.descripcion AS "Descripcion",
+      p.cod_barra AS "Codigo de Barras",
+      p.stock AS "Stock",
+      m.descripcion AS "Marca",
+      c.descripcion AS "Categoria",
+      s.descripcion AS "Subcategoria",
+      u.descripcion AS "Ubicacion",
+      p.palabra_clave AS "Palabras Clave",
+      
+      -- APARTADO ITEM ASOCIADO
+      pi.codigo_pieza AS "Nro Item Asociado",
+      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'ORIGINAL'), '') AS "Codigos Originales",
+      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'EQUIVALENTE'), '') AS "Codigos Equivalentes",
+      COALESCE(STRING_AGG(DISTINCT cr.codigo, ', ') FILTER (WHERE pcr.tipo = 'SUSTITUTO'), '') AS "Codigos Sustitutos",
+      
+      -- APARTADO PRECIOS (se expande a columnas separadas despues de consultar)
+      COALESCE(
+        JSONB_OBJECT_AGG(
+          tp.id::text,
+          JSONB_BUILD_OBJECT(
+            'precio', pp_p.precio,
+            'porcentaje', COALESCE(pp_p.porcentaje_ganancia, 0)
+          )
+        ) FILTER (WHERE tp.id IS NOT NULL),
+        '{}'::jsonb
+      ) AS precios_exportacion,
+      
+      -- APARTADO PROVEEDORES
+      ${providerColumns}
       
       -- APARTADO SERIES
       CASE WHEN p.usa_numero_serie THEN 'SÍ' ELSE 'NO' END AS "Usa Serie",
-      COALESCE(STRING_AGG(DISTINCT ps.numero_serie, ', ') FILTER (WHERE ps.estado = 'DISPONIBLE'), '') AS "Números de Serie Disponibles"
+      COALESCE(STRING_AGG(DISTINCT ps.numero_serie, ', ') FILTER (WHERE ps.estado = 'DISPONIBLE'), '') AS "Numeros de Serie Disponibles"
 
     FROM productos p
     LEFT JOIN pieza pi ON pi.id = p.id_pieza
@@ -459,12 +492,34 @@ export async function getProductosParaExportar(filters: {
     LEFT JOIN producto_serie ps ON ps.id_producto = p.id AND ps.estado = 'DISPONIBLE'
     
     WHERE ${whereClauses.join(" AND ")}
-    GROUP BY p.id, pi.id, m.id, c.id, s.id, u.id
+    GROUP BY p.id, pi.id, m.id, c.id, s.id, u.id${providerGroupBy}
     ORDER BY p.id DESC
   `;
 
-  const { rows } = await query(sql, params);
-  return rows;
+  const [{ rows }, tiposPrecio] = await Promise.all([
+    query(sql, params),
+    getTiposPrecio(),
+  ]);
+
+  return rows.map((row: Record<string, unknown>) => {
+    const { precios_exportacion, ...item } = row;
+    const precios = typeof precios_exportacion === "string"
+      ? JSON.parse(precios_exportacion) as Record<string, { precio?: number; porcentaje?: number }>
+      : (precios_exportacion ?? {}) as Record<string, { precio?: number; porcentaje?: number }>;
+
+    tiposPrecio.forEach((tipo) => {
+      const precio = precios[String(tipo.id)];
+      if (tipo.id === 1) {
+        item["Costo Base"] = precio?.precio ?? "";
+        return;
+      }
+
+      item[`${tipo.descripcion} - Porcentaje`] = precio?.porcentaje ?? "";
+      item[`${tipo.descripcion} - Precio Final`] = precio?.precio ?? "";
+    });
+
+    return item;
+  });
 }
 
 export async function getProductoById(id: string | number): Promise<Producto | null> {
@@ -535,6 +590,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       p.id_ubicacion,
       u.descripcion,
       p.usa_numero_serie,
+      p.criterio_costo,
       p.palabra_clave
     `;
 
@@ -657,9 +713,10 @@ export async function createProducto(input: ProductoInput) {
           id_ubicacion,
           imagen_url,
           usa_numero_serie,
+          criterio_costo,
           palabra_clave
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id
       `,
       [
@@ -673,6 +730,7 @@ export async function createProducto(input: ProductoInput) {
         payload.id_ubicacion,
         payload.imagen_url,
         payload.usa_numero_serie,
+        payload.criterio_costo,
         payload.palabra_clave,
       ]
     );
@@ -680,7 +738,7 @@ export async function createProducto(input: ProductoInput) {
     const newProduct = productResult.rows[0];
     await Promise.all([
       syncProductoProveedores(client, newProduct.id, payload.proveedores),
-      syncProductoPrecios(client, newProduct.id, payload.precios),
+      syncProductoPrecios(client, newProduct.id, aplicarCriterioCosto(payload)),
     ]);
 
 
@@ -717,9 +775,10 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
           id_ubicacion = $8,
           imagen_url = $9,
           usa_numero_serie = $10,
-          palabra_clave = $11
-        WHERE id = $12
-        RETURNING *
+          criterio_costo = $11,
+          palabra_clave = $12
+        WHERE id = $13
+        RETURNING *, (xmax = 0) AS is_new
       `,
       [
         payload.cod_unico,
@@ -732,6 +791,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
         payload.id_ubicacion,
         payload.imagen_url,
         payload.usa_numero_serie,
+        payload.criterio_costo,
         payload.palabra_clave,
         id,
       ]
@@ -745,7 +805,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
 
     await Promise.all([
       syncProductoProveedores(client, id, payload.proveedores),
-      syncProductoPrecios(client, id, payload.precios),
+      syncProductoPrecios(client, id, aplicarCriterioCosto(payload)),
     ]);
 
 
@@ -869,26 +929,87 @@ export async function importProductos(
     };
 
     // Para relación proveedores
-    const supplierLinks: { sku: string; provName: string; codProv: string | null; precioLista: number | null }[] = [];
+    const supplierLinks: { sku: string; provName: string; codProv: string | null; precioLista: number | null; rowNum: number }[] = [];
 
     const results = {
       imported: 0,
       updated: 0,
       ignored: 0,
+      providerPricesUpdated: 0,
+      recalculatedCostCount: 0,
       errors: [] as { row: number; error: string; cod_unico: string }[],
-      updatedDetails: [] as { cod_unico: string; changes: any }[],
     };
 
-    // 2. Preparar los datos
-    for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const rowNum = i + 1;
-        
-        const sku = item[mappings.cod_unico?.csvHeader]?.toString().trim();
-        if (!sku) {
-            results.ignored++;
-            continue;
+    type GroupedImportRow = { item: any; rowNum: number };
+    type GroupedImportItem = { sku: string; rowNum: number; item: any; rows: GroupedImportRow[] };
+    const groupedBySku = new Map<string, GroupedImportRow[]>();
+    const skuHeader = mappings.cod_unico?.csvHeader;
+
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      const rawSku = skuHeader ? item[skuHeader] : null;
+      const sku = normalize(rawSku).substring(0, 50);
+
+      if (!sku) {
+        results.ignored += 1;
+        continue;
+      }
+
+      const rows = groupedBySku.get(sku) ?? [];
+      rows.push({ item, rowNum: i + 1 });
+      groupedBySku.set(sku, rows);
+    }
+
+    const consolidatedFields = [
+      { id: "titulo", label: "Descripcion" },
+      { id: "cod_barra", label: "Codigo de barras" },
+      { id: "stock", label: "Stock" },
+      { id: "marca", label: "Marca" },
+      { id: "subcategoria", label: "Subcategoria" },
+      { id: "ubicacion", label: "Ubicacion" },
+      { id: "codigo_pieza", label: "Codigo de item asociado" },
+      { id: "palabra_clave", label: "Palabras clave" },
+    ];
+    const groupedItems: GroupedImportItem[] = [];
+
+    groupedBySku.forEach((rows, sku) => {
+      const consolidatedItem = { ...rows[0].item };
+      let hasConflict = false;
+
+      consolidatedFields.forEach((field) => {
+        const header = mappings[field.id]?.csvHeader;
+        if (!header) return;
+
+        const values = rows
+          .map(({ item }) => item[header])
+          .filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
+        const uniqueValues = new Set(values.map((value) => normalize(value)));
+
+        if (uniqueValues.size > 1) {
+          results.errors.push({
+            row: rows[0].rowNum,
+            error: `El item ${sku} tiene valores distintos para ${field.label}`,
+            cod_unico: sku,
+          });
+          hasConflict = true;
+          return;
         }
+
+        if (values.length > 0) consolidatedItem[header] = values[0];
+      });
+
+      if (hasConflict) {
+        results.ignored += 1;
+        return;
+      }
+
+      if (skuHeader) consolidatedItem[skuHeader] = sku;
+      groupedItems.push({ sku, rowNum: rows[0].rowNum, item: consolidatedItem, rows });
+    });
+
+    // 2. Preparar los datos
+    for (const groupedItem of groupedItems) {
+        const { item, rowNum, sku } = groupedItem;
 
         try {
             // Limpieza de datos básica con protección de límites de la DB
@@ -924,17 +1045,20 @@ export async function importProductos(
             v_palabra_clave.push(keyword);
 
             // Relación proveedor
-            const provName = mappings.proveedor?.csvHeader ? item[mappings.proveedor.csvHeader] : null;
-            if (provName) {
+            groupedItem.rows.forEach(({ item: supplierItem, rowNum: supplierRowNum }) => {
+                const provName = mappings.proveedor?.csvHeader ? supplierItem[mappings.proveedor.csvHeader] : null;
+                if (!provName) return;
+
                 supplierLinks.push({ 
                   sku, 
                   provName: provName.toString(), 
-                  codProv: mappings.codigo_proveedor?.csvHeader ? item[mappings.codigo_proveedor.csvHeader]?.toString() : null,
+                  codProv: mappings.codigo_proveedor?.csvHeader ? supplierItem[mappings.codigo_proveedor.csvHeader]?.toString() : null,
                   precioLista: mappings.precio_lista_proveedor?.csvHeader
-                    ? parseNullableNumber(item[mappings.precio_lista_proveedor.csvHeader])
-                    : null
+                    ? parseNullableNumber(supplierItem[mappings.precio_lista_proveedor.csvHeader])
+                    : null,
+                  rowNum: supplierRowNum,
                 });
-            }
+            });
         } catch (err: any) {
             results.errors.push({ row: rowNum, error: `Error procesando fila: ${err.message}`, cod_unico: sku });
         }
@@ -980,39 +1104,65 @@ export async function importProductos(
 
       const skuToIdMap = new Map<string, number>(upsertRes.rows.map(r => [r.cod_unico, r.id]));
       
-      // Mapeo de campos para el reporte de cambios
-      const mappedFields = Object.entries(mappings)
-        .filter(([_, config]) => !!config.csvHeader && config.updateExisting)
-        .map(([field, _]) => field);
-
       upsertRes.rows.forEach(r => {
           if (r.is_new) {
               results.imported++;
           } else {
               results.updated++;
-              // Solo guardamos detalles de los actualizados
-              if (results.updatedDetails.length < 500) { // Límite para no saturar memoria
-                  const changes: Record<string, any> = {};
-                  mappedFields.forEach(f => {
-                      // Traducir nombres internos a legibles si es necesario, o usar los originales
-                      changes[f] = r[f];
-                  });
-                  results.updatedDetails.push({
-                      cod_unico: r.cod_unico,
-                      changes
-                  });
-              }
           }
       });
 
       // 4. Bulk Upsert de Proveedores (si corresponde)
       if (supplierLinks.length > 0 && mappings.proveedor?.updateExisting !== false) {
+          const uniqueSupplierLinks = new Map<string, typeof supplierLinks[number]>();
+          const invalidSupplierLinks = new Set<string>();
+
+          supplierLinks.forEach((link) => {
+              const providerKey = normalize(link.provName);
+              const key = `${link.sku}::${providerKey}`;
+
+              if (!provMap.has(providerKey)) {
+                  results.errors.push({
+                    row: link.rowNum,
+                    error: `Proveedor no encontrado: ${link.provName}`,
+                    cod_unico: link.sku,
+                  });
+                  return;
+              }
+
+              if (invalidSupplierLinks.has(key)) return;
+              const previous = uniqueSupplierLinks.get(key);
+              if (!previous) {
+                  uniqueSupplierLinks.set(key, link);
+                  return;
+              }
+
+              const codigoConflict = previous.codProv && link.codProv && normalize(previous.codProv) !== normalize(link.codProv);
+              const precioConflict = previous.precioLista !== null && link.precioLista !== null && previous.precioLista !== link.precioLista;
+              if (codigoConflict || precioConflict) {
+                  results.errors.push({
+                    row: link.rowNum,
+                    error: `El proveedor ${link.provName} tiene codigo o precio distinto para este item`,
+                    cod_unico: link.sku,
+                  });
+                  uniqueSupplierLinks.delete(key);
+                  invalidSupplierLinks.add(key);
+                  return;
+              }
+
+              uniqueSupplierLinks.set(key, {
+                ...previous,
+                codProv: previous.codProv || link.codProv,
+                precioLista: previous.precioLista ?? link.precioLista,
+              });
+          });
+
           const v_prod_id: number[] = [];
           const v_prov_id: number[] = [];
           const v_cod_prov: (string | null)[] = [];
           const v_precio_lista: (number | null)[] = [];
 
-          supplierLinks.forEach(link => {
+          uniqueSupplierLinks.forEach(link => {
               const prodId = skuToIdMap.get(link.sku);
               const provId = provMap.get(normalize(link.provName));
               if (prodId && provId) {
@@ -1027,7 +1177,7 @@ export async function importProductos(
               const codProvShouldUpdate = Boolean(mappings.codigo_proveedor?.csvHeader) && (mappings.codigo_proveedor?.updateExisting ?? true);
               const precioListaShouldUpdate = Boolean(mappings.precio_lista_proveedor?.csvHeader) && (mappings.precio_lista_proveedor?.updateExisting ?? true);
               
-              await client.query(`
+              const providerUpdateResult = await client.query(`
                   INSERT INTO producto_proveedor (id_producto, id_proveedor, codigo_proveedor, precio_lista_actual, fecha_ultima_actualizacion)
                   SELECT *, NOW() FROM UNNEST($1::int[], $2::int[], $3::text[], $4::numeric[])
                   AS t(id_producto, id_proveedor, codigo_proveedor, precio_lista_actual)
@@ -1035,7 +1185,16 @@ export async function importProductos(
                       codigo_proveedor = CASE WHEN $5 THEN EXCLUDED.codigo_proveedor ELSE producto_proveedor.codigo_proveedor END,
                       precio_lista_actual = CASE WHEN $6 THEN EXCLUDED.precio_lista_actual ELSE producto_proveedor.precio_lista_actual END,
                       fecha_ultima_actualizacion = CASE WHEN $6 THEN NOW() ELSE producto_proveedor.fecha_ultima_actualizacion END
+                  RETURNING id_producto
               `, [v_prod_id, v_prov_id, v_cod_prov, v_precio_lista, codProvShouldUpdate, precioListaShouldUpdate]);
+
+              if (precioListaShouldUpdate) {
+                results.providerPricesUpdated += providerUpdateResult.rowCount || 0;
+                results.recalculatedCostCount += await recalcularPreciosAutomaticos(
+                  client,
+                  providerUpdateResult.rows.map((row) => Number(row.id_producto))
+                );
+              }
           }
       }
     } catch (dbErr: any) {
@@ -1049,7 +1208,6 @@ export async function importProductos(
     return { ...results, durationMs };
   });
 }
-
 
 export async function getImportacionesLogs(page: number = 1, limit: number = 20): Promise<{ data: any[]; totalCount: number; totalPages: number }> {
   const sql = `

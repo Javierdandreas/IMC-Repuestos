@@ -39,6 +39,7 @@ import {
   MapPin
 } from "lucide-react";
 import { QuickAddModal, QuickAddType } from "./QuickAddModal";
+import { normalizarCriterioCosto } from "@/lib/costos";
 
 export type TabId = "principal" | "pieza" | "precios" | "ubicaciones" | "serial" | "foto";
 
@@ -78,6 +79,7 @@ const initialState: Producto = {
   usa_numero_serie: false,
   palabra_clave: "",
   precios: [],
+  criterio_costo: "MANUAL",
 };
 
 export function ProductForm({
@@ -128,6 +130,7 @@ export function ProductForm({
       ? initialProduct.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
       : initialState.proveedores,
     precios: initialProduct?.precios ?? initialState.precios,
+    criterio_costo: normalizarCriterioCosto(initialProduct?.criterio_costo),
 
   });
 
@@ -216,7 +219,8 @@ export function ProductForm({
           proveedores: data.proveedores && data.proveedores.length > 0
             ? data.proveedores.map(p => ({ ...p, codigo_proveedor: p.codigo_proveedor?.toUpperCase() ?? "" }))
             : initialState.proveedores,
-          precios: data.precios ?? initialState.precios
+          precios: data.precios ?? initialState.precios,
+          criterio_costo: normalizarCriterioCosto(data.criterio_costo),
 
         });
 
@@ -393,15 +397,20 @@ export function ProductForm({
 
   const buildProductPayload = (overrides: Partial<Producto> = {}) => {
     const source = { ...product, ...overrides };
+    const toNullableNumber = (value: unknown) => {
+      if (value === null || value === undefined || value === "") return null;
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    };
     const cleanProveedores = source.proveedores
       .filter((item) => item.id_proveedor)
       .map((item) => ({
-        id_proveedor: item.id_proveedor,
+        id_proveedor: Number(item.id_proveedor),
         codigo_proveedor: item.codigo_proveedor?.trim() ?? "",
-        precio_lista_actual: item.precio_lista_actual || null,
-        costo_actual: item.costo_actual || null,
+        precio_lista_actual: toNullableNumber(item.precio_lista_actual),
+        costo_actual: toNullableNumber(item.costo_actual),
         fecha_ultima_actualizacion: item.fecha_ultima_actualizacion || null,
-        ultima_importacion_id: item.ultima_importacion_id || null,
+        ultima_importacion_id: toNullableNumber(item.ultima_importacion_id),
       }));
 
     return {
@@ -417,7 +426,13 @@ export function ProductForm({
       proveedores: cleanProveedores,
       usa_numero_serie: source.usa_numero_serie ?? false,
       palabra_clave: source.palabra_clave || null,
-      precios: source.precios || [],
+      precios: (source.precios || []).map((precio) => ({
+        ...precio,
+        id_tipo_precio: Number(precio.id_tipo_precio),
+        valor: toNullableNumber(precio.valor) ?? 0,
+        porcentaje_ganancia: toNullableNumber(precio.porcentaje_ganancia) ?? 0,
+      })),
+      criterio_costo: normalizarCriterioCosto(source.criterio_costo),
     };
   };
 
@@ -678,7 +693,10 @@ export function ProductForm({
             <div className="grid grid-cols-1 gap-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <PricingSection
                 precios={product.precios || []}
+                proveedores={product.proveedores}
+                criterioCosto={normalizarCriterioCosto(product.criterio_costo)}
                 onChange={(precios) => setProduct(prev => ({ ...prev, precios }))}
+                onCriterioCostoChange={(criterio_costo) => setProduct(prev => ({ ...prev, criterio_costo }))}
               />
               <SuppliersSection
                 proveedores={product.proveedores}

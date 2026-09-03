@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Download } from "lucide-react";
+import { toast } from "sonner";
+import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
 import {
   INVENTARIO_EXPORT_COLUMNS,
   type InventarioExportColumnKey,
@@ -17,6 +19,7 @@ export function InventoryExportButton({ exportParams }: Props) {
   const [columns, setColumns] = useState<InventarioExportColumnKey[]>(
     () => INVENTARIO_EXPORT_COLUMNS.map((column) => column.key)
   );
+  const [isExporting, setIsExporting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -59,6 +62,35 @@ export function InventoryExportButton({ exportParams }: Props) {
   };
 
   const canExport = columns.length > 0;
+
+  const handleExport = async () => {
+    if (!canExport || isExporting) return;
+
+    try {
+      setIsExporting(true);
+      const response = await fetch(downloadUrl());
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || "No se pudo exportar el inventario");
+      }
+
+      const disposition = response.headers.get("content-disposition") || "";
+      const fileName = disposition.match(/filename="?([^";]+)"?/)?.[1]
+        || `inventario_ubicaciones.${format === "excel" ? "xlsx" : "csv"}`;
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+      setIsOpen(false);
+      toast.success("Inventario exportado correctamente");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo exportar el inventario");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <div ref={menuRef} className="relative">
@@ -127,26 +159,22 @@ export function InventoryExportButton({ exportParams }: Props) {
             })}
           </div>
 
-          <a
-            href={canExport ? downloadUrl() : undefined}
-            onClick={(event) => {
-              if (!canExport) {
-                event.preventDefault();
-                return;
-              }
-              setIsOpen(false);
-            }}
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={!canExport || isExporting}
             className={`mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-xs font-black uppercase tracking-widest transition ${
               canExport
                 ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20 hover:bg-blue-500"
-                : "pointer-events-none bg-slate-200 text-slate-400 dark:bg-slate-800"
+                : "bg-slate-200 text-slate-400 dark:bg-slate-800"
             }`}
           >
             <Download className="h-4 w-4" />
             Descargar
-          </a>
+          </button>
         </div>
       )}
+      <TransferProgressModal open={isExporting} title="Exportando inventario" description="Preparando el archivo con los filtros actuales." />
     </div>
   );
 }

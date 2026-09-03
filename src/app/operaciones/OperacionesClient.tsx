@@ -59,7 +59,7 @@ export function OperacionesClient() {
           </p>
         </div>
         <button
-          onClick={() => setWizardOpen(true)}
+          onClick={() => tab === "COMPRA" ? router.push("/operaciones/compras/nueva") : setWizardOpen(true)}
           className="group relative inline-flex items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 px-6 py-3 font-semibold text-white shadow-lg transition-all duration-300 hover:scale-[1.02] hover:shadow-slate-500/20 focus:outline-none focus:ring-2 focus:ring-slate-500 dark:from-blue-600 dark:to-indigo-600 dark:hover:shadow-blue-500/30"
         >
           <div className="absolute inset-0 flex h-full w-full justify-center [transform:skew(-12deg)_translateX(-150%)] group-hover:animate-shine group-hover:bg-white/20" />

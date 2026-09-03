@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createCatalogo, getPaginatedCatalogo } from "@/lib/repos/catalogos";
+import { createCatalogo, createProveedorCompleto, getPaginatedCatalogo } from "@/lib/repos/catalogos";
 import { requireApiWriteSession } from "@/lib/api-auth";
 import { jsonError } from "@/lib/api-errors";
 
@@ -21,8 +21,9 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "50", 10);
+    const search = searchParams.get("search") || undefined;
 
-    const result = await getPaginatedCatalogo(table as any, page, limit);
+    const result = await getPaginatedCatalogo(table as any, page, limit, search);
     return NextResponse.json(result);
   } catch (error: any) {
     return jsonError(error, "No se pudo obtener el catálogo");
@@ -41,8 +42,10 @@ export async function POST(
       return NextResponse.json({ message: "Catálogo no encontrado" }, { status: 404 });
     }
 
-    const { descripcion } = await request.json();
-    const result = await createCatalogo(table as any, descripcion);
+    const body = await request.json();
+    const result = table === "proveedores"
+      ? await createProveedorCompleto(body)
+      : await createCatalogo(table as any, body.descripcion);
     return NextResponse.json(result);
   } catch (error: any) {
     return jsonError(error, "No se pudo crear el registro");

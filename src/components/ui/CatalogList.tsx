@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
@@ -10,11 +11,23 @@ import { TrashButton } from "@/components/ui/TrashButton";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/components/auth/usePermissions";
 import { toast } from "sonner";
-import { HiSave } from "react-icons/hi";
+import { HiCloudDownload, HiCloudUpload, HiSave } from "react-icons/hi";
 
 type CatalogItem = {
   id: number;
   descripcion: string;
+  documento?: string | null;
+  condicion_iva?: string | null;
+  comprobante_default?: string | null;
+  contacto?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  domicilio_fiscal?: string | null;
+  provincia?: string | null;
+  localidad?: string | null;
+  codigo_postal?: string | null;
+  activo?: boolean;
+  observaciones?: string | null;
 };
 
 type Props = {
@@ -32,6 +45,12 @@ type Props = {
   totalPages?: number;
   /** Ruta base opcional para editar en pagina en vez de modal */
   editPathBase?: string;
+  /** Ruta opcional para crear en una pagina en vez de modal */
+  createPath?: string;
+  /** Pantalla opcional para importar el catalogo */
+  importPath?: string;
+  /** Pantalla opcional para exportar el catalogo */
+  exportPath?: string;
 };
 
 /**
@@ -46,6 +65,9 @@ export function CatalogList({
   createLabel,
   totalPages = 1,
   editPathBase,
+  createPath,
+  importPath,
+  exportPath,
 }: Props) {
   const router = useRouter();
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -56,6 +78,7 @@ export function CatalogList({
   const [deletingItem, setDeletingItem] = useState<CatalogItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [search, setSearch] = useState(searchParams.get("search") || "");
+  const isProveedor = entityName.toLowerCase() === "proveedor";
 
   // Debounced search sync with URL
   useEffect(() => {
@@ -107,7 +130,7 @@ export function CatalogList({
             <div className="relative group">
               <input
                 type="text"
-                placeholder={`BUSCAR ${entityName.toUpperCase()}...`}
+                placeholder={isProveedor ? "BUSCAR NOMBRE, CUIT O DNI..." : `BUSCAR ${entityName.toUpperCase()}...`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-11 w-64 rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-xs font-bold uppercase outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-blue-500"
@@ -117,7 +140,34 @@ export function CatalogList({
               </svg>
             </div>
 
-            {canManage ? (
+            {exportPath ? (
+              <Link
+                href={exportPath}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-widest text-slate-700 transition hover:border-blue-200 hover:text-blue-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-blue-500/50 dark:hover:text-blue-400"
+              >
+                <HiCloudDownload className="h-4 w-4" />
+                Exportar
+              </Link>
+            ) : null}
+
+            {canManage && importPath ? (
+              <Link
+                href={importPath}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-widest text-slate-700 transition hover:border-blue-200 hover:text-blue-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-blue-500/50 dark:hover:text-blue-400"
+              >
+                <HiCloudUpload className="h-4 w-4" />
+                Importar
+              </Link>
+            ) : null}
+
+            {canManage ? createPath ? (
+              <Link
+                href={createPath}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-6 text-sm font-bold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-md active:scale-95"
+              >
+                {createLabel}
+              </Link>
+            ) : (
               <button
                 type="button"
                 onClick={() => setOpenNew(true)}
@@ -130,10 +180,17 @@ export function CatalogList({
         </div>
 
         <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-slate-50/50 shadow-xl dark:border-slate-800 dark:bg-slate-900 shadow-slate-200/50 dark:shadow-none">
-          <div className="min-w-[500px]">
-            <div className="grid grid-cols-[100px_1fr_120px] bg-slate-50/50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-800">
+          <div className={isProveedor ? "min-w-[960px]" : "min-w-[500px]"}>
+            <div className={`${isProveedor ? "grid-cols-[80px_minmax(240px,1fr)_150px_190px_130px_120px]" : "grid-cols-[100px_1fr_120px]"} grid bg-slate-50/50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-800`}>
               <div className="px-5 py-4">ID</div>
               <div className="px-5 py-4">Descripción</div>
+              {isProveedor && (
+                <>
+                  <div className="px-5 py-4">CUIT / DNI</div>
+                  <div className="px-5 py-4">Condicion IVA</div>
+                  <div className="px-5 py-4">Comprobante</div>
+                </>
+              )}
               <div className="px-5 py-4 text-center border-l border-slate-200 dark:border-slate-800/50">Acciones</div>
             </div>
 
@@ -144,10 +201,23 @@ export function CatalogList({
                 {items.map((item) => (
                   <div
                     key={item.id}
-                    className="grid grid-cols-[100px_1fr_120px] items-center transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/30"
+                    className={`${isProveedor ? "grid-cols-[80px_minmax(240px,1fr)_150px_190px_130px_120px]" : "grid-cols-[100px_1fr_120px]"} grid items-center transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/30`}
                   >
                     <div className="px-5 py-4 text-sm font-mono font-bold text-slate-400 dark:text-slate-500">#{item.id}</div>
                     <div className="px-5 py-4 text-sm font-bold text-slate-800 dark:text-slate-200">{item.descripcion}</div>
+                    {isProveedor && (
+                      <>
+                        <div className="px-5 py-4 text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+                          {formatProviderDocumento(item.documento)}
+                        </div>
+                        <div className="px-5 py-4 text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+                          {formatProviderFiscalValue(item.condicion_iva)}
+                        </div>
+                        <div className="px-5 py-4 text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+                          {formatProviderFiscalValue(item.comprobante_default)}
+                        </div>
+                      </>
+                    )}
                     <div className="px-5 py-4 flex items-center justify-center gap-2.5 border-l border-slate-50 dark:border-slate-800/50">
                       {canManage ? (<>
                         {editPathBase ? (
@@ -182,22 +252,24 @@ export function CatalogList({
         )}
       </div>
 
-      <Modal
-        title={createLabel}
-        open={canManage && openNew}
-        onClose={() => setOpenNew(false)}
-        width="w-[min(96vw,1400px)]"
-      >
-        <CatalogForm
-          apiPath={apiPath}
-          entityName={entityName}
-          onSuccess={() => {
-            setOpenNew(false);
-            router.refresh();
-          }}
-          onCancel={() => setOpenNew(false)}
-        />
-      </Modal>
+      {!createPath ? (
+        <Modal
+          title={createLabel}
+          open={canManage && openNew}
+          onClose={() => setOpenNew(false)}
+          width="w-[min(96vw,1400px)]"
+        >
+          <CatalogForm
+            apiPath={apiPath}
+            entityName={entityName}
+            onSuccess={() => {
+              setOpenNew(false);
+              router.refresh();
+            }}
+            onCancel={() => setOpenNew(false)}
+          />
+        </Modal>
+      ) : null}
 
       <Modal
         title={`Editar ${entityName}`}
@@ -224,6 +296,18 @@ export function CatalogList({
           entityName={entityName}
           entityId={editingItem?.id}
           initialDescripcion={editingItem?.descripcion ?? ""}
+          initialDocumento={editingItem?.documento}
+          initialCondicionIva={editingItem?.condicion_iva}
+          initialComprobanteDefault={editingItem?.comprobante_default}
+          initialContacto={editingItem?.contacto}
+          initialTelefono={editingItem?.telefono}
+          initialEmail={editingItem?.email}
+          initialDomicilioFiscal={editingItem?.domicilio_fiscal}
+          initialProvincia={editingItem?.provincia}
+          initialLocalidad={editingItem?.localidad}
+          initialCodigoPostal={editingItem?.codigo_postal}
+          initialActivo={editingItem?.activo}
+          initialObservaciones={editingItem?.observaciones}
           triggerSave={triggerSave}
           onSuccess={() => {
             setEditingItem(null);
@@ -255,4 +339,16 @@ export function CatalogList({
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function formatProviderFiscalValue(value?: string | null): string {
+  if (!value) return "-";
+  return value.replace(/_/g, " ");
+}
+
+function formatProviderDocumento(value?: string | null): string {
+  if (!value) return "-";
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 11) return `${digits.slice(0, 2)}-${digits.slice(2, 10)}-${digits.slice(10)}`;
+  return digits || value;
 }

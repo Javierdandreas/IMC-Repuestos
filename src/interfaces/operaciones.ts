@@ -2,7 +2,14 @@ export interface OperacionListado {
   id: number | string;
   tipo: "COMPRA" | "VENTA" | "AJUSTE";
   entidad_nombre: string | null;
+  id_proveedor: number | null;
+  proveedor: string | null;
   numero_comprobante: string | null;
+  tipo_comprobante: string | null;
+  fecha_operacion: string;
+  moneda: string;
+  estado: "BORRADOR" | "CONFIRMADA" | "ANULADA";
+  actualiza_costo_proveedor: boolean;
   total: number;
   usuario_id: number;
   creador: string;
@@ -17,6 +24,9 @@ export interface OperacionDetalleListado {
   id_producto: number;
   cantidad: number;
   precio_unitario: number;
+  codigo_proveedor: string | null;
+  descuento_porcentaje: number;
+  iva_porcentaje: number;
   id_ubicacion: number | null;
   ubicacion: string | null;
   producto_descripcion: string;

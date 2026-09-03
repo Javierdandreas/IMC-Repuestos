@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiWriteSession } from "@/lib/api-auth";
 import { jsonError } from "@/lib/api-errors";
-import { createImportacion } from "@/lib/repos/proveedor-importaciones";
+import { aplicarImportacionAlCatalogo, createImportacion } from "@/lib/repos/proveedor-importaciones";
 import { CreateImportacionInput } from "@/interfaces/importaciones";
 
 export async function POST(request: NextRequest) {
@@ -21,22 +21,36 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Ejecutar importación
-    const cleanItems = body.items
-      .map((item) => ({
+    const cleanItems = body.items.map((item, index) => {
+      const parsedPrice = item.precio_lista === null || item.precio_lista === undefined
+        ? null
+        : Number(item.precio_lista);
+
+      return {
+        fila: Number(item.fila || index + 2),
+        proveedor_archivo: String(item.proveedor_archivo ?? "").trim(),
         codigo_proveedor: String(item.codigo_proveedor ?? "").trim().toUpperCase(),
-        precio_lista: Number(item.precio_lista),
-      }))
-      .filter((item) => item.codigo_proveedor && Number.isFinite(item.precio_lista));
+        precio_lista: Number.isFinite(parsedPrice) ? parsedPrice : null,
+        precio_original: String(item.precio_original ?? item.precio_lista ?? "").trim(),
+      };
+    });
 
     if (cleanItems.length === 0) {
-      return NextResponse.json({ error: "No hay filas validas para importar" }, { status: 400 });
+      return NextResponse.json({ error: "No hay filas para importar" }, { status: 400 });
     }
 
     const importacion = await createImportacion({ ...body, items: cleanItems });
+    const applyResult = await aplicarImportacionAlCatalogo(Number(importacion.id));
 
     return NextResponse.json({
-      message: "Importación creada exitosamente",
-      data: importacion
+      message: "Importación aplicada exitosamente",
+      data: importacion,
+      updatedCount: applyResult.updatedCount,
+      recalculatedCostCount: applyResult.recalculatedCostCount,
+      notFoundCount: applyResult.notFoundCount,
+      invalidCount: applyResult.invalidCount,
+      duplicateCount: applyResult.duplicateCount,
+      providerMismatchCount: applyResult.providerMismatchCount,
     });
 
   } catch (error: any) {

@@ -44,10 +44,12 @@ export function toAppError(error: unknown, fallbackMessage: string): AppError {
 
 export function jsonError(error: unknown, fallbackMessage: string) {
   const appError = toAppError(error, fallbackMessage);
-  const isUnexpected = !isAppError(error) && !(error instanceof z.ZodError);
+  const isExpected = isAppError(error)
+    || error instanceof z.ZodError
+    || (typeof error === "object" && error !== null && "status" in error && typeof (error as any).status === "number");
 
   // Log detallado en el servidor para el desarrollador
-  if (isUnexpected) {
+  if (!isExpected) {
     console.error("❌ [API ERROR]:", error);
   } else {
     console.warn(`⚠️ [API ${appError.status}]:`, appError.message);
@@ -55,7 +57,7 @@ export function jsonError(error: unknown, fallbackMessage: string) {
 
   // En producción, podrías querer ocultar el mensaje real si es inesperado
   // para evitar fugas de información de la DB.
-  const clientMessage = isUnexpected ? fallbackMessage : appError.message;
+  const clientMessage = isExpected ? appError.message : fallbackMessage;
 
   return NextResponse.json({ message: clientMessage }, { status: appError.status });
 }

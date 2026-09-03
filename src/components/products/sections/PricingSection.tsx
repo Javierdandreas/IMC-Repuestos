@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PrecioDetalle } from "@/interfaces/productos";
+import { PrecioDetalle, ProveedorProducto } from "@/interfaces/productos";
+import { calcularCostoBase, CriterioCosto, preciosValidosProveedores } from "@/lib/costos";
 import { Package2, ShoppingBag, Users, CreditCard, BadgePercent } from "lucide-react";
 import { useMetadata } from "@/context/MetadataContext";
 
 interface PricingSectionProps {
   precios: PrecioDetalle[];
+  proveedores: ProveedorProducto[];
+  criterioCosto: CriterioCosto;
   onChange: (nuevosPrecios: PrecioDetalle[]) => void;
+  onCriterioCostoChange: (criterio: CriterioCosto) => void;
 }
 
 const TIPO_COSTO = 1;
@@ -31,9 +35,10 @@ interface PriceInputProps {
   prefix?: string;
   className?: string;
   placeholder?: string;
+  disabled?: boolean;
 }
 
-function PriceInput({ value, onChange, prefix, className, placeholder }: PriceInputProps) {
+function PriceInput({ value, onChange, prefix, className, placeholder, disabled = false }: PriceInputProps) {
   const [displayValue, setDisplayValue] = useState(value === 0 ? "" : value.toString());
   const [isFocused, setIsFocused] = useState(false);
 
@@ -84,13 +89,14 @@ function PriceInput({ value, onChange, prefix, className, placeholder }: PriceIn
         onFocus={() => setIsFocused(true)}
         onBlur={handleBlur}
         placeholder={placeholder}
+        disabled={disabled}
         className={`${className} ${prefix ? "pl-8" : "px-4"}`}
       />
     </div>
   );
 }
 
-export function PricingSection({ precios, onChange }: PricingSectionProps) {
+export function PricingSection({ precios, proveedores, criterioCosto, onChange, onCriterioCostoChange }: PricingSectionProps) {
   const { tiposPrecio } = useMetadata();
 
   const findTipoPrecio = (descripciones: string[], fallbackId: number, fallbackDescripcion: string) => {
@@ -160,6 +166,18 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
     onChange(nuevosPrecios);
   };
 
+  const preciosProveedor = preciosValidosProveedores(proveedores);
+  const costoAutomatico = calcularCostoBase(proveedores, criterioCosto);
+
+  useEffect(() => {
+    if (costoAutomatico === null) return;
+    const costoActual = precios.find((precio) => precio.id_tipo_precio === tipoCosto.id)?.valor;
+    if (costoActual === costoAutomatico) return;
+    handleCostoChange(costoAutomatico);
+  // Solo debe reaccionar al criterio o a los precios asociados de proveedores.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [criterioCosto, proveedores]);
+
   const updatePrecio = (idTipo: number, field: "valor" | "porcentaje_ganancia", val: number) => {
     const basePrecios = syncAllPrices(precios);
     const costo = basePrecios.find(p => p.id_tipo_precio === tipoCosto.id)?.valor || 0;
@@ -192,8 +210,8 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <div className="flex flex-col gap-1">
-            <label className="flex items-center gap-1 px-0.5 text-[8px] font-black uppercase tracking-widest text-slate-400">
+          <div className="flex flex-col gap-1.5">
+            <label className="flex h-3 items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
               Margen %
             </label>
             <PriceInput
@@ -204,7 +222,7 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="flex items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
+            <label className="flex h-3 items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
               Final $
             </label>
             <PriceInput
@@ -227,7 +245,7 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_3fr]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(330px,1.2fr)_3fr]">
         {/* Costo Section - Primary */}
         <div className="rounded-xl border-2 border-blue-100 bg-blue-50/30 p-4 dark:border-blue-900/20 dark:bg-blue-900/5">
           <div className="mb-2 flex items-center gap-3">
@@ -239,10 +257,35 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
               <span className="text-[8px] font-bold uppercase text-slate-400 leading-none">Insumo</span>
             </div>
           </div>
+
+          <div className="mb-3 grid grid-cols-4 gap-1.5">
+            {([
+              ["MANUAL", "Manual"],
+              ["MENOR_PRECIO", "Menor"],
+              ["PROMEDIO_PRECIO", "Promedio"],
+              ["MAYOR_PRECIO", "Mayor"],
+            ] as const).map(([criterio, label]) => {
+              const automatico = criterio !== "MANUAL";
+              const disabled = automatico && preciosProveedor.length === 0;
+              return (
+                <button
+                  key={criterio}
+                  type="button"
+                  disabled={disabled}
+                  title={disabled ? "Carga al menos un precio de lista de proveedor" : undefined}
+                  onClick={() => onCriterioCostoChange(criterio)}
+                  className={`h-8 min-w-0 whitespace-nowrap rounded-md border px-1.5 text-[8px] font-black uppercase tracking-normal transition ${criterioCosto === criterio ? "border-blue-500 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"} disabled:cursor-not-allowed disabled:opacity-40`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
           
           <PriceInput
             value={costoItem.valor}
             onChange={handleCostoChange}
+            disabled={criterioCosto !== "MANUAL"}
             prefix="$"
             placeholder="0.00"
             className="h-12 w-full rounded-lg border-none bg-white pr-4 text-lg font-bold text-slate-900 shadow-sm outline-none transition focus:ring-4 focus:ring-blue-200 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-900/30"
@@ -257,6 +300,7 @@ export function PricingSection({ precios, onChange }: PricingSectionProps) {
           {tipoOferta.activo && renderPriceRow(tipoOferta.id, tipoOferta.descripcion, BadgePercent, "bg-rose-500 text-rose-500")}
         </div>
       </div>
+
     </section>
   );
 }

@@ -7,7 +7,9 @@ export async function GET(request: NextRequest) {
   try {
     await requireApiReadSession(request);
     const meta = await getProductMeta();
-    return NextResponse.json(meta);
+    return NextResponse.json(meta, {
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (error: any) {
     return jsonError(error, "Error al obtener metadatos");
   }

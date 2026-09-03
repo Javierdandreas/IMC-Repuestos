@@ -8,6 +8,7 @@ import * as XLSX from "xlsx";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Download, FileUp, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAppError } from "@/context/AppErrorContext";
+import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
 import type { ImportSeriesMapping, ImportSeriesResult } from "@/interfaces/series-import";
 import { SERIE_ESTADO_LABELS, SERIE_ESTADOS_PERMITIDOS } from "@/lib/serie-estados";
 
@@ -363,12 +364,7 @@ export function ImportSeriesInventoryPage() {
         </div>
       )}
 
-      {step === "importing" && (
-        <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600 dark:border-slate-800" />
-          <span className="text-xs font-black uppercase tracking-widest">Procesando importacion...</span>
-        </div>
-      )}
+      <TransferProgressModal open={step === "importing"} title="Importando series" total={rows.length} unit="filas" />
 
       {step === "results" && result && (
         <div className="space-y-5">

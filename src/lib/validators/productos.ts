@@ -13,6 +13,10 @@ import {
 const proveedorProductoSchema = z.object({
   id_proveedor: idSchema,
   codigo_proveedor: z.string().trim().toUpperCase().optional().default(""),
+  precio_lista_actual: z.number().nonnegative().nullable().optional(),
+  costo_actual: z.number().nonnegative().nullable().optional(),
+  fecha_ultima_actualizacion: z.string().datetime().nullable().optional(),
+  ultima_importacion_id: z.number().int().nonnegative().nullable().optional(),
 });
 
 const precioProductoSchema = z.object({
@@ -48,6 +52,7 @@ export const productoPayloadSchema = z.object({
   usa_numero_serie: z.boolean().optional().default(false),
   palabra_clave: z.string().trim().toUpperCase().nullable().optional(),
   precios: z.array(precioProductoSchema).optional().default([]),
+  criterio_costo: z.enum(["MANUAL", "MENOR_PRECIO", "PROMEDIO_PRECIO", "MAYOR_PRECIO"]).optional().default("MANUAL"),
 });
 
 export type ProductoPayload = z.infer<typeof productoPayloadSchema>;

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { HiArrowLeft, HiCheck, HiCloudDownload, HiFilter, HiTable, HiX } from "react-icons/hi";
 import { useAppError } from "@/context/AppErrorContext";
 import { useMetadata } from "@/context/MetadataContext";
+import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
 
 type ExportProductFilters = {
   categoria?: string;
@@ -14,40 +15,50 @@ type ExportProductFilters = {
   proveedor?: string;
 };
 
-const EXPORT_GROUPS = [
+type TipoPrecioExport = {
+  id: number;
+  descripcion: string;
+};
+
+const getPriceExportColumns = (tiposPrecio: TipoPrecioExport[]) =>
+  tiposPrecio.flatMap((tipo) => (
+    tipo.id === 1
+      ? ["Costo Base"]
+      : [`${tipo.descripcion} - Porcentaje`, `${tipo.descripcion} - Precio Final`]
+  ));
+
+const getExportGroups = (tiposPrecio: TipoPrecioExport[]) => [
   {
     id: "basico",
     label: "Información básica",
     columns: [
-      "Código Único",
-      "Descripción",
-      "Código de Barras",
+      "Codigo Unico",
+      "Descripcion",
+      "Codigo de Barras",
       "Stock",
       "Marca",
-      "Categoría",
-      "Subcategoría",
-      "Ubicación",
+      "Categoria",
+      "Subcategoria",
+      "Ubicacion",
       "Palabras Clave",
     ],
   },
   {
     id: "asociado",
     label: "Item asociado",
-    columns: ["Nro Item Asociado", "Códigos Originales", "Códigos Equivalentes", "Códigos Sustitutos"],
+    columns: ["Nro Item Asociado", "Codigos Originales", "Codigos Equivalentes", "Codigos Sustitutos"],
   },
   {
     id: "economico",
     label: "Precios y proveedores",
-    columns: ["Precios y Márgenes", "Proveedor", "Código Proveedor", "Precio Lista Proveedor"],
+    columns: [...getPriceExportColumns(tiposPrecio), "Proveedor", "Codigo Proveedor", "Precio Lista Proveedor"],
   },
   {
     id: "series",
     label: "Trazabilidad",
-    columns: ["Usa Serie", "Números de Serie Disponibles"],
+    columns: ["Usa Serie", "Numeros de Serie Disponibles"],
   },
 ];
-
-const ALL_COLUMNS = EXPORT_GROUPS.flatMap((group) => group.columns);
 
 const selectClass =
   "h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-white";
@@ -55,10 +66,13 @@ const selectClass =
 export function ProductExportPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { categorias, subcategorias, marcas, proveedores } = useMetadata();
+  const { categorias, subcategorias, marcas, proveedores, tiposPrecio } = useMetadata();
   const { showError } = useAppError();
 
-  const [selectedColumns, setSelectedColumns] = useState<string[]>(ALL_COLUMNS);
+  const exportGroups = useMemo(() => getExportGroups(tiposPrecio), [tiposPrecio]);
+  const allColumns = useMemo(() => exportGroups.flatMap((group) => group.columns), [exportGroups]);
+
+  const [selectedColumns, setSelectedColumns] = useState<string[]>(() => allColumns);
   const [filters, setFilters] = useState<ExportProductFilters>({
     categoria: searchParams.get("categoria") || undefined,
     subcategoria: searchParams.get("subcategoria") || undefined,
@@ -249,7 +263,7 @@ export function ProductExportPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedColumns(ALL_COLUMNS)}
+                    onClick={() => setSelectedColumns(allColumns)}
                     className="h-8 rounded-lg border border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:border-slate-800 dark:hover:bg-slate-800 dark:hover:text-white"
                   >
                     Todas
@@ -265,7 +279,7 @@ export function ProductExportPage() {
               </div>
 
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-4">
-                {EXPORT_GROUPS.map((group) => {
+                {exportGroups.map((group) => {
                   const isGroupAll = group.columns.every((col) => selectedColumns.includes(col));
                   return (
                     <div key={group.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
@@ -310,7 +324,7 @@ export function ProductExportPage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Columnas</p>
                 <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">
-                  {selectedCount}/{ALL_COLUMNS.length}
+                  {selectedCount}/{allColumns.length}
                 </p>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
@@ -347,6 +361,7 @@ export function ProductExportPage() {
           </aside>
         </main>
       </div>
+      <TransferProgressModal open={isExporting} title="Exportando items" description="Preparando el archivo con los filtros seleccionados." />
     </div>
   );
 }

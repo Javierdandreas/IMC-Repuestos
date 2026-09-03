@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { HiCloudUpload, HiCheck, HiExclamation, HiX, HiDownload, HiChevronRight, HiAdjustments, HiPlay } from "react-icons/hi";
 import { useRouter } from "next/navigation";
+import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
 
 interface ImportError {
   row: number;
@@ -329,22 +330,7 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
   }
 
   if (step === 'importing') {
-    return (
-      <div className="flex flex-col items-center justify-center gap-10 py-12 animate-in zoom-in duration-500">
-        <div className="relative">
-          <div className="h-40 w-40 animate-spin rounded-full border-4 border-slate-100 dark:border-slate-800 border-t-indigo-500" />
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-3xl font-black text-slate-900 dark:text-white">
-              {Math.round((processedCount / (totalRows || 1)) * 100)}%
-            </span>
-          </div>
-        </div>
-        <div className="text-center">
-          <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">Importando {totalRows} registros</h3>
-          <p className="text-sm text-slate-400 italic">&quot;Procesando lotes a máxima velocidad...&quot;</p>
-        </div>
-      </div>
-    );
+    return <TransferProgressModal open title="Importando kits" description={`Procesando ${file?.name || "el archivo"}.`} total={totalRows} processed={processedCount} unit="filas" />;
   }
 
   return (

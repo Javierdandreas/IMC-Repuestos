@@ -25,6 +25,11 @@ export async function POST(
     return NextResponse.json({
       message: "Lista aplicada correctamente",
       updatedCount: result.updatedCount,
+      recalculatedCostCount: result.recalculatedCostCount,
+      notFoundCount: result.notFoundCount,
+      invalidCount: result.invalidCount,
+      duplicateCount: result.duplicateCount,
+      providerMismatchCount: result.providerMismatchCount,
     });
   } catch (error: any) {
     console.error("Error en POST /api/proveedores/importaciones/[id]/aplicar:", error);

@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useMetadata } from "@/context/MetadataContext";
 import { HiTrash } from "react-icons/hi";
 import * as XLSX from "xlsx";
+import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
 
 
 
@@ -21,8 +22,9 @@ interface ImportResults {
   imported: number;
   updated: number;
   ignored: number;
+  providerPricesUpdated: number;
+  recalculatedCostCount: number;
   errors: ImportError[];
-  updatedDetails?: { cod_unico: string; changes: any }[];
 }
 
 type Step = 'upload' | 'mapping' | 'importing' | 'results';
@@ -245,13 +247,6 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
             return;
           }
 
-          const confirmed = window.confirm(`¡ATENCIÓN! Se ELIMINARÁ toda la lista actual de '${prov.descripcion}' para reemplazarla con los ${totalItems} ítems nuevos. ¿Deseas continuar?`);
-          if (!confirmed) {
-            setImporting(false);
-            setStep('mapping');
-            return;
-          }
-
           // Ejecutar limpieza
           try {
             const clearRes = await fetch("/api/productos/import/clear-provider", {
@@ -269,16 +264,40 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
         }
 
         const BATCH_SIZE = 500;
+        const skuHeader = mappings.cod_unico?.csvHeader;
+        const rowsBySku = new Map<string, any[]>();
+
+        allData.data.forEach((row, index) => {
+          const sku = skuHeader ? String(row?.[skuHeader] ?? "").trim().toUpperCase() : "";
+          const key = sku || `__SIN_CODIGO_${index}`;
+          const rows = rowsBySku.get(key) ?? [];
+          rows.push(row);
+          rowsBySku.set(key, rows);
+        });
+
+        const batches: any[][] = [];
+        let currentBatch: any[] = [];
+        rowsBySku.forEach((rows) => {
+          if (currentBatch.length > 0 && currentBatch.length + rows.length > BATCH_SIZE) {
+            batches.push(currentBatch);
+            currentBatch = [];
+          }
+          currentBatch.push(...rows);
+        });
+        if (currentBatch.length > 0) batches.push(currentBatch);
+
         let accumulatedResults: ImportResults = {
           imported: 0,
           updated: 0,
           ignored: 0,
+          providerPricesUpdated: 0,
+          recalculatedCostCount: 0,
           errors: [],
-          updatedDetails: []
         };
 
-        for (let i = 0; i < totalItems; i += BATCH_SIZE) {
-          const chunk = allData.data.slice(i, i + BATCH_SIZE);
+        let processedRows = 0;
+        for (const chunk of batches) {
+          const batchStartRow = processedRows;
           try {
             const res = await fetch("/api/productos/import", {
               method: "POST",
@@ -294,21 +313,21 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
               accumulatedResults.imported += (data.imported || 0);
               accumulatedResults.updated += (data.updated || 0);
               accumulatedResults.ignored += (data.ignored || 0);
+              accumulatedResults.providerPricesUpdated += (data.providerPricesUpdated || 0);
+              accumulatedResults.recalculatedCostCount += (data.recalculatedCostCount || 0);
               accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
-              if (data.updatedDetails) {
-                accumulatedResults.updatedDetails = [...(accumulatedResults.updatedDetails || []), ...data.updatedDetails];
-              }
             } else {
               accumulatedResults.errors.push({
-                row: i + 1,
+                row: batchStartRow + 1,
                 error: data.message || "Error en el lote",
-                cod_unico: `Lote ${Math.floor(i / BATCH_SIZE) + 1}`
+                cod_unico: `Lote ${Math.floor(batchStartRow / BATCH_SIZE) + 1}`
               });
             }
           } catch (err: any) {
-            accumulatedResults.errors.push({ row: i + 1, error: err.message, cod_unico: "ERROR RED" });
+            accumulatedResults.errors.push({ row: batchStartRow + 1, error: err.message, cod_unico: "ERROR RED" });
           }
-          setProcessedCount(Math.min(i + BATCH_SIZE, totalItems));
+          processedRows += chunk.length;
+          setProcessedCount(Math.min(processedRows, totalItems));
         }
 
         const durationMs = Date.now() - startTime;
@@ -444,6 +463,20 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
         });
       }
     });
+
+    if (mappings.precio_lista_proveedor?.csvHeader && !mappings.codigo_proveedor?.csvHeader) {
+      issues.push({
+        type: "error",
+        message: "Para actualizar precios de proveedor tambien tenes que mapear \"Codigo proveedor\".",
+      });
+    }
+
+    if (mappings.precio_lista_proveedor?.csvHeader && mappings.proveedor?.updateExisting === false) {
+      issues.push({
+        type: "error",
+        message: "Activa \"Actualiza\" en Proveedor para aplicar precios de proveedor a items existentes.",
+      });
+    }
 
     const combinedSupplierColumnFields = ["proveedor", "codigo_proveedor", "precio_lista_proveedor"].filter((fieldId) => {
       const header = mappings[fieldId]?.csvHeader;
@@ -604,6 +637,19 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
           </div>
         </div>
 
+        {(results.providerPricesUpdated > 0 || results.recalculatedCostCount > 0) && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
+              <span className="block text-2xl font-black text-blue-300">{results.providerPricesUpdated}</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-blue-300/70">Precios de proveedor actualizados</span>
+            </div>
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+              <span className="block text-2xl font-black text-emerald-300">{results.recalculatedCostCount}</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-300/70">Costos y precios recalculados</span>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-center gap-2 rounded-xl bg-zinc-800/50 p-2 border border-zinc-700/50">
           <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Tiempo total transcurrido:</span>
           <span className="text-xs font-black text-zinc-200">{importDuration}</span>
@@ -620,48 +666,6 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
                 </div>
               ))}
               {results.errors.length > 100 && <p className="text-[10px] text-center text-zinc-500 py-2">Y {results.errors.length - 100} errores más...</p>}
-            </div>
-          </div>
-        )}
-
-        {results.updatedDetails && results.updatedDetails.length > 0 && (
-          <div className="flex flex-col gap-3 rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 max-h-[400px] overflow-hidden">
-            <div className="flex items-center justify-between">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-500">Auditoría de cambios en items existentes</h4>
-              <span className="text-[9px] font-bold text-blue-400/50 uppercase tracking-tighter">Últimos {Math.min(results.updatedDetails.length, 300)} registros</span>
-            </div>
-            
-            <div className="overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-blue-500/20">
-              <div className="flex flex-col gap-2">
-                {results.updatedDetails.slice(0, 300).map((item, i) => (
-                  <div key={i} className="flex flex-col gap-2 p-3 bg-black/40 rounded-xl border border-blue-500/10 hover:border-blue-500/30 transition-colors">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-black text-blue-500/60 uppercase tracking-widest">CÓDIGO:</span>
-                        <span className="font-mono text-sm font-black text-blue-400">{item.cod_unico}</span>
-                      </div>
-                      <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-tighter text-blue-400 border border-blue-500/20">
-                        Sincronización Exitosa
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {Object.entries(item.changes).map(([field, value]) => (
-                        <div key={field} className="flex items-center gap-1 rounded-lg bg-zinc-900/50 px-2 py-1 border border-white/5">
-                          <span className="text-[8px] font-bold uppercase text-zinc-500">{field.replace('id_', '').replace('_', ' ')}:</span>
-                          <span className="text-[10px] font-bold text-zinc-300 truncate max-w-[200px]">
-                            {value === null || value === undefined ? '—' : String(value)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {results.updatedDetails.length > 300 && (
-                  <p className="text-[10px] text-center text-zinc-500 py-4 italic border-t border-white/5 mt-2">
-                    Mostrando los primeros 300 cambios para optimizar el rendimiento...
-                  </p>
-                )}
-              </div>
             </div>
           </div>
         )}
@@ -866,7 +870,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
             className="flex h-12 flex-[2] items-center justify-center gap-2 rounded-xl bg-blue-600 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <HiPlay className="h-5 w-5" />
-            Importar items
+            Importar
           </button>
         </div>
       </div>
@@ -874,37 +878,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   }
 
   if (step === 'importing') {
-    return (
-      <div className="flex flex-col items-center justify-center gap-10 py-12 animate-in zoom-in duration-500">
-        <div className="relative">
-          <div className="h-40 w-40 animate-spin rounded-full border-4 border-zinc-800 border-t-blue-500" />
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-3xl font-black text-slate-900 dark:text-white">
-              {Math.round((processedCount / (totalRows || 1)) * 100)}%
-            </span>
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Status</span>
-          </div>
-        </div>
-        <div className="text-center max-w-sm">
-          <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">Procesando {file?.name}</h3>
-          <p className="text-sm text-zinc-400 leading-relaxed">Importando registros y actualizando datos mapeados.</p>
-
-          <div className="mt-8 flex flex-col gap-3">
-            <div className="flex justify-between text-[11px] font-bold uppercase tracking-widest px-1">
-              <span className="text-blue-400">{processedCount}</span>
-              <span className="text-zinc-600">DE</span>
-              <span className="text-zinc-300">{totalRows} ITEMS</span>
-            </div>
-            <div className="h-2 w-72 overflow-hidden rounded-full bg-zinc-800 p-0.5 border border-zinc-700">
-              <div
-                className="h-full bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.5)] transition-all duration-300"
-                style={{ width: `${(processedCount / (totalRows || 1)) * 100}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <TransferProgressModal open title="Importando items" description={`Procesando ${file?.name || "el archivo"}.`} total={totalRows} processed={processedCount} unit="items" />;
   }
 
   return (

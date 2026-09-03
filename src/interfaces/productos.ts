@@ -2,6 +2,17 @@ export type CatalogoItem = {
   id: number;
   descripcion: string;
   documento?: string | null;
+  condicion_iva?: string | null;
+  comprobante_default?: string | null;
+  contacto?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  domicilio_fiscal?: string | null;
+  provincia?: string | null;
+  localidad?: string | null;
+  codigo_postal?: string | null;
+  activo?: boolean;
+  observaciones?: string | null;
 };
 
 export type TipoPrecio = CatalogoItem & {
@@ -71,6 +82,7 @@ export type Producto = {
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
   precios?: PrecioDetalle[];
+  criterio_costo?: import("@/lib/costos").CriterioCosto;
 };
 
 export type ProductoListado = {
@@ -87,7 +99,12 @@ export type ProductoListado = {
   proveedor?: string | null;
   codigo_proveedor?: string | null;
   imagen_url?: string | null;
-  proveedores_detalle?: { proveedor: string; codigo_proveedor: string }[];
+  proveedores_detalle?: {
+    proveedor: string;
+    codigo_proveedor: string;
+    precio_lista_actual?: number | null;
+    costo_actual?: number | null;
+  }[];
   originales?: string[];
   equivalentes?: string[];
   sustitutos?: string[];

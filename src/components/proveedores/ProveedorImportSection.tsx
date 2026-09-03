@@ -8,11 +8,18 @@ import { HiCheck, HiCloudUpload, HiExclamation, HiPlay, HiTable } from "react-ic
 import { mutate } from "swr";
 
 import { ProveedorImportHistory } from "./ProveedorImportHistory";
+import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
 
 type Step = "upload" | "mapping" | "importing" | "results";
 
 interface ImportResults {
   total: number;
+  updatedCount: number;
+  recalculatedCostCount: number;
+  notFoundCount: number;
+  invalidCount: number;
+  duplicateCount: number;
+  providerMismatchCount: number;
 }
 
 interface MappingConfig {
@@ -29,6 +36,7 @@ interface Props {
 }
 
 const SUPPLIER_FIELDS = [
+  { id: "proveedor", label: "Proveedor", required: true },
   { id: "codigo_proveedor", label: "Codigo proveedor", required: true },
   { id: "precio_lista", label: "Precio de lista", required: true },
 ];
@@ -43,7 +51,16 @@ function normalizeHeader(value: string) {
 }
 
 function detectHeader(headers: string[], fieldId: string) {
-  const candidates = fieldId === "codigo_proveedor"
+  const candidates = fieldId === "proveedor"
+    ? [
+        { terms: ["proveedor"], score: 100 },
+        { terms: ["razon social"], score: 95 },
+        { terms: ["empresa"], score: 90 },
+        { terms: ["nombre proveedor"], score: 90 },
+        { terms: ["cuit"], score: 80 },
+        { terms: ["dni"], score: 75 },
+      ]
+    : fieldId === "codigo_proveedor"
     ? [
         { terms: ["codigo proveedor"], score: 100 },
         { terms: ["cod proveedor"], score: 95 },
@@ -98,42 +115,54 @@ function parseSupplierPrice(value: unknown): number | null {
 }
 
 function buildMappedRows(rows: any[], mappings: Record<string, MappingConfig>) {
+  const supplierHeader = mappings.proveedor?.csvHeader;
   const codeHeader = mappings.codigo_proveedor?.csvHeader;
   const priceHeader = mappings.precio_lista?.csvHeader;
-  const preview: Array<{ row: number; codigo: string; precio: number | null; status: "OK" | "ERROR"; reason: string }> = [];
-  const validItems: Array<{ codigo_proveedor: string; precio_lista: number }> = [];
+  const preview: Array<{ row: number; proveedor: string; codigo: string; precio: number | null; status: "OK" | "ERROR"; reason: string }> = [];
+  const items: Array<{ fila: number; proveedor_archivo: string; codigo_proveedor: string; precio_lista: number | null; precio_original: string }> = [];
   let invalidCount = 0;
 
-  if (!codeHeader || !priceHeader) {
-    return { preview, validItems, invalidCount: rows.length };
+  if (!supplierHeader || !codeHeader || !priceHeader) {
+    return { preview, items, invalidCount: rows.length };
   }
 
   rows.forEach((row, index) => {
+    const proveedor = String(row?.[supplierHeader] ?? "").trim();
     const codigo = String(row?.[codeHeader] ?? "").trim().toUpperCase();
+    const precioOriginal = String(row?.[priceHeader] ?? "").trim();
     const precio = parseSupplierPrice(row?.[priceHeader]);
     let reason = "";
 
+    if (!proveedor) reason = "Sin proveedor";
     if (!codigo) reason = "Sin codigo";
     if (precio === null) reason = reason ? `${reason} y sin precio` : "Sin precio";
+    if (precio !== null && precio < 0) reason = reason ? `${reason} y precio negativo` : "Precio negativo";
 
     if (reason) {
       invalidCount += 1;
-    } else if (precio !== null) {
-      validItems.push({ codigo_proveedor: codigo, precio_lista: precio });
     }
+
+    items.push({
+      fila: index + 2,
+      proveedor_archivo: proveedor,
+      codigo_proveedor: codigo,
+      precio_lista: precio,
+      precio_original: precioOriginal,
+    });
 
     if (preview.length < 6) {
       preview.push({
         row: index + 2,
+        proveedor,
         codigo,
         precio,
         status: reason ? "ERROR" : "OK",
-        reason: reason || "Lista para importar",
+        reason: reason || "Lista para validar",
       });
     }
   });
 
-  return { preview, validItems, invalidCount };
+  return { preview, items, invalidCount };
 }
 
 function createInitialMappings(): Record<string, MappingConfig> {
@@ -154,13 +183,14 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const [results, setResults] = useState<ImportResults | null>(null);
 
   const mappedData = useMemo(() => buildMappedRows(rawRows, mappings), [rawRows, mappings]);
-  const canImport = Boolean(mappings.codigo_proveedor.csvHeader && mappings.precio_lista.csvHeader && mappedData.validItems.length > 0);
+  const canImport = Boolean(mappings.proveedor.csvHeader && mappings.codigo_proveedor.csvHeader && mappings.precio_lista.csvHeader && mappedData.items.length > 0);
 
   const applyHeadersAndRows = (headers: string[], rows: any[]) => {
     setCsvHeaders(headers);
     setRawRows(rows);
     setResults(null);
     setMappings({
+      proveedor: { csvHeader: detectHeader(headers, "proveedor"), isRequired: true },
       codigo_proveedor: { csvHeader: detectHeader(headers, "codigo_proveedor"), isRequired: true },
       precio_lista: { csvHeader: detectHeader(headers, "precio_lista"), isRequired: true },
     });
@@ -221,12 +251,12 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
   const handleImport = async () => {
     if (!file) return;
-    if (!mappings.codigo_proveedor.csvHeader || !mappings.precio_lista.csvHeader) {
-      toast.error("Selecciona las columnas de codigo y precio antes de importar");
+    if (!mappings.proveedor.csvHeader || !mappings.codigo_proveedor.csvHeader || !mappings.precio_lista.csvHeader) {
+      toast.error("Selecciona las columnas de proveedor, codigo y precio antes de importar");
       return;
     }
-    if (mappedData.validItems.length === 0) {
-      toast.error("No hay filas validas para importar");
+    if (mappedData.items.length === 0) {
+      toast.error("No hay filas para importar");
       return;
     }
 
@@ -240,7 +270,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         body: JSON.stringify({
           id_proveedor,
           nombre_archivo: file.name,
-          items: mappedData.validItems,
+          items: mappedData.items,
         }),
       });
 
@@ -249,8 +279,27 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         throw new Error(data.message || data.error || "Error al importar");
       }
 
-      setResults({ total: mappedData.validItems.length });
-      toast.success("Lista importada correctamente al historial");
+      const updatedCount = Number(data.updatedCount || 0);
+      const recalculatedCostCount = Number(data.recalculatedCostCount || 0);
+      const notFoundCount = Number(data.notFoundCount || 0);
+      const invalidCount = Number(data.invalidCount || 0);
+      const duplicateCount = Number(data.duplicateCount || 0);
+      const providerMismatchCount = Number(data.providerMismatchCount || 0);
+
+      setResults({
+        total: mappedData.items.length,
+        updatedCount,
+        recalculatedCostCount,
+        notFoundCount,
+        invalidCount,
+        duplicateCount,
+        providerMismatchCount,
+      });
+      toast.success(
+        recalculatedCostCount > 0
+          ? `Lista aplicada. ${updatedCount} precios y ${recalculatedCostCount} costos recalculados.`
+          : `Lista aplicada. ${updatedCount} precios actualizados.`
+      );
       setStep("results");
       onSuccess?.();
       mutate(`/api/proveedores/importaciones?id_proveedor=${id_proveedor}`);
@@ -269,11 +318,11 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         <div className="text-sm font-black text-white">{rawRows.length}</div>
       </div>
       <div className="rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-2">
-        <div className="text-[9px] font-black uppercase tracking-widest text-green-400">Validas</div>
-        <div className="text-sm font-black text-green-300">{mappedData.validItems.length}</div>
+        <div className="text-[9px] font-black uppercase tracking-widest text-green-400">A validar</div>
+        <div className="text-sm font-black text-green-300">{mappedData.items.length}</div>
       </div>
       <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">
-        <div className="text-[9px] font-black uppercase tracking-widest text-amber-400">Omitidas</div>
+        <div className="text-[9px] font-black uppercase tracking-widest text-amber-400">Con aviso</div>
         <div className="text-sm font-black text-amber-300">{mappedData.invalidCount}</div>
       </div>
     </div>
@@ -281,8 +330,9 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
   const renderPreview = () => (
     <div className="overflow-hidden rounded-xl border border-slate-800">
-      <div className="grid grid-cols-[70px_1fr_120px_130px] bg-slate-950/60 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+      <div className="grid grid-cols-[60px_minmax(130px,1fr)_minmax(110px,0.8fr)_110px_130px] gap-3 bg-slate-950/60 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
         <span>Fila</span>
+        <span>Proveedor</span>
         <span>Codigo</span>
         <span>Precio</span>
         <span>Estado</span>
@@ -292,8 +342,9 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       ) : (
         <div className="divide-y divide-slate-800">
           {mappedData.preview.map((row) => (
-            <div key={row.row} className="grid grid-cols-[70px_1fr_120px_130px] items-center px-3 py-2 text-xs">
+            <div key={row.row} className="grid grid-cols-[60px_minmax(130px,1fr)_minmax(110px,0.8fr)_110px_130px] items-center gap-3 px-3 py-2 text-xs">
               <span className="font-mono font-bold text-slate-500">{row.row}</span>
+              <span className="truncate font-bold text-slate-300">{row.proveedor || "-"}</span>
               <span className="truncate font-black text-white">{row.codigo || "-"}</span>
               <span className="font-mono font-black text-blue-300">{row.precio === null ? "-" : row.precio}</span>
               <span className={row.status === "OK" ? "font-black text-green-300" : "font-black text-amber-300"}>
@@ -347,7 +398,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-blue-500 disabled:opacity-50"
       >
         <HiPlay className="h-4 w-4" />
-        Importar {mappedData.validItems.length} filas
+        Importar {mappedData.items.length} filas
       </button>
     </div>
   );
@@ -377,6 +428,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
             <ul className="mt-2 space-y-1 text-[11px] font-bold leading-relaxed text-amber-400">
               <li>El archivo puede estar en formato CSV o Excel.</li>
               <li>Debe tener columnas claras para codigo y precio.</li>
+              <li>La columna proveedor debe coincidir con el proveedor abierto.</li>
               <li>El orden no importa, podras mapearlas en el siguiente paso.</li>
             </ul>
           </div>
@@ -386,13 +438,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   );
 
   const renderStep = () => {
-    if (step === "importing") {
-      return (
-        <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-4 text-xs font-black uppercase tracking-widest text-slate-400">
-          Procesando archivo...
-        </div>
-      );
-    }
+    if (step === "importing") return null;
 
     if (step === "results" && results) {
       return (
@@ -400,9 +446,24 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
           <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-3 py-3 text-xs font-black text-green-300">
             <div className="flex items-center gap-2">
               <HiCheck className="h-4 w-4" />
-              Lista importada: {results.total} items.
+              Lista aplicada: {results.updatedCount} precios actualizados.
             </div>
           </div>
+          {results.recalculatedCostCount > 0 && (
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-3 text-xs font-black text-blue-300">
+              {results.recalculatedCostCount} item(s) con criterio automatico recalcularon costo y precios de venta.
+            </div>
+          )}
+          {results.notFoundCount > 0 && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs font-black text-amber-300">
+              {results.notFoundCount} fila(s) no encontraron item con ese codigo en este proveedor.
+            </div>
+          )}
+          {(results.invalidCount > 0 || results.duplicateCount > 0 || results.providerMismatchCount > 0) && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs font-black text-amber-300">
+              {results.invalidCount} invalida(s), {results.duplicateCount} duplicada(s), {results.providerMismatchCount} de otro proveedor.
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setStep("upload")}
@@ -421,6 +482,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   return (
     <div className="flex flex-col gap-6">
       {renderStep()}
+      <TransferProgressModal open={importing} title="Importando lista de precios" total={mappedData.items.length} unit="filas" />
 
       {!hideHistory && (
         <div className="mt-4">

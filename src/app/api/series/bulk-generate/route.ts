@@ -6,9 +6,21 @@ import { jsonError } from "@/lib/api-errors";
 export async function POST(req: NextRequest) {
   try {
     const session = await requireApiWriteSession(req);
-    const { productIds } = await req.json();
+    const { productIds, requests } = await req.json();
+    const generationRequests = Array.isArray(requests)
+      ? requests
+          .map((item) => ({
+            id: Number(item?.id),
+            targetTotal: Number(item?.targetTotal),
+          }))
+          .filter((item) => Number.isFinite(item.id) && item.id > 0)
+      : Array.isArray(productIds)
+        ? productIds
+            .map((id) => ({ id: Number(id), targetTotal: undefined }))
+            .filter((item) => Number.isFinite(item.id) && item.id > 0)
+        : [];
 
-    if (!Array.isArray(productIds) || productIds.length === 0) {
+    if (generationRequests.length === 0) {
       return NextResponse.json(
         { error: "Se requiere un array de IDs de items" },
         { status: 400 }
@@ -19,16 +31,21 @@ export async function POST(req: NextRequest) {
     const userId = session.usuarioId;
 
     const results = [];
-    for (const id of productIds) {
+    for (const requestItem of generationRequests) {
       try {
-        const series = await generateAutoSeriesForProduct(Number(id), Number(userId));
-        results.push({ id, status: "success", count: series.length });
+        const series = await generateAutoSeriesForProduct(
+          requestItem.id,
+          Number(userId),
+          Number.isFinite(requestItem.targetTotal) ? requestItem.targetTotal : undefined
+        );
+        results.push({ id: requestItem.id, status: "success", count: series.length });
       } catch (err: any) {
-        results.push({ id, status: "error", message: err.message });
+        results.push({ id: requestItem.id, status: "error", message: err.message });
       }
     }
 
-    return NextResponse.json({ success: true, results });
+    const successCount = results.filter((result) => result.status === "success").length;
+    return NextResponse.json({ success: successCount > 0, results });
   } catch (error: any) {
     return jsonError(error, "Error en generación masiva de series");
   }

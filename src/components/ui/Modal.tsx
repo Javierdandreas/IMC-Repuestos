@@ -10,9 +10,10 @@ type Props = {
   headerExtra?: ReactNode;
   headerActions?: ReactNode;
   width?: string;
+  hideHeaderBorder?: boolean;
 };
 
-export function Modal({ title, open, onClose, children, headerExtra, headerActions, width = "w-[min(96vw,1280px)]" }: Props) {
+export function Modal({ title, open, onClose, children, headerExtra, headerActions, width = "w-[min(96vw,1280px)]", hideHeaderBorder = false }: Props) {
   useEffect(() => {
     if (!open) return;
 
@@ -35,7 +36,7 @@ export function Modal({ title, open, onClose, children, headerExtra, headerActio
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity dark:bg-black/60" onClick={onClose} />
       <div className={`relative z-10 flex max-h-[92vh] ${width} flex-col overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950`}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-800/60">
+        <div className={`flex items-center justify-between px-6 py-4 ${hideHeaderBorder ? "" : "border-b border-slate-100 dark:border-slate-800/60"}`}>
           <div className="flex flex-1 items-center gap-6">
             <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{title}</h2>
             {headerExtra}

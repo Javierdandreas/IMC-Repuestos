@@ -10,8 +10,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const page = Number(searchParams.get("page")) || 1;
     const limit = Number(searchParams.get("limit")) || 50;
+    const search = searchParams.get("search") || undefined;
+    const searchSpecific = searchParams.get("searchSpecific") || undefined;
 
-    const result = await getProductosListado(page, limit);
+    const result = await getProductosListado(page, limit, { search, searchSpecific });
     return NextResponse.json(result);
   } catch (error: unknown) {
     return jsonError(error, "No se pudieron obtener los items");

@@ -8,6 +8,15 @@ import Image from "next/image";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
+const formatFechaOperacion = (value: string | null | undefined) => {
+  if (!value) return "Sin fecha";
+  const [year, month, day] = String(value).slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : String(value);
+};
+
+const formatMoney = (value: number | string | null | undefined) =>
+  new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(Number(value) || 0);
+
 interface OperacionDetailModalProps {
   operacionId: number | string;
   onClose: () => void;
@@ -66,14 +75,20 @@ export function OperacionDetailModal({ operacionId, onClose }: OperacionDetailMo
             <div className="grid grid-cols-2 gap-4 mb-8">
                 <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-800/60 dark:bg-slate-900 max-w-full">
                     <p className="text-xs font-bold uppercase text-slate-400 mb-1 flex items-center gap-1"><HiOutlineDocumentText /> Referencia</p>
-                    <p className="font-semibold text-slate-800 dark:text-slate-200">{data.numero_comprobante || "N/A"}</p>
+                    <p className="font-semibold text-slate-800 dark:text-slate-200">{data.tipo_comprobante || "Interno"}{data.numero_comprobante ? ` ${data.numero_comprobante}` : ""}</p>
                 </div>
                 <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-800/60 dark:bg-slate-900 max-w-full">
-                    <p className="text-xs font-bold uppercase text-slate-400 mb-1 flex items-center gap-1"><HiOutlineTag /> Fecha y Hora</p>
+                    <p className="text-xs font-bold uppercase text-slate-400 mb-1 flex items-center gap-1"><HiOutlineTag /> Fecha de operacion</p>
                     <p className="font-semibold text-slate-800 dark:text-slate-200">
-                        {new Date(data.created_at).toLocaleDateString()} - {new Date(data.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}hs
+                        {formatFechaOperacion(data.fecha_operacion)}
                     </p>
                 </div>
+                {data.proveedor && (
+                    <div className="col-span-2 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-800/60 dark:bg-slate-900">
+                        <p className="text-xs font-bold uppercase text-slate-400 mb-1">Proveedor</p>
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{data.proveedor}</p>
+                    </div>
+                )}
                 {data.observacion && (
                     <div className="col-span-2 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-800/60 dark:bg-slate-900">
                         <p className="text-xs font-bold uppercase text-slate-400 mb-1">Notas</p>
@@ -89,11 +104,15 @@ export function OperacionDetailModal({ operacionId, onClose }: OperacionDetailMo
                             <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Código</th>
                             <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Descripción</th>
                             <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Cantidad</th>
+                            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Costo neto</th>
+                            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Subtotal</th>
                         </tr>
                     </thead>
                     <tbody>
                         {data.detalles.map((det: OperacionDetalleListado) => {
                             const movimientos = data.movimientos.filter((m: OperacionSerieMovimiento) => m.id_producto === det.id_producto);
+                            const netoUnitario = Number(det.precio_unitario) * (1 - Number(det.descuento_porcentaje || 0) / 100);
+                            const subtotal = Math.abs(Number(det.cantidad)) * netoUnitario * (1 + Number(det.iva_porcentaje || 0) / 100);
                             return (
                                 <tr key={det.id} className="border-b border-slate-50 dark:border-slate-800/50">
                                     <td className="px-6 py-4 align-top">
@@ -106,6 +125,7 @@ export function OperacionDetailModal({ operacionId, onClose }: OperacionDetailMo
                                         <div className="mb-2 inline-flex rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-300">
                                             {det.ubicacion || "SIN UBICACION"}
                                         </div>
+                                        {det.codigo_proveedor && <div className="mb-2 text-[10px] font-mono font-bold text-slate-400">Codigo prov.: {det.codigo_proveedor}</div>}
                                         
                                         {/* Series Vertical List */}
                                         {det.usa_numero_serie && movimientos.length > 0 && (
@@ -131,11 +151,24 @@ export function OperacionDetailModal({ operacionId, onClose }: OperacionDetailMo
                                             {det.cantidad}
                                         </span>
                                     </td>
+                                    <td className="px-6 py-4 align-top text-right text-sm font-bold text-slate-700 dark:text-slate-300">
+                                        {formatMoney(netoUnitario)}
+                                        {Number(det.descuento_porcentaje || 0) > 0 && <span className="mt-1 block text-[10px] text-slate-400">Desc. {det.descuento_porcentaje}%</span>}
+                                        {Number(det.iva_porcentaje || 0) > 0 && <span className="mt-1 block text-[10px] text-slate-400">IVA {det.iva_porcentaje}%</span>}
+                                    </td>
+                                    <td className="px-6 py-4 align-top text-right text-sm font-black text-slate-900 dark:text-white">{formatMoney(subtotal)}</td>
                                 </tr>
                             );
                         })}
                     </tbody>
                 </table>
+            </div>
+
+            <div className="mt-5 flex justify-end border-t border-slate-100 pt-4 dark:border-slate-800">
+                <div className="text-right">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total de la operacion</p>
+                    <p className="mt-1 text-xl font-black text-emerald-500">{formatMoney(data.total)}</p>
+                </div>
             </div>
 
         </div>

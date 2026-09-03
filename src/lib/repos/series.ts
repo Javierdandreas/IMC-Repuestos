@@ -267,7 +267,11 @@ export async function updateSeriesState(
 /**
  * Autogenera series en formato CODE 128 (IMC-XXXXXXXX) para cubrir el stock faltante
  */
-export async function generateAutoSeriesForProduct(id_producto: number, id_usuario: number) {
+export async function generateAutoSeriesForProduct(
+  id_producto: number,
+  id_usuario: number,
+  targetTotal?: number
+) {
   // Obtenemos producto para saber el stock total y las series actuales
   const { rows: prodRows } = await query(
     "SELECT stock, usa_numero_serie FROM productos WHERE id = $1",
@@ -283,10 +287,13 @@ export async function generateAutoSeriesForProduct(id_producto: number, id_usuar
     [id_producto, SERIE_ESTADOS_CON_STOCK_FISICO]
   );
   const existingSeries = parseInt(currentSeriesCountRows[0].total, 10);
-  const availableSlots = prodStock - existingSeries;
+  const desiredTotal = Number.isFinite(targetTotal)
+    ? Math.min(prodStock, Math.max(0, Math.floor(Number(targetTotal))))
+    : prodStock;
+  const availableSlots = desiredTotal - existingSeries;
 
   if (availableSlots <= 0) {
-    throw new AppError("El item ya tiene todas sus series activas según el stock declarado.", 400);
+    throw new AppError("El item ya tiene las series necesarias para la cantidad solicitada.", 400);
   }
 
   const generatedSerials = new Set<string>();
