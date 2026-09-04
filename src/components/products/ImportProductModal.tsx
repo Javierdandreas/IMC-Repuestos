@@ -27,6 +27,17 @@ interface ImportResults {
   errors: ImportError[];
 }
 
+type ErrorSummaryGroup = {
+  label: string;
+  count: number;
+  codes: string[];
+};
+
+type ImportErrorSummary = {
+  missingProviders: ErrorSummaryGroup[];
+  otherErrors: ErrorSummaryGroup[];
+};
+
 type Step = 'upload' | 'mapping' | 'importing' | 'results';
 
 interface MappingConfig {
@@ -77,6 +88,55 @@ const createInitialMappings = (): Record<string, MappingConfig> => {
     };
   });
   return initial;
+};
+
+const addErrorCode = (group: ErrorSummaryGroup, code: string) => {
+  if (code && !group.codes.includes(code) && group.codes.length < 3) {
+    group.codes.push(code);
+  }
+};
+
+const summarizeImportErrors = (errors: ImportError[]): ImportErrorSummary => {
+  const missingProviders = new Map<string, ErrorSummaryGroup>();
+  const otherErrors = new Map<string, ErrorSummaryGroup>();
+
+  errors.forEach((item) => {
+    const providerMatch = item.error.match(/^Proveedor no encontrado:\s*(.+)$/i);
+    if (providerMatch) {
+      const providerName = providerMatch[1].trim();
+      const key = providerName.toLocaleLowerCase();
+      const group = missingProviders.get(key) ?? { label: providerName, count: 0, codes: [] };
+      group.count += 1;
+      addErrorCode(group, item.cod_unico);
+      missingProviders.set(key, group);
+      return;
+    }
+
+    let label = "Otros errores de importacion";
+    if (item.error.includes("tiene codigo o precio distinto para este item")) {
+      label = "Datos de proveedor en conflicto";
+    } else if (item.error.startsWith("El item ") && item.error.includes("tiene valores distintos para")) {
+      label = "Items repetidos con datos distintos";
+    } else if (item.cod_unico === "ERROR RED") {
+      label = "Errores de conexion";
+    } else if (item.cod_unico.startsWith("Lote ")) {
+      label = "Lotes que no se pudieron importar";
+    } else if (item.error.startsWith("Error procesando fila:")) {
+      label = "Filas con datos invalidos";
+    }
+
+    const group = otherErrors.get(label) ?? { label, count: 0, codes: [] };
+    group.count += 1;
+    addErrorCode(group, item.cod_unico);
+    otherErrors.set(label, group);
+  });
+
+  const sortByCount = (a: ErrorSummaryGroup, b: ErrorSummaryGroup) => b.count - a.count || a.label.localeCompare(b.label);
+
+  return {
+    missingProviders: Array.from(missingProviders.values()).sort(sortByCount),
+    otherErrors: Array.from(otherErrors.values()).sort(sortByCount),
+  };
 };
 
 const scoreHeaderForField = (header: string, field: typeof SYSTEM_FIELDS[number]) => {
@@ -147,6 +207,11 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   const [estimatedRemainingMs, setEstimatedRemainingMs] = useState<number | null>(null);
   const [importDuration, setImportDuration] = useState<string | null>(null);
   const [results, setResults] = useState<ImportResults | null>(null);
+
+  const importErrorSummary = useMemo(
+    () => (results ? summarizeImportErrors(results.errors) : null),
+    [results]
+  );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -670,19 +735,56 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
           <span className="text-xs font-black text-zinc-200">{importDuration}</span>
         </div>
 
-        {results.errors.length > 0 && (
-          <div className="max-h-[300px] overflow-y-auto rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
-            <h4 className="mb-3 text-[10px] font-black uppercase tracking-widest text-red-500">Log de errores</h4>
-            <div className="space-y-2">
-              {results.errors.slice(0, 100).map((err, i) => (
-                <div key={i} className="flex gap-2 text-xs text-red-400 p-2 bg-black/20 rounded-lg border border-red-500/10">
-                  <span className="font-bold shrink-0">Fila {err.row}:</span>
-                  <span className="opacity-80">{err.error}</span>
-                </div>
-              ))}
-              {results.errors.length > 100 && <p className="text-[10px] text-center text-zinc-500 py-2">Y {results.errors.length - 100} errores más...</p>}
+        {results.errors.length > 0 && importErrorSummary && (
+          <section className="space-y-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-red-500">Resumen de errores</h4>
+                <p className="mt-1 text-xs font-medium text-red-300/80">{results.errors.length} filas necesitan revision.</p>
+              </div>
+              <span className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-black text-red-300">
+                {importErrorSummary.missingProviders.length + importErrorSummary.otherErrors.length} tipos
+              </span>
             </div>
-          </div>
+
+            {importErrorSummary.missingProviders.length > 0 && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">Proveedores no encontrados</p>
+                <p className="mt-1 text-[11px] font-medium text-amber-200/70">
+                  Los items se importaron, pero no se pudo asociar este proveedor.
+                </p>
+                <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
+                  {importErrorSummary.missingProviders.map((provider) => (
+                    <div key={provider.label} className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/10 bg-slate-950/30 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-black text-amber-100">{provider.label}</p>
+                        {provider.codes.length > 0 && (
+                          <p className="mt-0.5 truncate font-mono text-[10px] text-amber-200/60">Items: {provider.codes.join(", ")}</p>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-[10px] font-black uppercase tracking-wider text-amber-300">{provider.count} filas</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {importErrorSummary.otherErrors.length > 0 && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {importErrorSummary.otherErrors.map((error) => (
+                  <div key={error.label} className="rounded-lg border border-red-500/10 bg-slate-950/30 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[11px] font-bold text-red-200">{error.label}</p>
+                      <span className="shrink-0 text-xs font-black text-red-300">{error.count}</span>
+                    </div>
+                    {error.codes.length > 0 && (
+                      <p className="mt-1 truncate font-mono text-[10px] text-red-200/50">Items: {error.codes.join(", ")}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         )}
 
         <button onClick={onClose} className="h-14 w-full rounded-2xl bg-white font-black text-zinc-900 transition hover:bg-zinc-200">
