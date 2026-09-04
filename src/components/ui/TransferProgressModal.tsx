@@ -9,7 +9,18 @@ type Props = {
   total?: number;
   processed?: number;
   unit?: string;
+  elapsedMs?: number;
+  estimatedRemainingMs?: number | null;
 };
+
+function formatDuration(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
 
 export function TransferProgressModal({
   open,
@@ -18,6 +29,8 @@ export function TransferProgressModal({
   total,
   processed,
   unit = "filas",
+  elapsedMs,
+  estimatedRemainingMs,
 }: Props) {
   if (!open) return null;
 
@@ -56,6 +69,22 @@ export function TransferProgressModal({
             <p className="mt-3 text-center text-[11px] font-bold text-slate-400">
               Faltan {remaining} {unit}.
             </p>
+            {(typeof elapsedMs === "number" || estimatedRemainingMs !== undefined) && (
+              <div className="mt-4 grid grid-cols-2 gap-2 text-center">
+                <div className="rounded-lg border border-slate-700 bg-slate-950/50 px-2 py-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Transcurrido</p>
+                  <p className="mt-1 text-xs font-black text-slate-200">
+                    {typeof elapsedMs === "number" ? formatDuration(elapsedMs) : "-"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-950/50 px-2 py-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Estimado restante</p>
+                  <p className="mt-1 text-xs font-black text-slate-200">
+                    {typeof estimatedRemainingMs === "number" ? formatDuration(estimatedRemainingMs) : "Calculando..."}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         ) : hasTotal ? (
           <div className="mt-5 rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-3 text-center text-xs font-bold text-slate-300">

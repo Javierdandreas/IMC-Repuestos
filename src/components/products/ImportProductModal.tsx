@@ -142,6 +142,9 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   const [importing, setImporting] = useState(false);
   const [totalRows, setTotalRows] = useState(0);
   const [processedCount, setProcessedCount] = useState(0);
+  const [appliedCount, setAppliedCount] = useState(0);
+  const [elapsedImportMs, setElapsedImportMs] = useState(0);
+  const [estimatedRemainingMs, setEstimatedRemainingMs] = useState<number | null>(null);
   const [importDuration, setImportDuration] = useState<string | null>(null);
   const [results, setResults] = useState<ImportResults | null>(null);
 
@@ -215,6 +218,10 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     try {
       setStep('importing');
       setImporting(true);
+      setProcessedCount(0);
+      setAppliedCount(0);
+      setElapsedImportMs(0);
+      setEstimatedRemainingMs(null);
       const startTime = Date.now();
 
       const processImportData = async (allData: { data: any[] }) => {
@@ -263,7 +270,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
           }
         }
 
-        const BATCH_SIZE = 500;
+        const BATCH_SIZE = 250;
         const skuHeader = mappings.cod_unico?.csvHeader;
         const rowsBySku = new Map<string, any[]>();
 
@@ -327,7 +334,15 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
             accumulatedResults.errors.push({ row: batchStartRow + 1, error: err.message, cod_unico: "ERROR RED" });
           }
           processedRows += chunk.length;
-          setProcessedCount(Math.min(processedRows, totalItems));
+          const confirmedRows = Math.min(processedRows, totalItems);
+          const elapsedMs = Date.now() - startTime;
+          const pendingRows = Math.max(totalItems - confirmedRows, 0);
+          const rowsPerMs = confirmedRows / Math.max(elapsedMs, 1);
+
+          setProcessedCount(confirmedRows);
+          setAppliedCount(accumulatedResults.imported + accumulatedResults.updated);
+          setElapsedImportMs(elapsedMs);
+          setEstimatedRemainingMs(rowsPerMs > 0 ? Math.ceil(pendingRows / rowsPerMs) : null);
         }
 
         const durationMs = Date.now() - startTime;
@@ -878,7 +893,18 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   }
 
   if (step === 'importing') {
-    return <TransferProgressModal open title="Importando items" description={`Procesando ${file?.name || "el archivo"}.`} total={totalRows} processed={processedCount} unit="items" />;
+    return (
+      <TransferProgressModal
+        open
+        title="Importando items"
+        description={`Procesando ${file?.name || "el archivo"}. ${appliedCount} items creados o actualizados.`}
+        total={totalRows}
+        processed={processedCount}
+        unit="items"
+        elapsedMs={elapsedImportMs}
+        estimatedRemainingMs={estimatedRemainingMs}
+      />
+    );
   }
 
   return (
