@@ -61,6 +61,16 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const currentListHref = useMemo(() => {
+    const params = searchParams.toString();
+    return params ? `/?${params}` : "/";
+  }, [searchParams]);
+
+  const navigateToProductForm = (path: string) => {
+    const params = new URLSearchParams({ returnTo: currentListHref });
+    router.push(`${path}?${params.toString()}`);
+  };
+
   // --- NUEVO: Estado de Selección ---
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
@@ -260,7 +270,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     Exportar
                   </button>
                   <button
-                    onClick={() => router.push("/productos/nuevo")}
+                    onClick={() => navigateToProductForm("/productos/nuevo")}
                     className="inline-flex h-12 items-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-700 hover:shadow-blue-500/40 active:scale-95"
                   >
                     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -506,11 +516,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                           <>
                             <PencilButton
                               label={`Editar item ${product.descripcion}`}
-                              onClick={() => router.push(`/productos/edit/${product.id}`)}
+                              onClick={() => navigateToProductForm(`/productos/edit/${product.id}`)}
                             />
                             <CopyButton
                               label={`Duplicar item ${product.descripcion}`}
-                              onClick={() => router.push(`/productos/duplicar/${product.id}`)}
+                              onClick={() => navigateToProductForm(`/productos/duplicar/${product.id}`)}
                             />
                             <TrashButton
                               label={`Borrar item ${product.descripcion}`}

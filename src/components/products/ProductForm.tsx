@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAppForm } from "@/hooks/useAppForm";
 import { toast } from "sonner";
 import {
@@ -90,9 +90,34 @@ export function ProductForm({
   onTabChange: setExternalTab
 }: ProductFormProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const meta = useMetadata();
   const { showError, showMessage } = useAppError();
   const [internalTab, setInternalTab] = useState<TabId>("principal");
+
+  const returnTo = searchParams.get("returnTo");
+  const itemsListHref = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")
+    ? returnTo
+    : "/";
+
+  const handleCloseForm = () => {
+    if (onSuccess) {
+      onSuccess();
+      return;
+    }
+
+    router.push(itemsListHref);
+  };
+
+  const handleFormSuccess = () => {
+    if (onSuccess) {
+      onSuccess();
+      router.refresh();
+      return;
+    }
+
+    router.push(itemsListHref);
+  };
 
   const activeTab = externalTab || internalTab;
   const setActiveTab = setExternalTab || setInternalTab;
@@ -140,9 +165,7 @@ export function ProductForm({
     method: productId ? "PUT" : "POST",
     successMessage: productId ? "Item actualizado correctamente" : "Item creado correctamente",
     onSuccess: () => {
-      if (onSuccess) onSuccess();
-      router.refresh();
-      if (!onSuccess) router.push("/");
+      handleFormSuccess();
     },
   });
 
@@ -151,9 +174,7 @@ export function ProductForm({
     method: "DELETE",
     successMessage: "Item eliminado correctamente",
     onSuccess: () => {
-      if (onSuccess) onSuccess();
-      router.refresh();
-      if (!onSuccess) router.push("/");
+      handleFormSuccess();
     },
   });
 
@@ -829,7 +850,7 @@ export function ProductForm({
         <div className="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 flex items-center justify-end gap-3 border-t border-slate-100 bg-white/80 px-8 py-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/80 md:-mx-8 md:-mb-8">
           <button
             type="button"
-            onClick={onSuccess}
+            onClick={handleCloseForm}
             className="flex items-center gap-2 rounded-xl bg-slate-100 h-10 px-6 text-xs font-bold text-slate-600 transition hover:bg-slate-200 active:scale-95 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
           >
             Cancelar

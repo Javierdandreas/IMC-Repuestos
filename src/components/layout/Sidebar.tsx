@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   HiChevronDown, 
@@ -91,6 +91,7 @@ const navGroups: NavGroup[] = [
 
 export const Sidebar = () => {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { theme } = useTheme();
   const [isHovered, setIsHovered] = useState(false);
@@ -108,6 +109,14 @@ export const Sidebar = () => {
     rol: "Admin",
     initials: "??"
   });
+
+  const itemsHref = (() => {
+    const returnTo = searchParams.get("returnTo");
+    if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) return returnTo;
+
+    const params = searchParams.toString();
+    return pathname === "/" && params ? `/?${params}` : "/";
+  })();
 
   const isLinkActive = useCallback((href: string) => {
     if (href === "/" && pathname === "/") return true;
@@ -220,7 +229,7 @@ export const Sidebar = () => {
         
         {/* Logo Section */}
         <div className="flex h-24 items-center justify-center px-4 overflow-hidden border-b border-slate-100 dark:border-slate-800/50">
-          <Link href="/" className="flex items-center justify-center w-full">
+          <Link href={itemsHref} className="flex items-center justify-center w-full">
              <div className="relative w-full h-12">
                 <AnimatePresence mode="wait">
                   <motion.div
@@ -366,7 +375,7 @@ export const Sidebar = () => {
                                 ) : (
                                     link.external ? (
                                         <a
-                                          href={link.href}
+                                          href={link.href === "/" ? itemsHref : link.href}
                                           target="_blank"
                                           rel="noopener noreferrer"
                                           className="block py-2.5 px-3 text-xs font-semibold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition-colors"
@@ -375,7 +384,7 @@ export const Sidebar = () => {
                                         </a>
                                       ) : (
                                         <Link
-                                          href={link.href}
+                                          href={link.href === "/" ? itemsHref : link.href}
                                           className={`block py-2.5 px-3 text-xs font-semibold transition-all ${
                                             active
                                               ? "text-blue-600 dark:text-blue-400"
