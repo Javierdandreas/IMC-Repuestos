@@ -6,9 +6,9 @@ import { useUser } from "@/context/UserContext";
 import { toast } from "sonner";
 
 /**
- * Tiempo de inactividad permitido (1 hora por defecto)
+ * Tiempo de inactividad permitido (6 horas por defecto)
  */
-const TIMEOUT_MS = 60 * 60 * 2000; 
+const TIMEOUT_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Componente que monitorea la actividad del usuario y cierra la sesión

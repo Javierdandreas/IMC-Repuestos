@@ -562,10 +562,17 @@ export function ProductForm({
       printWindow.document.close();
       printWindowRef.current = null;
       setPrintProduct(null);
+
+      if (onSuccess) {
+        onSuccess();
+        router.refresh();
+      } else {
+        router.push(itemsListHref);
+      }
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [printProduct]);
+  }, [itemsListHref, onSuccess, printProduct, router]);
 
   const handleTraceabilityToggle = async () => {
     const nextValue = !product.usa_numero_serie;
