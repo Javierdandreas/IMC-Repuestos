@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import ReactBarcode from "react-barcode";
 import { useAppForm } from "@/hooks/useAppForm";
 import { toast } from "sonner";
 import {
@@ -30,6 +31,7 @@ import {
   Barcode,
   Image as ImageIcon,
   Save,
+  Printer,
   Trash2,
   ChevronRight,
   Info,
@@ -127,6 +129,11 @@ export function ProductForm({
   const [isLoadingSeries, setIsLoadingSeries] = useState(false);
   const [persistedUsesSeries, setPersistedUsesSeries] = useState(Boolean(initialProduct?.usa_numero_serie));
   const [isSavingTraceability, setIsSavingTraceability] = useState(false);
+  const [printProduct, setPrintProduct] = useState<{
+    cod_unico: string;
+    cod_barra: string;
+  } | null>(null);
+  const printWindowRef = useRef<Window | null>(null);
 
   // Quick Add State
   const [quickAddType, setQuickAddType] = useState<QuickAddType | null>(null);
@@ -164,9 +171,6 @@ export function ProductForm({
     url: productId ? `/api/productos/${productId}` : "/api/productos",
     method: productId ? "PUT" : "POST",
     successMessage: productId ? "Item actualizado correctamente" : "Item creado correctamente",
-    onSuccess: () => {
-      handleFormSuccess();
-    },
   });
 
   const { loading: deleting, submit: runDelete } = useAppForm({
@@ -464,7 +468,104 @@ export function ProductForm({
 
     await submit(payload);
     setPersistedUsesSeries(Boolean(payload.usa_numero_serie));
+    handleFormSuccess();
   };
+
+  const handleSaveAndPrint = async () => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Permití las ventanas emergentes para imprimir.");
+      return;
+    }
+
+    printWindowRef.current = printWindow;
+    let barcode = product.cod_barra?.replace(/\D/g, "") || "";
+    let saveStarted = false;
+
+    try {
+      if (!barcode) {
+        setIsGeneratingBarcode(true);
+        const res = await fetch("/api/productos/generate-barcode");
+        const data = await res.json();
+
+        if (!res.ok || !data.barcode) {
+          throw new Error("No se pudo generar el código de barras.");
+        }
+
+        barcode = data.barcode;
+        setIsGeneratingBarcode(false);
+      }
+
+      const payload = buildProductPayload({ cod_barra: barcode });
+      saveStarted = true;
+      const savedProduct = await submit(payload);
+
+      setProduct((prev) => ({ ...prev, cod_barra: barcode }));
+      setPersistedUsesSeries(Boolean(payload.usa_numero_serie));
+      setPrintProduct({
+        cod_unico: savedProduct.cod_unico || payload.cod_unico,
+        cod_barra: savedProduct.cod_barra || barcode,
+      });
+    } catch (error) {
+      printWindow.close();
+      printWindowRef.current = null;
+      if (!saveStarted) {
+        showError(error, "No se pudo generar el código de barras");
+      }
+    } finally {
+      setIsGeneratingBarcode(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!printProduct) return;
+
+    const timer = window.setTimeout(() => {
+      const sourceHtml = document.getElementById("single-label-print-source")?.innerHTML;
+      if (!sourceHtml) {
+        toast.error("No se pudo preparar la etiqueta.");
+        printWindowRef.current?.close();
+        printWindowRef.current = null;
+        setPrintProduct(null);
+        return;
+      }
+
+      const printWindow = printWindowRef.current;
+      if (!printWindow) {
+        toast.error("No se pudo abrir la ventana de impresión.");
+        setPrintProduct(null);
+        return;
+      }
+
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Etiqueta ${printProduct.cod_unico}</title>
+            <style>
+              @page { size: 50mm 25mm; margin: 0; }
+              body { margin: 0; padding: 0; background: white; }
+              .label-card {
+                width: 50mm; height: 25mm; box-sizing: border-box; overflow: hidden;
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                padding: 1mm; text-align: center; font-family: Arial, sans-serif;
+              }
+              svg { width: 100% !important; height: auto !important; max-height: 18mm !important; }
+              .label-code { margin-top: 1mm; font-size: 8pt; font-weight: 700; line-height: 1.1; }
+            </style>
+          </head>
+          <body>
+            ${sourceHtml}
+            <script>window.onload = () => setTimeout(() => { window.print(); window.close(); }, 300);</script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindowRef.current = null;
+      setPrintProduct(null);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [printProduct]);
 
   const handleTraceabilityToggle = async () => {
     const nextValue = !product.usa_numero_serie;
@@ -590,6 +691,21 @@ export function ProductForm({
               </button>
             );
           })}
+        </div>
+      )}
+
+      {printProduct && (
+        <div id="single-label-print-source" className="hidden">
+          <div className="label-card">
+            <ReactBarcode
+              value={printProduct.cod_barra}
+              width={2.5}
+              height={45}
+              displayValue={false}
+              margin={0}
+            />
+            <div className="label-code">{printProduct.cod_unico}</div>
+          </div>
         </div>
       )}
 
@@ -857,8 +973,18 @@ export function ProductForm({
           </button>
 
           <button
+            type="button"
+            onClick={handleSaveAndPrint}
+            disabled={loading || isGeneratingBarcode}
+            className="flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-6 text-xs font-bold text-white transition hover:bg-blue-500 active:scale-95 disabled:opacity-50"
+          >
+            {loading || isGeneratingBarcode ? <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Printer className="h-4 w-4" />}
+            {loading || isGeneratingBarcode ? "Guardando..." : "Guardar e imprimir"}
+          </button>
+
+          <button
             type="submit"
-            disabled={loading}
+            disabled={loading || isGeneratingBarcode}
             className="flex items-center gap-2 rounded-xl bg-slate-900 h-10 px-6 text-xs font-bold text-white transition hover:bg-slate-800 active:scale-95 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
           >
             {loading ? <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Save className="h-4 w-4" />}
