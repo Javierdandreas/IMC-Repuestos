@@ -7,7 +7,7 @@ import { PencilButton } from "@/components/ui/PencilButton";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { HiPhotograph, HiCloudUpload, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiDownload, HiAdjustments } from "react-icons/hi";
+import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiAdjustments, HiInformationCircle } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
@@ -17,9 +17,10 @@ import { useMetadata } from "@/context/MetadataContext";
 import { useAppError } from "@/context/AppErrorContext";
 import { ProductoListado, Subcategoria } from "@/interfaces/productos";
 import { BulkLabelPrinter } from "@/components/products/BulkLabelPrinter";
+import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
 
 interface Props {
-  products: ProductoListado[];
+  products: ItemListadoUnificado[];
   totalPages?: number;
   currentPage?: number;
   totalCount?: number;
@@ -27,7 +28,15 @@ interface Props {
 
 const TOOLTIP_WIDTH = 420;
 const TOOLTIP_MARGIN = 16;
-type TooltipContent = "locations" | "details";
+type TooltipContent = "locations" | "details" | "activity";
+type ProductActivity = {
+  id: number;
+  tipo: "ALTA" | "EDICION" | "STOCK" | "COSTO" | "PRECIO";
+  titulo: string;
+  detalle?: string | null;
+  usuario_nombre?: string | null;
+  created_at: string;
+};
 
 export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
   const { categorias, subcategorias, marcas, proveedores } = useMetadata();
@@ -37,12 +46,18 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const searchParams = useSearchParams();
 
   const [openNew, setOpenNew] = useState(false);
+  const [openCreateChoice, setOpenCreateChoice] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductoListado | null>(null);
   const [duplicatingProduct, setDuplicatingProduct] = useState<ProductoListado | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("principal");
-  const [deletingProduct, setDeletingProduct] = useState<ProductoListado | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<ItemListadoUnificado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [activityState, setActivityState] = useState<{ key: string; activities: ProductActivity[]; loading: boolean }>({
+    key: "",
+    activities: [],
+    loading: false,
+  });
 
   // Estados de filtros (sincronizados con URL)
   const [searchGeneral, setSearchGeneral] = useState(searchParams.get("search") || "");
@@ -56,10 +71,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [openLabelPrinter, setOpenLabelPrinter] = useState(false);
 
   // Hover state
-  const [hoveredProductId, setHoveredProductId] = useState<number | null>(null);
+  const [hoveredProductKey, setHoveredProductKey] = useState<string | null>(null);
   const [tooltipContent, setTooltipContent] = useState<TooltipContent>("locations");
   const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activityCacheRef = useRef(new Map<string, ProductActivity[]>());
 
   const currentListHref = useMemo(() => {
     const params = searchParams.toString();
@@ -71,21 +87,32 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     router.push(`${path}?${params.toString()}`);
   };
 
-  // --- NUEVO: Estado de Selección ---
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const navigateToKitForm = (path: string) => {
+    const params = new URLSearchParams({ returnTo: currentListHref });
+    router.push(`${path}?${params.toString()}`);
+  };
 
-  const toggleSelect = (id: number) => {
+  // --- NUEVO: Estado de Selección ---
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectableProducts = products;
+  const selectedLabelProducts = useMemo(
+    () => products.filter((product) => product.tipo === "ITEM" && selectedIds.has(`ITEM-${product.id}`)),
+    [products, selectedIds]
+  );
+
+  const toggleSelect = (product: ItemListadoUnificado) => {
+    const key = `${product.tipo}-${product.id}`;
     const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
     setSelectedIds(next);
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === products.length) {
+    if (selectedIds.size === selectableProducts.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(products.map(p => p.id)));
+      setSelectedIds(new Set(selectableProducts.map((product) => `${product.tipo}-${product.id}`)));
     }
   };
   // ---------------------------------
@@ -126,11 +153,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   }, [subcategorias, categoria]);
 
   const hoveredProduct = useMemo(
-    () => products.find(p => p.id === hoveredProductId) ?? null,
-    [products, hoveredProductId]
+    () => products.find((product) => `${product.tipo}-${product.id}` === hoveredProductKey) ?? null,
+    [products, hoveredProductKey]
   );
 
-  const handleTooltipEnter = (productId: number, content: TooltipContent, event: React.MouseEvent) => {
+  const handleTooltipEnter = (product: ItemListadoUnificado, content: TooltipContent, event: React.MouseEvent) => {
     if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
 
     const rect = event.currentTarget.getBoundingClientRect();
@@ -162,12 +189,39 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
     setTooltipPos({ top, left });
     setTooltipContent(content);
-    setHoveredProductId(productId);
+    setHoveredProductKey(`${product.tipo}-${product.id}`);
+
+    if (content === "activity" && product.tipo === "ITEM") {
+      const activityKey = `${product.tipo}-${product.id}`;
+      const cachedActivities = activityCacheRef.current.get(activityKey);
+
+      if (cachedActivities) {
+        setActivityState({ key: activityKey, activities: cachedActivities, loading: false });
+        return;
+      }
+
+      setActivityState({ key: activityKey, activities: [], loading: true });
+      void fetch(`/api/productos/${product.id}/actividad`)
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.message || "No se pudo obtener la actividad");
+          const activities = data.activities || [];
+          activityCacheRef.current.set(activityKey, activities);
+          setActivityState((current) => current.key === activityKey
+            ? { key: activityKey, activities, loading: false }
+            : current);
+        })
+        .catch(() => {
+          setActivityState((current) => current.key === activityKey
+            ? { key: activityKey, activities: [], loading: false }
+            : current);
+        });
+    }
   };
 
   const handleTooltipLeave = () => {
     tooltipTimeoutRef.current = setTimeout(() => {
-      setHoveredProductId(null);
+      setHoveredProductKey(null);
     }, 100);
   };
 
@@ -186,20 +240,27 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
     try {
       setIsDeleting(true);
-      const response = await fetch(`/api/productos/${deletingProduct.id}`, { method: "DELETE" });
+      const endpoint = deletingProduct.tipo === "KIT" ? `/api/kits/${deletingProduct.id}` : `/api/productos/${deletingProduct.id}`;
+      const response = await fetch(endpoint, { method: "DELETE" });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.message || "No se pudo borrar el item");
+        throw new Error(data.message || `No se pudo borrar el ${deletingProduct.tipo === "KIT" ? "kit" : "item"}`);
       }
 
       router.refresh();
-      toast.success("Item borrado correctamente");
+      toast.success(`${deletingProduct.tipo === "KIT" ? "Kit" : "Item"} borrado correctamente`);
     } catch (error) {
       showError(error, "No se pudo borrar el item");
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const goToPage = (page: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    router.push(`?${params.toString()}`);
   };
 
   // Modal Header Tabs Wrapper
@@ -248,35 +309,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               {canManage && (
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => router.push("/productos/importar")}
-                    className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-100 px-6 text-sm font-bold text-slate-900 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700 active:scale-95"
-                  >
-                    <HiCloudUpload className="h-5 w-5" />
-                    Importar CSV
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      const params = new URLSearchParams();
-                      if (categoria) params.set("categoria", categoria);
-                      if (subcategoria) params.set("subcategoria", subcategoria);
-                      if (marca) params.set("marca", marca);
-                      if (proveedor) params.set("proveedor", proveedor);
-                      router.push(`/productos/exportar${params.toString() ? `?${params.toString()}` : ""}`);
-                    }}
-                    className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-100 px-6 text-sm font-bold text-slate-900 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700 active:scale-95"
-                  >
-                    <HiDownload className="h-5 w-5" />
-                    Exportar
-                  </button>
-                  <button
-                    onClick={() => navigateToProductForm("/productos/nuevo")}
+                    onClick={() => setOpenCreateChoice(true)}
                     className="inline-flex h-12 items-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-700 hover:shadow-blue-500/40 active:scale-95"
                   >
                     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                     </svg>
-                    Nuevo Item
+                    Nuevo
                   </button>
                 </div>
               )}
@@ -399,12 +438,14 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     <div className="flex items-center justify-center">
                       <input
                         type="checkbox"
-                        checked={products.length > 0 && selectedIds.size === products.length}
+                        checked={selectableProducts.length > 0 && selectedIds.size === selectableProducts.length}
                         onChange={toggleSelectAll}
                         className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
                     </div>
                   </th>
+                  <th className="w-[36px] px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Info</th>
+                  <th className="w-[48px] px-2 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Tipo</th>
                   <th className="w-[110px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Código</th>
                   <th className="px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Descripción</th>
                   <th className="w-[60px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Foto</th>
@@ -419,8 +460,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {products.map((product) => (
                   <tr
-                    key={product.id}
-                    className={`group transition-all ${selectedIds.has(product.id)
+                    key={`${product.tipo}-${product.id}`}
+                    className={`group transition-all ${selectedIds.has(`${product.tipo}-${product.id}`)
                         ? 'bg-blue-50/50 dark:bg-blue-900/10'
                         : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/30'
                       }`}
@@ -429,27 +470,47 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       <div className="flex items-center justify-center">
                         <input
                           type="checkbox"
-                          checked={selectedIds.has(product.id)}
-                          onChange={() => toggleSelect(product.id)}
+                          checked={selectedIds.has(`${product.tipo}-${product.id}`)}
+                          onChange={() => toggleSelect(product)}
                           className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                         />
                       </div>
                     </td>
+                    <td className="px-1 py-3 text-center">
+                      {product.tipo === "ITEM" && canManage ? (
+                        <span
+                          onMouseEnter={(event) => handleTooltipEnter(product, "activity", event)}
+                          onMouseLeave={handleTooltipLeave}
+                          className="inline-flex h-7 w-7 cursor-help items-center justify-center rounded-lg text-slate-400 transition hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+                          title="Actividad del item"
+                        >
+                          <HiInformationCircle className="h-5 w-5" />
+                        </span>
+                      ) : <span className="text-slate-300 dark:text-slate-700">-</span>}
+                    </td>
+                    <td className="px-2 py-3 text-center">
+                      <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[11px] font-black ${product.tipo === "KIT"
+                        ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300"
+                        : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
+                        }`} title={product.tipo === "KIT" ? "Kit" : "Item"}>
+                        {product.tipo === "KIT" ? "K" : "I"}
+                      </span>
+                    </td>
                     <td
                       className="whitespace-nowrap px-5 py-4 cursor-help"
-                      onMouseEnter={(e) => handleTooltipEnter(product.id, "locations", e)}
+                      onMouseEnter={(e) => handleTooltipEnter(product, product.tipo === "KIT" ? "details" : "locations", e)}
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
                         <span className="font-mono text-sm font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
                         <span className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 tracking-wider">
-                          {product.codigo_pieza}
+                          {product.tipo === "KIT" ? "KIT" : product.codigo_pieza}
                         </span>
                       </div>
                     </td>
                     <td
                       className="cursor-help px-3 py-3 border-r border-slate-50 dark:border-slate-800/50"
-                      onMouseEnter={(e) => handleTooltipEnter(product.id, "details", e)}
+                      onMouseEnter={(e) => handleTooltipEnter(product, "details", e)}
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
@@ -479,7 +540,9 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       )}
                     </td>
                     <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
-                      {product.pieza_medida_url ? (
+                      {product.tipo === "KIT" ? (
+                        <span className="text-xs font-bold text-slate-400">-</span>
+                      ) : product.pieza_medida_url ? (
                         <button
                           onClick={() => setPreviewImage(product.pieza_medida_url || null)}
                           className="group/img relative inline-flex h-11 w-11 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
@@ -507,13 +570,30 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       </div>
                     </td>
                     <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-400 truncate max-w-[120px]" title={product.proveedor ?? ""}>
-                      {product.proveedor ?? "-"}
+                      {product.tipo === "KIT" ? `${product.componentes_kit?.length || 0} componentes` : product.proveedor ?? "-"}
                     </td>
                     <td className="px-2 py-3 text-[11px] text-slate-700 dark:text-slate-300 font-bold text-center">{product.stock}</td>
                     <td className="whitespace-nowrap px-4 py-4">
                       <div className="flex items-center justify-center gap-2">
                         {canManage ? (
-                          <>
+                          product.tipo === "KIT" ? (
+                            <>
+                              <PencilButton
+                                label={`Editar kit ${product.descripcion}`}
+                                onClick={() => navigateToKitForm(`/kits/editar/${product.id}`)}
+                              />
+                              <CopyButton
+                                label={`Duplicar kit ${product.descripcion}`}
+                                onClick={() => navigateToKitForm(`/kits/duplicar/${product.id}`)}
+                              />
+                              <TrashButton
+                                label={`Borrar kit ${product.descripcion}`}
+                                onClick={() => setDeletingProduct(product)}
+                                disabled={isDeleting && deletingProduct?.id === product.id && deletingProduct?.tipo === "KIT"}
+                              />
+                            </>
+                          ) : (
+                            <>
                             <PencilButton
                               label={`Editar item ${product.descripcion}`}
                               onClick={() => navigateToProductForm(`/productos/edit/${product.id}`)}
@@ -525,9 +605,10 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                             <TrashButton
                               label={`Borrar item ${product.descripcion}`}
                               onClick={() => setDeletingProduct(product)}
-                              disabled={isDeleting && deletingProduct?.id === product.id}
+                              disabled={isDeleting && deletingProduct?.id === product.id && deletingProduct?.tipo === "ITEM"}
                             />
-                          </>
+                            </>
+                          )
                         ) : (
                           <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>
                         )}
@@ -537,7 +618,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 ))}
                 {products.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
+                    <td colSpan={12} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
                       No hay items que coincidan con los filtros.
                     </td>
                   </tr>
@@ -558,7 +639,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-white font-black text-sm">
                       {selectedIds.size}
                     </div>
-                    <span className="text-sm font-bold text-slate-300">items seleccionados</span>
+                    <span className="text-sm font-bold text-slate-300">seleccionados</span>
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -569,13 +650,15 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       Deseleccionar
                     </button>
 
-                    <button
-                      onClick={() => setOpenLabelPrinter(true)}
-                      className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 hover:scale-105 active:scale-95"
-                    >
-                      <HiPrinter className="h-4 w-4" />
-                      IMPRIMIR ETIQUETAS
-                    </button>
+                    {selectedLabelProducts.length > 0 && (
+                      <button
+                        onClick={() => setOpenLabelPrinter(true)}
+                        className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 hover:scale-105 active:scale-95"
+                      >
+                        <HiPrinter className="h-4 w-4" />
+                        IMPRIMIR ETIQUETAS
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -584,7 +667,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             <BulkLabelPrinter
               isOpen={openLabelPrinter}
               onClose={() => setOpenLabelPrinter(false)}
-              products={products.filter(p => selectedIds.has(p.id))}
+              products={selectedLabelProducts as ProductoListado[]}
               onSuccess={() => {
                 router.refresh(); // Actualizar datos de la tabla
               }}
@@ -605,7 +688,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => router.push(`?page=1`)}
+                    onClick={() => goToPage(1)}
                     disabled={currentPage === 1}
                     className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                     title="Primera página"
@@ -615,7 +698,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </svg>
                   </button>
                   <button
-                    onClick={() => router.push(`?page=${currentPage - 1}`)}
+                    onClick={() => goToPage(currentPage - 1)}
                     disabled={currentPage === 1}
                     className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                   >
@@ -643,7 +726,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         typeof p === "number" ? (
                           <button
                             key={idx}
-                            onClick={() => router.push(`?page=${p}`)}
+                            onClick={() => goToPage(p)}
                             className={`h-10 w-10 flex items-center justify-center rounded-xl text-sm font-black transition-all ${currentPage === p
                                 ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30 scale-105"
                                 : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400"
@@ -659,7 +742,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   </div>
 
                   <button
-                    onClick={() => router.push(`?page=${currentPage + 1}`)}
+                    onClick={() => goToPage(currentPage + 1)}
                     disabled={currentPage === totalPages}
                     className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                   >
@@ -668,7 +751,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </svg>
                   </button>
                   <button
-                    onClick={() => router.push(`?page=${totalPages}`)}
+                    onClick={() => goToPage(totalPages)}
                     disabled={currentPage === totalPages}
                     className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                     title="Última página"
@@ -703,7 +786,59 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             }}
           >
             <div className="space-y-3">
-              {tooltipContent === "locations" ? (
+              {tooltipContent === "activity" ? (
+                <>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Actividad del item</p>
+                    <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_unico}</p>
+                  </div>
+                  {activityState.key !== `${hoveredProduct.tipo}-${hoveredProduct.id}` || activityState.loading ? (
+                    <div className="flex min-h-24 items-center justify-center">
+                      <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+                    </div>
+                  ) : activityState.activities.length > 0 ? (
+                    <div className="space-y-2">
+                      {activityState.activities.map((activity) => (
+                        <div key={activity.id} className="border-b border-slate-100 pb-2 last:border-0 last:pb-0 dark:border-slate-700">
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="text-xs font-black text-slate-800 dark:text-slate-100">{activity.titulo}</p>
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-black text-slate-500 dark:bg-slate-700 dark:text-slate-300">{activity.tipo}</span>
+                          </div>
+                          {activity.detalle && <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{activity.detalle}</p>}
+                          <p className="mt-1 text-[10px] text-slate-400">{activity.usuario_nombre || "Sistema"} - {new Date(activity.created_at).toLocaleString("es-AR")}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-bold text-slate-400 dark:border-slate-700">
+                      Todavia no hay actividad registrada.
+                    </p>
+                  )}
+                </>
+              ) : hoveredProduct.tipo === "KIT" ? (
+                <>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Componentes del kit</p>
+                    <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_unico}</p>
+                  </div>
+
+                  {hoveredProduct.componentes_kit && hoveredProduct.componentes_kit.length > 0 ? (
+                    <div className="space-y-2">
+                      {hoveredProduct.componentes_kit.map((component) => (
+                        <div key={`${hoveredProduct.id}-${component.codigo}`} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-700/50">
+                          <p className="font-mono font-black text-slate-700 dark:text-slate-200">{component.cantidad}x {component.codigo}</p>
+                          <p className="mt-0.5 font-bold text-slate-700 dark:text-slate-200">{component.descripcion}</p>
+                          <p className="mt-0.5 text-[11px] text-slate-400">{component.ubicacion}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-bold text-slate-400 dark:border-slate-700">
+                      Sin componentes asociados
+                    </p>
+                  )}
+                </>
+              ) : tooltipContent === "locations" ? (
                 <>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ubicaciones</p>
@@ -778,6 +913,33 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         )}
       </AnimatePresence>
 
+      <Modal
+        open={openCreateChoice}
+        onClose={() => setOpenCreateChoice(false)}
+        title="Nuevo"
+        width="w-full max-w-md"
+      >
+        <div className="grid grid-cols-1 gap-3 p-1 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => navigateToProductForm("/productos/nuevo")}
+            className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-left transition hover:border-blue-400 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/30 dark:hover:bg-blue-950/60"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-black text-white">I</span>
+            <p className="mt-3 text-sm font-black text-slate-900 dark:text-white">Item</p>
+            <p className="mt-1 text-xs font-medium text-slate-500">Producto individual con stock propio.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigateToKitForm("/kits/nuevo")}
+            className="rounded-xl border border-indigo-200 bg-indigo-50 p-5 text-left transition hover:border-indigo-400 hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/60"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-black text-white">K</span>
+            <p className="mt-3 text-sm font-black text-slate-900 dark:text-white">Kit</p>
+            <p className="mt-1 text-xs font-medium text-slate-500">Grupo de items con precio y stock calculados.</p>
+          </button>
+        </div>
+      </Modal>
 
 
       <Modal

@@ -71,13 +71,6 @@ export function KitList({ kits, totalPages = 1, currentPage = 1, totalCount = 0,
 
         <div className="flex items-center gap-2">
             <button
-                onClick={() => router.push("/kits/importar")}
-                className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all shadow-sm active:scale-95"
-            >
-                <HiCloudUpload className="h-5 w-5 text-indigo-500" />
-                IMPORTAR KITS
-            </button>
-            <button
                 onClick={() => router.push("/kits/nuevo")}
                 className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
             >

@@ -1,6 +1,6 @@
 import { ProductList } from "@/components/products/ProductList";
 import { getProductMeta } from "@/lib/productos-meta";
-import { getProductosListado } from "@/lib/repos/productos";
+import { getItemsUnificadosListado } from "@/lib/repos/items-unificados";
 import Link from "next/link";
 import { getServerInternalUser } from "@/lib/auth";
 import { canManageContent } from "@/lib/permissions";
@@ -16,7 +16,7 @@ export default async function Home({ searchParams }: Props) {
   const page = Number(resolvedParams?.page) || 1;
 
   const [{ data: products, totalPages, totalCount }, session] = await Promise.all([
-    getProductosListado(page, 50, {
+    getItemsUnificadosListado(page, 50, {
       search: resolvedParams?.search as string,
       searchSpecific: resolvedParams?.searchSpecific as string,
       categoria: resolvedParams?.categoria as string,

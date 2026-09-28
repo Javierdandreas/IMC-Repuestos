@@ -9,16 +9,30 @@ export function normalizarCriterioCosto(value: unknown): CriterioCosto {
 
 export function preciosValidosProveedores(proveedores: ProveedorProducto[]): number[] {
   return proveedores
-    .map((item) => Number(item.precio_lista_actual))
+    .map((item) => Number(item.costo_actual ?? item.precio_lista_actual))
     .filter((precio) => Number.isFinite(precio) && precio > 0);
+}
+
+function preciosDisponiblesProveedores(proveedores: ProveedorProducto[]): number[] {
+  return proveedores
+    .filter((item) => item.stock_estado === "DISPONIBLE")
+    .map((item) => Number(item.costo_actual ?? item.precio_lista_actual))
+    .filter((precio) => Number.isFinite(precio) && precio > 0);
+}
+
+function promedio(precios: number[]): number {
+  return Math.round((precios.reduce((total, precio) => total + precio, 0) / precios.length) * 100) / 100;
 }
 
 export function calcularCostoBase(proveedores: ProveedorProducto[], criterio: CriterioCosto): number | null {
   const precios = preciosValidosProveedores(proveedores);
   if (criterio === "MANUAL" || precios.length === 0) return null;
-  if (criterio === "MENOR_PRECIO") return Math.min(...precios);
+  if (criterio === "MENOR_PRECIO") {
+    const preciosDisponibles = preciosDisponiblesProveedores(proveedores);
+    return preciosDisponibles.length > 0 ? Math.min(...preciosDisponibles) : promedio(precios);
+  }
   if (criterio === "MAYOR_PRECIO") return Math.max(...precios);
-  return Math.round((precios.reduce((total, precio) => total + precio, 0) / precios.length) * 100) / 100;
+  return promedio(precios);
 }
 
 type PrecioConMargen = {

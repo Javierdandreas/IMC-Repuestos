@@ -2,6 +2,7 @@ import { query, withTransaction, DbClient as DBClient } from "@/lib/db-utils";
 import { AppError } from "@/lib/api-errors";
 import { OperacionListado } from "@/interfaces/operaciones";
 import { SERIE_ESTADOS_VENTA_MOSTRADOR_SET } from "@/lib/serie-estados";
+import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
 
 export async function getOperaciones(params?: {
   tipo?: "COMPRA" | "VENTA" | "AJUSTE";
@@ -280,7 +281,7 @@ export async function createOperacion(
       const codigoProveedor = String(d.codigo_proveedor || "").trim().toUpperCase() || null;
       const prodRes = await client.query(
         `
-          SELECT id, usa_numero_serie, id_ubicacion, stock
+          SELECT id, cod_unico, usa_numero_serie, id_ubicacion, stock
           FROM productos
           WHERE id = $1
           FOR UPDATE
@@ -398,6 +399,29 @@ export async function createOperacion(
 
       await client.query("UPDATE productos SET stock = stock + $1 WHERE id = $2", [cantidad, d.id_producto]);
 
+      const stockAnterior = Number(producto.stock);
+      const stockNuevo = stockAnterior + cantidad;
+      const operationLabels = {
+        COMPRA: "Stock actualizado por compra",
+        VENTA: "Stock actualizado por venta",
+        AJUSTE: "Stock actualizado por ajuste",
+      } as const;
+      await registrarProductoActividad({
+        idProducto: Number(d.id_producto),
+        codigoProducto: String(producto.cod_unico || ""),
+        tipo: "STOCK",
+        titulo: operationLabels[payload.tipo],
+        detalle: `${stockAnterior} a ${stockNuevo}`,
+        datos: {
+          anterior: stockAnterior,
+          nuevo: stockNuevo,
+          operacionId,
+          tipoOperacion: payload.tipo,
+          cantidad,
+        },
+        usuarioId: payload.usuario_id,
+      }, client);
+
       if (esCompra && idProveedor && payload.actualiza_costo_proveedor) {
         const costoNeto = Math.round(precioUnitario * (1 - descuentoPorcentaje / 100) * 100) / 100;
         await client.query(
@@ -413,6 +437,15 @@ export async function createOperacion(
           `,
           [d.id_producto, idProveedor, codigoProveedor, costoNeto]
         );
+        await registrarProductoActividad({
+          idProducto: Number(d.id_producto),
+          codigoProducto: String(producto.cod_unico || ""),
+          tipo: "COSTO",
+          titulo: "Costo actualizado por compra",
+          detalle: `$ ${costoNeto.toLocaleString("es-AR")}`,
+          datos: { operacionId, proveedorId: idProveedor, costo: costoNeto },
+          usuarioId: payload.usuario_id,
+        }, client);
       }
     }
 

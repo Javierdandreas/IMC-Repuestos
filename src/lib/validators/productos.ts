@@ -15,6 +15,10 @@ const proveedorProductoSchema = z.object({
   codigo_proveedor: z.string().trim().toUpperCase().optional().default(""),
   precio_lista_actual: z.number().nonnegative().nullable().optional(),
   costo_actual: z.number().nonnegative().nullable().optional(),
+  stock_estado: z.enum(["DISPONIBLE", "PROXIMO_INGRESO", "SIN_STOCK", "DESCONOCIDO"]).optional(),
+  stock_cantidad: z.number().nonnegative().nullable().optional(),
+  stock_texto_original: z.string().trim().nullable().optional(),
+  fecha_stock_actualizacion: z.string().datetime().nullable().optional(),
   fecha_ultima_actualizacion: z.string().datetime().nullable().optional(),
   ultima_importacion_id: z.number().int().nonnegative().nullable().optional(),
 });

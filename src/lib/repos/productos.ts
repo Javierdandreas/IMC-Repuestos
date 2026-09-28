@@ -10,8 +10,9 @@ import {
 import { deleteFileFromStorage } from "@/lib/storage-cleanup";
 import { SERIE_ESTADOS_CON_STOCK_FISICO } from "@/lib/serie-estados";
 import { getTiposPrecio } from "@/lib/repos/catalogos";
-import { calcularCostoBase, normalizarCriterioCosto, recalcularPreciosDesdeCosto } from "@/lib/costos";
+import { normalizarCriterioCosto } from "@/lib/costos";
 import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
+import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
 
 export type ProductoInput = {
   cod_unico: string;
@@ -71,12 +72,6 @@ function sanitizeProductoInput(input: ProductoInput) {
   };
 }
 
-function aplicarCriterioCosto(payload: ReturnType<typeof sanitizeProductoInput>) {
-  const costo = calcularCostoBase(payload.proveedores, payload.criterio_costo);
-  if (costo === null) return payload.precios;
-  return recalcularPreciosDesdeCosto(payload.precios, costo);
-}
-
 async function syncProductoPrecios(
   client: DbClient,
   productId: number | string,
@@ -132,14 +127,19 @@ async function syncProductoProveedores(
       `
         INSERT INTO producto_proveedor (
           id_producto, id_proveedor, codigo_proveedor, 
-          precio_lista_actual, costo_actual, fecha_ultima_actualizacion, ultima_importacion_id
+          precio_lista_actual, costo_actual, stock_estado, stock_cantidad, stock_texto_original,
+          fecha_stock_actualizacion, fecha_ultima_actualizacion, ultima_importacion_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         ON CONFLICT (id_producto, id_proveedor) DO UPDATE
         SET 
           codigo_proveedor = EXCLUDED.codigo_proveedor,
           precio_lista_actual = EXCLUDED.precio_lista_actual,
           costo_actual = EXCLUDED.costo_actual,
+          stock_estado = EXCLUDED.stock_estado,
+          stock_cantidad = EXCLUDED.stock_cantidad,
+          stock_texto_original = EXCLUDED.stock_texto_original,
+          fecha_stock_actualizacion = EXCLUDED.fecha_stock_actualizacion,
           fecha_ultima_actualizacion = EXCLUDED.fecha_ultima_actualizacion,
           ultima_importacion_id = EXCLUDED.ultima_importacion_id
       `,
@@ -149,6 +149,10 @@ async function syncProductoProveedores(
         sanitizeNullableString(item.codigo_proveedor),
         item.precio_lista_actual || null,
         item.costo_actual || null,
+        item.stock_estado || "DESCONOCIDO",
+        item.stock_cantidad ?? null,
+        sanitizeNullableString(item.stock_texto_original),
+        item.fecha_stock_actualizacion || null,
         item.fecha_ultima_actualizacion || null,
         item.ultima_importacion_id || null
       ]
@@ -163,6 +167,10 @@ async function getProductoProveedores(id: string | number) {
       COALESCE(codigo_proveedor, '') AS codigo_proveedor,
       precio_lista_actual,
       costo_actual,
+      stock_estado,
+      stock_cantidad,
+      stock_texto_original,
+      fecha_stock_actualizacion,
       fecha_ultima_actualizacion,
       ultima_importacion_id
     FROM producto_proveedor
@@ -173,7 +181,7 @@ async function getProductoProveedores(id: string | number) {
   const { rows } = await query(proveedoresQuery, [id]);
   return rows.length > 0
     ? (rows as ProveedorProducto[])
-    : [{ id_proveedor: null, codigo_proveedor: "", precio_lista_actual: null, costo_actual: null, fecha_ultima_actualizacion: null, ultima_importacion_id: null }];
+    : [{ id_proveedor: null, codigo_proveedor: "", precio_lista_actual: null, costo_actual: null, stock_estado: "DESCONOCIDO" as const, stock_cantidad: null, stock_texto_original: null, fecha_stock_actualizacion: null, fecha_ultima_actualizacion: null, ultima_importacion_id: null }];
 }
 
 export async function getProductosListado(
@@ -186,10 +194,11 @@ export async function getProductosListado(
     subcategoria?: string;
     marca?: string;
     proveedor?: string;
+    ids?: number[];
   } = {}
 ): Promise<{ data: ProductoListado[]; totalCount: number; totalPages: number }> {
   const params: any[] = [];
-  let whereClauses = ["1=1"];
+  let whereClauses = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
 
   if (filters.search) {
     params.push(`%${filters.search}%`);
@@ -231,6 +240,11 @@ export async function getProductosListado(
   if (filters.proveedor) {
     params.push(filters.proveedor);
     whereClauses.push(`prv.id = $${params.length}`);
+  }
+
+  if (filters.ids?.length) {
+    params.push(filters.ids);
+    whereClauses.push(`p.id = ANY($${params.length}::int[])`);
   }
 
   params.push(SERIE_ESTADOS_CON_STOCK_FISICO);
@@ -368,7 +382,7 @@ export async function getProductosParaExportar(filters: {
   proveedor?: string;
 } = {}, options: { detalleProveedor?: boolean } = {}): Promise<any[]> {
   const params: any[] = [];
-  let whereClauses = ["1=1"];
+  let whereClauses = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
 
   if (filters.search) {
     params.push(`%${filters.search}%`);
@@ -736,10 +750,10 @@ export async function createProducto(input: ProductoInput) {
     );
 
     const newProduct = productResult.rows[0];
-    await Promise.all([
-      syncProductoProveedores(client, newProduct.id, payload.proveedores),
-      syncProductoPrecios(client, newProduct.id, aplicarCriterioCosto(payload)),
-    ]);
+    await syncProductoProveedores(client, newProduct.id, payload.proveedores);
+    await recalcularCostosProveedorProductos(client, { productIds: [newProduct.id] });
+    await syncProductoPrecios(client, newProduct.id, payload.precios);
+    await recalcularPreciosAutomaticos(client, [newProduct.id]);
 
 
     return newProduct;
@@ -803,10 +817,10 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
       throw err;
     }
 
-    await Promise.all([
-      syncProductoProveedores(client, id, payload.proveedores),
-      syncProductoPrecios(client, id, aplicarCriterioCosto(payload)),
-    ]);
+    await syncProductoProveedores(client, id, payload.proveedores);
+    await recalcularCostosProveedorProductos(client, { productIds: [Number(id)] });
+    await syncProductoPrecios(client, id, payload.precios);
+    await recalcularPreciosAutomaticos(client, [Number(id)]);
 
 
     const updatedProduct = result.rows[0];
@@ -1027,7 +1041,10 @@ export async function importProductos(
             // La subcategoría es obligatoria en DB, si no existe usamos la primera o la mapeada
             let idSubcat = mappings.subcategoria?.csvHeader ? subMap.get(normalize(item[mappings.subcategoria.csvHeader])) : null;
             if (!idSubcat) {
-              idSubcat = subMap.values().next().value || 1; 
+              idSubcat = defaultSubcatId || null;
+            }
+            if (!idSubcat) {
+              throw new Error("No existe la subcategoria predeterminada SIN SUBCATEGORIA en el catalogo");
             }
 
             const idUbi = mappings.ubicacion?.csvHeader ? ubiMap.get(normalize(item[mappings.ubicacion.csvHeader])) || null : null;
@@ -1190,9 +1207,11 @@ export async function importProductos(
 
               if (precioListaShouldUpdate) {
                 results.providerPricesUpdated += providerUpdateResult.rowCount || 0;
+                const affectedProductIds = providerUpdateResult.rows.map((row) => Number(row.id_producto));
+                await recalcularCostosProveedorProductos(client, { productIds: affectedProductIds });
                 results.recalculatedCostCount += await recalcularPreciosAutomaticos(
                   client,
-                  providerUpdateResult.rows.map((row) => Number(row.id_producto))
+                  affectedProductIds
                 );
               }
           }

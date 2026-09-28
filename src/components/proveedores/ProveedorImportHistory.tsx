@@ -8,6 +8,7 @@ import { HiCheckCircle, HiClock, HiInformationCircle, HiLightningBolt, HiOutline
 import { toast } from "sonner";
 
 import type { ProveedorImportacion, ProveedorImportacionItem } from "@/interfaces/importaciones";
+import { labelEstadoStockProveedor } from "@/lib/stock-proveedor";
 import { Modal } from "../ui/Modal";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
@@ -256,11 +257,12 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
 
             <div>
               <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/30">
-                <div className="grid grid-cols-[60px_minmax(140px,1fr)_minmax(115px,0.8fr)_105px_135px_minmax(230px,1.4fr)_115px_115px] gap-3 bg-slate-950 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <div className="grid grid-cols-[60px_minmax(140px,1fr)_minmax(115px,0.8fr)_105px_120px_135px_minmax(230px,1.4fr)_115px_115px] gap-3 bg-slate-950 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
                   <span>Fila</span>
                   <span>Proveedor</span>
                   <span>Codigo prov.</span>
                   <span>Precio</span>
+                  <span>Stock</span>
                   <span>Estado</span>
                   <span>Item</span>
                   <span>Anterior</span>
@@ -275,13 +277,16 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                     (detailItems || []).map((row) => (
                       <div
                         key={row.id}
-                        className="grid grid-cols-[60px_minmax(140px,1fr)_minmax(115px,0.8fr)_105px_135px_minmax(230px,1.4fr)_115px_115px] items-center gap-3 px-5 py-4 text-xs transition hover:bg-slate-900/40"
+                        className="grid grid-cols-[60px_minmax(140px,1fr)_minmax(115px,0.8fr)_105px_120px_135px_minmax(230px,1.4fr)_115px_115px] items-center gap-3 px-5 py-4 text-xs transition hover:bg-slate-900/40"
                       >
                         <span className="font-mono font-bold text-slate-500">{row.fila || "-"}</span>
                         <span className="truncate font-bold text-slate-300">{row.proveedor_archivo || "-"}</span>
                         <span className="truncate font-black text-white">{row.codigo_proveedor}</span>
                         <span className="font-mono font-black text-blue-300">
                           {row.precio_lista === null || row.precio_lista === undefined ? (row.precio_original || "-") : formatMoney(row.precio_lista)}
+                        </span>
+                        <span className="truncate font-bold text-slate-400">
+                          {labelEstadoStockProveedor(row.stock_estado, row.stock_cantidad)}
                         </span>
                         <span className={`w-fit rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${getRowStatusBadge(row.estado)}`}>
                           {formatRowStatus(row.estado)}

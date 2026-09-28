@@ -10,6 +10,8 @@ import { useAppError } from "@/context/AppErrorContext";
 import { ProveedorImportHistory } from "@/components/proveedores/ProveedorImportHistory";
 import { ProveedorImportSection } from "@/components/proveedores/ProveedorImportSection";
 import { ProveedorLocationFields } from "@/components/proveedores/ProveedorLocationFields";
+import { ProveedorCostLayers } from "@/components/proveedores/ProveedorCostLayers";
+import { ProveedorStockColorRules } from "@/components/proveedores/ProveedorStockColorRules";
 import type { CatalogoItem } from "@/interfaces/productos";
 
 type Props = {
@@ -31,6 +33,8 @@ const COMPROBANTE_OPTIONS = [
   { value: "FACTURA_B", label: "Factura B" },
 ];
 
+type ProveedorTab = "datos" | "lista-precios";
+
 export function ProveedorEditPage({ proveedor }: Props) {
   const router = useRouter();
   const { showMessage } = useAppError();
@@ -49,6 +53,7 @@ export function ProveedorEditPage({ proveedor }: Props) {
   const [activo, setActivo] = useState(proveedor?.activo ?? true);
   const [observaciones, setObservaciones] = useState(proveedor?.observaciones ?? "");
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<ProveedorTab>("datos");
 
   const handleSave = useCallback(async () => {
     if (saving) return;
@@ -98,7 +103,6 @@ export function ProveedorEditPage({ proveedor }: Props) {
   const labelClass = "text-[10px] font-black uppercase tracking-widest text-blue-400";
   const inputClass = "h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 text-xs font-black uppercase text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10";
   const textInputClass = "h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 text-xs font-bold text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10";
-
   return (
     <div className="min-h-screen px-4 py-5 md:px-6">
       <div className="mx-auto w-full max-w-[1500px]">
@@ -128,6 +132,26 @@ export function ProveedorEditPage({ proveedor }: Props) {
           </button>
         </header>
 
+        {isEditing ? (
+          <nav className="mb-4 flex border-b border-slate-800" aria-label="Secciones del proveedor">
+            <button
+              type="button"
+              onClick={() => setActiveTab("datos")}
+              className={`border-b-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest transition ${activeTab === "datos" ? "border-blue-500 text-white" : "border-transparent text-slate-500 hover:text-slate-300"}`}
+            >
+              Datos del proveedor
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("lista-precios")}
+              className={`border-b-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest transition ${activeTab === "lista-precios" ? "border-blue-500 text-white" : "border-transparent text-slate-500 hover:text-slate-300"}`}
+            >
+              Lista de precios
+            </button>
+          </nav>
+        ) : null}
+
+        {activeTab === "datos" ? <>
         <section className={sectionClass}>
           <h2 className="mb-3 text-[11px] font-black uppercase tracking-widest text-white">Informacion general</h2>
           <div className="grid gap-3 md:grid-cols-4">
@@ -178,7 +202,18 @@ export function ProveedorEditPage({ proveedor }: Props) {
             </div>
           </div>
         </section>
+        </> : null}
 
+        {proveedor && activeTab === "lista-precios" ? (
+          <div className="mt-4">
+            <ProveedorCostLayers id_proveedor={proveedor.id} />
+            <div className="mt-4">
+              <ProveedorStockColorRules id_proveedor={proveedor.id} />
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === "datos" ? <>
         <section className={`mt-4 ${sectionClass}`}>
           <h2 className="mb-3 text-[11px] font-black uppercase tracking-widest text-white">Contacto y domicilio fiscal</h2>
           <div className="grid gap-3 md:grid-cols-3">
@@ -221,8 +256,9 @@ export function ProveedorEditPage({ proveedor }: Props) {
             <textarea value={observaciones} onChange={(event) => setObservaciones(event.target.value)} className="min-h-20 w-full resize-y rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-medium text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10" placeholder="Notas internas sobre el proveedor" />
           </div>
         </section>
+        </> : null}
 
-        {proveedor ? (
+        {proveedor && activeTab === "lista-precios" ? (
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <section className={sectionClass}>
               <h2 className="mb-3 text-[11px] font-black uppercase tracking-widest text-white">Importar lista de precios</h2>

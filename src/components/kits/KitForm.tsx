@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { HiPlus, HiTrash, HiSearch, HiCollection, HiCheckCircle, HiChevronLeft, HiCurrencyDollar, HiIdentification } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
 import { KitComponenteSearch } from "@/interfaces/kits";
+import { ImageUpload } from "@/components/products/ImageUpload";
 
 interface KitItem {
     id_producto: number;
@@ -27,13 +28,17 @@ interface Props {
 
 export function KitForm({ kitId, initialData }: Props) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const meta = useMetadata();
     const [loading, setLoading] = useState(false);
+    const returnTo = searchParams.get("returnTo");
+    const itemsListHref = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/";
     
     // Form fields
     const [nombre, setNombre] = useState(initialData?.nombre || "");
     const [codigoManual, setCodigoManual] = useState(initialData?.codigo_kit || "");
     const [descripcion, setDescripcion] = useState(initialData?.descripcion || "");
+    const [imagenUrl, setImagenUrl] = useState<string | null>(initialData?.imagen_url || null);
     const [idSubcategoria, setIdSubcategoria] = useState<number | "">(initialData?.id_subcategoria || "");
     const [items, setItems] = useState<KitItem[]>(() => {
         if (!initialData?.componentes) return [];
@@ -165,7 +170,9 @@ export function KitForm({ kitId, initialData }: Props) {
                 nombre: nombre.toUpperCase(),
                 codigo_kit: codigoManual.toUpperCase(),
                 descripcion: descripcion.toUpperCase(),
+                imagen_url: imagenUrl,
                 id_subcategoria: idSubcategoria || null,
+                activo: initialData?.activo ?? true,
                 componentes: items.map(i => ({
                     id_producto: i.id_producto,
                     cantidad: i.cantidad
@@ -184,7 +191,7 @@ export function KitForm({ kitId, initialData }: Props) {
             }
 
             toast.success(kitId ? "Kit actualizado correctamente" : "Kit creado correctamente");
-            router.push("/kits");
+            router.push(itemsListHref);
             router.refresh();
         } catch (error: any) {
             toast.error(error.message);
@@ -295,6 +302,20 @@ export function KitForm({ kitId, initialData }: Props) {
                                 />
                             </div>
                         </div>
+                    </section>
+
+                    <section className="bg-white dark:bg-slate-900/40 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <div className="flex items-center gap-2 mb-6">
+                            <div className="h-8 w-1 bg-indigo-600 rounded-full" />
+                            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Foto del kit</h2>
+                        </div>
+                        <ImageUpload
+                            value={imagenUrl}
+                            onChange={setImagenUrl}
+                            bucket="productos"
+                            folder="kit-images"
+                            disabled={loading}
+                        />
                     </section>
 
                 </div>

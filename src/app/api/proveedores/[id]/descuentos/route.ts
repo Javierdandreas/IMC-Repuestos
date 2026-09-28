@@ -26,15 +26,16 @@ export async function POST(
   try {
     await requireApiWriteSession(request);
     const { id } = await params;
-    const { descuentoGeneral, descuentosPorMarca } = await request.json();
+    const { descuentoGeneral, descuentosPorMarca, coeficientesPorMarca } = await request.json();
     
-    await updateProveedorDiscounts(
+    const result = await updateProveedorDiscounts(
       parseInt(id, 10), 
-      parseFloat(descuentoGeneral) || 0, 
-      descuentosPorMarca || {}
+      descuentoGeneral,
+      descuentosPorMarca || {},
+      coeficientesPorMarca || {},
     );
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json(result);
   } catch (error: any) {
     return jsonError(error, "Error al actualizar descuentos del proveedor");
   }

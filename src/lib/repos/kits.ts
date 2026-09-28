@@ -14,14 +14,21 @@ const TIPO_CUENTA_CORRIENTE_SQL = `
  * Obtiene el listado de kits con paginación.
  * El precio mostrado es la sumatoria del precio de Mercado Libre de sus componentes.
  */
-export async function getKitsListado(page: number = 1, limit: number = 50, search?: string) {
-  let searchClause = "";
+export async function getKitsListado(page: number = 1, limit: number = 50, search?: string, ids?: number[]) {
+  const whereClauses: string[] = [];
   const params: any[] = [];
 
   if (search) {
-    searchClause = `WHERE (k.nombre ILIKE $1 OR k.codigo_kit ILIKE $1)`;
+    whereClauses.push(`(k.nombre ILIKE $1 OR k.codigo_kit ILIKE $1)`);
     params.push(`%${search}%`);
   }
+
+  if (ids?.length) {
+    params.push(ids);
+    whereClauses.push(`k.id = ANY($${params.length}::int[])`);
+  }
+
+  const searchClause = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
   const baseQuery = `
     SELECT 
@@ -29,6 +36,7 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
       k.nombre,
       k.codigo_kit,
       k.descripcion,
+      k.imagen_url,
       k.id_categoria,
       c.descripcion AS categoria,
       k.id_subcategoria,
@@ -39,12 +47,14 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
       COALESCE(SUM(pml.precio * kd.cantidad), 0) AS precio_ml_total,
       COALESCE(SUM(pmo.precio * kd.cantidad), 0) AS precio_mostrador_total,
       COALESCE(SUM(pme.precio * kd.cantidad), 0) AS precio_mecanico_total,
-      COALESCE(MIN(FLOOR(p.stock / kd.cantidad)), 0)::int AS stock_kit
+      COALESCE(MIN(FLOOR(p.stock / kd.cantidad)), 0)::int AS stock_kit,
+      STRING_AGG(DISTINCT m.descripcion, ', ') FILTER (WHERE m.descripcion IS NOT NULL) AS marcas_componentes
     FROM public.kits k
     LEFT JOIN public.categoria c ON k.id_categoria = c.id
     LEFT JOIN public.subcategoria s ON k.id_subcategoria = s.id
     LEFT JOIN public.kit_detalle kd ON k.id = kd.id_kit
     LEFT JOIN public.productos p ON kd.id_producto = p.id
+    LEFT JOIN public.marcas m ON m.id = p.id_marca
     LEFT JOIN public.producto_precio pml ON kd.id_producto = pml.id_producto AND pml.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)
     LEFT JOIN public.producto_precio pmo ON kd.id_producto = pmo.id_producto AND pmo.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)
     LEFT JOIN public.producto_precio pme ON kd.id_producto = pme.id_producto AND pme.id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})
@@ -118,10 +128,10 @@ export async function createKit(payload: Kit): Promise<Kit> {
   return await withTransaction(async (client) => {
     // 1. Insertar Kit
     const kitRes = await client.query(`
-      INSERT INTO public.kits (nombre, descripcion, codigo_kit, id_subcategoria, activo)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO public.kits (nombre, descripcion, codigo_kit, id_subcategoria, imagen_url, activo)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
-    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_subcategoria, payload.activo]);
+    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_subcategoria, payload.imagen_url || null, payload.activo]);
 
     const newKit = kitRes.rows[0];
 
@@ -147,10 +157,10 @@ export async function updateKit(id: number, payload: Kit): Promise<Kit> {
     // 1. Actualizar Kit
     const kitRes = await client.query(`
       UPDATE public.kits 
-      SET nombre = $1, descripcion = $2, codigo_kit = $3, id_subcategoria = $4, activo = $5
-      WHERE id = $6
+      SET nombre = $1, descripcion = $2, codigo_kit = $3, id_subcategoria = $4, imagen_url = $5, activo = $6
+      WHERE id = $7
       RETURNING *
-    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_subcategoria, payload.activo, id]);
+    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_subcategoria, payload.imagen_url || null, payload.activo, id]);
 
     if (kitRes.rowCount === 0) throw new Error("Kit no encontrado");
 
@@ -194,7 +204,8 @@ export async function searchComponentesForKit(search: string) {
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)), 0) AS precio_mostrador,
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})), 0) AS precio_mecanico
     FROM public.productos p
-    WHERE p.cod_unico ILIKE $1
+    WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+      AND p.cod_unico ILIKE $1
     LIMIT 10
   `;
   const res = await query(sql, [`%${search}%`]);
@@ -204,6 +215,65 @@ export async function searchComponentesForKit(search: string) {
 /**
  * Importación masiva de kits (Alta Velocidad).
  */
+export async function getKitsParaExportar() {
+  const [kits, componentes] = await Promise.all([
+    query<Record<string, unknown>>(`
+      SELECT
+        k.codigo_kit AS "Codigo Kit",
+        k.nombre AS "Nombre Kit",
+        COALESCE(k.descripcion, '') AS "Descripcion",
+        COALESCE(c.descripcion, '') AS "Categoria",
+        COALESCE(s.descripcion, '') AS "Subcategoria",
+        CASE WHEN k.activo THEN 'SI' ELSE 'NO' END AS "Activo"
+      FROM public.kits k
+      LEFT JOIN public.categoria c ON c.id = k.id_categoria
+      LEFT JOIN public.subcategoria s ON s.id = k.id_subcategoria
+      ORDER BY k.codigo_kit ASC
+    `),
+    query<Record<string, unknown>>(`
+      SELECT
+        k.codigo_kit AS "Codigo Kit",
+        k.nombre AS "Nombre Kit",
+        p.cod_unico AS "Codigo Item",
+        kd.cantidad AS "Cantidad"
+      FROM public.kit_detalle kd
+      JOIN public.kits k ON k.id = kd.id_kit
+      JOIN public.productos p ON p.id = kd.id_producto
+      ORDER BY k.codigo_kit ASC, p.cod_unico ASC
+    `),
+  ]);
+
+  return { kits: kits.rows, componentes: componentes.rows };
+}
+
+export type KitComponenteListado = {
+  id_kit: number;
+  codigo: string;
+  descripcion: string;
+  cantidad: number;
+  ubicacion: string;
+};
+
+export async function getComponentesParaKitsListado(ids: number[]): Promise<KitComponenteListado[]> {
+  if (ids.length === 0) return [];
+
+  const result = await query<KitComponenteListado>(`
+    SELECT
+      kd.id_kit,
+      p.cod_unico AS codigo,
+      p.descripcion,
+      kd.cantidad,
+      COALESCE(u.descripcion, 'Sin ubicacion') AS ubicacion
+    FROM public.kit_detalle kd
+    JOIN public.productos p ON p.id = kd.id_producto
+    LEFT JOIN public.ubicaciones u ON u.id = p.id_ubicacion
+    WHERE kd.id_kit = ANY($1::int[])
+    ORDER BY kd.id_kit, p.cod_unico
+  `, [ids]);
+
+  return result.rows;
+}
+
 export async function importKits(items: any[], user: string, fileName: string, mappings: any) {
     const startTime = Date.now();
     const results = {
@@ -255,13 +325,31 @@ export async function importKits(items: any[], user: string, fileName: string, m
         );
         const productMap = new Map<string, number>(productRes.rows.map(r => [r.cod_unico.toUpperCase(), r.id]));
 
+        // Un kit incompleto no se crea ni reemplaza: conserva el kit anterior hasta poder resolver todos sus componentes.
+        const validKitsMap = new Map<string, { nombre: string; componentes: { cod: string; qty: number; row: number }[] }>();
+        for (const [codKit, data] of kitsMap.entries()) {
+            const missingComponents = data.componentes.filter((component) => !productMap.has(component.cod));
+            if (missingComponents.length > 0) {
+                results.ignored += 1;
+                missingComponents.forEach((component) => {
+                    results.errors.push({
+                        row: component.row,
+                        error: `Producto "${component.cod}" no encontrado en catalogo. El kit no se modifico.`,
+                        cod_kit: codKit,
+                    });
+                });
+                continue;
+            }
+            validKitsMap.set(codKit, data);
+        }
+
         // 3. Preparar datos para Bulk Upsert de Kits
         const v_codigo: string[] = [];
         const v_nombre: string[] = [];
         const v_desc: string[] = [];
         const v_activo: boolean[] = [];
 
-        for (const [cod, data] of kitsMap.entries()) {
+        for (const [cod, data] of validKitsMap.entries()) {
             v_codigo.push(cod);
             v_nombre.push(data.nombre || cod); // Fallback al código si no hay nombre
             v_desc.push(""); // Descripción vacía por defecto en importación masiva
@@ -295,7 +383,7 @@ export async function importKits(items: any[], user: string, fileName: string, m
         const v_id_prod: number[] = [];
         const v_qty: number[] = [];
 
-        for (const [codKit, data] of kitsMap.entries()) {
+        for (const [codKit, data] of validKitsMap.entries()) {
             const kitId = kitIdMap.get(codKit);
             if (!kitId) continue;
 
@@ -322,6 +410,6 @@ export async function importKits(items: any[], user: string, fileName: string, m
             `, [v_id_kit, v_id_prod, v_qty]);
         }
 
-        return { ...results, durationMs: Date.now() - startTime };
+        return { ...results, appliedCodes: Array.from(kitIdMap.keys()), durationMs: Date.now() - startTime };
     });
 }

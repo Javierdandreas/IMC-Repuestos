@@ -25,9 +25,15 @@ export async function recalcularPreciosAutomaticos(
           p.id AS id_producto,
           ROUND(
             CASE p.criterio_costo
-              WHEN 'MENOR_PRECIO' THEN MIN(pp.precio_lista_actual) FILTER (WHERE pp.precio_lista_actual > 0)
-              WHEN 'PROMEDIO_PRECIO' THEN AVG(pp.precio_lista_actual) FILTER (WHERE pp.precio_lista_actual > 0)
-              WHEN 'MAYOR_PRECIO' THEN MAX(pp.precio_lista_actual) FILTER (WHERE pp.precio_lista_actual > 0)
+              WHEN 'MENOR_PRECIO' THEN COALESCE(
+                MIN(COALESCE(pp.costo_actual, pp.precio_lista_actual)) FILTER (
+                  WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0
+                    AND COALESCE(pp.stock_estado, 'DESCONOCIDO') = 'DISPONIBLE'
+                ),
+                AVG(COALESCE(pp.costo_actual, pp.precio_lista_actual)) FILTER (WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0)
+              )
+              WHEN 'PROMEDIO_PRECIO' THEN AVG(COALESCE(pp.costo_actual, pp.precio_lista_actual)) FILTER (WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0)
+              WHEN 'MAYOR_PRECIO' THEN MAX(COALESCE(pp.costo_actual, pp.precio_lista_actual)) FILTER (WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0)
             END,
             2
           ) AS costo
@@ -36,7 +42,7 @@ export async function recalcularPreciosAutomaticos(
         INNER JOIN public.producto_proveedor pp ON pp.id_producto = p.id
         WHERE p.criterio_costo IN ('MENOR_PRECIO', 'PROMEDIO_PRECIO', 'MAYOR_PRECIO')
         GROUP BY p.id, p.criterio_costo
-        HAVING COUNT(*) FILTER (WHERE pp.precio_lista_actual > 0) > 0
+        HAVING COUNT(*) FILTER (WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0) > 0
       ),
       precios_nuevos AS (
         SELECT

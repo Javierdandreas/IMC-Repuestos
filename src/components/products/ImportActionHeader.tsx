@@ -25,11 +25,11 @@ export function ImportActionHeader() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => router.push("/productos/importar")}
+            onClick={() => router.push("/configuracion/catalogo")}
             className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-900 px-6 text-sm font-bold text-white shadow-lg shadow-slate-500/20 transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 active:scale-95"
           >
             <HiCloudUpload className="h-5 w-5" />
-            Nueva Importación
+            Catalogo
           </button>
         </div>
       </div>

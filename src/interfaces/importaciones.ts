@@ -24,6 +24,9 @@ export interface ProveedorImportacionItem {
   codigo_proveedor: string;
   precio_lista?: number | null;
   precio_original?: string | null;
+  stock_original?: string | null;
+  stock_estado?: import("@/lib/stock-proveedor").EstadoStockProveedor | null;
+  stock_cantidad?: number | null;
   estado?: string | null;
   mensaje?: string | null;
   id_producto?: number | null;
@@ -40,6 +43,9 @@ export interface UltimoItemProveedor {
   id_proveedor: number;
   codigo_proveedor: string;
   precio_lista: number;
+  stock_original?: string | null;
+  stock_estado?: import("@/lib/stock-proveedor").EstadoStockProveedor | null;
+  stock_cantidad?: number | null;
   fecha_importacion: string;
 }
 
@@ -52,5 +58,11 @@ export interface CreateImportacionInput {
     codigo_proveedor: string;
     precio_lista?: number | null;
     precio_original?: string | null;
+    stock_original?: string | null;
+    stock_fuente?: "VALOR" | "COLOR_FILA";
+    stock_color?: string | null;
+    stock_color_estado?: import("@/lib/stock-proveedor").EstadoStockProveedor | null;
+    stock_estado?: import("@/lib/stock-proveedor").EstadoStockProveedor;
+    stock_cantidad?: number | null;
   }>;
 }

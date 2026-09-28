@@ -33,6 +33,10 @@ export type ProveedorProducto = {
   precio?: number; // Compatibilidad UI
   precio_lista_actual?: number | null;
   costo_actual?: number | null;
+  stock_estado?: import("@/lib/stock-proveedor").EstadoStockProveedor;
+  stock_cantidad?: number | null;
+  stock_texto_original?: string | null;
+  fecha_stock_actualizacion?: string | null;
   fecha_ultima_actualizacion?: string | null;
   ultima_importacion_id?: number | null;
 };

@@ -1,14 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { HiCheck, HiCloudUpload, HiExclamation, HiPlay, HiTable } from "react-icons/hi";
-import { mutate } from "swr";
+import { HiCheck, HiCloudUpload, HiExclamation, HiPlay, HiSave, HiTable } from "react-icons/hi";
+import useSWR, { mutate } from "swr";
 
 import { ProveedorImportHistory } from "./ProveedorImportHistory";
 import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
+import {
+  labelEstadoStockProveedor,
+  normalizarStockProveedor,
+  normalizarStockProveedorPorColor,
+  type EstadoStockProveedor,
+} from "@/lib/stock-proveedor";
 
 type Step = "upload" | "mapping" | "importing" | "results";
 
@@ -27,6 +33,35 @@ interface MappingConfig {
   isRequired?: boolean;
 }
 
+type StockColorRule = {
+  color: string;
+  estado: EstadoStockProveedor;
+  activo: boolean;
+};
+
+const STOCK_COLOR_ROW = "__COLOR_FILA_EXCEL__";
+
+const stockColorRulesFetcher = (url: string) => fetch(url).then(async (response) => {
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message || "No se pudieron cargar los colores");
+  return data;
+});
+
+function colorKey(value: unknown) {
+  const color = String(value ?? "").replace("#", "").trim().toUpperCase();
+  if (color === "SIN_COLOR") return "";
+  return color.length >= 6 ? color.slice(-6) : color;
+}
+
+function colorLabel(value: string) {
+  const color = colorKey(value);
+  return color ? `#${color}` : "Sin relleno";
+}
+
+function colorStorageKey(value: string) {
+  return colorKey(value) || "SIN_COLOR";
+}
+
 interface Props {
   id_proveedor: number;
   nombre_proveedor: string;
@@ -36,9 +71,10 @@ interface Props {
 }
 
 const SUPPLIER_FIELDS = [
-  { id: "proveedor", label: "Proveedor", required: true },
+  { id: "proveedor", label: "Proveedor", required: false },
   { id: "codigo_proveedor", label: "Codigo proveedor", required: true },
   { id: "precio_lista", label: "Precio de lista", required: true },
+  { id: "stock_proveedor", label: "Stock proveedor", required: false },
 ];
 
 function normalizeHeader(value: string) {
@@ -70,6 +106,15 @@ function detectHeader(headers: string[], fieldId: string) {
         { terms: ["referencia"], score: 60 },
         { terms: ["ref"], score: 55 },
         { terms: ["codigo"], score: 45 },
+      ]
+    : fieldId === "stock_proveedor"
+    ? [
+        { terms: ["stock proveedor"], score: 100 },
+        { terms: ["stock"], score: 95 },
+        { terms: ["disponibilidad"], score: 90 },
+        { terms: ["disponible"], score: 85 },
+        { terms: ["existencia"], score: 80 },
+        { terms: ["cantidad"], score: 75 },
       ]
     : [
         { terms: ["precio lista"], score: 100 },
@@ -114,23 +159,55 @@ function parseSupplierPrice(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function buildMappedRows(rows: any[], mappings: Record<string, MappingConfig>) {
+function buildMappedRows(
+  rows: any[],
+  mappings: Record<string, MappingConfig>,
+  nombreProveedor: string,
+  stockColorRules: StockColorRule[]
+) {
   const supplierHeader = mappings.proveedor?.csvHeader;
   const codeHeader = mappings.codigo_proveedor?.csvHeader;
   const priceHeader = mappings.precio_lista?.csvHeader;
-  const preview: Array<{ row: number; proveedor: string; codigo: string; precio: number | null; status: "OK" | "ERROR"; reason: string }> = [];
-  const items: Array<{ fila: number; proveedor_archivo: string; codigo_proveedor: string; precio_lista: number | null; precio_original: string }> = [];
+  const stockHeader = mappings.stock_proveedor?.csvHeader;
+  const stockFromColor = stockHeader === STOCK_COLOR_ROW;
+  const preview: Array<{ row: number; proveedor: string; codigo: string; precio: number | null; stock: string; status: "OK" | "ERROR"; reason: string }> = [];
+  const items: Array<{
+    fila: number;
+    proveedor_archivo: string;
+    codigo_proveedor: string;
+    precio_lista: number | null;
+    precio_original: string;
+    stock_original: string;
+    stock_fuente: "VALOR" | "COLOR_FILA";
+    stock_color: string | null;
+    stock_color_estado: EstadoStockProveedor | null;
+  }> = [];
   let invalidCount = 0;
 
-  if (!supplierHeader || !codeHeader || !priceHeader) {
+  if (!codeHeader || !priceHeader) {
     return { preview, items, invalidCount: rows.length };
   }
 
   rows.forEach((row, index) => {
-    const proveedor = String(row?.[supplierHeader] ?? "").trim();
+    const proveedor = supplierHeader ? String(row?.[supplierHeader] ?? "").trim() : nombreProveedor;
     const codigo = String(row?.[codeHeader] ?? "").trim().toUpperCase();
     const precioOriginal = String(row?.[priceHeader] ?? "").trim();
     const precio = parseSupplierPrice(row?.[priceHeader]);
+    const stockColor = stockFromColor ? String(row?.__rowColor ?? "").trim() : "";
+    const stockColorRule = stockFromColor
+      ? stockColorRules.find((rule) => colorKey(rule.color) === colorKey(stockColor))
+      : undefined;
+    const stockOriginal = stockFromColor
+      ? stockColor
+      : stockHeader
+        ? String(row?.[stockHeader] ?? "").trim()
+        : "";
+    const stock = stockFromColor
+      ? normalizarStockProveedorPorColor(
+        stockColor,
+        stockColorRule?.activo === false ? "DESCONOCIDO" : stockColorRule?.estado,
+      )
+      : normalizarStockProveedor(stockOriginal);
     let reason = "";
 
     if (!proveedor) reason = "Sin proveedor";
@@ -143,19 +220,26 @@ function buildMappedRows(rows: any[], mappings: Record<string, MappingConfig>) {
     }
 
     items.push({
-      fila: index + 2,
+      fila: Number(row?.__rowNumber) || index + 2,
       proveedor_archivo: proveedor,
       codigo_proveedor: codigo,
       precio_lista: precio,
       precio_original: precioOriginal,
+      stock_original: stock.original,
+      stock_fuente: stockFromColor ? "COLOR_FILA" : "VALOR",
+      stock_color: stockFromColor ? stockColor || null : null,
+      stock_color_estado: stockFromColor
+        ? stockColorRule?.activo === false ? "DESCONOCIDO" : stockColorRule?.estado ?? null
+        : null,
     });
 
     if (preview.length < 6) {
       preview.push({
-        row: index + 2,
+        row: Number(row?.__rowNumber) || index + 2,
         proveedor,
         codigo,
         precio,
+        stock: labelEstadoStockProveedor(stock.estado, stock.cantidad),
         status: reason ? "ERROR" : "OK",
         reason: reason || "Lista para validar",
       });
@@ -178,23 +262,97 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const [file, setFile] = useState<File | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [rawRows, setRawRows] = useState<any[]>([]);
+  const [isExcelFile, setIsExcelFile] = useState(false);
+  const [stockColorRules, setStockColorRules] = useState<StockColorRule[]>([]);
+  const [savingStockColorRules, setSavingStockColorRules] = useState(false);
+  const [excelSheets, setExcelSheets] = useState<string[]>([]);
+  const [selectedExcelSheet, setSelectedExcelSheet] = useState("");
+  const workbookRef = useRef<XLSX.WorkBook | null>(null);
   const [mappings, setMappings] = useState<Record<string, MappingConfig>>(() => createInitialMappings());
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState<ImportResults | null>(null);
+  const { data: savedStockColorRules = [] } = useSWR<StockColorRule[]>(
+    `/api/proveedores/${id_proveedor}/stock-colores`,
+    stockColorRulesFetcher,
+  );
 
-  const mappedData = useMemo(() => buildMappedRows(rawRows, mappings), [rawRows, mappings]);
-  const canImport = Boolean(mappings.proveedor.csvHeader && mappings.codigo_proveedor.csvHeader && mappings.precio_lista.csvHeader && mappedData.items.length > 0);
+  const mappedData = useMemo(
+    () => buildMappedRows(rawRows, mappings, nombre_proveedor, stockColorRules),
+    [rawRows, mappings, nombre_proveedor, stockColorRules]
+  );
+  const canImport = Boolean(mappings.codigo_proveedor.csvHeader && mappings.precio_lista.csvHeader && mappedData.items.length > 0);
 
-  const applyHeadersAndRows = (headers: string[], rows: any[]) => {
+  useEffect(() => {
+    if (stockColorRules.length === 0 || savedStockColorRules.length === 0) return;
+    setStockColorRules((previous) => previous.map((rule) => {
+      const savedRule = savedStockColorRules.find((saved) => colorStorageKey(saved.color) === colorStorageKey(rule.color));
+      return savedRule ? { ...savedRule, color: rule.color } : rule;
+    }));
+  }, [savedStockColorRules]);
+
+  const applyHeadersAndRows = (headers: string[], rows: any[], fromExcel: boolean) => {
     setCsvHeaders(headers);
     setRawRows(rows);
+    setIsExcelFile(fromExcel);
+    const detectedColors = fromExcel
+      ? Array.from(new Set(rows.map((row) => String(row?.__rowColor ?? "").trim())))
+      : [];
+    setStockColorRules(detectedColors.map((color) => {
+      const savedRule = savedStockColorRules.find((rule) => colorStorageKey(rule.color) === colorStorageKey(color));
+      return savedRule
+        ? { ...savedRule, color }
+        : { color, estado: normalizarStockProveedorPorColor(color).estado, activo: true };
+    }));
     setResults(null);
     setMappings({
-      proveedor: { csvHeader: detectHeader(headers, "proveedor"), isRequired: true },
+      proveedor: { csvHeader: detectHeader(headers, "proveedor"), isRequired: false },
       codigo_proveedor: { csvHeader: detectHeader(headers, "codigo_proveedor"), isRequired: true },
       precio_lista: { csvHeader: detectHeader(headers, "precio_lista"), isRequired: true },
+      stock_proveedor: { csvHeader: detectHeader(headers, "stock_proveedor"), isRequired: false },
     });
     setStep("mapping");
+  };
+
+  const loadExcelSheet = (workbook: XLSX.WorkBook, sheetName: string) => {
+    try {
+      const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) throw new Error("Hoja no encontrada");
+
+      const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+      const headerColumns: Array<{ header: string; column: number }> = [];
+      for (let column = range.s.c; column <= range.e.c; column += 1) {
+        const cell = worksheet[XLSX.utils.encode_cell({ r: range.s.r, c: column })];
+        const header = String(cell?.v ?? "").trim();
+        if (header) headerColumns.push({ header, column });
+      }
+
+      const rows: Array<Record<string, unknown>> = [];
+      for (let rowIndex = range.s.r + 1; rowIndex <= range.e.r; rowIndex += 1) {
+        const row: Record<string, unknown> = { __rowNumber: rowIndex + 1 };
+        let hasContent = false;
+        let rowColor = "";
+
+        headerColumns.forEach(({ header, column }) => {
+          const cell = worksheet[XLSX.utils.encode_cell({ r: rowIndex, c: column })];
+          const value = cell?.v ?? "";
+          row[header] = value;
+          if (value !== "" && value !== null && value !== undefined) hasContent = true;
+
+          const color = cell?.s?.fgColor?.rgb;
+          if (!rowColor && color) rowColor = String(color);
+        });
+
+        if (hasContent) {
+          row.__rowColor = rowColor;
+          rows.push(row);
+        }
+      }
+
+      setSelectedExcelSheet(sheetName);
+      applyHeadersAndRows(headerColumns.map(({ header }) => header), rows, true);
+    } catch {
+      toast.error("Error al leer la hoja de Excel");
+    }
   };
 
   const parseFileHeaders = (selectedFile: File) => {
@@ -204,15 +362,12 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       const reader = new FileReader();
       reader.onload = (event) => {
         try {
-          const workbook = XLSX.read(event.target?.result, { type: "array" });
-          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-          const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
-          const headers: string[] = [];
-          for (let column = range.s.c; column <= range.e.c; column += 1) {
-            const cell = worksheet[XLSX.utils.encode_col(column) + "1"];
-            if (cell?.v !== undefined) headers.push(String(cell.v));
-          }
-          applyHeadersAndRows(headers, XLSX.utils.sheet_to_json(worksheet));
+          const workbook = XLSX.read(event.target?.result, { type: "array", cellStyles: true });
+          const firstSheet = workbook.SheetNames[0];
+          if (!firstSheet) throw new Error("El archivo no tiene hojas");
+          workbookRef.current = workbook;
+          setExcelSheets(workbook.SheetNames);
+          loadExcelSheet(workbook, firstSheet);
         } catch {
           toast.error("Error al leer el archivo Excel");
         }
@@ -221,6 +376,9 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       return;
     }
 
+    workbookRef.current = null;
+    setExcelSheets([]);
+    setSelectedExcelSheet("");
     Papa.parse(selectedFile, {
       header: true,
       skipEmptyLines: true,
@@ -229,7 +387,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
           toast.error("No se detectaron columnas en el archivo");
           return;
         }
-        applyHeadersAndRows(parseResult.meta.fields, parseResult.data as any[]);
+        applyHeadersAndRows(parseResult.meta.fields, parseResult.data as any[], false);
       },
       error: () => toast.error("Error al leer el archivo CSV"),
     });
@@ -242,6 +400,10 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     parseFileHeaders(selectedFile);
   };
 
+  const handleExcelSheetChange = (sheetName: string) => {
+    if (workbookRef.current) loadExcelSheet(workbookRef.current, sheetName);
+  };
+
   const updateMapping = (fieldId: string, header: string) => {
     setMappings((prev) => ({
       ...prev,
@@ -249,10 +411,44 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     }));
   };
 
+  const updateStockColorRule = (color: string, patch: Partial<StockColorRule>) => {
+    setStockColorRules((prev) => prev.map((rule) => (
+      colorKey(rule.color) === colorKey(color) ? { ...rule, ...patch } : rule
+    )));
+  };
+
+  const saveStockColorRules = async () => {
+    if (stockColorRules.length === 0) return;
+
+    setSavingStockColorRules(true);
+    try {
+      const response = await fetch(`/api/proveedores/${id_proveedor}/stock-colores`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reglas: stockColorRules.map((rule) => ({
+            color: colorStorageKey(rule.color),
+            estado: rule.estado,
+            activo: rule.activo,
+          })),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "No se pudieron guardar los colores");
+
+      mutate(`/api/proveedores/${id_proveedor}/stock-colores`, data.reglas || [], false);
+      toast.success("Colores de stock guardados para este proveedor");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudieron guardar los colores");
+    } finally {
+      setSavingStockColorRules(false);
+    }
+  };
+
   const handleImport = async () => {
     if (!file) return;
-    if (!mappings.proveedor.csvHeader || !mappings.codigo_proveedor.csvHeader || !mappings.precio_lista.csvHeader) {
-      toast.error("Selecciona las columnas de proveedor, codigo y precio antes de importar");
+    if (!mappings.codigo_proveedor.csvHeader || !mappings.precio_lista.csvHeader) {
+      toast.error("Selecciona las columnas de codigo y precio antes de importar");
       return;
     }
     if (mappedData.items.length === 0) {
@@ -330,11 +526,12 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
   const renderPreview = () => (
     <div className="overflow-hidden rounded-xl border border-slate-800">
-      <div className="grid grid-cols-[60px_minmax(130px,1fr)_minmax(110px,0.8fr)_110px_130px] gap-3 bg-slate-950/60 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+      <div className="grid grid-cols-[60px_minmax(130px,1fr)_minmax(110px,0.8fr)_110px_110px_130px] gap-3 bg-slate-950/60 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
         <span>Fila</span>
         <span>Proveedor</span>
         <span>Codigo</span>
         <span>Precio</span>
+        <span>Stock</span>
         <span>Estado</span>
       </div>
       {mappedData.preview.length === 0 ? (
@@ -342,11 +539,12 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       ) : (
         <div className="divide-y divide-slate-800">
           {mappedData.preview.map((row) => (
-            <div key={row.row} className="grid grid-cols-[60px_minmax(130px,1fr)_minmax(110px,0.8fr)_110px_130px] items-center gap-3 px-3 py-2 text-xs">
+            <div key={row.row} className="grid grid-cols-[60px_minmax(130px,1fr)_minmax(110px,0.8fr)_110px_110px_130px] items-center gap-3 px-3 py-2 text-xs">
               <span className="font-mono font-bold text-slate-500">{row.row}</span>
               <span className="truncate font-bold text-slate-300">{row.proveedor || "-"}</span>
               <span className="truncate font-black text-white">{row.codigo || "-"}</span>
               <span className="font-mono font-black text-blue-300">{row.precio === null ? "-" : row.precio}</span>
+              <span className="truncate font-bold text-slate-400">{row.stock}</span>
               <span className={row.status === "OK" ? "font-black text-green-300" : "font-black text-amber-300"}>
                 {row.reason}
               </span>
@@ -370,6 +568,19 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         </label>
       </div>
 
+      {isExcelFile && excelSheets.length > 1 ? (
+        <div className="max-w-sm space-y-1.5">
+          <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Hoja de Excel</label>
+          <select
+            value={selectedExcelSheet}
+            onChange={(event) => handleExcelSheetChange(event.target.value)}
+            className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 text-xs font-black text-white outline-none transition focus:border-blue-500"
+          >
+            {excelSheets.map((sheet) => <option key={sheet} value={sheet}>{sheet}</option>)}
+          </select>
+        </div>
+      ) : null}
+
       <div className="grid gap-2 sm:grid-cols-2">
         {SUPPLIER_FIELDS.map((field) => (
           <div key={field.id} className="space-y-1.5">
@@ -380,13 +591,71 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
               className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 text-xs font-black text-white outline-none transition focus:border-blue-500"
             >
               <option value="">No importar</option>
+              {field.id === "stock_proveedor" && isExcelFile ? (
+                <option value={STOCK_COLOR_ROW}>Color de la fila (Excel)</option>
+              ) : null}
               {csvHeaders.map((header) => (
                 <option key={header} value={header}>{header}</option>
               ))}
             </select>
+            {field.id === "proveedor" ? (
+              <p className="text-[9px] font-bold text-slate-500">Si lo dejas vacio, se usa {nombre_proveedor}.</p>
+            ) : null}
           </div>
         ))}
       </div>
+
+      {mappings.stock_proveedor.csvHeader === STOCK_COLOR_ROW ? (
+        <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-3">
+          <div className="text-[10px] font-black uppercase tracking-widest text-blue-400">Significado de colores</div>
+          <p className="mt-1 text-[10px] font-bold text-slate-400">Elegí qué significa cada color detectado en este Excel.</p>
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={saveStockColorRules}
+              disabled={savingStockColorRules || stockColorRules.length === 0}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-700 px-3 text-[9px] font-black uppercase tracking-widest text-slate-300 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
+            >
+              <HiSave className="h-3.5 w-3.5" />
+              {savingStockColorRules ? "Guardando" : "Guardar colores"}
+            </button>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {stockColorRules.map((rule) => (
+              <div key={rule.color || "sin-color"} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-2">
+                <span
+                  className="h-7 w-7 shrink-0 rounded border border-slate-600"
+                  style={{ backgroundColor: rule.color ? `#${colorKey(rule.color)}` : "#FFFFFF" }}
+                  title={colorLabel(rule.color)}
+                />
+                <div className="min-w-0 flex-1">
+                  <label className="flex items-center justify-between gap-2 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                    <span className="truncate">{colorLabel(rule.color)}</span>
+                    <input
+                      type="checkbox"
+                      checked={rule.activo}
+                      onChange={(event) => updateStockColorRule(rule.color, { activo: event.target.checked })}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-slate-600 bg-slate-950 text-blue-600"
+                      title="Usar este color"
+                    />
+                  </label>
+                  <select
+                    value={rule.estado}
+                    onChange={(event) => updateStockColorRule(rule.color, { estado: event.target.value as EstadoStockProveedor })}
+                    disabled={!rule.activo}
+                    className="mt-1 h-8 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500 disabled:opacity-50"
+                  >
+                    <option value="DISPONIBLE">Disponible</option>
+                    <option value="PROXIMO_INGRESO">Proximo ingreso</option>
+                    <option value="SIN_STOCK">Sin stock</option>
+                    <option value="DESCONOCIDO">Desconocido</option>
+                  </select>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {renderStats()}
       {renderPreview()}
@@ -428,7 +697,8 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
             <ul className="mt-2 space-y-1 text-[11px] font-bold leading-relaxed text-amber-400">
               <li>El archivo puede estar en formato CSV o Excel.</li>
               <li>Debe tener columnas claras para codigo y precio.</li>
-              <li>La columna proveedor debe coincidir con el proveedor abierto.</li>
+              <li>La columna de stock es opcional.</li>
+              <li>Si no incluye proveedor, se usa el proveedor abierto.</li>
               <li>El orden no importa, podras mapearlas en el siguiente paso.</li>
             </ul>
           </div>

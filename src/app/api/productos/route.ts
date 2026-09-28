@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createProducto, getProductosListado } from "@/lib/repos/productos";
+import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
 import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
 import { validateProductoPayload } from "@/lib/validators/productos";
 import { jsonError } from "@/lib/api-errors";
@@ -21,11 +22,19 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  await requireApiWriteSession(request);
+  const session = await requireApiWriteSession(request);
   try {
     const body = await request.json();
     const payload = validateProductoPayload(body);
     const newProduct = await createProducto(payload);
+    await registrarProductoActividad({
+      idProducto: Number(newProduct.id),
+      codigoProducto: payload.cod_unico,
+      tipo: "ALTA",
+      titulo: "Item creado",
+      detalle: payload.descripcion,
+      usuarioId: session.usuarioId,
+    });
     return NextResponse.json(newProduct);
   } catch (error: unknown) {
     return jsonError(error, "No se pudo crear el item");

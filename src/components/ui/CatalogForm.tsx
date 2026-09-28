@@ -103,6 +103,7 @@ export function CatalogForm({
   // Estados para descuentos (solo proveedores)
   const [descuentoGeneral, setDescuentoGeneral] = useState<number>(0);
   const [descuentosPorMarca, setDescuentosPorMarca] = useState<Record<number, number>>({});
+  const [coeficientesPorMarca, setCoeficientesPorMarca] = useState<Record<number, number>>({});
 
   const isEditing = Boolean(entityId);
   const isProveedor = entityName.toLowerCase() === "proveedor";
@@ -115,6 +116,7 @@ export function CatalogForm({
         .then(data => {
           setDescuentoGeneral(data.descuentoGeneral || 0);
           setDescuentosPorMarca(data.descuentosPorMarca || {});
+          setCoeficientesPorMarca(data.coeficientesPorMarca || {});
         })
         .catch(() => console.error("Error al cargar descuentos"));
     }
@@ -161,7 +163,8 @@ export function CatalogForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             descuentoGeneral,
-            descuentosPorMarca
+            descuentosPorMarca,
+            coeficientesPorMarca,
           })
         });
 
@@ -184,7 +187,7 @@ export function CatalogForm({
     } finally {
       setLoading(false);
     }
-  }, [activo, apiPath, codigoPostal, comprobanteDefault, condicionIva, contacto, descripcion, descuentoGeneral, descuentosPorMarca, domicilioFiscal, documento, email, entityId, entityName, isEditing, isProveedor, loading, localidad, observaciones, onSuccess, provincia, router, showMessage, telefono]);
+  }, [activo, apiPath, codigoPostal, coeficientesPorMarca, comprobanteDefault, condicionIva, contacto, descripcion, descuentoGeneral, descuentosPorMarca, domicilioFiscal, documento, email, entityId, entityName, isEditing, isProveedor, loading, localidad, observaciones, onSuccess, provincia, router, showMessage, telefono]);
 
   // Escuchar trigger externo
   useEffect(() => {
@@ -234,7 +237,9 @@ export function CatalogForm({
                   descuentoGeneral,
                   setDescuentoGeneral,
                   descuentosPorMarca,
-                  setDescuentosPorMarca
+                  setDescuentosPorMarca,
+                  coeficientesPorMarca,
+                  setCoeficientesPorMarca,
                 }}
               />
             </div>

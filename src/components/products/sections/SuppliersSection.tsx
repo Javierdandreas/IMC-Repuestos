@@ -7,6 +7,14 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { QuickAddType } from "../QuickAddModal";
+import { labelEstadoStockProveedor } from "@/lib/stock-proveedor";
+
+function stockClass(estado?: string | null) {
+  if (estado === "DISPONIBLE") return "border-green-500/30 bg-green-500/10 text-green-500";
+  if (estado === "PROXIMO_INGRESO") return "border-amber-500/30 bg-amber-500/10 text-amber-400";
+  if (estado === "SIN_STOCK") return "border-red-500/30 bg-red-500/10 text-red-500";
+  return "border-slate-700 bg-slate-800/50 text-slate-400";
+}
 
 type SuppliersSectionProps = {
   proveedores: ProveedorProducto[];
@@ -67,6 +75,10 @@ export function SuppliersSection({
     if (!lookup) return;
 
     onChange(index, "precio_lista_actual", lookup.precio_lista);
+    onChange(index, "stock_estado", lookup.stock_estado || "DESCONOCIDO");
+    onChange(index, "stock_cantidad", lookup.stock_cantidad ?? null);
+    onChange(index, "stock_texto_original", lookup.stock_original ?? null);
+    onChange(index, "fecha_stock_actualizacion", lookup.fecha_importacion);
     onChange(index, "ultima_importacion_id", lookup.importacion_id);
     onChange(index, "fecha_ultima_actualizacion", lookup.fecha_importacion);
     
@@ -91,13 +103,15 @@ export function SuppliersSection({
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
-        <table className="w-full text-left border-collapse">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+        <table className="min-w-[1050px] w-full text-left border-collapse">
           <thead className="bg-slate-50 dark:bg-slate-800/50">
             <tr>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Proveedor</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Código Prov</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Precio Lista</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Costo Neto</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Stock proveedor</th>
               <th className="w-[100px] px-4 py-3"></th>
             </tr>
           </thead>
@@ -153,6 +167,9 @@ export function SuppliersSection({
                               <HiClock className="h-3 w-3" />
                               {format(new Date(lookup.fecha_importacion), "dd MMM yyyy", { locale: es })}
                             </div>
+                            <span className={`mt-1 inline-flex w-fit rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${stockClass(lookup.stock_estado)}`}>
+                              {labelEstadoStockProveedor(lookup.stock_estado, lookup.stock_cantidad)}
+                            </span>
                           </div>
                           <button
                             type="button"
@@ -186,6 +203,31 @@ export function SuppliersSection({
                         placeholder="0.00"
                         className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-6 pr-3 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                       />
+                    </div>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex h-10 items-center rounded-lg bg-slate-100 px-3 text-xs font-black text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                      {item.costo_actual !== null && item.costo_actual !== undefined
+                        ? `$ ${Number(item.costo_actual).toLocaleString("es-AR", { maximumFractionDigits: 2 })}`
+                        : "-"}
+                    </div>
+                  </td>
+                  <td className="p-3">
+                    <div className="space-y-1.5">
+                      <span className={`inline-flex h-8 items-center rounded-full border px-2.5 text-[9px] font-black uppercase tracking-widest ${stockClass(item.stock_estado)}`}>
+                        {labelEstadoStockProveedor(item.stock_estado, item.stock_cantidad)}
+                      </span>
+                      {item.fecha_stock_actualizacion ? (
+                        <div className="flex items-center gap-1 text-[9px] font-bold text-slate-500">
+                          <HiClock className="h-3 w-3" />
+                          {format(new Date(item.fecha_stock_actualizacion), "dd/MM/yy")}
+                        </div>
+                      ) : null}
+                      {item.stock_texto_original ? (
+                        <div className="text-[9px] font-bold uppercase text-slate-500">
+                          {item.stock_texto_original}
+                        </div>
+                      ) : null}
                     </div>
                   </td>
                   <td className="p-3">

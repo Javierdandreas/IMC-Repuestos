@@ -1,5 +1,7 @@
 import { query, withTransaction } from "@/lib/db-utils";
 import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
+import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
+import { AppError } from "@/lib/api-errors";
 import {
   CreateImportacionInput,
   ProveedorImportacion,
@@ -28,10 +30,12 @@ export async function createImportacion(input: CreateImportacionInput): Promise<
     await client.query(
       `
         INSERT INTO public.proveedor_importacion_item (
-          id_importacion, fila, proveedor_archivo, codigo_proveedor, precio_lista, precio_original
+          id_importacion, fila, proveedor_archivo, codigo_proveedor, precio_lista, precio_original,
+          stock_original, stock_estado, stock_cantidad
         )
         SELECT $1, * FROM UNNEST(
-          $2::int[], $3::text[], $4::text[], $5::numeric[], $6::text[]
+          $2::int[], $3::text[], $4::text[], $5::numeric[], $6::text[],
+          $7::text[], $8::text[], $9::numeric[]
         )
       `,
       [
@@ -41,6 +45,9 @@ export async function createImportacion(input: CreateImportacionInput): Promise<
         items.map((item) => item.codigo_proveedor || ""),
         items.map((item) => item.precio_lista ?? null),
         items.map((item) => item.precio_original || ""),
+        items.map((item) => item.stock_original || ""),
+        items.map((item) => item.stock_estado || "DESCONOCIDO"),
+        items.map((item) => item.stock_cantidad ?? null),
       ]
     );
 
@@ -174,6 +181,10 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
         UPDATE public.producto_proveedor pp
         SET
           precio_lista_actual = pii.precio_lista,
+          stock_estado = COALESCE(pii.stock_estado, 'DESCONOCIDO'),
+          stock_cantidad = pii.stock_cantidad,
+          stock_texto_original = NULLIF(TRIM(pii.stock_original), ''),
+          fecha_stock_actualizacion = NOW(),
           fecha_ultima_actualizacion = NOW(),
           ultima_importacion_id = pii.id_importacion
         FROM public.proveedor_importacion_item pii
@@ -182,14 +193,23 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
           AND pp.id_proveedor = pi.id_proveedor
           AND pii.estado = 'ACTUALIZADO'
           AND pi.id = $1
-        RETURNING pp.id_producto
+        RETURNING pp.id_producto, pp.id_proveedor
       `,
       [id_importacion]
     );
 
+    const updatedProductIds = updateResult.rows.map((row) => Number(row.id_producto));
+    const updatedProviderId = Number(updateResult.rows[0]?.id_proveedor || 0);
+    if (updatedProviderId > 0 && updatedProductIds.length > 0) {
+      await recalcularCostosProveedorProductos(client, {
+        idProveedor: updatedProviderId,
+        productIds: updatedProductIds,
+      });
+    }
+
     const recalculatedCostCount = await recalcularPreciosAutomaticos(
       client,
-      updateResult.rows.map((row) => Number(row.id_producto))
+      updatedProductIds
     );
 
     await client.query(
@@ -251,7 +271,25 @@ export async function getUltimoItemProveedor(
   if (!id_proveedor || !codigo_proveedor) return null;
 
   const { rows } = await query(
-    `SELECT * FROM public.fn_get_ultimo_item_proveedor($1, $2)`,
+    `
+      SELECT
+        pii.id_importacion,
+        pi.id_proveedor,
+        pii.codigo_proveedor,
+        pii.precio_lista::float AS precio_lista,
+        pii.stock_original,
+        pii.stock_estado,
+        pii.stock_cantidad::float AS stock_cantidad,
+        pi.created_at AS fecha_importacion
+      FROM public.proveedor_importacion_item pii
+      INNER JOIN public.proveedor_importacion pi ON pi.id = pii.id_importacion
+      WHERE pi.id_proveedor = $1
+        AND upper(trim(pii.codigo_proveedor)) = upper(trim($2))
+        AND pi.estado = 'APLICADA'
+        AND pii.estado = 'ACTUALIZADO'
+      ORDER BY pi.created_at DESC, pii.id DESC
+      LIMIT 1
+    `,
     [id_proveedor, codigo_proveedor]
   );
 
@@ -294,6 +332,9 @@ export async function getImportacionItems(id_importacion: number): Promise<Prove
         pii.codigo_proveedor,
         pii.precio_lista::float AS precio_lista,
         pii.precio_original,
+        pii.stock_original,
+        pii.stock_estado,
+        pii.stock_cantidad::float AS stock_cantidad,
         pii.estado,
         pii.mensaje,
         pii.id_producto,
@@ -320,30 +361,63 @@ export async function getProveedorDiscounts(id_proveedor: number) {
   );
 
   const { rows: marcaDiscounts } = await query(
-    `SELECT id_marca, descuento FROM proveedor_descuento_marca WHERE id_proveedor = $1`,
+    `SELECT id_marca, descuento, COALESCE(coeficiente, 1) AS coeficiente FROM proveedor_descuento_marca WHERE id_proveedor = $1`,
     [id_proveedor]
   );
 
   const discountsByBrand: Record<number, number> = {};
+  const coefficientsByBrand: Record<number, number> = {};
   marcaDiscounts.forEach((row) => {
     discountsByBrand[row.id_marca] = parseFloat(row.descuento);
+    coefficientsByBrand[row.id_marca] = parseFloat(row.coeficiente);
   });
 
   return {
     descuentoGeneral: parseFloat(header[0]?.descuento_general || 0),
     descuentosPorMarca: discountsByBrand,
+    coeficientesPorMarca: coefficientsByBrand,
   };
 }
 
 export async function updateProveedorDiscounts(
   id_proveedor: number,
   descuentoGeneral: number,
-  descuentosPorMarca: Record<number, number>
+  descuentosPorMarca: Record<number, number>,
+  coeficientesPorMarca: Record<number, number> = {},
 ) {
+  if (!Number.isInteger(id_proveedor) || id_proveedor <= 0) {
+    throw new AppError("Proveedor invalido", 400);
+  }
+
+  const general = Number(descuentoGeneral);
+  if (!Number.isFinite(general) || general < 0 || general > 100) {
+    throw new AppError("El descuento general debe estar entre 0% y 100%", 400);
+  }
+
+  const brandIds = [...new Set([
+    ...Object.keys(descuentosPorMarca),
+    ...Object.keys(coeficientesPorMarca),
+  ])];
+  const descuentos = brandIds.map((marcaId) => {
+    const idMarca = Number(marcaId);
+    const porcentaje = Number(descuentosPorMarca[Number(marcaId)] ?? 0);
+    const coeficiente = Number(coeficientesPorMarca[Number(marcaId)] ?? 1);
+    if (!Number.isInteger(idMarca) || idMarca <= 0) {
+      throw new AppError("Una de las marcas seleccionadas no es valida", 400);
+    }
+    if (!Number.isFinite(porcentaje) || porcentaje < 0 || porcentaje > 100) {
+      throw new AppError("Cada descuento por marca debe estar entre 0% y 100%", 400);
+    }
+    if (!Number.isFinite(coeficiente) || coeficiente <= 0) {
+      throw new AppError("Cada coeficiente por marca debe ser mayor a cero", 400);
+    }
+    return { idMarca, porcentaje, coeficiente };
+  });
+
   return await withTransaction(async (client) => {
     await client.query(
       `UPDATE proveedores SET descuento_general = $1 WHERE id = $2`,
-      [descuentoGeneral, id_proveedor]
+      [general, id_proveedor]
     );
 
     await client.query(
@@ -351,19 +425,27 @@ export async function updateProveedorDiscounts(
       [id_proveedor]
     );
 
-    const ids = Object.keys(descuentosPorMarca).map(Number);
-    const vals = Object.values(descuentosPorMarca).map(Number);
+    const ids = descuentos.map((item) => item.idMarca);
+    const vals = descuentos.map((item) => item.porcentaje);
+    const coeficientes = descuentos.map((item) => item.coeficiente);
 
     if (ids.length > 0) {
       await client.query(
         `
-          INSERT INTO proveedor_descuento_marca (id_proveedor, id_marca, descuento)
-          SELECT $1, * FROM UNNEST($2::int[], $3::numeric[])
+          INSERT INTO proveedor_descuento_marca (id_proveedor, id_marca, descuento, coeficiente)
+          SELECT $1, * FROM UNNEST($2::int[], $3::numeric[], $4::numeric[])
         `,
-        [id_proveedor, ids, vals]
+        [id_proveedor, ids, vals, coeficientes]
       );
     }
 
-    return { success: true };
+    const productIds = await recalcularCostosProveedorProductos(client, { idProveedor: id_proveedor });
+    const preciosRecalculados = await recalcularPreciosAutomaticos(client, productIds);
+
+    return {
+      success: true,
+      productosAfectados: productIds.length,
+      preciosRecalculados,
+    };
   });
 }

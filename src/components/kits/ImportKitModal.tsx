@@ -72,7 +72,7 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
         try {
           const data = e.target?.result;
           const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
+          const firstSheetName = workbook.SheetNames.find((name) => name.toLowerCase().replace(/\s+/g, " ") === "componentes kits") || workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           
           const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
@@ -93,10 +93,10 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
           // Auto-mapeo inteligente
           const newMappings = { ...mappings };
           headers.forEach(header => {
-            const h = header.toLowerCase().trim();
-            if (h.includes('codigo_kit') || h === 'cod_kit' || h === 'kit_id') newMappings.codigo_kit.csvHeader = header;
-            if (h.includes('nombre_kit') || h === 'kit_nombre' || h === 'nombre') newMappings.nombre_kit.csvHeader = header;
-            if (h.includes('cod_producto') || h === 'producto' || h === 'sku' || h === 'articulo') newMappings.cod_producto.csvHeader = header;
+            const h = header.toLowerCase().trim().replace(/[\s_-]+/g, '');
+            if (h.includes('codigokit') || h === 'codkit' || h === 'kitid') newMappings.codigo_kit.csvHeader = header;
+            if (h.includes('nombrekit') || h === 'kitnombre' || h === 'nombre') newMappings.nombre_kit.csvHeader = header;
+            if (h.includes('codproducto') || h.includes('codigoitem') || h === 'producto' || h === 'sku' || h === 'articulo') newMappings.cod_producto.csvHeader = header;
             if (h.includes('cantidad') || h === 'cant' || h === 'qty') newMappings.cantidad.csvHeader = header;
           });
           setMappings(newMappings);
@@ -119,10 +119,10 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
             // Auto-mapeo inteligente
             const newMappings = { ...mappings };
             results.meta.fields.forEach(header => {
-              const h = header.toLowerCase().trim();
-              if (h.includes('codigo_kit') || h === 'cod_kit' || h === 'kit_id') newMappings.codigo_kit.csvHeader = header;
-              if (h.includes('nombre_kit') || h === 'kit_nombre' || h === 'nombre') newMappings.nombre_kit.csvHeader = header;
-              if (h.includes('cod_producto') || h === 'producto' || h === 'sku' || h === 'articulo') newMappings.cod_producto.csvHeader = header;
+              const h = header.toLowerCase().trim().replace(/[\s_-]+/g, '');
+              if (h.includes('codigokit') || h === 'codkit' || h === 'kitid') newMappings.codigo_kit.csvHeader = header;
+              if (h.includes('nombrekit') || h === 'kitnombre' || h === 'nombre') newMappings.nombre_kit.csvHeader = header;
+              if (h.includes('codproducto') || h.includes('codigoitem') || h === 'producto' || h === 'sku' || h === 'articulo') newMappings.cod_producto.csvHeader = header;
               if (h.includes('cantidad') || h === 'cant' || h === 'qty') newMappings.cantidad.csvHeader = header;
             });
             setMappings(newMappings);
@@ -201,7 +201,7 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
           try {
             const data = e.target?.result;
             const workbook = XLSX.read(data, { type: 'array' });
-            const firstSheetName = workbook.SheetNames[0];
+            const firstSheetName = workbook.SheetNames.find((name) => name.toLowerCase().replace(/\s+/g, " ") === "componentes kits") || workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
             const jsonData = XLSX.utils.sheet_to_json(worksheet);
             await processImportData({ data: jsonData });

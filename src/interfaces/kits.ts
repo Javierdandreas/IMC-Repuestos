@@ -15,6 +15,7 @@ export type Kit = {
   nombre: string;
   descripcion?: string | null;
   codigo_kit: string;
+  imagen_url?: string | null;
   id_categoria: number;
   id_subcategoria?: number | null;
   activo: boolean;
@@ -31,6 +32,7 @@ export type KitListado = {
   id: number;
   nombre: string;
   codigo_kit: string;
+  imagen_url?: string | null;
   descripcion?: string | null;
   id_categoria: number;
   categoria: string;
@@ -42,6 +44,7 @@ export type KitListado = {
   precio_mostrador_total: number;
   precio_mecanico_total: number;
   stock_kit: number;
+  marcas_componentes?: string | null;
   created_at: string;
 };
 

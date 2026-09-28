@@ -3,6 +3,7 @@ import { requireApiWriteSession } from "@/lib/api-auth";
 import { jsonError } from "@/lib/api-errors";
 import { aplicarImportacionAlCatalogo, createImportacion } from "@/lib/repos/proveedor-importaciones";
 import { CreateImportacionInput } from "@/interfaces/importaciones";
+import { normalizarStockProveedor, normalizarStockProveedorPorColor } from "@/lib/stock-proveedor";
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,6 +26,9 @@ export async function POST(request: NextRequest) {
       const parsedPrice = item.precio_lista === null || item.precio_lista === undefined
         ? null
         : Number(item.precio_lista);
+      const stock = item.stock_fuente === "COLOR_FILA"
+        ? normalizarStockProveedorPorColor(item.stock_color, item.stock_color_estado)
+        : normalizarStockProveedor(item.stock_original);
 
       return {
         fila: Number(item.fila || index + 2),
@@ -32,6 +36,9 @@ export async function POST(request: NextRequest) {
         codigo_proveedor: String(item.codigo_proveedor ?? "").trim().toUpperCase(),
         precio_lista: Number.isFinite(parsedPrice) ? parsedPrice : null,
         precio_original: String(item.precio_original ?? item.precio_lista ?? "").trim(),
+        stock_original: stock.original || null,
+        stock_estado: stock.estado,
+        stock_cantidad: stock.cantidad,
       };
     });
 
