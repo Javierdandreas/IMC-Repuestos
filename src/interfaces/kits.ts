@@ -43,6 +43,7 @@ export type KitListado = {
   precio_ml_total: number;
   precio_mostrador_total: number;
   precio_mecanico_total: number;
+  precios?: PrecioDetalle[];
   stock_kit: number;
   marcas_componentes?: string | null;
   created_at: string;
@@ -59,3 +60,4 @@ export type KitComponenteSearch = {
   precio_mecanico: number;
 };
 
+import type { PrecioDetalle } from "./productos";

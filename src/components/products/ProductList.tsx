@@ -15,7 +15,7 @@ import { ProductForm, PRODUCT_TABS, TabId } from "@/components/products/ProductF
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
 import { useAppError } from "@/context/AppErrorContext";
-import { ProductoListado, Subcategoria } from "@/interfaces/productos";
+import { ProductoListado, Subcategoria, TipoPrecio } from "@/interfaces/productos";
 import { BulkLabelPrinter } from "@/components/products/BulkLabelPrinter";
 import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
 
@@ -38,8 +38,29 @@ type ProductActivity = {
   created_at: string;
 };
 
+function normalizarTipoPrecio(value: string | null | undefined) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase();
+}
+
+function obtenerPrecioListado(product: ItemListadoUnificado, tipo?: TipoPrecio | null) {
+  if (!tipo) return null;
+  const precio = product.precios?.find((item) => item.id_tipo_precio === tipo.id);
+  const valor = Number(precio?.valor);
+  return Number.isFinite(valor) ? valor : null;
+}
+
+function formatMoney(value: number | null) {
+  return value === null
+    ? "-"
+    : `$ ${value.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
-  const { categorias, subcategorias, marcas, proveedores } = useMetadata();
+  const { categorias, subcategorias, marcas, proveedores, tiposPrecio } = useMetadata();
   const { showError } = useAppError();
   const { canManage } = usePermissions();
   const router = useRouter();
@@ -69,6 +90,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
   const [isZoomed, setIsZoomed] = useState(false);
   const [openLabelPrinter, setOpenLabelPrinter] = useState(false);
+  const [idTipoVenta, setIdTipoVenta] = useState<number | null>(null);
 
   // Hover state
   const [hoveredProductKey, setHoveredProductKey] = useState<string | null>(null);
@@ -151,6 +173,25 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       .filter((item) => String(item.id_categoria) === categoria)
       .sort((a, b) => a.descripcion.localeCompare(b.descripcion));
   }, [subcategorias, categoria]);
+
+  const tipoCompra = useMemo(
+    () => tiposPrecio.find((tipo) => normalizarTipoPrecio(tipo.descripcion) === "PRECIO COSTO") ?? null,
+    [tiposPrecio],
+  );
+  const tiposVenta = useMemo(
+    () => tiposPrecio.filter((tipo) => tipo.activo !== false && normalizarTipoPrecio(tipo.descripcion) !== "PRECIO COSTO"),
+    [tiposPrecio],
+  );
+  const tipoVentaPredeterminado = useMemo(
+    () => tiposVenta.find((tipo) => normalizarTipoPrecio(tipo.descripcion) === "MOSTRADOR") ?? tiposVenta[0] ?? null,
+    [tiposVenta],
+  );
+  const tipoVentaSeleccionado = tiposVenta.find((tipo) => tipo.id === idTipoVenta) ?? tipoVentaPredeterminado;
+
+  useEffect(() => {
+    if (tiposVenta.some((tipo) => tipo.id === idTipoVenta)) return;
+    setIdTipoVenta(tipoVentaPredeterminado?.id ?? null);
+  }, [idTipoVenta, tipoVentaPredeterminado, tiposVenta]);
 
   const hoveredProduct = useMemo(
     () => products.find((product) => `${product.tipo}-${product.id}` === hoveredProductKey) ?? null,
@@ -401,7 +442,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
 
               {/* Proveedor */}
-              <div className="col-span-3 flex flex-col gap-1.5">
+              <div className="col-span-2 flex flex-col gap-1.5">
                 <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Proveedor</label>
                 <select
                   value={proveedor}
@@ -412,6 +453,18 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   {proveedores.map((item) => (
                     <option key={item.id} value={String(item.id)}>{item.descripcion}</option>
                   ))}
+                </select>
+              </div>
+
+              <div className="col-span-1 flex min-w-0 flex-col gap-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Lista venta</label>
+                <select
+                  value={tipoVentaSeleccionado?.id ?? ""}
+                  onChange={(event) => setIdTipoVenta(event.target.value ? Number(event.target.value) : null)}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[10px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                  aria-label="Lista de precio de venta"
+                >
+                  {tiposVenta.map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.descripcion}</option>)}
                 </select>
               </div>
             </div>
@@ -431,10 +484,26 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
           {/* Tabla de Resultados */}
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/45">
-            <table className="w-full border-collapse text-left">
+            <table className="w-full table-fixed border-collapse text-left">
+              <colgroup>
+                <col className="w-[35px]" />
+                <col className="w-[36px]" />
+                <col className="w-[38px]" />
+                <col className="w-[100px]" />
+                <col className="w-[190px]" />
+                <col className="w-[52px]" />
+                <col className="w-[52px]" />
+                <col className="w-[64px]" />
+                <col className="w-[100px]" />
+                <col className="w-[100px]" />
+                <col className="w-[115px]" />
+                <col className="w-[115px]" />
+                <col className="w-[42px]" />
+                <col className="w-[105px]" />
+              </colgroup>
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>
-                  <th className="w-[40px] px-3 py-4">
+                  <th className="px-1 py-4">
                     <div className="flex items-center justify-center">
                       <input
                         type="checkbox"
@@ -444,17 +513,19 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       />
                     </div>
                   </th>
-                  <th className="w-[36px] px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Info</th>
-                  <th className="w-[48px] px-2 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Tipo</th>
-                  <th className="w-[110px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Código</th>
-                  <th className="px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Descripción</th>
-                  <th className="w-[60px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Foto</th>
-                  <th className="w-[60px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Med.</th>
-                  <th className="w-[80px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Marca</th>
-                  <th className="w-[120px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Rubro</th>
-                  <th className="w-[120px] px-3 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Proveedores</th>
-                  <th className="w-[50px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Stock</th>
-                  <th className="w-[120px] px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400 text-center">Acciones</th>
+                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Info</th>
+                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Tipo</th>
+                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Código</th>
+                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Descripción</th>
+                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Foto</th>
+                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Med.</th>
+                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Marca</th>
+                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Rubro</th>
+                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Proveedores</th>
+                  <th className="px-2 py-4 text-right text-[9px] font-black uppercase leading-tight tracking-wide text-slate-500">Precio de compra</th>
+                  <th className="px-2 py-4 text-right text-[9px] font-black uppercase leading-tight tracking-wide text-slate-500">Precio de venta</th>
+                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Stock</th>
+                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -466,7 +537,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/30'
                       }`}
                   >
-                    <td className="px-3 py-4">
+                    <td className="px-1 py-3">
                       <div className="flex items-center justify-center">
                         <input
                           type="checkbox"
@@ -488,7 +559,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         </span>
                       ) : <span className="text-slate-300 dark:text-slate-700">-</span>}
                     </td>
-                    <td className="px-2 py-3 text-center">
+                    <td className="px-1 py-3 text-center">
                       <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[11px] font-black ${product.tipo === "KIT"
                         ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300"
                         : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
@@ -497,84 +568,90 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       </span>
                     </td>
                     <td
-                      className="whitespace-nowrap px-5 py-4 cursor-help"
+                      className="cursor-help px-2 py-3"
                       onMouseEnter={(e) => handleTooltipEnter(product, product.tipo === "KIT" ? "details" : "locations", e)}
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
-                        <span className="font-mono text-sm font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
-                        <span className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 tracking-wider">
+                        <span className="truncate font-mono text-[12px] font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
+                        <span className="mt-0.5 truncate text-[10px] font-bold tracking-wide text-slate-500 dark:text-slate-400">
                           {product.tipo === "KIT" ? "KIT" : product.codigo_pieza}
                         </span>
                       </div>
                     </td>
                     <td
-                      className="cursor-help px-3 py-3 border-r border-slate-50 dark:border-slate-800/50"
+                      className="cursor-help border-r border-slate-50 px-2 py-3 dark:border-slate-800/50"
                       onMouseEnter={(e) => handleTooltipEnter(product, "details", e)}
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
-                        <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-2" title={product.descripcion}>
+                        <span className="line-clamp-2 text-[10px] font-bold leading-tight text-slate-800 transition-colors group-hover:text-blue-600 dark:text-slate-100 dark:group-hover:text-blue-400" title={product.descripcion}>
                           {product.descripcion}
                         </span>
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
+                    <td className="whitespace-nowrap px-1 py-3 text-center">
                       {product.imagen_url ? (
                         <button
                           onClick={() => setPreviewImage(product.imagen_url || null)}
-                          className="group/img relative inline-flex h-11 w-11 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
+                          className="group/img relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
                         >
                           <Image
                             src={product.imagen_url}
                             alt=""
-                            width={44}
-                            height={44}
+                            width={40}
+                            height={40}
                             className="h-full w-full object-cover transition group-hover/img:scale-110"
                           />
                         </button>
                       ) : (
-                        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
-                          <HiPhotograph className="h-6 w-6 opacity-30" />
+                        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
+                          <HiPhotograph className="h-5 w-5 opacity-30" />
                         </div>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-sm text-center">
+                    <td className="whitespace-nowrap px-1 py-3 text-center">
                       {product.tipo === "KIT" ? (
                         <span className="text-xs font-bold text-slate-400">-</span>
                       ) : product.pieza_medida_url ? (
                         <button
                           onClick={() => setPreviewImage(product.pieza_medida_url || null)}
-                          className="group/img relative inline-flex h-11 w-11 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
+                          className="group/img relative inline-flex h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-500 dark:hover:ring-blue-900/40"
                           title="Ver esquema de medidas"
                         >
                           <Image
                             src={product.pieza_medida_url}
                             alt=""
-                            width={44}
-                            height={44}
+                            width={40}
+                            height={40}
                             className="h-full w-full object-cover transition group-hover/img:scale-110"
                           />
                         </button>
                       ) : (
-                        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
-                          <HiPhotograph className="h-6 w-6 opacity-30" />
+                        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-600">
+                          <HiPhotograph className="h-5 w-5 opacity-30" />
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-300">{product.marca ?? "-"}</td>
-                    <td className="px-3 py-3">
+                    <td className="truncate px-2 py-3 text-[10px] text-slate-600 dark:text-slate-300" title={product.marca ?? ""}>{product.marca ?? "-"}</td>
+                    <td className="px-2 py-3">
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-[11px] font-bold text-slate-900 dark:text-slate-100 truncate">{product.categoria ?? "-"}</span>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{product.subcategoria ?? "-"}</span>
+                        <span className="truncate text-[10px] font-bold text-slate-900 dark:text-slate-100">{product.categoria ?? "-"}</span>
+                        <span className="truncate text-[9px] text-slate-400 dark:text-slate-500">{product.subcategoria ?? "-"}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-[11px] text-slate-600 dark:text-slate-400 truncate max-w-[120px]" title={product.proveedor ?? ""}>
+                    <td className="truncate px-2 py-3 text-[10px] text-slate-600 dark:text-slate-400" title={product.proveedor ?? ""}>
                       {product.tipo === "KIT" ? `${product.componentes_kit?.length || 0} componentes` : product.proveedor ?? "-"}
                     </td>
-                    <td className="px-2 py-3 text-[11px] text-slate-700 dark:text-slate-300 font-bold text-center">{product.stock}</td>
-                    <td className="whitespace-nowrap px-4 py-4">
-                      <div className="flex items-center justify-center gap-2">
+                    <td className="px-2 py-3 text-right text-[10px] font-bold tabular-nums text-slate-700 dark:text-slate-200" title="Costo de compra">
+                      {formatMoney(obtenerPrecioListado(product, tipoCompra))}
+                    </td>
+                    <td className="px-2 py-3 text-right text-[10px] font-black tabular-nums text-blue-600 dark:text-blue-300" title={tipoVentaSeleccionado?.descripcion ?? "Precio de venta"}>
+                      {formatMoney(obtenerPrecioListado(product, tipoVentaSeleccionado))}
+                    </td>
+                    <td className="px-1 py-3 text-center text-[10px] font-bold text-slate-700 dark:text-slate-300">{product.stock}</td>
+                    <td className="whitespace-nowrap px-1 py-3">
+                      <div className="flex items-center justify-center gap-1">
                         {canManage ? (
                           product.tipo === "KIT" ? (
                             <>
@@ -618,7 +695,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 ))}
                 {products.length === 0 && (
                   <tr>
-                    <td colSpan={12} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
+                    <td colSpan={14} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
                       No hay items que coincidan con los filtros.
                     </td>
                   </tr>

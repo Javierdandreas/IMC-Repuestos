@@ -44,10 +44,11 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
       k.activo,
       k.created_at,
       COUNT(kd.id_producto)::int AS cantidad_componentes,
-      COALESCE(SUM(pml.precio * kd.cantidad), 0) AS precio_ml_total,
-      COALESCE(SUM(pmo.precio * kd.cantidad), 0) AS precio_mostrador_total,
-      COALESCE(SUM(pme.precio * kd.cantidad), 0) AS precio_mecanico_total,
-      COALESCE(MIN(FLOOR(p.stock / kd.cantidad)), 0)::int AS stock_kit,
+       COALESCE(SUM(pml.precio * kd.cantidad), 0) AS precio_ml_total,
+       COALESCE(SUM(pmo.precio * kd.cantidad), 0) AS precio_mostrador_total,
+       COALESCE(SUM(pme.precio * kd.cantidad), 0) AS precio_mecanico_total,
+       precios_kit.precios,
+       COALESCE(MIN(FLOOR(p.stock / kd.cantidad)), 0)::int AS stock_kit,
       STRING_AGG(DISTINCT m.descripcion, ', ') FILTER (WHERE m.descripcion IS NOT NULL) AS marcas_componentes
     FROM public.kits k
     LEFT JOIN public.categoria c ON k.id_categoria = c.id
@@ -58,8 +59,34 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
     LEFT JOIN public.producto_precio pml ON kd.id_producto = pml.id_producto AND pml.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)
     LEFT JOIN public.producto_precio pmo ON kd.id_producto = pmo.id_producto AND pmo.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)
     LEFT JOIN public.producto_precio pme ON kd.id_producto = pme.id_producto AND pme.id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(
+        JSONB_AGG(
+          JSONB_BUILD_OBJECT(
+            'id_tipo_precio', precio.id_tipo_precio,
+            'tipo_descripcion', precio.tipo_descripcion,
+            'valor', precio.valor,
+            'porcentaje_ganancia', 0
+          )
+          ORDER BY precio.orden, precio.id_tipo_precio
+        ),
+        '[]'::jsonb
+      ) AS precios
+      FROM (
+        SELECT
+          tipo.id AS id_tipo_precio,
+          tipo.descripcion AS tipo_descripcion,
+          COALESCE(tipo.orden, 0) AS orden,
+          COALESCE(SUM(valor.precio * detalle.cantidad), 0) AS valor
+        FROM public.kit_detalle detalle
+        INNER JOIN public.producto_precio valor ON valor.id_producto = detalle.id_producto
+        INNER JOIN public.tipo_precio tipo ON tipo.id = valor.id_tipo_precio
+        WHERE detalle.id_kit = k.id
+        GROUP BY tipo.id, tipo.descripcion, tipo.orden
+      ) precio
+    ) precios_kit ON true
     ${searchClause}
-    GROUP BY k.id, c.descripcion, s.descripcion
+    GROUP BY k.id, c.descripcion, s.descripcion, precios_kit.precios
   `;
 
   return await paginateQuery<KitListado>("log_importaciones", baseQuery, page, limit, params);

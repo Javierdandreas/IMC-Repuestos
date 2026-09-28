@@ -275,15 +275,16 @@ export async function getProductosListado(
       STRING_AGG(DISTINCT prv.descripcion, ', ') AS proveedor,
       STRING_AGG(DISTINCT NULLIF(TRIM(pp.codigo_proveedor), ''), ', ') AS codigo_proveedor,
       COALESCE(loc.ubicaciones_resumen, '[]'::jsonb) AS ubicaciones_resumen,
-      COALESCE(
-        JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT(
-          'proveedor', COALESCE(prv.descripcion, ''),
-          'codigo_proveedor', COALESCE(NULLIF(TRIM(pp.codigo_proveedor), ''), ''),
-          'precio_lista_actual', pp.precio_lista_actual,
-          'costo_actual', pp.costo_actual
-        )) FILTER (WHERE prv.descripcion IS NOT NULL),
-        '[]'::jsonb
-      ) AS proveedores_detalle,
+       COALESCE(
+         JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT(
+           'proveedor', COALESCE(prv.descripcion, ''),
+           'codigo_proveedor', COALESCE(NULLIF(TRIM(pp.codigo_proveedor), ''), ''),
+           'precio_lista_actual', pp.precio_lista_actual,
+           'costo_actual', pp.costo_actual
+         )) FILTER (WHERE prv.descripcion IS NOT NULL),
+         '[]'::jsonb
+       ) AS proveedores_detalle,
+       precios.precios,
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'ORIGINAL' AND cr.codigo IS NOT NULL),
         ARRAY[]::varchar[]
@@ -338,6 +339,23 @@ export async function getProductosListado(
           AND COALESCE(p.usa_numero_serie, false) = false
       ) src
     ) loc ON true
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(
+        JSONB_AGG(
+          JSONB_BUILD_OBJECT(
+            'id_tipo_precio', precio.id_tipo_precio,
+            'tipo_descripcion', tipo.descripcion,
+            'valor', precio.precio,
+            'porcentaje_ganancia', COALESCE(precio.porcentaje_ganancia, 0)
+          )
+          ORDER BY COALESCE(tipo.orden, 0), tipo.id
+        ),
+        '[]'::jsonb
+      ) AS precios
+      FROM producto_precio precio
+      INNER JOIN tipo_precio tipo ON tipo.id = precio.id_tipo_precio
+      WHERE precio.id_producto = p.id
+    ) precios ON true
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = pi.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     WHERE ${whereClauses.join(" AND ")}
@@ -365,8 +383,9 @@ export async function getProductosListado(
       p.imagen_url,
       p.usa_numero_serie,
       p.criterio_costo,
-      p.palabra_clave,
-      loc.ubicaciones_resumen
+       p.palabra_clave,
+       loc.ubicaciones_resumen,
+       precios.precios
     ORDER BY p.id DESC
   `;
 
