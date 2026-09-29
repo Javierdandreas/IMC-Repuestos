@@ -1,10 +1,10 @@
 import type { ProveedorProducto } from "@/interfaces/productos";
 
-export const CRITERIOS_COSTO = ["MANUAL", "MENOR_PRECIO", "PROMEDIO_PRECIO", "MAYOR_PRECIO"] as const;
+export const CRITERIOS_COSTO = ["PROVEEDOR_UNICO", "MANUAL", "MENOR_PRECIO", "PROMEDIO_PRECIO", "MAYOR_PRECIO"] as const;
 export type CriterioCosto = typeof CRITERIOS_COSTO[number];
 
 export function normalizarCriterioCosto(value: unknown): CriterioCosto {
-  return CRITERIOS_COSTO.includes(value as CriterioCosto) ? value as CriterioCosto : "MANUAL";
+  return CRITERIOS_COSTO.includes(value as CriterioCosto) ? value as CriterioCosto : "PROVEEDOR_UNICO";
 }
 
 export function preciosValidosProveedores(proveedores: ProveedorProducto[]): number[] {
@@ -26,6 +26,7 @@ function promedio(precios: number[]): number {
 
 export function calcularCostoBase(proveedores: ProveedorProducto[], criterio: CriterioCosto): number | null {
   const precios = preciosValidosProveedores(proveedores);
+  if (criterio === "PROVEEDOR_UNICO") return precios.length === 1 ? precios[0] : null;
   if (criterio === "MANUAL" || precios.length === 0) return null;
   if (criterio === "MENOR_PRECIO") {
     const preciosDisponibles = preciosDisponiblesProveedores(proveedores);

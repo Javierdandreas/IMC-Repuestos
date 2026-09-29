@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import { toast } from "sonner";
 import { HiCheck, HiCloudUpload, HiExclamation, HiPlay, HiRefresh, HiSparkles } from "react-icons/hi";
@@ -23,6 +23,7 @@ interface ImportResults {
   updated: number;
   ignored: number;
   providerPricesUpdated: number;
+  marginsUpdated: number;
   recalculatedCostCount: number;
   errors: ImportError[];
 }
@@ -53,7 +54,16 @@ type ImportValidationIssue = {
   message: string;
 };
 
-const SYSTEM_FIELDS = [
+type ImportField = {
+  id: string;
+  label: string;
+  description: string;
+  group: string;
+  required?: boolean;
+  aliases: string[];
+};
+
+const SYSTEM_FIELDS: ImportField[] = [
   { id: 'cod_unico', label: 'Código interno', description: 'Identificador único del item', group: 'Datos principales', required: true, aliases: ['codigo', 'codigo unico', 'codigo único', 'codigo interno', 'cod unico', 'cod_unico', 'sku', 'item', 'codigo producto', 'id producto'] },
   { id: 'titulo', label: 'Descripción', description: 'Nombre o título del item', group: 'Datos principales', aliases: ['titulo', 'descripcion', 'descripción', 'nombre', 'producto', 'articulo', 'artículo', 'detalle'] },
   { id: 'cod_barra', label: 'Código de barras', description: 'EAN, barcode o código escaneable', group: 'Datos principales', aliases: ['codigo barra', 'codigo de barras', 'cod barra', 'cod_barra', 'barcode', 'ean', 'gtin'] },
@@ -78,9 +88,11 @@ const normalizeHeader = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const createInitialMappings = (): Record<string, MappingConfig> => {
+const marginMappingId = (idTipoPrecio: number) => `margen_tipo_precio_${idTipoPrecio}`;
+
+const createInitialMappings = (fields: ImportField[] = SYSTEM_FIELDS): Record<string, MappingConfig> => {
   const initial: Record<string, MappingConfig> = {};
-  SYSTEM_FIELDS.forEach(field => {
+  fields.forEach(field => {
     initial[field.id] = {
       csvHeader: '',
       updateExisting: true,
@@ -139,7 +151,7 @@ const summarizeImportErrors = (errors: ImportError[]): ImportErrorSummary => {
   };
 };
 
-const scoreHeaderForField = (header: string, field: typeof SYSTEM_FIELDS[number]) => {
+const scoreHeaderForField = (header: string, field: ImportField) => {
   const normalizedHeader = normalizeHeader(header);
   let score = 0;
 
@@ -161,11 +173,11 @@ const scoreHeaderForField = (header: string, field: typeof SYSTEM_FIELDS[number]
   return score;
 };
 
-const autoMapHeaders = (headers: string[]): Record<string, MappingConfig> => {
-  const next = createInitialMappings();
+const autoMapHeaders = (headers: string[], fields: ImportField[] = SYSTEM_FIELDS): Record<string, MappingConfig> => {
+  const next = createInitialMappings(fields);
   const usedHeaders = new Set<string>();
 
-  SYSTEM_FIELDS.forEach(field => {
+  fields.forEach(field => {
     const candidates = headers
       .filter(header => !usedHeaders.has(header))
       .map(header => ({ header, score: scoreHeaderForField(header, field) }))
@@ -196,8 +208,40 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   const [preview, setPreview] = useState<any[]>([]);
   const [mappings, setMappings] = useState<Record<string, MappingConfig>>(createInitialMappings);
 
-  const { proveedores } = useMetadata();
+  const { proveedores, tiposPrecio } = useMetadata();
   const [isReplaceMode, setIsReplaceMode] = useState(false);
+
+  const marginFields = useMemo<ImportField[]>(() => (
+    tiposPrecio
+      .filter((tipo) => tipo.activo !== false && normalizeHeader(tipo.descripcion) !== "precio costo")
+      .map((tipo) => {
+        const descripcion = normalizeHeader(tipo.descripcion);
+        return {
+          id: marginMappingId(tipo.id),
+          label: `Margen ${tipo.descripcion} (%)`,
+          description: `Porcentaje para recalcular ${tipo.descripcion} desde el costo`,
+          group: "Precios y margenes",
+          aliases: [
+            `${descripcion} porcentaje`,
+            `${descripcion} margen`,
+            `margen ${descripcion}`,
+          ],
+        };
+      })
+  ), [tiposPrecio]);
+  const importFields = useMemo(() => [...SYSTEM_FIELDS, ...marginFields], [marginFields]);
+
+  useEffect(() => {
+    setMappings((previous) => {
+      const next = { ...previous };
+      marginFields.forEach((field) => {
+        if (!next[field.id]) {
+          next[field.id] = { csvHeader: "", updateExisting: true };
+        }
+      });
+      return next;
+    });
+  }, [marginFields]);
 
   const [importing, setImporting] = useState(false);
   const [totalRows, setTotalRows] = useState(0);
@@ -248,7 +292,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
           setPreview(jsonData.slice(0, 5));
           setTotalRows(jsonData.length);
 
-          setMappings(autoMapHeaders(headers));
+          setMappings(autoMapHeaders(headers, importFields));
           setStep('mapping');
         } catch (err) {
           toast.error("Error al leer el archivo Excel");
@@ -265,7 +309,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
             setPreview(results.data.slice(0, 5));
             setTotalRows(results.data.length);
 
-            setMappings(autoMapHeaders(results.meta.fields));
+            setMappings(autoMapHeaders(results.meta.fields, importFields));
             setStep('mapping');
           }
         },
@@ -363,6 +407,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
           updated: 0,
           ignored: 0,
           providerPricesUpdated: 0,
+          marginsUpdated: 0,
           recalculatedCostCount: 0,
           errors: [],
         };
@@ -386,6 +431,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
               accumulatedResults.updated += (data.updated || 0);
               accumulatedResults.ignored += (data.ignored || 0);
               accumulatedResults.providerPricesUpdated += (data.providerPricesUpdated || 0);
+              accumulatedResults.marginsUpdated += (data.marginsUpdated || 0);
               accumulatedResults.recalculatedCostCount += (data.recalculatedCostCount || 0);
               accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
             } else {
@@ -481,13 +527,13 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   };
 
   const mappedCount = useMemo(
-    () => SYSTEM_FIELDS.filter(field => Boolean(mappings[field.id]?.csvHeader)).length,
-    [mappings]
+    () => importFields.filter(field => Boolean(mappings[field.id]?.csvHeader)).length,
+    [importFields, mappings]
   );
 
   const missingRequiredFields = useMemo(
-    () => SYSTEM_FIELDS.filter(field => field.required && !mappings[field.id]?.csvHeader),
-    [mappings]
+    () => importFields.filter(field => field.required && !mappings[field.id]?.csvHeader),
+    [importFields, mappings]
   );
 
   const mappedHeaders = useMemo(
@@ -513,7 +559,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     selectedHeaderCounts.forEach((fieldIds, header) => {
       if (fieldIds.length > 1) {
         const labels = fieldIds
-          .map((fieldId) => SYSTEM_FIELDS.find((field) => field.id === fieldId)?.label || fieldId)
+          .map((fieldId) => importFields.find((field) => field.id === fieldId)?.label || fieldId)
           .join(", ");
         issues.push({
           type: "error",
@@ -578,7 +624,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     }
 
     return issues;
-  }, [mappings, missingRequiredFields]);
+  }, [importFields, mappings, missingRequiredFields]);
 
   const blockingImportIssues = useMemo(
     () => importValidationIssues.filter((issue) => issue.type === "error"),
@@ -606,7 +652,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   }, [mappings, preview]);
 
   const runAutoMapping = () => {
-    setMappings(autoMapHeaders(csvHeaders));
+    setMappings(autoMapHeaders(csvHeaders, importFields));
   };
 
   const sampleForHeader = (header: string) => {
@@ -627,7 +673,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     }));
   };
 
-  const renderMappingField = (field: typeof SYSTEM_FIELDS[number]) => {
+  const renderMappingField = (field: ImportField) => {
     const mapping = mappings[field.id];
     const isMapped = Boolean(mapping.csvHeader);
     const isSelected = mapping.updateExisting;
@@ -717,16 +763,26 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
           </div>
         </div>
 
-        {(results.providerPricesUpdated > 0 || results.recalculatedCostCount > 0) && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
-              <span className="block text-2xl font-black text-blue-300">{results.providerPricesUpdated}</span>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-blue-300/70">Precios de proveedor actualizados</span>
-            </div>
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-              <span className="block text-2xl font-black text-emerald-300">{results.recalculatedCostCount}</span>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-300/70">Costos y precios recalculados</span>
-            </div>
+        {(results.providerPricesUpdated > 0 || results.marginsUpdated > 0 || results.recalculatedCostCount > 0) && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {results.providerPricesUpdated > 0 && (
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
+                <span className="block text-2xl font-black text-blue-300">{results.providerPricesUpdated}</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-blue-300/70">Precios de proveedor actualizados</span>
+              </div>
+            )}
+            {results.marginsUpdated > 0 && (
+              <div className="rounded-xl border border-violet-500/20 bg-violet-500/10 p-4">
+                <span className="block text-2xl font-black text-violet-300">{results.marginsUpdated}</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-violet-300/70">Margenes actualizados</span>
+              </div>
+            )}
+            {results.recalculatedCostCount > 0 && (
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                <span className="block text-2xl font-black text-emerald-300">{results.recalculatedCostCount}</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-300/70">Costos y precios recalculados</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -821,7 +877,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
                   ? 'border-green-500/20 bg-green-500/10 text-green-500'
                   : 'border-red-500/20 bg-red-500/10 text-red-500'
               }`}>
-                {mappedCount}/{SYSTEM_FIELDS.length} mapeados
+                {mappedCount}/{importFields.length} mapeados
               </span>
               <button
                 type="button"
@@ -876,7 +932,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
               <span>Dato detectado</span>
               <span className="text-center">Actualiza</span>
             </div>
-            {SYSTEM_FIELDS.map(renderMappingField)}
+            {importFields.map(renderMappingField)}
           </div>
 
           <aside className="flex flex-col gap-3">
@@ -908,7 +964,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
               <div className="mt-3 space-y-2 text-xs font-bold text-slate-600 dark:text-slate-300">
                 <div className="flex items-center justify-between">
                   <span>Campos mapeados</span>
-                  <span className="text-blue-500">{mappedCount}/{SYSTEM_FIELDS.length}</span>
+                  <span className="text-blue-500">{mappedCount}/{importFields.length}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Sin usar</span>
@@ -923,7 +979,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
                 Los campos en amarillo no se importan. El interruptor indica si ese dato actualiza items ya existentes.
               </div>
               <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-                Los margenes no se importan aca. Se van a manejar desde listas de precio.
+                Podes mapear un margen para cada lista de precio. Los campos sin mapear no se modifican.
               </div>
             </div>
           </aside>

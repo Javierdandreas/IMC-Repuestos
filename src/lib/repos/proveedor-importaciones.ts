@@ -9,6 +9,96 @@ import {
   UltimoItemProveedor,
 } from "@/interfaces/importaciones";
 
+type ImportacionItemInput = CreateImportacionInput["items"][number];
+
+export async function iniciarImportacionProveedor(
+  idProveedor: number,
+  nombreArchivo: string,
+  totalItems: number,
+): Promise<ProveedorImportacion> {
+  if (!Number.isInteger(idProveedor) || idProveedor <= 0) throw new Error("Proveedor invalido");
+  if (!Number.isInteger(totalItems) || totalItems <= 0) throw new Error("La lista de items no puede estar vacia");
+
+  return withTransaction(async (client) => {
+    const result = await client.query(
+      `
+        INSERT INTO public.proveedor_importacion (id_proveedor, nombre_archivo, total_items, estado)
+        VALUES ($1, $2, $3, 'PENDIENTE')
+        RETURNING *
+      `,
+      [idProveedor, nombreArchivo, totalItems],
+    );
+    return result.rows[0] as ProveedorImportacion;
+  });
+}
+
+export async function agregarItemsImportacionProveedor(
+  idImportacion: number,
+  idProveedor: number,
+  items: ImportacionItemInput[],
+) {
+  if (!Number.isInteger(idImportacion) || idImportacion <= 0) throw new Error("Importacion invalida");
+  if (!Array.isArray(items) || items.length === 0) throw new Error("El lote no tiene filas");
+
+  return withTransaction(async (client) => {
+    const importacion = await client.query(
+      `
+        SELECT id
+        FROM public.proveedor_importacion
+        WHERE id = $1 AND id_proveedor = $2 AND estado = 'PENDIENTE'
+        LIMIT 1
+      `,
+      [idImportacion, idProveedor],
+    );
+    if (importacion.rowCount === 0) throw new Error("La importacion no esta disponible para recibir filas");
+
+    await client.query(
+      `
+        INSERT INTO public.proveedor_importacion_item (
+          id_importacion, fila, proveedor_archivo, codigo_proveedor, precio_lista, precio_original,
+          stock_original, stock_estado, stock_cantidad
+        )
+        SELECT $1, * FROM UNNEST(
+          $2::int[], $3::text[], $4::text[], $5::numeric[], $6::text[],
+          $7::text[], $8::text[], $9::numeric[]
+        )
+      `,
+      [
+        idImportacion,
+        items.map((item, index) => item.fila || index + 2),
+        items.map((item) => item.proveedor_archivo || ""),
+        items.map((item) => item.codigo_proveedor || ""),
+        items.map((item) => item.precio_lista ?? null),
+        items.map((item) => item.precio_original || ""),
+        items.map((item) => item.stock_original || ""),
+        items.map((item) => item.stock_estado || "DESCONOCIDO"),
+        items.map((item) => item.stock_cantidad ?? null),
+      ],
+    );
+
+    return { inserted: items.length };
+  });
+}
+
+export async function finalizarCargaImportacionProveedor(idImportacion: number, idProveedor: number) {
+  return withTransaction(async (client) => {
+    const result = await client.query(
+      `
+        UPDATE public.proveedor_importacion
+        SET
+          estado = 'PROCESADA',
+          total_items = (SELECT COUNT(*)::int FROM public.proveedor_importacion_item WHERE id_importacion = $1),
+          updated_at = NOW()
+        WHERE id = $1 AND id_proveedor = $2 AND estado = 'PENDIENTE'
+        RETURNING id, total_items
+      `,
+      [idImportacion, idProveedor],
+    );
+    if (result.rowCount === 0) throw new Error("No se pudo finalizar la carga de la importacion");
+    return result.rows[0] as { id: number; total_items: number };
+  });
+}
+
 export async function createImportacion(input: CreateImportacionInput): Promise<ProveedorImportacion> {
   const { id_proveedor, nombre_archivo, items } = input;
 

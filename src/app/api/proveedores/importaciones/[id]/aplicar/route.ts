@@ -4,6 +4,8 @@ import { requireApiWriteSession } from "@/lib/api-auth";
 import { jsonError } from "@/lib/api-errors";
 import { aplicarImportacionAlCatalogo } from "@/lib/repos/proveedor-importaciones";
 
+export const maxDuration = 300;
+
 type Params = Promise<{ id: string }>;
 
 export async function POST(

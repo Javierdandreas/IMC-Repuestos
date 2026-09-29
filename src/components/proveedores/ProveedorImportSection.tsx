@@ -41,6 +41,21 @@ type StockColorRule = {
 
 const STOCK_COLOR_ROW = "__COLOR_FILA_EXCEL__";
 
+async function requestImportJson(url: string, init: RequestInit) {
+  const response = await fetch(url, init);
+  const payload = await response.clone().json().catch(() => null) as Record<string, unknown> | null;
+  if (!response.ok) {
+    if (response.status === 413) throw new Error("El lote supera el tamaño permitido. Volve a intentar la importacion.");
+    const message = typeof payload?.message === "string"
+      ? payload.message
+      : typeof payload?.error === "string"
+        ? payload.error
+        : "El servidor no pudo procesar el lote";
+    throw new Error(message);
+  }
+  return payload ?? {};
+}
+
 const stockColorRulesFetcher = (url: string) => fetch(url).then(async (response) => {
   const data = await response.json();
   if (!response.ok) throw new Error(data.message || "No se pudieron cargar los colores");
@@ -270,6 +285,10 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const workbookRef = useRef<XLSX.WorkBook | null>(null);
   const [mappings, setMappings] = useState<Record<string, MappingConfig>>(() => createInitialMappings());
   const [importing, setImporting] = useState(false);
+  const [processedRows, setProcessedRows] = useState(0);
+  const [importPhase, setImportPhase] = useState<"uploading" | "applying">("uploading");
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [estimatedRemainingMs, setEstimatedRemainingMs] = useState<number | null>(null);
   const [results, setResults] = useState<ImportResults | null>(null);
   const { data: savedStockColorRules = [] } = useSWR<StockColorRule[]>(
     `/api/proveedores/${id_proveedor}/stock-colores`,
@@ -459,21 +478,59 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     try {
       setStep("importing");
       setImporting(true);
+      setProcessedRows(0);
+      setImportPhase("uploading");
+      setElapsedMs(0);
+      setEstimatedRemainingMs(null);
+      const startTime = Date.now();
 
-      const response = await fetch("/api/proveedores/importar", {
+      const importacion = await requestImportJson("/api/proveedores/importar/iniciar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id_proveedor,
           nombre_archivo: file.name,
-          items: mappedData.items,
+          total_items: mappedData.items.length,
         }),
       });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || data.error || "Error al importar");
+      const idImportacion = Number(importacion.id);
+      if (!Number.isInteger(idImportacion) || idImportacion <= 0) {
+        throw new Error("No se pudo iniciar la importacion");
       }
+
+      const batchSize = 1000;
+      for (let index = 0; index < mappedData.items.length; index += batchSize) {
+        const batch = mappedData.items.slice(index, index + batchSize);
+        await requestImportJson("/api/proveedores/importar/lote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id_importacion: idImportacion,
+            id_proveedor,
+            items: batch,
+          }),
+        });
+
+        const completed = Math.min(index + batch.length, mappedData.items.length);
+        const elapsed = Date.now() - startTime;
+        setProcessedRows(completed);
+        setElapsedMs(elapsed);
+        setEstimatedRemainingMs(completed > 0
+          ? Math.round((elapsed / completed) * (mappedData.items.length - completed))
+          : null);
+      }
+
+      await requestImportJson("/api/proveedores/importar/finalizar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_importacion: idImportacion, id_proveedor }),
+      });
+
+      setImportPhase("applying");
+      setEstimatedRemainingMs(null);
+      const data = await requestImportJson(`/api/proveedores/importaciones/${idImportacion}/aplicar`, {
+        method: "POST",
+      });
 
       const updatedCount = Number(data.updatedCount || 0);
       const recalculatedCostCount = Number(data.recalculatedCostCount || 0);
@@ -752,7 +809,18 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   return (
     <div className="flex flex-col gap-6">
       {renderStep()}
-      <TransferProgressModal open={importing} title="Importando lista de precios" total={mappedData.items.length} unit="filas" />
+      <TransferProgressModal
+        open={importing}
+        title={importPhase === "uploading" ? "Cargando lista de precios" : "Aplicando lista de precios"}
+        description={importPhase === "uploading"
+          ? "Guardando las filas por partes. No cierres esta ventana."
+          : "Actualizando precios, stock y costos del proveedor."}
+        total={mappedData.items.length}
+        processed={processedRows}
+        unit="filas"
+        elapsedMs={elapsedMs}
+        estimatedRemainingMs={estimatedRemainingMs}
+      />
 
       {!hideHistory && (
         <div className="mt-4">

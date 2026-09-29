@@ -104,13 +104,21 @@ export function SuppliersSection({
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-        <table className="min-w-[1050px] w-full text-left border-collapse">
+        <table className="min-w-[1080px] w-full table-fixed border-collapse text-left">
+          <colgroup>
+            <col className="w-[32%]" />
+            <col className="w-[23%]" />
+            <col className="w-[17%]" />
+            <col className="w-[13%]" />
+            <col className="w-[11%]" />
+            <col className="w-[4%]" />
+          </colgroup>
           <thead className="bg-slate-50 dark:bg-slate-800/50">
             <tr>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Proveedor</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Código Prov</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Precio Lista</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Costo Neto</th>
+              <th className="whitespace-nowrap px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Costo Neto</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Stock proveedor</th>
               <th className="w-[100px] px-4 py-3"></th>
             </tr>
@@ -122,7 +130,7 @@ export function SuppliersSection({
 
               return (
                 <tr key={index} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors align-top">
-                  <td className="p-3 w-1/3">
+                  <td className="p-3">
                     <select
                       value={item.id_proveedor ?? ""}
                       onChange={(e) => handleProviderChange(index, e.target.value)}
@@ -206,7 +214,7 @@ export function SuppliersSection({
                     </div>
                   </td>
                   <td className="p-3">
-                    <div className="flex h-10 items-center rounded-lg bg-slate-100 px-3 text-xs font-black text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    <div className="flex h-10 min-w-0 items-center justify-end whitespace-nowrap rounded-lg bg-slate-100 px-2 text-right text-xs font-black tabular-nums text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                       {item.costo_actual !== null && item.costo_actual !== undefined
                         ? `$ ${Number(item.costo_actual).toLocaleString("es-AR", { maximumFractionDigits: 2 })}`
                         : "-"}

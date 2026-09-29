@@ -25,6 +25,9 @@ export async function recalcularPreciosAutomaticos(
           p.id AS id_producto,
           ROUND(
             CASE p.criterio_costo
+              WHEN 'PROVEEDOR_UNICO' THEN MAX(COALESCE(pp.costo_actual, pp.precio_lista_actual)) FILTER (
+                WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0
+              )
               WHEN 'MENOR_PRECIO' THEN COALESCE(
                 MIN(COALESCE(pp.costo_actual, pp.precio_lista_actual)) FILTER (
                   WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0
@@ -40,9 +43,13 @@ export async function recalcularPreciosAutomaticos(
         FROM public.productos p
         INNER JOIN productos_afectados pa ON pa.id_producto = p.id
         INNER JOIN public.producto_proveedor pp ON pp.id_producto = p.id
-        WHERE p.criterio_costo IN ('MENOR_PRECIO', 'PROMEDIO_PRECIO', 'MAYOR_PRECIO')
+        WHERE p.criterio_costo IN ('PROVEEDOR_UNICO', 'MENOR_PRECIO', 'PROMEDIO_PRECIO', 'MAYOR_PRECIO')
         GROUP BY p.id, p.criterio_costo
         HAVING COUNT(*) FILTER (WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0) > 0
+           AND (
+             p.criterio_costo <> 'PROVEEDOR_UNICO'
+             OR COUNT(*) FILTER (WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0) = 1
+           )
       ),
       precios_nuevos AS (
         SELECT

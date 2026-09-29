@@ -19,6 +19,8 @@ interface ImportResults {
   updated: number;
   ignored: number;
   errors: ImportError[];
+  categoriesCreated?: string[];
+  subcategoriesCreated?: string[];
 }
 
 type Step = 'upload' | 'mapping' | 'importing' | 'results';
@@ -31,9 +33,25 @@ interface MappingConfig {
 const KIT_FIELDS = [
   { id: 'codigo_kit', label: 'Código del Kit', required: true },
   { id: 'nombre_kit', label: 'Nombre del Kit' },
+  { id: 'descripcion_kit', label: 'Descripción del Kit' },
+  { id: 'categoria_kit', label: 'Categoría del Kit' },
+  { id: 'subcategoria_kit', label: 'Subcategoría del Kit' },
+  { id: 'activo_kit', label: 'Activo' },
   { id: 'cod_producto', label: 'Código del Item (Componente)', required: true },
   { id: 'cantidad', label: 'Cantidad' },
 ];
+
+const normalizeHeader = (value: string) => value
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, "")
+  .trim();
+
+const findHeader = (headers: string[], ...candidates: string[]) => headers.find((header) => {
+  const normalized = normalizeHeader(header);
+  return candidates.some((candidate) => normalized === normalizeHeader(candidate));
+});
 
 export function ImportKitModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
@@ -41,6 +59,7 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [preview, setPreview] = useState<any[]>([]);
+  const [importRows, setImportRows] = useState<any[]>([]);
   const [mappings, setMappings] = useState<Record<string, MappingConfig>>(() => {
     const initial: Record<string, MappingConfig> = {};
     KIT_FIELDS.forEach(f => {
@@ -66,43 +85,68 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
   const parseFileHeaders = (file: File) => {
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
 
+    const applyAutoMapping = (headers: string[]) => {
+      const nextMappings: Record<string, MappingConfig> = {};
+      KIT_FIELDS.forEach((field) => {
+        nextMappings[field.id] = { csvHeader: '', isRequired: field.required };
+      });
+
+      nextMappings.codigo_kit.csvHeader = findHeader(headers, 'Codigo Kit', 'Código Kit', 'Cod Kit', 'Kit ID') || '';
+      nextMappings.nombre_kit.csvHeader = findHeader(headers, 'Nombre Kit', 'Nombre') || '';
+      nextMappings.descripcion_kit.csvHeader = findHeader(headers, 'Descripcion', 'Descripción', 'Descripcion Kit', 'Descripción Kit') || '';
+      nextMappings.categoria_kit.csvHeader = findHeader(headers, 'Categoria', 'Categoría', 'Categoria Kit', 'Categoría Kit') || '';
+      nextMappings.subcategoria_kit.csvHeader = findHeader(headers, 'Subcategoria', 'Subcategoría', 'Subcategoria Kit', 'Subcategoría Kit') || '';
+      nextMappings.activo_kit.csvHeader = findHeader(headers, 'Activo', 'Estado') || '';
+      nextMappings.cod_producto.csvHeader = findHeader(headers, 'Codigo Item', 'Código Item', 'Codigo Producto', 'Código Producto', 'SKU', 'Articulo', 'Artículo') || '';
+      nextMappings.cantidad.csvHeader = findHeader(headers, 'Cantidad', 'Cant', 'Qty') || '';
+
+      setMappings(nextMappings);
+    };
+
     if (isExcel) {
       const reader = new FileReader();
       reader.onload = (e) => {
         try {
           const data = e.target?.result;
           const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheetName = workbook.SheetNames.find((name) => name.toLowerCase().replace(/\s+/g, " ") === "componentes kits") || workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          
-          const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-          const headers: string[] = [];
-          for (let C = range.s.c; C <= range.e.c; ++C) {
-            const address = XLSX.utils.encode_col(C) + '1';
-            const cell = worksheet[address];
-            if (cell && cell.v !== undefined) {
-              headers.push(cell.v.toString());
-            }
-          }
-          
-          setCsvHeaders(headers);
-          const jsonData = XLSX.utils.sheet_to_json(worksheet);
-          setPreview(jsonData.slice(0, 5));
-          setTotalRows(jsonData.length);
+          const componentsSheetName = workbook.SheetNames.find((name) => normalizeHeader(name) === normalizeHeader('Componentes kits')) || workbook.SheetNames[0];
+          const kitsSheetName = workbook.SheetNames.find((name) => normalizeHeader(name) === normalizeHeader('Kits'));
+          const componentRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[componentsSheetName], { defval: '' });
+          const kitRows = kitsSheetName
+            ? XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[kitsSheetName], { defval: '' })
+            : [];
 
-          // Auto-mapeo inteligente
-          const newMappings = { ...mappings };
-          headers.forEach(header => {
-            const h = header.toLowerCase().trim().replace(/[\s_-]+/g, '');
-            if (h.includes('codigokit') || h === 'codkit' || h === 'kitid') newMappings.codigo_kit.csvHeader = header;
-            if (h.includes('nombrekit') || h === 'kitnombre' || h === 'nombre') newMappings.nombre_kit.csvHeader = header;
-            if (h.includes('codproducto') || h.includes('codigoitem') || h === 'producto' || h === 'sku' || h === 'articulo') newMappings.cod_producto.csvHeader = header;
-            if (h.includes('cantidad') || h === 'cant' || h === 'qty') newMappings.cantidad.csvHeader = header;
+          const kitCodeHeader = findHeader(
+            Array.from(new Set(kitRows.flatMap((row) => Object.keys(row)))),
+            'Codigo Kit',
+            'Código Kit',
+            'Cod Kit',
+            'Kit ID'
+          );
+          const kitMetadataByCode = new Map<string, Record<string, unknown>>();
+          if (kitCodeHeader) {
+            kitRows.forEach((row) => {
+              const code = String(row[kitCodeHeader] ?? '').trim().toUpperCase();
+              if (code) kitMetadataByCode.set(code, row);
+            });
+          }
+
+          const rows = componentRows.map((component) => {
+            const componentCodeHeader = findHeader(Object.keys(component), 'Codigo Kit', 'Código Kit', 'Cod Kit', 'Kit ID');
+            const code = componentCodeHeader ? String(component[componentCodeHeader] ?? '').trim().toUpperCase() : '';
+            return { ...(kitMetadataByCode.get(code) || {}), ...component };
           });
-          setMappings(newMappings);
+          const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+
+          if (rows.length === 0) throw new Error('No hay componentes de kits para importar');
+          setCsvHeaders(headers);
+          setPreview(rows.slice(0, 5));
+          setImportRows(rows);
+          setTotalRows(rows.length);
+          applyAutoMapping(headers);
           setStep('mapping');
         } catch (err) {
-          toast.error("Error al leer el archivo Excel");
+          toast.error(err instanceof Error ? err.message : 'Error al leer el archivo Excel');
         }
       };
       reader.readAsArrayBuffer(file);
@@ -114,18 +158,9 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
           if (results.meta.fields) {
             setCsvHeaders(results.meta.fields);
             setPreview(results.data.slice(0, 5));
+            setImportRows(results.data as Record<string, unknown>[]);
             setTotalRows(results.data.length);
-
-            // Auto-mapeo inteligente
-            const newMappings = { ...mappings };
-            results.meta.fields.forEach(header => {
-              const h = header.toLowerCase().trim().replace(/[\s_-]+/g, '');
-              if (h.includes('codigokit') || h === 'codkit' || h === 'kitid') newMappings.codigo_kit.csvHeader = header;
-              if (h.includes('nombrekit') || h === 'kitnombre' || h === 'nombre') newMappings.nombre_kit.csvHeader = header;
-              if (h.includes('codproducto') || h.includes('codigoitem') || h === 'producto' || h === 'sku' || h === 'articulo') newMappings.cod_producto.csvHeader = header;
-              if (h.includes('cantidad') || h === 'cant' || h === 'qty') newMappings.cantidad.csvHeader = header;
-            });
-            setMappings(newMappings);
+            applyAutoMapping(results.meta.fields);
             setStep('mapping');
           }
         },
@@ -134,95 +169,85 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
   };
 
   const handleImport = async () => {
-    if (!file) return;
+    if (!file || importRows.length === 0) return;
 
     try {
       setStep('importing');
       setImporting(true);
+      setProcessedCount(0);
       const startTime = Date.now();
+      setTotalRows(importRows.length);
 
-      const processImportData = async (allData: { data: any[] }) => {
-        const totalItems = allData.data.length;
-        setTotalRows(totalItems);
-        const BATCH_SIZE = 1000;
-        let accumulatedResults: ImportResults = {
-          imported: 0,
-          updated: 0,
-          ignored: 0,
-          errors: []
-        };
+      // Nunca se separan los componentes de un mismo kit entre dos pedidos.
+      const rowsByKit = new Map<string, Record<string, unknown>[]>();
+      importRows.forEach((row, index) => {
+        const code = String(row[mappings.codigo_kit.csvHeader] ?? '').trim().toUpperCase();
+        const key = code || `__fila_${index}`;
+        const group = rowsByKit.get(key) || [];
+        group.push(row);
+        rowsByKit.set(key, group);
+      });
 
-        for (let i = 0; i < totalItems; i += BATCH_SIZE) {
-          const chunk = allData.data.slice(i, i + BATCH_SIZE);
-          try {
-            const res = await fetch("/api/kits/import", {
-              method: "POST",
-              body: JSON.stringify({
-                items: chunk,
-                mappings,
-                fileName: file.name
-              }),
-            });
-
-            const data = await res.json();
-            if (res.ok) {
-              accumulatedResults.imported += (data.imported || 0);
-              accumulatedResults.updated += (data.updated || 0);
-              accumulatedResults.ignored += (data.ignored || 0);
-              accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
-            } else {
-              accumulatedResults.errors.push({
-                row: i + 1,
-                error: data.message || "Error en el lote",
-                cod_kit: `Batch ${Math.floor(i / BATCH_SIZE) + 1}`
-              });
-            }
-          } catch (err: any) {
-            accumulatedResults.errors.push({ row: i + 1, error: err.message, cod_kit: "ERROR RED" });
-          }
-          setProcessedCount(Math.min(i + BATCH_SIZE, totalItems));
+      const batches: Record<string, unknown>[][] = [];
+      let currentBatch: Record<string, unknown>[] = [];
+      for (const rows of rowsByKit.values()) {
+        if (currentBatch.length > 0 && currentBatch.length + rows.length > 500) {
+          batches.push(currentBatch);
+          currentBatch = [];
         }
-
-        const durationMs = Date.now() - startTime;
-        const minutes = Math.floor(durationMs / 60000);
-        const seconds = ((durationMs % 60000) / 1000).toFixed(1);
-        setImportDuration(minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`);
-        setResults(accumulatedResults);
-        setStep('results');
-        setImporting(false);
-        router.refresh();
-      };
-
-      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
-
-      if (isExcel) {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          try {
-            const data = e.target?.result;
-            const workbook = XLSX.read(data, { type: 'array' });
-            const firstSheetName = workbook.SheetNames.find((name) => name.toLowerCase().replace(/\s+/g, " ") === "componentes kits") || workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[firstSheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet);
-            await processImportData({ data: jsonData });
-          } catch (err) {
-            toast.error("Error al leer el archivo Excel");
-            setImporting(false);
-            setStep('upload');
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      } else {
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: async (allData) => {
-            await processImportData(allData);
-          }
-        });
+        currentBatch.push(...rows);
       }
+      if (currentBatch.length > 0) batches.push(currentBatch);
+
+      const accumulatedResults: ImportResults = {
+        imported: 0,
+        updated: 0,
+        ignored: 0,
+        errors: [],
+        categoriesCreated: [],
+        subcategoriesCreated: [],
+      };
+      let processed = 0;
+
+      for (let index = 0; index < batches.length; index += 1) {
+        const batch = batches[index];
+        try {
+          const response = await fetch('/api/kits/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: batch, mappings, fileName: file.name }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.message || 'Error al importar el lote');
+
+          accumulatedResults.imported += Number(data.imported || 0);
+          accumulatedResults.updated += Number(data.updated || 0);
+          accumulatedResults.ignored += Number(data.ignored || 0);
+          accumulatedResults.errors.push(...(data.errors || []));
+          accumulatedResults.categoriesCreated?.push(...(data.categoriesCreated || []));
+          accumulatedResults.subcategoriesCreated?.push(...(data.subcategoriesCreated || []));
+        } catch (error) {
+          accumulatedResults.errors.push({
+            row: processed + 2,
+            error: error instanceof Error ? error.message : 'Error de red',
+            cod_kit: `Lote ${index + 1}`,
+          });
+        }
+        processed += batch.length;
+        setProcessedCount(processed);
+      }
+
+      const durationMs = Date.now() - startTime;
+      const minutes = Math.floor(durationMs / 60000);
+      const seconds = ((durationMs % 60000) / 1000).toFixed(1);
+      setImportDuration(minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`);
+      setResults(accumulatedResults);
+      setStep('results');
+      router.refresh();
     } catch (error: any) {
       toast.error("Error crítico: " + error.message);
+      setStep('mapping');
+    } finally {
       setImporting(false);
     }
   };
@@ -349,7 +374,7 @@ export function ImportKitModal({ onClose }: { onClose: () => void }) {
           <HiExclamation className="h-5 w-5 text-indigo-500 shrink-0" />
           <div className="text-xs text-indigo-700 dark:text-indigo-400 font-medium">
             <p className="font-black uppercase tracking-tight mb-1">Formato requerido:</p>
-            <p>El CSV debe contener el <strong>Código del Kit</strong> y el <strong>Código del Item</strong> por cada componente.</p>
+            <p>En CSV se requiere <strong>Código del Kit</strong> y <strong>Código del Item</strong>. En el Excel exportado se unen solas las hojas <strong>Kits</strong> y <strong>Componentes kits</strong>.</p>
           </div>
         </div>
       </div>

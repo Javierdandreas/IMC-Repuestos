@@ -28,7 +28,7 @@ export type ProductoInput = {
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
   precios?: { id_tipo_precio: number; valor: number; porcentaje_ganancia: number }[];
-  criterio_costo?: "MANUAL" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
+  criterio_costo?: "PROVEEDOR_UNICO" | "MANUAL" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
 };
 
 
@@ -555,6 +555,248 @@ export async function getProductosParaExportar(filters: {
   });
 }
 
+export async function getPreciosProveedoresParaExportar(): Promise<Record<string, unknown>[]> {
+  const { rows } = await query<Record<string, unknown>>(`
+    SELECT
+      p.cod_unico AS "Codigo Item",
+      prv.descripcion AS "Proveedor",
+      COALESCE(pp.codigo_proveedor, '') AS "Codigo Proveedor",
+      pp.precio_lista_actual AS "Precio Lista Proveedor",
+      pp.costo_actual AS "Costo Neto",
+      COALESCE(pp.stock_estado, 'DESCONOCIDO') AS "Estado Stock",
+      pp.stock_cantidad AS "Cantidad Stock",
+      COALESCE(pp.stock_texto_original, '') AS "Stock Informado",
+      pp.fecha_stock_actualizacion AS "Fecha Stock",
+      pp.fecha_ultima_actualizacion AS "Fecha Precio Lista"
+    FROM public.producto_proveedor pp
+    JOIN public.productos p ON p.id = pp.id_producto
+    JOIN public.proveedores prv ON prv.id = pp.id_proveedor
+    WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+    ORDER BY p.cod_unico ASC, prv.descripcion ASC
+  `);
+
+  return rows;
+}
+
+type PrecioProveedorImportMappings = Record<string, { csvHeader?: string }>;
+
+type PrecioProveedorImportResult = {
+  updated: number;
+  pricesUpdated: number;
+  stockUpdated: number;
+  recalculated: number;
+  ignored: number;
+  errors: Array<{ row: number; error: string; codigo_item: string; proveedor: string }>;
+};
+
+const ESTADOS_STOCK_PROVEEDOR_IMPORTABLES = new Set([
+  "DISPONIBLE",
+  "PROXIMO_INGRESO",
+  "SIN_STOCK",
+  "DESCONOCIDO",
+]);
+
+function normalizeImportProviderValue(value: unknown) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function parseImportProviderNumber(value: unknown): number | null | undefined {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const withoutCurrency = raw.replace(/\$/g, "").replace(/\s/g, "");
+  const dotGroups = withoutCurrency.split(".");
+  const normalized = withoutCurrency.includes(",") && withoutCurrency.includes(".")
+    ? withoutCurrency.replace(/\./g, "").replace(",", ".")
+    : withoutCurrency.includes(",")
+      ? withoutCurrency.replace(",", ".")
+      : (dotGroups.length > 2 || (dotGroups.length === 2 && dotGroups[1].length === 3))
+        ? withoutCurrency.replace(/\./g, "")
+        : withoutCurrency;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseImportProviderStockState(value: unknown) {
+  const normalized = normalizeImportProviderValue(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\s-]+/g, "_");
+  if (!normalized) return "DESCONOCIDO";
+  if (normalized === "PROXIMO" || normalized === "PROXIMO_INGRESO") return "PROXIMO_INGRESO";
+  if (normalized === "SIN_STOCK" || normalized === "AGOTADO") return "SIN_STOCK";
+  return ESTADOS_STOCK_PROVEEDOR_IMPORTABLES.has(normalized) ? normalized : null;
+}
+
+/**
+ * Sincroniza solamente los datos de proveedor ya existentes en el catalogo.
+ * Nunca crea items ni proveedores a partir de una lista de precios.
+ */
+export async function importPreciosProveedores(
+  items: unknown[],
+  mappings: PrecioProveedorImportMappings,
+): Promise<PrecioProveedorImportResult> {
+  const results: PrecioProveedorImportResult = {
+    updated: 0,
+    pricesUpdated: 0,
+    stockUpdated: 0,
+    recalculated: 0,
+    ignored: 0,
+    errors: [],
+  };
+  const headerFor = (field: string) => mappings[field]?.csvHeader || "";
+  const hasMapping = (field: string) => Boolean(headerFor(field));
+  const read = (item: Record<string, unknown>, field: string) => item[headerFor(field)];
+
+  if (!hasMapping("codigo_item") || !hasMapping("proveedor")) {
+    throw new Error("Falta mapear Codigo Item o Proveedor");
+  }
+  if (items.length === 0) return results;
+
+  return withTransaction(async (client) => {
+    const [products, providers] = await Promise.all([
+      client.query<{ id: number; cod_unico: string }>("SELECT id, cod_unico FROM public.productos"),
+      client.query<{ id: number; descripcion: string }>("SELECT id, descripcion FROM public.proveedores"),
+    ]);
+    const productIds = new Map(products.rows.map((product) => [normalizeImportProviderValue(product.cod_unico), Number(product.id)]));
+    const providerIds = new Map(providers.rows.map((provider) => [normalizeImportProviderValue(provider.descripcion), Number(provider.id)]));
+
+    const codeProviderUpdates = hasMapping("codigo_proveedor");
+    const priceUpdates = hasMapping("precio_lista");
+    const stockStateUpdates = hasMapping("estado_stock");
+    const stockQuantityUpdates = hasMapping("cantidad_stock");
+    const stockTextUpdates = hasMapping("stock_informado");
+    const stockUpdates = stockStateUpdates || stockQuantityUpdates || stockTextUpdates;
+    const validRows = new Map<string, {
+      productId: number;
+      providerId: number;
+      code: string;
+      provider: string;
+      providerCode: string | null;
+      price: number | null;
+      stockState: string;
+      stockQuantity: number | null;
+      stockText: string | null;
+    }>();
+
+    const addError = (row: number, error: string, code: string, provider: string) => {
+      results.ignored += 1;
+      results.errors.push({ row, error, codigo_item: code || "?", proveedor: provider || "?" });
+    };
+
+    items.forEach((rawItem, index) => {
+      const row = index + 2;
+      const item = rawItem && typeof rawItem === "object" ? rawItem as Record<string, unknown> : {};
+      const code = normalizeImportProviderValue(read(item, "codigo_item"));
+      const provider = normalizeImportProviderValue(read(item, "proveedor"));
+      if (!code || !provider) {
+        addError(row, "Codigo Item y Proveedor son obligatorios", code, provider);
+        return;
+      }
+
+      const productId = productIds.get(code);
+      if (!productId) {
+        addError(row, "Item no encontrado", code, provider);
+        return;
+      }
+      const providerId = providerIds.get(provider);
+      if (!providerId) {
+        addError(row, `Proveedor no encontrado: ${provider}`, code, provider);
+        return;
+      }
+
+      const price = priceUpdates ? parseImportProviderNumber(read(item, "precio_lista")) : null;
+      if (price === undefined || (price !== null && price < 0)) {
+        addError(row, "Precio de lista invalido", code, provider);
+        return;
+      }
+      const stockQuantity = stockQuantityUpdates ? parseImportProviderNumber(read(item, "cantidad_stock")) : null;
+      if (stockQuantity === undefined || (stockQuantity !== null && stockQuantity < 0)) {
+        addError(row, "Cantidad de stock invalida", code, provider);
+        return;
+      }
+      const stockState = stockStateUpdates ? parseImportProviderStockState(read(item, "estado_stock")) : "DESCONOCIDO";
+      if (!stockState) {
+        addError(row, "Estado de stock invalido", code, provider);
+        return;
+      }
+
+      validRows.set(`${productId}:${providerId}`, {
+        productId,
+        providerId,
+        code,
+        provider,
+        providerCode: codeProviderUpdates ? String(read(item, "codigo_proveedor") ?? "").trim() || null : null,
+        price,
+        stockState,
+        stockQuantity,
+        stockText: stockTextUpdates ? String(read(item, "stock_informado") ?? "").trim() || null : null,
+      });
+    });
+
+    const rows = Array.from(validRows.values());
+    if (rows.length === 0) return results;
+
+    const updateResult = await client.query<{ id_producto: number }>(`
+      INSERT INTO public.producto_proveedor (
+        id_producto, id_proveedor, codigo_proveedor, precio_lista_actual,
+        stock_estado, stock_cantidad, stock_texto_original,
+        fecha_stock_actualizacion, fecha_ultima_actualizacion
+      )
+      SELECT
+        values_to_import.id_producto,
+        values_to_import.id_proveedor,
+        values_to_import.codigo_proveedor,
+        values_to_import.precio_lista_actual,
+        values_to_import.stock_estado,
+        values_to_import.stock_cantidad,
+        values_to_import.stock_texto_original,
+        CASE WHEN $6 THEN NOW() ELSE NULL END,
+        CASE WHEN $4 OR $5 THEN NOW() ELSE NULL END
+      FROM UNNEST($1::integer[], $2::integer[], $3::text[], $7::numeric[], $8::text[], $9::numeric[], $10::text[])
+        AS values_to_import(
+          id_producto, id_proveedor, codigo_proveedor, precio_lista_actual,
+          stock_estado, stock_cantidad, stock_texto_original
+        )
+      ON CONFLICT (id_producto, id_proveedor) DO UPDATE SET
+        codigo_proveedor = CASE WHEN $4 THEN EXCLUDED.codigo_proveedor ELSE producto_proveedor.codigo_proveedor END,
+        precio_lista_actual = CASE WHEN $5 THEN EXCLUDED.precio_lista_actual ELSE producto_proveedor.precio_lista_actual END,
+        stock_estado = CASE WHEN $11 THEN EXCLUDED.stock_estado ELSE producto_proveedor.stock_estado END,
+        stock_cantidad = CASE WHEN $12 THEN EXCLUDED.stock_cantidad ELSE producto_proveedor.stock_cantidad END,
+        stock_texto_original = CASE WHEN $13 THEN EXCLUDED.stock_texto_original ELSE producto_proveedor.stock_texto_original END,
+        fecha_stock_actualizacion = CASE WHEN $6 THEN NOW() ELSE producto_proveedor.fecha_stock_actualizacion END,
+        fecha_ultima_actualizacion = CASE WHEN $4 OR $5 THEN NOW() ELSE producto_proveedor.fecha_ultima_actualizacion END
+      RETURNING id_producto
+    `, [
+      rows.map((item) => item.productId),
+      rows.map((item) => item.providerId),
+      rows.map((item) => item.providerCode),
+      codeProviderUpdates,
+      priceUpdates,
+      stockUpdates,
+      rows.map((item) => item.price),
+      rows.map((item) => item.stockState),
+      rows.map((item) => item.stockQuantity),
+      rows.map((item) => item.stockText),
+      stockStateUpdates,
+      stockQuantityUpdates,
+      stockTextUpdates,
+    ]);
+
+    const affectedProductIds = [...new Set(updateResult.rows.map((item) => Number(item.id_producto)))];
+    results.updated = rows.length;
+    results.pricesUpdated = priceUpdates ? rows.length : 0;
+    results.stockUpdated = stockUpdates ? rows.length : 0;
+    if ((priceUpdates || stockUpdates) && affectedProductIds.length > 0) {
+      const recalculatedProducts = await recalcularCostosProveedorProductos(client, { productIds: affectedProductIds });
+      await recalcularPreciosAutomaticos(client, recalculatedProducts);
+      results.recalculated = recalculatedProducts.length;
+    }
+
+    return results;
+  });
+}
+
 export async function getProductoById(id: string | number): Promise<Producto | null> {
   const productQuery = `
     SELECT
@@ -909,13 +1151,14 @@ export async function importProductos(
 ) {
   return await withTransaction(async (client) => {
     // 1. Cargar metadatos para resolución rápida
-    const [marcas, categorias, subcategorias, ubicaciones, piezas, proveedores] = await Promise.all([
+    const [marcas, categorias, subcategorias, ubicaciones, piezas, proveedores, tiposPrecio] = await Promise.all([
       client.query("SELECT id, descripcion FROM marcas"),
       client.query("SELECT id, descripcion FROM categoria"),
       client.query("SELECT id, descripcion FROM subcategoria"),
       client.query("SELECT id, descripcion FROM ubicaciones"),
       client.query("SELECT id, codigo_pieza FROM pieza"),
       client.query("SELECT id, descripcion FROM proveedores"),
+      client.query("SELECT id, descripcion FROM tipo_precio"),
     ]);
 
     const normalize = (text: any) => {
@@ -929,6 +1172,14 @@ export async function importProductos(
     const ubiMap = new Map<string, number>(ubicaciones.rows.map(r => [normalize(r.descripcion), r.id]));
     const piezaMap = new Map<string, number>(piezas.rows.map(r => [normalize(r.codigo_pieza), r.id]));
     const provMap = new Map<string, number>(proveedores.rows.map(r => [normalize(r.descripcion), r.id]));
+    const marginMappings = tiposPrecio.rows
+      .map((tipo) => ({
+        idTipoPrecio: Number(tipo.id),
+        descripcion: String(tipo.descripcion ?? "").trim(),
+        mappingId: `margen_tipo_precio_${Number(tipo.id)}`,
+      }))
+      .filter((tipo) => tipo.idTipoPrecio > 0 && normalize(tipo.descripcion) !== "PRECIO COSTO")
+      .filter((tipo) => Boolean(mappings[tipo.mappingId]?.csvHeader));
 
     const defaultSubcatId = subMap.get(normalize("SIN SUBCATEGORIA"));
     const startTime = Date.now();
@@ -963,12 +1214,20 @@ export async function importProductos(
 
     // Para relación proveedores
     const supplierLinks: { sku: string; provName: string; codProv: string | null; precioLista: number | null; rowNum: number }[] = [];
+    const marginUpdates: {
+      sku: string;
+      rowNum: number;
+      idTipoPrecio: number;
+      margen: number;
+      updateExisting: boolean;
+    }[] = [];
 
     const results = {
       imported: 0,
       updated: 0,
       ignored: 0,
       providerPricesUpdated: 0,
+      marginsUpdated: 0,
       recalculatedCostCount: 0,
       errors: [] as { row: number; error: string; cod_unico: string }[],
     };
@@ -1002,6 +1261,7 @@ export async function importProductos(
       { id: "ubicacion", label: "Ubicacion" },
       { id: "codigo_pieza", label: "Codigo de item asociado" },
       { id: "palabra_clave", label: "Palabras clave" },
+      ...marginMappings.map((tipo) => ({ id: tipo.mappingId, label: `Margen ${tipo.descripcion}` })),
     ];
     const groupedItems: GroupedImportItem[] = [];
 
@@ -1095,6 +1355,30 @@ export async function importProductos(
                   rowNum: supplierRowNum,
                 });
             });
+
+            marginMappings.forEach((tipo) => {
+              const mapping = mappings[tipo.mappingId];
+              const rawMargin = mapping?.csvHeader ? item[mapping.csvHeader] : null;
+              if (rawMargin === null || rawMargin === undefined || String(rawMargin).trim() === "") return;
+
+              const margen = parseNullableNumber(rawMargin);
+              if (margen === null || margen < -100) {
+                results.errors.push({
+                  row: rowNum,
+                  error: `Margen invalido para ${tipo.descripcion}`,
+                  cod_unico: sku,
+                });
+                return;
+              }
+
+              marginUpdates.push({
+                sku,
+                rowNum,
+                idTipoPrecio: tipo.idTipoPrecio,
+                margen,
+                updateExisting: mapping.updateExisting ?? true,
+              });
+            });
         } catch (err: any) {
             results.errors.push({ row: rowNum, error: `Error procesando fila: ${err.message}`, cod_unico: sku });
         }
@@ -1106,9 +1390,9 @@ export async function importProductos(
     const upsertQuery = `
       WITH upserted AS (
         INSERT INTO productos (
-          cod_unico, descripcion, cod_barra, stock, id_marca, id_subcategoria, id_ubicacion, id_pieza, palabra_clave
+          cod_unico, descripcion, cod_barra, stock, id_marca, id_subcategoria, id_ubicacion, id_pieza, palabra_clave, criterio_costo
         )
-        SELECT * FROM UNNEST(
+        SELECT t.*, 'PROVEEDOR_UNICO' FROM UNNEST(
             $1::text[], $2::text[], $3::text[], $4::numeric[], $5::int[], $6::int[], $7::int[], $8::int[], $9::text[]
         ) AS t(cod_unico, descripcion, cod_barra, stock, id_marca, id_subcategoria, id_ubicacion, id_pieza, palabra_clave)
         ON CONFLICT (cod_unico) DO UPDATE SET
@@ -1120,7 +1404,7 @@ export async function importProductos(
           id_ubicacion = CASE WHEN $15 THEN EXCLUDED.id_ubicacion ELSE productos.id_ubicacion END,
           id_pieza = CASE WHEN $16 THEN EXCLUDED.id_pieza ELSE productos.id_pieza END,
           palabra_clave = CASE WHEN $17 THEN EXCLUDED.palabra_clave ELSE productos.palabra_clave END
-        RETURNING *
+        RETURNING *, (xmax = 0) AS is_new
       )
       SELECT * FROM upserted;
     `;
@@ -1139,6 +1423,7 @@ export async function importProductos(
       ]);
 
       const skuToIdMap = new Map<string, number>(upsertRes.rows.map(r => [r.cod_unico, r.id]));
+      const skuIsNewMap = new Map<string, boolean>(upsertRes.rows.map(r => [r.cod_unico, Boolean(r.is_new)]));
       
       upsertRes.rows.forEach(r => {
           if (r.is_new) {
@@ -1147,6 +1432,53 @@ export async function importProductos(
               results.updated++;
           }
       });
+
+      const applicableMarginUpdates = marginUpdates
+        .filter((item) => {
+          const productId = skuToIdMap.get(item.sku);
+          return Boolean(productId) && (item.updateExisting || skuIsNewMap.get(item.sku) === true);
+        });
+      const marginProductIds = [...new Set(
+        applicableMarginUpdates
+          .map((item) => skuToIdMap.get(item.sku))
+          .filter((id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0)
+      )];
+
+      if (applicableMarginUpdates.length > 0) {
+        const marginProductIdsByPrice = applicableMarginUpdates.map((item) => skuToIdMap.get(item.sku) as number);
+        const marginPriceTypeIds = applicableMarginUpdates.map((item) => item.idTipoPrecio);
+        const margins = applicableMarginUpdates.map((item) => item.margen);
+
+        await client.query(
+          `
+            UPDATE public.producto_precio precio
+            SET porcentaje_ganancia = datos.margen
+            FROM UNNEST($1::int[], $2::int[], $3::numeric[])
+              AS datos(id_producto, id_tipo_precio, margen)
+            WHERE precio.id_producto = datos.id_producto
+              AND precio.id_tipo_precio = datos.id_tipo_precio
+          `,
+          [marginProductIdsByPrice, marginPriceTypeIds, margins],
+        );
+
+        await client.query(
+          `
+            INSERT INTO public.producto_precio (id_producto, id_tipo_precio, precio, porcentaje_ganancia)
+            SELECT datos.id_producto, datos.id_tipo_precio, 0, datos.margen
+            FROM UNNEST($1::int[], $2::int[], $3::numeric[])
+              AS datos(id_producto, id_tipo_precio, margen)
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM public.producto_precio existente
+              WHERE existente.id_producto = datos.id_producto
+                AND existente.id_tipo_precio = datos.id_tipo_precio
+            )
+          `,
+          [marginProductIdsByPrice, marginPriceTypeIds, margins],
+        );
+
+        results.marginsUpdated = applicableMarginUpdates.length;
+      }
 
       // 4. Bulk Upsert de Proveedores (si corresponde)
       if (supplierLinks.length > 0 && mappings.proveedor?.updateExisting !== false) {
@@ -1234,6 +1566,42 @@ export async function importProductos(
                 );
               }
           }
+      }
+
+      if (applicableMarginUpdates.length > 0) {
+        results.recalculatedCostCount += await recalcularPreciosAutomaticos(client, marginProductIds);
+
+        await client.query(
+          `
+            WITH tipo_costo AS (
+              SELECT id
+              FROM public.tipo_precio
+              WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+              ORDER BY id
+              LIMIT 1
+            ),
+            datos AS (
+              SELECT *
+              FROM UNNEST($1::int[], $2::int[])
+                AS valores(id_producto, id_tipo_precio)
+            )
+            UPDATE public.producto_precio venta
+            SET precio = ROUND(costo.precio * (1 + COALESCE(venta.porcentaje_ganancia, 0) / 100), 2)
+            FROM datos
+            CROSS JOIN tipo_costo
+            INNER JOIN public.productos producto ON producto.id = datos.id_producto
+            INNER JOIN public.producto_precio costo
+              ON costo.id_producto = producto.id
+             AND costo.id_tipo_precio = tipo_costo.id
+            WHERE venta.id_producto = datos.id_producto
+              AND venta.id_tipo_precio = datos.id_tipo_precio
+              AND producto.criterio_costo = 'MANUAL'
+          `,
+          [
+            applicableMarginUpdates.map((item) => skuToIdMap.get(item.sku) as number),
+            applicableMarginUpdates.map((item) => item.idTipoPrecio),
+          ],
+        );
       }
     } catch (dbErr: any) {
       console.error("❌ Error en DB Bulk Upsert:", dbErr.message, dbErr.detail);

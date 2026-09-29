@@ -81,7 +81,7 @@ const initialState: Producto = {
   usa_numero_serie: false,
   palabra_clave: "",
   precios: [],
-  criterio_costo: "MANUAL",
+  criterio_costo: "PROVEEDOR_UNICO",
 };
 
 export function ProductForm({

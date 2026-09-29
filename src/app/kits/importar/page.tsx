@@ -20,7 +20,7 @@ export default function ImportarKitsPage() {
             Volver a catalogo
           </button>
           <h1 className="text-2xl font-black text-slate-900 dark:text-white">Importar kits</h1>
-          <p className="mt-1 text-sm font-medium text-slate-500">Cargá un archivo y revisá columnas antes de importar componentes.</p>
+          <p className="mt-1 text-sm font-medium text-slate-500">Cargá un archivo y revisá los datos generales y los componentes antes de importar.</p>
         </header>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">

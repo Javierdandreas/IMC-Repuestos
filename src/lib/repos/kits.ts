@@ -301,7 +301,7 @@ export async function getComponentesParaKitsListado(ids: number[]): Promise<KitC
   return result.rows;
 }
 
-export async function importKits(items: any[], user: string, fileName: string, mappings: any) {
+async function importKitsLegacy(items: any[], user: string, fileName: string, mappings: any) {
     const startTime = Date.now();
     const results = {
         imported: 0,
@@ -439,4 +439,304 @@ export async function importKits(items: any[], user: string, fileName: string, m
 
         return { ...results, appliedCodes: Array.from(kitIdMap.keys()), durationMs: Date.now() - startTime };
     });
+}
+
+type KitImportMappings = Record<string, { csvHeader?: string }>;
+
+type ImportedKit = {
+  code: string;
+  row: number;
+  source: Record<string, unknown>;
+  components: Map<string, { code: string; quantity: number; row: number }>;
+};
+
+function normalizeKitImportText(value: unknown) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function normalizeKitImportKey(value: unknown) {
+  return normalizeKitImportText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function parseImportedQuantity(value: unknown) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) return 1;
+
+  const quantity = Number(rawValue.replace(",", "."));
+  return Number.isInteger(quantity) && quantity > 0 ? quantity : null;
+}
+
+function parseImportedActive(value: unknown) {
+  const normalized = normalizeKitImportKey(value);
+  if (!normalized) return undefined;
+  if (["SI", "TRUE", "1", "ACTIVO", "YES"].includes(normalized)) return true;
+  if (["NO", "FALSE", "0", "INACTIVO"].includes(normalized)) return false;
+  return null;
+}
+
+/**
+ * Importa kits completos. Las columnas generales son opcionales para conservar
+ * compatibilidad con archivos antiguos que solamente tienen componentes.
+ */
+export async function importKits(
+  items: unknown[],
+  _user: string,
+  _fileName: string,
+  mappings: KitImportMappings
+) {
+  const startTime = Date.now();
+  const results = {
+    imported: 0,
+    updated: 0,
+    ignored: 0,
+    categoriesCreated: [] as string[],
+    subcategoriesCreated: [] as string[],
+    errors: [] as { row: number; error: string; cod_kit: string }[],
+  };
+  const headerFor = (field: string) => mappings[field]?.csvHeader || "";
+  const hasMapping = (field: string) => Boolean(headerFor(field));
+  const read = (row: Record<string, unknown>, field: string) => row[headerFor(field)];
+
+  if (!headerFor("codigo_kit") || !headerFor("cod_producto")) {
+    throw new Error("Mapeo insuficiente: se requiere Codigo de Kit y Codigo del Item");
+  }
+  if (items.length === 0) return { ...results, appliedCodes: [], durationMs: 0 };
+
+  return withTransaction(async (client) => {
+    const kitsByCode = new Map<string, ImportedKit>();
+    const invalidKitCodes = new Set<string>();
+    let invalidRowsWithoutKit = 0;
+    const addError = (row: number, error: string, code: string) => {
+      results.errors.push({ row, error, cod_kit: code || "?" });
+    };
+
+    items.forEach((rawItem, index) => {
+      const row = index + 2;
+      const item = rawItem && typeof rawItem === "object" ? rawItem as Record<string, unknown> : {};
+      const code = normalizeKitImportText(read(item, "codigo_kit"));
+      const productCode = normalizeKitImportText(read(item, "cod_producto"));
+      const quantity = hasMapping("cantidad") ? parseImportedQuantity(read(item, "cantidad")) : 1;
+
+      if (!code) {
+        invalidRowsWithoutKit += 1;
+        addError(row, "Falta el Codigo de Kit", "?");
+        return;
+      }
+      if (!productCode) {
+        invalidKitCodes.add(code);
+        addError(row, "Falta el Codigo del Item. El kit no se modifico.", code);
+        return;
+      }
+      if (!quantity) {
+        invalidKitCodes.add(code);
+        addError(row, "La cantidad debe ser un numero entero mayor a cero. El kit no se modifico.", code);
+        return;
+      }
+
+      const kit = kitsByCode.get(code) || { code, row, source: item, components: new Map() };
+      const previous = kit.components.get(productCode);
+      kit.components.set(productCode, {
+        code: productCode,
+        quantity: (previous?.quantity || 0) + quantity,
+        row,
+      });
+      kitsByCode.set(code, kit);
+    });
+
+    const productCodes = Array.from(new Set(
+      Array.from(kitsByCode.values()).flatMap((kit) => Array.from(kit.components.keys()))
+    ));
+    const products = productCodes.length
+      ? await client.query<{ id: number; cod_unico: string }>(`
+          SELECT id, cod_unico
+          FROM public.productos
+          WHERE UPPER(TRIM(cod_unico)) = ANY($1::text[])
+        `, [productCodes])
+      : { rows: [] as { id: number; cod_unico: string }[] };
+    const productIdsByCode = new Map(
+      products.rows.map((product) => [normalizeKitImportText(product.cod_unico), Number(product.id)])
+    );
+
+    type CurrentKit = {
+      codigo_kit: string;
+      nombre: string;
+      descripcion: string | null;
+      id_categoria: number | null;
+      id_subcategoria: number | null;
+      activo: boolean | null;
+    };
+    const currentKits = kitsByCode.size
+      ? await client.query<CurrentKit>(`
+          SELECT codigo_kit, nombre, descripcion, id_categoria, id_subcategoria, activo
+          FROM public.kits
+          WHERE UPPER(TRIM(codigo_kit)) = ANY($1::text[])
+        `, [Array.from(kitsByCode.keys())])
+      : { rows: [] as CurrentKit[] };
+    const currentKitsByCode = new Map(
+      currentKits.rows.map((kit) => [normalizeKitImportText(kit.codigo_kit), kit])
+    );
+
+    const [categories, subcategories] = await Promise.all([
+      client.query<{ id: number; descripcion: string }>("SELECT id, descripcion FROM public.categoria"),
+      client.query<{ id: number; id_categoria: number; descripcion: string }>("SELECT id, id_categoria, descripcion FROM public.subcategoria"),
+    ]);
+    const categoryIdsByName = new Map(
+      categories.rows.map((category) => [normalizeKitImportKey(category.descripcion), Number(category.id)])
+    );
+    const subcategoryIdsByName = new Map(
+      subcategories.rows.map((subcategory) => [
+        `${Number(subcategory.id_categoria)}:${normalizeKitImportKey(subcategory.descripcion)}`,
+        Number(subcategory.id),
+      ])
+    );
+
+    let defaultCategoryId = categoryIdsByName.get("KIT");
+    if (!defaultCategoryId) {
+      const inserted = await client.query<{ id: number; descripcion: string }>(
+        "INSERT INTO public.categoria (descripcion) VALUES ('KIT') RETURNING id, descripcion"
+      );
+      defaultCategoryId = Number(inserted.rows[0].id);
+      categoryIdsByName.set("KIT", defaultCategoryId);
+      results.categoriesCreated.push(inserted.rows[0].descripcion);
+    }
+
+    const validKits: Array<{
+      code: string;
+      name: string;
+      description: string;
+      categoryId: number;
+      subcategoryId: number | null;
+      active: boolean;
+      components: Array<{ code: string; quantity: number; row: number }>;
+    }> = [];
+
+    for (const kit of kitsByCode.values()) {
+      if (invalidKitCodes.has(kit.code)) continue;
+
+      const missingComponents = Array.from(kit.components.values())
+        .filter((component) => !productIdsByCode.has(component.code));
+      if (missingComponents.length > 0) {
+        invalidKitCodes.add(kit.code);
+        missingComponents.forEach((component) => {
+          addError(component.row, `Item "${component.code}" no encontrado. El kit no se modifico.`, kit.code);
+        });
+        continue;
+      }
+
+      const currentKit = currentKitsByCode.get(kit.code);
+      const importedActive = hasMapping("activo_kit") ? parseImportedActive(read(kit.source, "activo_kit")) : undefined;
+      if (importedActive === null) {
+        invalidKitCodes.add(kit.code);
+        addError(kit.row, "El valor de Activo debe ser SI o NO. El kit no se modifico.", kit.code);
+        continue;
+      }
+
+      let categoryId = Number(currentKit?.id_categoria || defaultCategoryId);
+      const importedCategory = hasMapping("categoria_kit")
+        ? normalizeKitImportText(read(kit.source, "categoria_kit"))
+        : "";
+      if (importedCategory) {
+        const categoryKey = normalizeKitImportKey(importedCategory);
+        categoryId = categoryIdsByName.get(categoryKey) || 0;
+        if (!categoryId) {
+          const inserted = await client.query<{ id: number; descripcion: string }>(
+            "INSERT INTO public.categoria (descripcion) VALUES ($1) RETURNING id, descripcion",
+            [importedCategory]
+          );
+          categoryId = Number(inserted.rows[0].id);
+          categoryIdsByName.set(categoryKey, categoryId);
+          results.categoriesCreated.push(inserted.rows[0].descripcion);
+        }
+      }
+
+      let subcategoryId: number | null = hasMapping("subcategoria_kit")
+        ? null
+        : (currentKit?.id_subcategoria ?? null);
+      const importedSubcategory = hasMapping("subcategoria_kit")
+        ? normalizeKitImportText(read(kit.source, "subcategoria_kit"))
+        : "";
+      if (importedSubcategory) {
+        const subcategoryKey = `${categoryId}:${normalizeKitImportKey(importedSubcategory)}`;
+        subcategoryId = subcategoryIdsByName.get(subcategoryKey) || null;
+        if (!subcategoryId) {
+          const inserted = await client.query<{ id: number; descripcion: string }>(
+            "INSERT INTO public.subcategoria (descripcion, id_categoria) VALUES ($1, $2) RETURNING id, descripcion",
+            [importedSubcategory, categoryId]
+          );
+          subcategoryId = Number(inserted.rows[0].id);
+          subcategoryIdsByName.set(subcategoryKey, subcategoryId);
+          results.subcategoriesCreated.push(`${importedCategory || "KIT"} / ${inserted.rows[0].descripcion}`);
+        }
+      }
+
+      const importedName = hasMapping("nombre_kit") ? normalizeKitImportText(read(kit.source, "nombre_kit")) : "";
+      const importedDescription = hasMapping("descripcion_kit")
+        ? normalizeKitImportText(read(kit.source, "descripcion_kit"))
+        : undefined;
+      validKits.push({
+        code: kit.code,
+        name: importedName || currentKit?.nombre || kit.code,
+        description: importedDescription ?? currentKit?.descripcion ?? "",
+        categoryId,
+        subcategoryId,
+        active: importedActive ?? currentKit?.activo ?? true,
+        components: Array.from(kit.components.values()),
+      });
+    }
+
+    results.ignored = invalidKitCodes.size + invalidRowsWithoutKit;
+    if (validKits.length === 0) {
+      return { ...results, appliedCodes: [], durationMs: Date.now() - startTime };
+    }
+
+    const upserted = await client.query<{ id: number; codigo_kit: string; is_new: boolean }>(`
+      INSERT INTO public.kits (codigo_kit, nombre, descripcion, id_categoria, id_subcategoria, activo)
+      SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::integer[], $5::integer[], $6::boolean[])
+        AS imported(codigo_kit, nombre, descripcion, id_categoria, id_subcategoria, activo)
+      ON CONFLICT (codigo_kit) DO UPDATE SET
+        nombre = EXCLUDED.nombre,
+        descripcion = EXCLUDED.descripcion,
+        id_categoria = EXCLUDED.id_categoria,
+        id_subcategoria = EXCLUDED.id_subcategoria,
+        activo = EXCLUDED.activo
+      RETURNING id, codigo_kit, (xmax = 0) AS is_new
+    `, [
+      validKits.map((kit) => kit.code),
+      validKits.map((kit) => kit.name),
+      validKits.map((kit) => kit.description),
+      validKits.map((kit) => kit.categoryId),
+      validKits.map((kit) => kit.subcategoryId),
+      validKits.map((kit) => kit.active),
+    ]);
+    const kitIdsByCode = new Map<string, number>();
+    upserted.rows.forEach((kit) => {
+      kitIdsByCode.set(normalizeKitImportText(kit.codigo_kit), Number(kit.id));
+      if (kit.is_new) results.imported += 1;
+      else results.updated += 1;
+    });
+
+    const kitIds = Array.from(kitIdsByCode.values());
+    await client.query("DELETE FROM public.kit_detalle WHERE id_kit = ANY($1::integer[])", [kitIds]);
+    const details = validKits.flatMap((kit) => kit.components.map((component) => ({
+      kitId: kitIdsByCode.get(kit.code) as number,
+      productId: productIdsByCode.get(component.code) as number,
+      quantity: component.quantity,
+    })));
+    await client.query(`
+      INSERT INTO public.kit_detalle (id_kit, id_producto, cantidad)
+      SELECT * FROM UNNEST($1::integer[], $2::integer[], $3::integer[])
+    `, [
+      details.map((detail) => detail.kitId),
+      details.map((detail) => detail.productId),
+      details.map((detail) => detail.quantity),
+    ]);
+
+    return {
+      ...results,
+      appliedCodes: validKits.map((kit) => kit.code),
+      durationMs: Date.now() - startTime,
+    };
+  });
 }

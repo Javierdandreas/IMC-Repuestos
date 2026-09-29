@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx-js-style";
 import { requireApiReadSession } from "@/lib/api-auth";
 import { jsonError, AppError } from "@/lib/api-errors";
-import { getProductosParaExportar } from "@/lib/repos/productos";
+import { getPreciosProveedoresParaExportar, getProductosParaExportar } from "@/lib/repos/productos";
 import { getKitsParaExportar } from "@/lib/repos/kits";
+import { getPiezasParaExportar } from "@/lib/repos/piezas";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,21 @@ function appendSheet(workbook: XLSX.WorkBook, name: string, rows: Record<string,
   XLSX.utils.book_append_sheet(workbook, worksheet, name);
 }
 
+const ITEM_COLUMNS_EXCLUDED_FROM_CATALOG_EXPORT = new Set([
+  "Proveedor",
+  "Codigo Proveedor",
+  "Precio Lista Proveedor",
+  "Proveedores y Precios Lista",
+  "Usa Serie",
+  "Numeros de Serie Disponibles",
+]);
+
+function getItemRowsForCatalogExport(rows: Record<string, unknown>[]) {
+  return rows.map((row) => Object.fromEntries(
+    Object.entries(row).filter(([column]) => !ITEM_COLUMNS_EXCLUDED_FROM_CATALOG_EXPORT.has(column))
+  ));
+}
+
 export async function GET(request: NextRequest) {
   try {
     await requireApiReadSession(request);
@@ -51,13 +67,19 @@ export async function GET(request: NextRequest) {
       throw new AppError("Elegi items, kits o ambos para exportar.", 400);
     }
 
-    const [items, kitData] = await Promise.all([
-      includeItems ? getProductosParaExportar({}, { detalleProveedor: true }) : Promise.resolve([]),
+    const [items, preciosProveedores, piezas, kitData] = await Promise.all([
+      includeItems ? getProductosParaExportar() : Promise.resolve([]),
+      includeItems ? getPreciosProveedoresParaExportar() : Promise.resolve([]),
+      includeItems ? getPiezasParaExportar() : Promise.resolve([]),
       includeKits ? getKitsParaExportar() : Promise.resolve({ kits: [], componentes: [] }),
     ]);
 
     const workbook = XLSX.utils.book_new();
-    if (includeItems) appendSheet(workbook, "Items", items, ["Codigo Unico", "Descripcion"]);
+    if (includeItems) {
+      appendSheet(workbook, "Items", getItemRowsForCatalogExport(items), ["Codigo Unico", "Descripcion"]);
+      appendSheet(workbook, "Items asociados", piezas, ["Codigo Item Asociado", "Descripcion", "Categoria", "Subcategoria", "Medida", "Codigos Originales", "Codigos Equivalentes", "Codigos Sustitutos"]);
+      appendSheet(workbook, "Precios proveedores", preciosProveedores, ["Codigo Item", "Proveedor", "Codigo Proveedor", "Precio Lista Proveedor"]);
+    }
     if (includeKits) {
       appendSheet(workbook, "Kits", kitData.kits, ["Codigo Kit", "Nombre Kit", "Descripcion", "Categoria", "Subcategoria", "Activo"]);
       appendSheet(workbook, "Componentes kits", kitData.componentes, ["Codigo Kit", "Nombre Kit", "Codigo Item", "Cantidad"]);

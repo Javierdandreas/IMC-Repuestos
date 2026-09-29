@@ -9,6 +9,7 @@ import {
   HiCloudDownload,
   HiCollection,
   HiCube,
+  HiCurrencyDollar,
   HiTable,
 } from "react-icons/hi";
 import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
@@ -85,7 +86,7 @@ export function CatalogTransfersPage({ canManage }: Props) {
         <header className="border-b border-slate-200 pb-5 dark:border-slate-800">
           <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Configuracion</p>
           <h1 className="mt-2 text-2xl font-black text-slate-900 dark:text-white">Catalogo</h1>
-          <p className="mt-1 text-sm font-medium text-slate-500">Importa o exporta items y kits desde un solo lugar.</p>
+          <p className="mt-1 text-sm font-medium text-slate-500">Importa o exporta items, asociados y kits desde un solo lugar.</p>
         </header>
 
         <section>
@@ -93,9 +94,11 @@ export function CatalogTransfersPage({ canManage }: Props) {
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500"><HiArrowUp className="h-4 w-4" /></span>
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-900 dark:text-white">Importar</h2>
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <ActionButton icon={HiCube} title="Items" detail="CSV o Excel de items" onClick={() => router.push("/productos/importar")} disabled={!canManage} />
-            <ActionButton icon={HiCollection} title="Kits" detail="Archivo de componentes" onClick={() => router.push("/kits/importar")} disabled={!canManage} />
+            <ActionButton icon={HiCube} title="Items asociados" detail="Codigos y equivalencias" onClick={() => router.push("/piezas/importar")} disabled={!canManage} />
+            <ActionButton icon={HiCollection} title="Kits" detail="Datos y componentes" onClick={() => router.push("/kits/importar")} disabled={!canManage} />
+            <ActionButton icon={HiCurrencyDollar} title="Precios proveedores" detail="Precio, codigo y stock" onClick={() => router.push("/productos/importar/precios-proveedores")} disabled={!canManage} />
             <ActionButton icon={HiTable} title="Desde GESU" detail="Productos y grupos en un archivo" onClick={() => router.push("/productos/importar/gesu")} disabled={!canManage} />
           </div>
         </section>
@@ -110,7 +113,7 @@ export function CatalogTransfersPage({ canManage }: Props) {
               <input type="checkbox" checked={includeItems} onChange={(event) => setIncludeItems(event.target.checked)} className="h-4 w-4 accent-blue-600" />
               <span>
                 <span className="block text-sm font-black text-slate-900 dark:text-white">Items</span>
-                <span className="mt-1 block text-xs font-medium text-slate-500">Datos, proveedores y precios</span>
+                <span className="mt-1 block text-xs font-medium text-slate-500">Items, asociados, proveedores y precios</span>
               </span>
             </label>
             <label className={`flex min-h-24 cursor-pointer items-center gap-3 rounded-xl border p-4 transition ${includeKits ? "border-violet-500/40 bg-violet-500/5" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"}`}>

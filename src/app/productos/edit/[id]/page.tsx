@@ -14,8 +14,8 @@ export default async function EditProductPage({ params }: Props) {
   if (!product) notFound();
 
   return (
-    <div className="min-h-screen bg-white p-4 dark:bg-black md:p-6">
-      <div className="mx-auto w-full max-w-[1500px] bg-white dark:bg-black">
+    <div className="min-h-[calc(100dvh-4rem)] bg-white dark:bg-black">
+      <div className="w-full bg-white dark:bg-black">
         <ProductForm productId={id} initialProduct={product} />
       </div>
     </div>

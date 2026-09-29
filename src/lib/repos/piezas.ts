@@ -21,6 +21,29 @@ type PiezaInput = {
   sustitutos?: string[];
 };
 
+type PiezaImportMapping = Record<string, { csvHeader?: string }>;
+
+type PiezaImportRow = {
+  row: number;
+  codigoPieza: number;
+  descripcion: string;
+  categoria: string;
+  subcategoria: string;
+  medida: string | null;
+  originales: string[];
+  equivalentes: string[];
+  sustitutos: string[];
+};
+
+export type PiezaImportResult = {
+  created: number;
+  updated: number;
+  ignored: number;
+  categoriesCreated: string[];
+  subcategoriesCreated: string[];
+  errors: Array<{ row: number; error: string; codigo_pieza: string }>;
+};
+
 
 function sanitizePiezaInput(input: PiezaInput) {
   return {
@@ -191,6 +214,321 @@ export async function getPiezasListado(page: number = 1, limit: number = 50): Pr
   `;
 
   return await paginateQuery<PiezaListado>("pieza", sql, page, limit);
+}
+
+export async function getPiezasParaExportar(): Promise<Record<string, string | number | null>[]> {
+  const { rows } = await query<{
+    codigo_pieza: number;
+    descripcion: string;
+    categoria: string | null;
+    subcategoria: string | null;
+    medida: string | null;
+    originales: string[];
+    equivalentes: string[];
+    sustitutos: string[];
+  }>(`
+    SELECT
+      p.codigo_pieza,
+      p.descripcion,
+      c.descripcion AS categoria,
+      s.descripcion AS subcategoria,
+      p.medida,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'ORIGINAL' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS originales,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'EQUIVALENTE' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS equivalentes,
+      COALESCE(
+        ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'SUSTITUTO' AND cr.codigo IS NOT NULL),
+        ARRAY[]::varchar[]
+      ) AS sustitutos
+    FROM public.pieza p
+    JOIN public.subcategoria s ON s.id = p.id_subcategoria
+    JOIN public.categoria c ON c.id = s.id_categoria
+    LEFT JOIN public.pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
+    LEFT JOIN public.codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
+    GROUP BY p.id, p.codigo_pieza, p.descripcion, c.descripcion, s.descripcion, p.medida
+    ORDER BY p.codigo_pieza ASC
+  `);
+
+  const joinCodes = (codes: string[]) => codes.join("; ");
+
+  return rows.map((row) => ({
+    "Codigo Item Asociado": row.codigo_pieza,
+    Descripcion: row.descripcion,
+    Categoria: row.categoria,
+    Subcategoria: row.subcategoria,
+    Medida: row.medida,
+    "Codigos Originales": joinCodes(row.originales),
+    "Codigos Equivalentes": joinCodes(row.equivalentes),
+    "Codigos Sustitutos": joinCodes(row.sustitutos),
+  }));
+}
+
+function normalizePiezaImportValue(value: unknown) {
+  return sanitizeText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function splitImportedCodes(value: unknown) {
+  return sanitizeCodes(String(value ?? "").split(/[;,|\r\n]+/));
+}
+
+export async function importPiezas(items: unknown[], mappings: PiezaImportMapping): Promise<PiezaImportResult> {
+  const results: PiezaImportResult = {
+    created: 0,
+    updated: 0,
+    ignored: 0,
+    categoriesCreated: [],
+    subcategoriesCreated: [],
+    errors: [],
+  };
+
+  const requiredFields = [
+    "codigo_pieza",
+    "descripcion",
+    "categoria",
+    "subcategoria",
+    "originales",
+    "equivalentes",
+    "sustitutos",
+  ];
+
+  const missingMappings = requiredFields.filter((field) => !mappings[field]?.csvHeader);
+  if (missingMappings.length > 0) {
+    throw new Error(`Falta mapear: ${missingMappings.join(", ")}`);
+  }
+
+  const headerFor = (field: string) => mappings[field]?.csvHeader ?? "";
+  const read = (item: Record<string, unknown>, field: string) => item[headerFor(field)];
+  const invalidRows = new Set<number>();
+  const addError = (row: number, error: string, codigoPieza: string) => {
+    if (!invalidRows.has(row)) {
+      invalidRows.add(row);
+      results.ignored += 1;
+    }
+    results.errors.push({ row, error, codigo_pieza: codigoPieza });
+  };
+
+  const rows: PiezaImportRow[] = [];
+  const firstRowByCode = new Map<number, number>();
+
+  items.forEach((rawItem, index) => {
+    const row = index + 2;
+    const item = rawItem && typeof rawItem === "object" ? rawItem as Record<string, unknown> : {};
+    const rawCode = String(read(item, "codigo_pieza") ?? "").trim();
+    const codigoPieza = Number(rawCode);
+
+    if (!Number.isInteger(codigoPieza) || codigoPieza <= 0) {
+      addError(row, "Codigo de item asociado invalido", rawCode || "?");
+      return;
+    }
+
+    const descripcion = sanitizeText(read(item, "descripcion"));
+    const categoria = sanitizeText(read(item, "categoria"));
+    const subcategoria = sanitizeText(read(item, "subcategoria"));
+    if (!descripcion || !categoria || !subcategoria) {
+      addError(row, "Descripcion, categoria y subcategoria son obligatorias", String(codigoPieza));
+      return;
+    }
+
+    const existingRow = firstRowByCode.get(codigoPieza);
+    if (existingRow) {
+      addError(row, `Codigo de item asociado repetido (tambien esta en la fila ${existingRow})`, String(codigoPieza));
+      return;
+    }
+    firstRowByCode.set(codigoPieza, row);
+
+    rows.push({
+      row,
+      codigoPieza,
+      descripcion,
+      categoria,
+      subcategoria,
+      medida: sanitizeText(read(item, "medida")) || null,
+      originales: splitImportedCodes(read(item, "originales")),
+      equivalentes: splitImportedCodes(read(item, "equivalentes")),
+      sustitutos: splitImportedCodes(read(item, "sustitutos")),
+    });
+  });
+
+  if (rows.length === 0) return results;
+
+  return await withTransaction(async (client) => {
+    const incomingOriginals = new Map<string, PiezaImportRow>();
+    rows.forEach((row) => {
+      row.originales.forEach((codigo) => {
+        const normalizedCode = normalizePiezaImportValue(codigo);
+        const owner = incomingOriginals.get(normalizedCode);
+        if (owner && owner.codigoPieza !== row.codigoPieza) {
+          addError(row.row, `El numero original ${codigo} tambien figura en el item asociado ${owner.codigoPieza}`, String(row.codigoPieza));
+          return;
+        }
+        incomingOriginals.set(normalizedCode, row);
+      });
+    });
+
+    const importedOriginals = Array.from(incomingOriginals.keys());
+    if (importedOriginals.length > 0) {
+      const { rows: existingOriginals } = await client.query<{ codigo: string; codigo_pieza: number }>(`
+        SELECT UPPER(TRIM(cr.codigo)) AS codigo, p.codigo_pieza
+        FROM public.pieza_codigo_referencia pcr
+        JOIN public.codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
+        JOIN public.pieza p ON p.id = pcr.id_pieza
+        WHERE pcr.tipo = 'ORIGINAL'
+          AND UPPER(TRIM(cr.codigo)) = ANY($1::text[])
+      `, [importedOriginals]);
+
+      const existingByCode = new Map<string, number[]>();
+      existingOriginals.forEach((item) => {
+        const codes = existingByCode.get(item.codigo) ?? [];
+        codes.push(Number(item.codigo_pieza));
+        existingByCode.set(item.codigo, codes);
+      });
+
+      rows.forEach((row) => {
+        row.originales.forEach((codigo) => {
+          const conflict = (existingByCode.get(normalizePiezaImportValue(codigo)) ?? [])
+            .find((pieceCode) => pieceCode !== row.codigoPieza);
+          if (conflict) {
+            addError(row.row, `El numero original ${codigo} ya pertenece al item asociado ${conflict}`, String(row.codigoPieza));
+          }
+        });
+      });
+    }
+
+    const validRows = rows.filter((row) => !invalidRows.has(row.row));
+    if (validRows.length === 0) return results;
+
+    const [categoryResult, subcategoryResult] = await Promise.all([
+      client.query<{ id: number; descripcion: string }>("SELECT id, descripcion FROM public.categoria"),
+      client.query<{ id: number; id_categoria: number; descripcion: string }>("SELECT id, id_categoria, descripcion FROM public.subcategoria"),
+    ]);
+
+    const categoryIds = new Map(
+      categoryResult.rows.map((category) => [normalizePiezaImportValue(category.descripcion), Number(category.id)])
+    );
+    const subcategoryIds = new Map(
+      subcategoryResult.rows.map((subcategory) => [
+        `${Number(subcategory.id_categoria)}:${normalizePiezaImportValue(subcategory.descripcion)}`,
+        Number(subcategory.id),
+      ])
+    );
+    const subcategoryByRow = new Map<number, number>();
+
+    for (const row of validRows) {
+      const normalizedCategory = normalizePiezaImportValue(row.categoria);
+      let categoryId = categoryIds.get(normalizedCategory);
+      if (!categoryId) {
+        const inserted = await client.query<{ id: number; descripcion: string }>(
+          "INSERT INTO public.categoria (descripcion) VALUES ($1) RETURNING id, descripcion",
+          [row.categoria]
+        );
+        categoryId = Number(inserted.rows[0].id);
+        categoryIds.set(normalizedCategory, categoryId);
+        results.categoriesCreated.push(inserted.rows[0].descripcion);
+      }
+
+      const normalizedSubcategory = normalizePiezaImportValue(row.subcategoria);
+      const subcategoryKey = `${categoryId}:${normalizedSubcategory}`;
+      let subcategoryId = subcategoryIds.get(subcategoryKey);
+      if (!subcategoryId) {
+        const inserted = await client.query<{ id: number; descripcion: string }>(
+          "INSERT INTO public.subcategoria (descripcion, id_categoria) VALUES ($1, $2) RETURNING id, descripcion",
+          [row.subcategoria, categoryId]
+        );
+        subcategoryId = Number(inserted.rows[0].id);
+        subcategoryIds.set(subcategoryKey, subcategoryId);
+        results.subcategoriesCreated.push(`${row.categoria} / ${inserted.rows[0].descripcion}`);
+      }
+
+      subcategoryByRow.set(row.row, subcategoryId);
+    }
+
+    const upsertResult = await client.query<{ id: number; codigo_pieza: number; is_new: boolean }>(`
+      INSERT INTO public.pieza (codigo_pieza, descripcion, medida, id_subcategoria)
+      SELECT *
+      FROM UNNEST($1::integer[], $2::text[], $3::text[], $4::integer[])
+        AS datos(codigo_pieza, descripcion, medida, id_subcategoria)
+      ON CONFLICT (codigo_pieza) DO UPDATE SET
+        descripcion = EXCLUDED.descripcion,
+        medida = EXCLUDED.medida,
+        id_subcategoria = EXCLUDED.id_subcategoria,
+        updated_at = NOW()
+      RETURNING id, codigo_pieza, (xmax = 0) AS is_new
+    `, [
+      validRows.map((row) => row.codigoPieza),
+      validRows.map((row) => row.descripcion),
+      validRows.map((row) => row.medida),
+      validRows.map((row) => subcategoryByRow.get(row.row) as number),
+    ]);
+
+    const pieceIdsByCode = new Map<number, number>();
+    upsertResult.rows.forEach((piece) => {
+      pieceIdsByCode.set(Number(piece.codigo_pieza), Number(piece.id));
+      if (piece.is_new) results.created += 1;
+      else results.updated += 1;
+    });
+
+    const pieceIds = Array.from(pieceIdsByCode.values());
+    await client.query("DELETE FROM public.pieza_codigo_referencia WHERE id_pieza = ANY($1::integer[])", [pieceIds]);
+
+    const codeLinks = validRows.flatMap((row) => {
+      const idPieza = pieceIdsByCode.get(row.codigoPieza) as number;
+      return [
+        ...row.originales.map((codigo) => ({ idPieza, codigo, tipo: "ORIGINAL" })),
+        ...row.equivalentes.map((codigo) => ({ idPieza, codigo, tipo: "EQUIVALENTE" })),
+        ...row.sustitutos.map((codigo) => ({ idPieza, codigo, tipo: "SUSTITUTO" })),
+      ];
+    });
+
+    if (codeLinks.length > 0) {
+      const uniqueCodes = Array.from(new Set(codeLinks.map((link) => normalizePiezaImportValue(link.codigo))));
+      const existingCodes = await client.query<{ id: number; codigo: string }>(`
+        SELECT id, UPPER(TRIM(codigo)) AS codigo
+        FROM public.codigo_referencia
+        WHERE UPPER(TRIM(codigo)) = ANY($1::text[])
+      `, [uniqueCodes]);
+      const codeIds = new Map(existingCodes.rows.map((code) => [code.codigo, Number(code.id)]));
+      const missingCodes = uniqueCodes.filter((code) => !codeIds.has(code));
+
+      if (missingCodes.length > 0) {
+        const insertedCodes = await client.query<{ id: number; codigo: string }>(`
+          INSERT INTO public.codigo_referencia (codigo)
+          SELECT * FROM UNNEST($1::text[])
+          RETURNING id, UPPER(TRIM(codigo)) AS codigo
+        `, [missingCodes]);
+        insertedCodes.rows.forEach((code) => codeIds.set(code.codigo, Number(code.id)));
+      }
+
+      await client.query(`
+        INSERT INTO public.pieza_codigo_referencia (id_pieza, id_codigo_referencia, tipo)
+        SELECT * FROM UNNEST($1::integer[], $2::integer[], $3::text[])
+        ON CONFLICT DO NOTHING
+      `, [
+        codeLinks.map((link) => link.idPieza),
+        codeLinks.map((link) => codeIds.get(normalizePiezaImportValue(link.codigo)) as number),
+        codeLinks.map((link) => link.tipo),
+      ]);
+    }
+
+    await client.query(`
+      SELECT setval(
+        'public.pieza_codigo_pieza_seq',
+        GREATEST(COALESCE((SELECT MAX(codigo_pieza) FROM public.pieza), 1), 1),
+        true
+      )
+    `);
+    await cleanupOrphanedCodes(client);
+    revalidateTag("meta");
+
+    return results;
+  });
 }
 
 export async function getPiezasBusqueda(): Promise<PiezaBusqueda[]> {

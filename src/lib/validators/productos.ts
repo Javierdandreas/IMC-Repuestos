@@ -56,7 +56,7 @@ export const productoPayloadSchema = z.object({
   usa_numero_serie: z.boolean().optional().default(false),
   palabra_clave: z.string().trim().toUpperCase().nullable().optional(),
   precios: z.array(precioProductoSchema).optional().default([]),
-  criterio_costo: z.enum(["MANUAL", "MENOR_PRECIO", "PROMEDIO_PRECIO", "MAYOR_PRECIO"]).optional().default("MANUAL"),
+  criterio_costo: z.enum(["PROVEEDOR_UNICO", "MANUAL", "MENOR_PRECIO", "PROMEDIO_PRECIO", "MAYOR_PRECIO"]).optional().default("PROVEEDOR_UNICO"),
 });
 
 export type ProductoPayload = z.infer<typeof productoPayloadSchema>;

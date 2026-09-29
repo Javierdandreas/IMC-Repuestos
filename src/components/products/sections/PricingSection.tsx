@@ -90,7 +90,7 @@ function PriceInput({ value, onChange, prefix, className, placeholder, disabled 
         onBlur={handleBlur}
         placeholder={placeholder}
         disabled={disabled}
-        className={`${className} ${prefix ? "pl-8" : "px-4"}`}
+        className={`${className} ${prefix ? "pl-8" : ""}`}
       />
     </div>
   );
@@ -170,6 +170,12 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
   const costoAutomatico = calcularCostoBase(proveedores, criterioCosto);
 
   useEffect(() => {
+    if (criterioCosto === "PROVEEDOR_UNICO" && preciosProveedor.length > 1) {
+      onCriterioCostoChange("MANUAL");
+    }
+  }, [criterioCosto, onCriterioCostoChange, preciosProveedor.length]);
+
+  useEffect(() => {
     if (costoAutomatico === null) return;
     const costoActual = precios.find((precio) => precio.id_tipo_precio === tipoCosto.id)?.valor;
     if (costoActual === costoAutomatico) return;
@@ -209,27 +215,27 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
           <span className="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest">{label}</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-2">
           <div className="flex flex-col gap-1.5">
-            <label className="flex h-3 items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
+            <label className="flex h-3 items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
               Margen %
             </label>
             <PriceInput
               value={item.porcentaje_ganancia}
               onChange={(val) => updatePrecio(idTipo, "porcentaje_ganancia", val)}
               placeholder="0"
-              className="h-10 w-full rounded-lg border border-slate-100 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
+              className="h-10 min-w-0 w-full rounded-lg border border-slate-100 bg-slate-50 px-2 text-center text-sm font-bold tabular-nums text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="flex h-3 items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
+            <label className="flex h-3 items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
               Final $
             </label>
             <PriceInput
               value={item.valor}
               onChange={(val) => updatePrecio(idTipo, "valor", val)}
               placeholder="0"
-              className="h-10 w-full rounded-lg border border-slate-100 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
+              className="h-10 min-w-0 w-full rounded-lg border border-slate-100 bg-slate-50 px-2 text-right text-[13px] font-bold tabular-nums text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
             />
           </div>
         </div>
@@ -258,21 +264,28 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
             </div>
           </div>
 
-          <div className="mb-3 grid grid-cols-4 gap-1.5">
+          <div className="mb-3 grid grid-cols-5 gap-1.5">
             {([
+              ["PROVEEDOR_UNICO", "Único"],
               ["MANUAL", "Manual"],
               ["MENOR_PRECIO", "Menor"],
               ["PROMEDIO_PRECIO", "Promedio"],
               ["MAYOR_PRECIO", "Mayor"],
             ] as const).map(([criterio, label]) => {
               const automatico = criterio !== "MANUAL";
-              const disabled = automatico && preciosProveedor.length === 0;
+              const disabled = criterio === "PROVEEDOR_UNICO"
+                ? preciosProveedor.length !== 1
+                : automatico && preciosProveedor.length === 0;
               return (
                 <button
                   key={criterio}
                   type="button"
                   disabled={disabled}
-                  title={disabled ? "Carga al menos un precio de lista de proveedor" : undefined}
+                  title={disabled
+                    ? criterio === "PROVEEDOR_UNICO"
+                      ? "Se usa cuando hay un único proveedor con costo"
+                      : "Carga al menos un precio de lista de proveedor"
+                    : undefined}
                   onClick={() => onCriterioCostoChange(criterio)}
                   className={`h-8 min-w-0 whitespace-nowrap rounded-md border px-1.5 text-[8px] font-black uppercase tracking-normal transition ${criterioCosto === criterio ? "border-blue-500 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"} disabled:cursor-not-allowed disabled:opacity-40`}
                 >
