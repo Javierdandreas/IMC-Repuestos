@@ -385,7 +385,7 @@ export async function getUltimoItemProveedor(
     [id_proveedor, codigo_proveedor]
   );
 
-  if (rows.length === 0 || !rows[0].importacion_id) {
+  if (rows.length === 0) {
     return null;
   }
 
