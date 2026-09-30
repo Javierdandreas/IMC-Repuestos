@@ -31,7 +31,7 @@ const FIELDS: ImportField[] = [
   { id: "codigo_item", label: "Codigo Item", required: true, aliases: ["codigo item", "codigo unico", "codigo producto", "sku", "codigo"] },
   { id: "proveedor", label: "Proveedor", required: true, aliases: ["proveedor", "supplier", "vendor"] },
   { id: "codigo_proveedor", label: "Codigo proveedor", aliases: ["codigo proveedor", "codigo prov", "sku proveedor"] },
-  { id: "precio_lista", label: "Precio lista proveedor", aliases: ["precio lista proveedor", "precio lista", "precio proveedor"] },
+  { id: "precio_lista", label: "Precio lista (opcional)", aliases: ["precio lista proveedor", "precio lista", "precio proveedor"] },
   { id: "estado_stock", label: "Estado stock", aliases: ["estado stock", "stock estado"] },
   { id: "cantidad_stock", label: "Cantidad stock", aliases: ["cantidad stock", "stock cantidad", "cantidad disponible"] },
   { id: "stock_informado", label: "Stock informado", aliases: ["stock informado", "stock texto", "disponibilidad"] },
@@ -114,7 +114,8 @@ export function ImportProviderPricesPage() {
     try {
       if (/\.(xlsx|xls)$/i.test(file.name)) {
         const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-        const sheetName = workbook.SheetNames.find((name) => normalizeHeader(name) === "precios proveedores") ?? workbook.SheetNames[0];
+        const providerSheetNames = new Set(["precios proveedores", "proveedores y precios", "proveedores"]);
+        const sheetName = workbook.SheetNames.find((name) => providerSheetNames.has(normalizeHeader(name))) ?? workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         if (!sheet) throw new Error("No se encontro una hoja para importar.");
         setParsedFile(file.name, getHeaders(sheet), XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" }));
@@ -167,7 +168,7 @@ export function ImportProviderPricesPage() {
           body: JSON.stringify({ items: batch, mappings }),
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.message || "No se pudieron importar los precios de proveedor.");
+        if (!response.ok) throw new Error(data.message || "No se pudieron importar proveedores y precios.");
 
         accumulated.updated += Number(data.updated || 0);
         accumulated.pricesUpdated += Number(data.pricesUpdated || 0);
@@ -182,7 +183,7 @@ export function ImportProviderPricesPage() {
       setStep("results");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudieron importar los precios de proveedor.");
+      toast.error(error instanceof Error ? error.message : "No se pudieron importar proveedores y precios.");
       setStep("mapping");
     }
   };
@@ -243,8 +244,8 @@ export function ImportProviderPricesPage() {
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5">
         <header className="border-b border-slate-200 pb-4 dark:border-slate-800">
           <button type="button" onClick={() => router.push("/configuracion/catalogo")} className="mb-3 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:text-slate-900 dark:hover:text-white"><HiArrowLeft className="h-4 w-4" /> Volver a catalogo</button>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white">Importar precios de proveedores</h1>
-          <p className="mt-1 text-sm font-medium text-slate-500">Usa la hoja <strong>Precios proveedores</strong> del Excel exportado. Solo actualiza items y proveedores que ya existen.</p>
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white">Importar proveedores y precios</h1>
+          <p className="mt-1 text-sm font-medium text-slate-500">Codigo Item y Proveedor son obligatorios. Codigo de proveedor, precio y stock son opcionales.</p>
         </header>
 
         {step === "upload" && (
@@ -252,7 +253,7 @@ export function ImportProviderPricesPage() {
             <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileChange} />
             <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500"><HiCloudUpload className="h-7 w-7" /></span>
             <span className="mt-4 text-lg font-black text-slate-900 dark:text-white">Seleccionar CSV o Excel</span>
-            <span className="mt-2 text-xs font-medium text-slate-500">Codigo de item, proveedor, precio y disponibilidad.</span>
+            <span className="mt-2 text-xs font-medium text-slate-500">Codigo de item y proveedor obligatorios. El resto es opcional.</span>
           </label>
         )}
 
@@ -273,7 +274,7 @@ export function ImportProviderPricesPage() {
           </section>
         )}
       </div>
-      <TransferProgressModal open={step === "importing"} title="Importando precios de proveedores" description={`Sincronizando ${rows.length} filas y recalculando costos.`} total={rows.length} processed={processed} unit="filas" />
+      <TransferProgressModal open={step === "importing"} title="Importando proveedores y precios" description={`Vinculando ${rows.length} filas. Solo recalcula si mapeaste precio o stock.`} total={rows.length} processed={processed} unit="filas" />
     </main>
   );
 }

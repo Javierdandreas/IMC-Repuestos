@@ -376,7 +376,9 @@ export async function getUltimoItemProveedor(
       WHERE pi.id_proveedor = $1
         AND upper(trim(pii.codigo_proveedor)) = upper(trim($2))
         AND pi.estado = 'APLICADA'
-        AND pii.estado = 'ACTUALIZADO'
+        -- Una fila sin item asociado sigue teniendo un precio valido para aplicar
+        -- cuando el usuario vincula luego ese proveedor y codigo al item.
+        AND pii.estado IN ('ACTUALIZADO', 'NO_ENCONTRADO')
       ORDER BY pi.created_at DESC, pii.id DESC
       LIMIT 1
     `,

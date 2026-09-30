@@ -98,7 +98,7 @@ export function CatalogTransfersPage({ canManage }: Props) {
             <ActionButton icon={HiCube} title="Items" detail="CSV o Excel de items" onClick={() => router.push("/productos/importar")} disabled={!canManage} />
             <ActionButton icon={HiCube} title="Items asociados" detail="Codigos y equivalencias" onClick={() => router.push("/piezas/importar")} disabled={!canManage} />
             <ActionButton icon={HiCollection} title="Kits" detail="Datos y componentes" onClick={() => router.push("/kits/importar")} disabled={!canManage} />
-            <ActionButton icon={HiCurrencyDollar} title="Precios proveedores" detail="Precio, codigo y stock" onClick={() => router.push("/productos/importar/precios-proveedores")} disabled={!canManage} />
+            <ActionButton icon={HiCurrencyDollar} title="Proveedores y precios" detail="Vincular proveedor, codigo, precio y stock" onClick={() => router.push("/productos/importar/precios-proveedores")} disabled={!canManage} />
             <ActionButton icon={HiTable} title="Desde GESU" detail="Productos y grupos en un archivo" onClick={() => router.push("/productos/importar/gesu")} disabled={!canManage} />
           </div>
         </section>
