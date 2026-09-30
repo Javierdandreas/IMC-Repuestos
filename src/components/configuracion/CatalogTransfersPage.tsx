@@ -10,6 +10,7 @@ import {
   HiCollection,
   HiCube,
   HiCurrencyDollar,
+  HiRefresh,
   HiTable,
 } from "react-icons/hi";
 import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
@@ -94,12 +95,13 @@ export function CatalogTransfersPage({ canManage }: Props) {
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500"><HiArrowUp className="h-4 w-4" /></span>
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-900 dark:text-white">Importar</h2>
           </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <ActionButton icon={HiCube} title="Items" detail="CSV o Excel de items" onClick={() => router.push("/productos/importar")} disabled={!canManage} />
             <ActionButton icon={HiCube} title="Items asociados" detail="Codigos y equivalencias" onClick={() => router.push("/piezas/importar")} disabled={!canManage} />
             <ActionButton icon={HiCollection} title="Kits" detail="Datos y componentes" onClick={() => router.push("/kits/importar")} disabled={!canManage} />
             <ActionButton icon={HiCurrencyDollar} title="Proveedores y precios" detail="Vincular proveedor, codigo, precio y stock" onClick={() => router.push("/productos/importar/precios-proveedores")} disabled={!canManage} />
             <ActionButton icon={HiTable} title="Desde GESU" detail="Productos y grupos en un archivo" onClick={() => router.push("/productos/importar/gesu")} disabled={!canManage} />
+            <ActionButton icon={HiRefresh} title="Catalogo externo" detail="Revisar productos y grupos sincronizados" onClick={() => router.push("/configuracion/catalogo-externo")} disabled={!canManage} />
           </div>
         </section>
 
