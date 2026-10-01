@@ -49,10 +49,13 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
       }
 
       const recalculatedCostCount = Number(data.recalculatedCostCount || 0);
+      const pendingApprovalCount = Number(data.pendingApprovalCount || 0);
       toast.success(
-        recalculatedCostCount > 0
-          ? `Lista aplicada. ${data.updatedCount} precios y ${recalculatedCostCount} costos recalculados.`
-          : `Lista aplicada. ${data.updatedCount} items actualizados.`
+        pendingApprovalCount > 0
+          ? `Lista aplicada. ${pendingApprovalCount} cambio(s) esperan aprobacion.`
+          : recalculatedCostCount > 0
+            ? `Lista aplicada. ${data.updatedCount} precios y ${recalculatedCostCount} costos recalculados.`
+            : `Lista aplicada. ${data.updatedCount} items actualizados.`
       );
       mutate(`/api/proveedores/importaciones?id_proveedor=${id_proveedor}`);
     } catch (error) {

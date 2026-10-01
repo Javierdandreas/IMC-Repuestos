@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
       data: importacion,
       updatedCount: applyResult.updatedCount,
       recalculatedCostCount: applyResult.recalculatedCostCount,
+      pendingApprovalCount: applyResult.pendingApprovalCount,
       notFoundCount: applyResult.notFoundCount,
       invalidCount: applyResult.invalidCount,
       duplicateCount: applyResult.duplicateCount,

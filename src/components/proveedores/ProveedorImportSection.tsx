@@ -23,6 +23,7 @@ interface ImportResults {
   total: number;
   updatedCount: number;
   recalculatedCostCount: number;
+  pendingApprovalCount: number;
   notFoundCount: number;
   invalidCount: number;
   duplicateCount: number;
@@ -535,6 +536,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
       const updatedCount = Number(data.updatedCount || 0);
       const recalculatedCostCount = Number(data.recalculatedCostCount || 0);
+      const pendingApprovalCount = Number(data.pendingApprovalCount || 0);
       const notFoundCount = Number(data.notFoundCount || 0);
       const invalidCount = Number(data.invalidCount || 0);
       const duplicateCount = Number(data.duplicateCount || 0);
@@ -545,15 +547,18 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         total: mappedData.items.length,
         updatedCount,
         recalculatedCostCount,
+        pendingApprovalCount,
         notFoundCount,
         invalidCount,
         duplicateCount,
         providerMismatchCount,
       });
       toast.success(
-        recalculatedCostCount > 0
-          ? `Lista aplicada. ${updatedCount} precios y ${recalculatedCostCount} costos recalculados.`
-          : `Lista aplicada. ${updatedCount} precios actualizados.`
+        pendingApprovalCount > 0
+          ? `Lista aplicada. ${pendingApprovalCount} cambio(s) de costo esperan aprobacion.`
+          : recalculatedCostCount > 0
+            ? `Lista aplicada. ${updatedCount} precios y ${recalculatedCostCount} costos recalculados.`
+            : `Lista aplicada. ${updatedCount} precios actualizados.`
       );
       setStep("results");
       onSuccess?.();
@@ -781,6 +786,12 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
           {results.recalculatedCostCount > 0 && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-3 text-xs font-black text-blue-300">
               {results.recalculatedCostCount} item(s) con criterio automatico recalcularon costo y precios de venta.
+            </div>
+          )}
+          {results.pendingApprovalCount > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs font-black text-amber-300">
+              <span>{results.pendingApprovalCount} cambio(s) de costo esperan aprobacion.</span>
+              <a href="/listados/precios-modificados" className="inline-flex h-8 items-center rounded-lg border border-amber-400/40 px-3 text-[10px] font-black uppercase tracking-widest transition hover:bg-amber-400/10">Revisar</a>
             </div>
           )}
           {results.notFoundCount > 0 && (

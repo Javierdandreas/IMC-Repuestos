@@ -1,23 +1,21 @@
 import type { DbClient } from "@/lib/db-utils";
 
-/** Recalcula costo y precios finales de productos con criterio automatico. */
-export async function recalcularPreciosAutomaticos(
+export type CostoReferenciaAutomatico = {
+  idProducto: number;
+  costo: number;
+};
+
+/** Calcula el costo de referencia vigente sin modificar los precios del producto. */
+export async function obtenerCostosReferenciaAutomaticos(
   client: DbClient,
   productIds: number[]
-): Promise<number> {
+): Promise<CostoReferenciaAutomatico[]> {
   const ids = [...new Set(productIds.filter((id) => Number.isInteger(id) && id > 0))];
-  if (ids.length === 0) return 0;
+  if (ids.length === 0) return [];
 
   const result = await client.query(
     `
-      WITH tipo_costo AS (
-        SELECT id
-        FROM public.tipo_precio
-        WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
-        ORDER BY id
-        LIMIT 1
-      ),
-      productos_afectados AS (
+      WITH productos_afectados AS (
         SELECT DISTINCT UNNEST($1::int[]) AS id_producto
       ),
       costos AS (
@@ -46,6 +44,47 @@ export async function recalcularPreciosAutomaticos(
              p.criterio_costo <> 'PROVEEDOR_UNICO'
              OR COUNT(*) FILTER (WHERE COALESCE(pp.costo_actual, pp.precio_lista_actual) > 0) = 1
            )
+      )
+      SELECT id_producto AS "idProducto", costo::float AS costo
+      FROM costos
+      WHERE costo > 0
+      ORDER BY id_producto
+    `,
+    [ids]
+  );
+
+  return result.rows.map((row) => ({
+    idProducto: Number(row.idProducto),
+    costo: Number(row.costo),
+  })).filter((item) => Number.isInteger(item.idProducto) && item.idProducto > 0 && Number.isFinite(item.costo) && item.costo > 0);
+}
+
+/** Actualiza costo y precios finales a partir de costos de referencia ya aprobados. */
+export async function aplicarPreciosDesdeCostosReferencia(
+  client: DbClient,
+  costos: CostoReferenciaAutomatico[],
+): Promise<number> {
+  const costosPorProducto = new Map<number, number>();
+  for (const item of costos) {
+    if (Number.isInteger(item.idProducto) && item.idProducto > 0 && Number.isFinite(item.costo) && item.costo > 0) {
+      costosPorProducto.set(item.idProducto, Number(item.costo));
+    }
+  }
+  const values = Array.from(costosPorProducto, ([idProducto, costo]) => ({ idProducto, costo }));
+  if (values.length === 0) return 0;
+
+  const result = await client.query(
+    `
+      WITH tipo_costo AS (
+        SELECT id
+        FROM public.tipo_precio
+        WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+        ORDER BY id
+        LIMIT 1
+      ),
+      costos AS (
+        SELECT * FROM UNNEST($1::int[], $2::numeric[])
+          AS valores(id_producto, costo)
       ),
       precios_nuevos AS (
         SELECT
@@ -70,8 +109,17 @@ export async function recalcularPreciosAutomaticos(
       SELECT COUNT(DISTINCT id_producto)::int AS productos_recalculados
       FROM precios_actualizados
     `,
-    [ids]
+    [values.map((item) => item.idProducto), values.map((item) => item.costo)],
   );
 
   return Number(result.rows[0]?.productos_recalculados || 0);
+}
+
+/** Recalcula costo y precios finales de productos con criterio automatico. */
+export async function recalcularPreciosAutomaticos(
+  client: DbClient,
+  productIds: number[]
+): Promise<number> {
+  const costos = await obtenerCostosReferenciaAutomaticos(client, productIds);
+  return aplicarPreciosDesdeCostosReferencia(client, costos);
 }

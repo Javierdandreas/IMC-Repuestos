@@ -8,6 +8,12 @@ function positiveInteger(value: string | null) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function approvalStatus(value: string | null) {
+  return ["TODOS", "PENDIENTE", "APROBADOS", "RECHAZADO", "REEMPLAZADO"].includes(value ?? "")
+    ? value as "TODOS" | "PENDIENTE" | "APROBADOS" | "RECHAZADO" | "REEMPLAZADO"
+    : undefined;
+}
+
 export async function GET(request: NextRequest) {
   try {
     await requireApiReadSession(request);
@@ -15,6 +21,7 @@ export async function GET(request: NextRequest) {
     const result = await getPreciosModificadosProveedor({
       idProveedor: positiveInteger(searchParams.get("proveedor")),
       idImportacion: positiveInteger(searchParams.get("importacion")),
+      estado: approvalStatus(searchParams.get("estado")),
       page: positiveInteger(searchParams.get("page")) ?? 1,
       limit: positiveInteger(searchParams.get("limit")) ?? 50,
     });

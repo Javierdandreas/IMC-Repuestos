@@ -1,7 +1,12 @@
 import { query, type DbClient, withTransaction } from "@/lib/db-utils";
-import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
+import {
+  aplicarPreciosDesdeCostosReferencia,
+  obtenerCostosReferenciaAutomaticos,
+  recalcularPreciosAutomaticos,
+} from "@/lib/precios-automaticos";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
 import { AppError } from "@/lib/api-errors";
+import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
 import {
   CreateImportacionInput,
   ProveedorImportacion,
@@ -10,6 +15,15 @@ import {
 } from "@/interfaces/importaciones";
 
 type ImportacionItemInput = CreateImportacionInput["items"][number];
+
+const UMBRAL_APROBACION_AUTOMATICA = 5;
+
+export type EstadoAprobacionCambioCosto =
+  | "PENDIENTE"
+  | "APROBADO_AUTOMATICO"
+  | "APROBADO_MANUAL"
+  | "RECHAZADO"
+  | "REEMPLAZADO";
 
 type CostoReferenciaImportacion = {
   idProducto: number;
@@ -357,36 +371,71 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
       });
     }
 
-    const recalculatedCostCount = await recalcularPreciosAutomaticos(
-      client,
-      updatedProductIds
-    );
-
-    const costosDespues = await obtenerCostosReferenciaImportacion(client, id_importacion);
+    const costosPropuestos = await obtenerCostosReferenciaAutomaticos(client, updatedProductIds);
     const costosAnterioresPorProducto = new Map(
       costosAntes.map((item) => [item.idProducto, item.costoReferencia]),
     );
-    const cambiosDeCosto = costosDespues
-      .map((item) => ({ ...item, costoAnterior: costosAnterioresPorProducto.get(item.idProducto) ?? null }))
+    const costoPropuestoPorProducto = new Map(
+      costosPropuestos.map((item) => [item.idProducto, item.costo]),
+    );
+    const cambiosDeCosto = costosAntes
+      .map((item) => {
+        const costoAnterior = costosAnterioresPorProducto.get(item.idProducto) ?? null;
+        const costoNuevo = costoPropuestoPorProducto.get(item.idProducto) ?? null;
+        const porcentajeVariacion = costoAnterior === null || costoAnterior <= 0 || costoNuevo === null
+          ? null
+          : ((costoNuevo - costoAnterior) / costoAnterior) * 100;
+        const estadoAprobacion: EstadoAprobacionCambioCosto = porcentajeVariacion !== null
+          && Math.abs(porcentajeVariacion) <= UMBRAL_APROBACION_AUTOMATICA
+          ? "APROBADO_AUTOMATICO"
+          : "PENDIENTE";
+        return {
+          ...item,
+          costoAnterior,
+          costoNuevo,
+          porcentajeVariacion,
+          estadoAprobacion,
+        };
+      })
       .filter((item) => (
-        item.costoReferencia !== null
-        && item.costoReferencia > 0
-        && (item.costoAnterior === null || Math.abs(item.costoReferencia - item.costoAnterior) > 0.000001)
+        item.costoNuevo !== null
+        && item.costoNuevo > 0
+        && (item.costoAnterior === null || Math.abs(item.costoNuevo - item.costoAnterior) > 0.000001)
       ));
+
+    const recalculatedCostCount = await aplicarPreciosDesdeCostosReferencia(
+      client,
+      cambiosDeCosto
+        .filter((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" && item.costoNuevo !== null)
+        .map((item) => ({ idProducto: item.idProducto, costo: Number(item.costoNuevo) })),
+    );
 
     if (cambiosDeCosto.length > 0) {
       await client.query(
         `
+          UPDATE public.proveedor_importacion_cambio_costo
+          SET estado_aprobacion = 'REEMPLAZADO', resuelto_at = NOW(), resuelto_por = NULL
+          WHERE estado_aprobacion = 'PENDIENTE'
+            AND id_producto = ANY($1::int[])
+        `,
+        [cambiosDeCosto.map((item) => item.idProducto)],
+      );
+
+      await client.query(
+        `
           INSERT INTO public.proveedor_importacion_cambio_costo (
             id_importacion, id_producto, codigo_item, descripcion_item, codigo_proveedor,
-            criterio_costo, costo_anterior, costo_nuevo
+            criterio_costo, costo_anterior, costo_nuevo, estado_aprobacion,
+            porcentaje_variacion, umbral_aprobacion, resuelto_at
           )
           SELECT $1, * FROM UNNEST(
             $2::int[], $3::text[], $4::text[], $5::text[],
-            $6::text[], $7::numeric[], $8::numeric[]
+            $6::text[], $7::numeric[], $8::numeric[], $9::text[],
+            $10::numeric[], $11::numeric[], $12::timestamptz[]
           ) AS valores(
             id_producto, codigo_item, descripcion_item, codigo_proveedor,
-            criterio_costo, costo_anterior, costo_nuevo
+            criterio_costo, costo_anterior, costo_nuevo, estado_aprobacion,
+            porcentaje_variacion, umbral_aprobacion, resuelto_at
           )
           ON CONFLICT (id_importacion, id_producto) DO UPDATE
           SET
@@ -395,7 +444,12 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
             codigo_proveedor = EXCLUDED.codigo_proveedor,
             criterio_costo = EXCLUDED.criterio_costo,
             costo_anterior = EXCLUDED.costo_anterior,
-            costo_nuevo = EXCLUDED.costo_nuevo
+            costo_nuevo = EXCLUDED.costo_nuevo,
+            estado_aprobacion = EXCLUDED.estado_aprobacion,
+            porcentaje_variacion = EXCLUDED.porcentaje_variacion,
+            umbral_aprobacion = EXCLUDED.umbral_aprobacion,
+            resuelto_at = EXCLUDED.resuelto_at,
+            resuelto_por = NULL
         `,
         [
           id_importacion,
@@ -405,7 +459,11 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
           cambiosDeCosto.map((item) => item.codigoProveedor),
           cambiosDeCosto.map((item) => item.criterioCosto),
           cambiosDeCosto.map((item) => item.costoAnterior),
-          cambiosDeCosto.map((item) => item.costoReferencia),
+          cambiosDeCosto.map((item) => item.costoNuevo),
+          cambiosDeCosto.map((item) => item.estadoAprobacion),
+          cambiosDeCosto.map((item) => item.porcentajeVariacion === null ? null : Math.round(item.porcentajeVariacion * 100) / 100),
+          cambiosDeCosto.map(() => UMBRAL_APROBACION_AUTOMATICA),
+          cambiosDeCosto.map((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" ? new Date() : null),
         ],
       );
     }
@@ -454,6 +512,7 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
     return {
       updatedCount: updateResult.rowCount || 0,
       recalculatedCostCount,
+      pendingApprovalCount: cambiosDeCosto.filter((item) => item.estadoAprobacion === "PENDIENTE").length,
       notFoundCount: Number(summary.rows[0]?.not_found_count || 0),
       invalidCount: Number(summary.rows[0]?.invalid_count || 0),
       duplicateCount: Number(summary.rows[0]?.duplicate_count || 0),
@@ -570,11 +629,17 @@ export type PrecioModificadoProveedor = {
   diferencia: number | null;
   diferencia_porcentaje: number | null;
   tipo_cambio: "COSTO_NUEVO" | "COSTO_MODIFICADO";
+  estado_aprobacion: EstadoAprobacionCambioCosto;
+  umbral_aprobacion: number;
+  resuelto_at: string | null;
 };
+
+export type FiltroEstadoAprobacionCambioCosto = "TODOS" | "PENDIENTE" | "APROBADOS" | "RECHAZADO" | "REEMPLAZADO";
 
 type PreciosModificadosFilters = {
   idProveedor?: number;
   idImportacion?: number;
+  estado?: FiltroEstadoAprobacionCambioCosto;
   page?: number;
   limit?: number;
 };
@@ -583,9 +648,16 @@ function normalizarEnteroPositivo(value: number | undefined) {
   return Number.isInteger(value) && Number(value) > 0 ? Number(value) : undefined;
 }
 
+function normalizarFiltroEstadoAprobacion(value: FiltroEstadoAprobacionCambioCosto | undefined): FiltroEstadoAprobacionCambioCosto {
+  return ["TODOS", "PENDIENTE", "APROBADOS", "RECHAZADO", "REEMPLAZADO"].includes(value ?? "")
+    ? value as FiltroEstadoAprobacionCambioCosto
+    : "TODOS";
+}
+
 export async function getPreciosModificadosProveedor(filters: PreciosModificadosFilters = {}) {
   const idProveedor = normalizarEnteroPositivo(filters.idProveedor);
   const idImportacion = normalizarEnteroPositivo(filters.idImportacion);
+  const estado = normalizarFiltroEstadoAprobacion(filters.estado);
   const page = Math.max(1, Math.floor(filters.page ?? 1));
   const limit = Math.max(10, Math.min(100000, Math.floor(filters.limit ?? 50)));
   const params: unknown[] = [];
@@ -600,6 +672,14 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
   if (idImportacion) {
     params.push(idImportacion);
     where.push(`pi.id = $${params.length}`);
+  }
+  if (estado === "PENDIENTE") {
+    where.push("cambio.estado_aprobacion = 'PENDIENTE'");
+  } else if (estado === "APROBADOS") {
+    where.push("cambio.estado_aprobacion IN ('APROBADO_AUTOMATICO', 'APROBADO_MANUAL')");
+  } else if (estado === "RECHAZADO" || estado === "REEMPLAZADO") {
+    params.push(estado);
+    where.push(`cambio.estado_aprobacion = $${params.length}`);
   }
 
   const source = `
@@ -627,11 +707,11 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
        cambio.costo_anterior::float AS costo_anterior,
        cambio.costo_nuevo::float AS costo_nuevo,
        CASE WHEN cambio.costo_anterior IS NULL THEN NULL ELSE (cambio.costo_nuevo - cambio.costo_anterior)::float END AS diferencia,
-       CASE
-         WHEN cambio.costo_anterior IS NULL OR cambio.costo_anterior = 0 THEN NULL
-         ELSE ROUND(((cambio.costo_nuevo - cambio.costo_anterior) / cambio.costo_anterior) * 100, 2)::float
-       END AS diferencia_porcentaje,
-       CASE WHEN cambio.costo_anterior IS NULL THEN 'COSTO_NUEVO' ELSE 'COSTO_MODIFICADO' END AS tipo_cambio
+       cambio.porcentaje_variacion::float AS diferencia_porcentaje,
+       CASE WHEN cambio.costo_anterior IS NULL THEN 'COSTO_NUEVO' ELSE 'COSTO_MODIFICADO' END AS tipo_cambio,
+       cambio.estado_aprobacion,
+       cambio.umbral_aprobacion::float AS umbral_aprobacion,
+       cambio.resuelto_at
      ${source}
      ORDER BY pi.updated_at DESC, cambio.id DESC
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -644,6 +724,133 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
     totalPages,
     totalCount,
   };
+}
+
+export type AccionResolucionCambioCosto = "APROBAR" | "RECHAZAR";
+
+type CambioPendienteCosto = {
+  id: number;
+  id_producto: number;
+  codigo_item: string;
+  descripcion_item: string;
+  costo_anterior: number | null;
+  costo_nuevo: number;
+  costo_actual: number | null;
+};
+
+export async function resolverCambiosCostoReferencia(
+  ids: number[],
+  accion: AccionResolucionCambioCosto,
+  usuarioId: number,
+) {
+  const changeIds = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  if (changeIds.length === 0) throw new AppError("Selecciona al menos un cambio pendiente.", 400);
+  if (accion !== "APROBAR" && accion !== "RECHAZAR") throw new AppError("Accion invalida.", 400);
+  if (!Number.isInteger(usuarioId) || usuarioId <= 0) throw new AppError("Usuario invalido.", 401);
+
+  return withTransaction(async (client) => {
+    const pending = await client.query<CambioPendienteCosto>(
+      `
+        WITH tipo_costo AS (
+          SELECT id
+          FROM public.tipo_precio
+          WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+          ORDER BY id
+          LIMIT 1
+        )
+        SELECT cambio.id, cambio.id_producto, cambio.codigo_item, cambio.descripcion_item,
+          cambio.costo_anterior::float AS costo_anterior,
+          cambio.costo_nuevo::float AS costo_nuevo,
+          precio.precio::float AS costo_actual
+        FROM public.proveedor_importacion_cambio_costo cambio
+        LEFT JOIN tipo_costo ON true
+        LEFT JOIN public.producto_precio precio
+          ON precio.id_producto = cambio.id_producto
+         AND precio.id_tipo_precio = tipo_costo.id
+        WHERE cambio.id = ANY($1::bigint[])
+          AND cambio.estado_aprobacion = 'PENDIENTE'
+          AND cambio.id_producto IS NOT NULL
+        FOR UPDATE OF cambio
+      `,
+      [changeIds],
+    );
+    const candidates = pending.rows.map((row) => ({
+      id: Number(row.id),
+      idProducto: Number(row.id_producto),
+      codigoItem: String(row.codigo_item ?? ""),
+      descripcionItem: String(row.descripcion_item ?? ""),
+      costoAnterior: row.costo_anterior === null ? null : Number(row.costo_anterior),
+      costoNuevo: Number(row.costo_nuevo),
+      costoActual: row.costo_actual === null ? null : Number(row.costo_actual),
+    })).filter((row) => Number.isInteger(row.idProducto) && row.idProducto > 0 && Number.isFinite(row.costoNuevo) && row.costoNuevo > 0);
+    const changes = candidates.filter((row) => {
+      if (row.costoAnterior === null || row.costoAnterior <= 0) {
+        return row.costoActual === null || row.costoActual <= 0;
+      }
+      return row.costoActual !== null && Math.abs(row.costoActual - row.costoAnterior) <= 0.000001;
+    });
+    const staleIds = candidates.filter((row) => !changes.some((change) => change.id === row.id)).map((row) => row.id);
+
+    if (staleIds.length > 0) {
+      await client.query(
+        `
+          UPDATE public.proveedor_importacion_cambio_costo
+          SET estado_aprobacion = 'REEMPLAZADO', resuelto_at = NOW(), resuelto_por = NULL
+          WHERE id = ANY($1::bigint[])
+            AND estado_aprobacion = 'PENDIENTE'
+        `,
+        [staleIds],
+      );
+    }
+
+    if (changes.length === 0) {
+      return {
+        resolvedCount: 0,
+        skippedCount: changeIds.length,
+        recalculatedCostCount: 0,
+        replacedCount: staleIds.length,
+      };
+    }
+
+    const recalculatedCostCount = accion === "APROBAR"
+      ? await aplicarPreciosDesdeCostosReferencia(client, changes.map((item) => ({ idProducto: item.idProducto, costo: item.costoNuevo })))
+      : 0;
+    const estado: EstadoAprobacionCambioCosto = accion === "APROBAR" ? "APROBADO_MANUAL" : "RECHAZADO";
+
+    await client.query(
+      `
+        UPDATE public.proveedor_importacion_cambio_costo
+        SET estado_aprobacion = $2, resuelto_at = NOW(), resuelto_por = $3
+        WHERE id = ANY($1::bigint[])
+          AND estado_aprobacion = 'PENDIENTE'
+      `,
+      [changes.map((item) => item.id), estado, usuarioId],
+    );
+
+    for (const change of changes) {
+      await registrarProductoActividad({
+        idProducto: change.idProducto,
+        codigoProducto: change.codigoItem,
+        tipo: accion === "APROBAR" ? "PRECIO" : "COSTO",
+        titulo: accion === "APROBAR" ? "Cambio de costo aprobado" : "Cambio de costo rechazado",
+        detalle: `${change.descripcionItem || change.codigoItem}: ${change.costoAnterior === null ? "sin costo anterior" : change.costoAnterior} -> ${change.costoNuevo}.`,
+        datos: {
+          cambioCostoId: change.id,
+          costoAnterior: change.costoAnterior,
+          costoNuevo: change.costoNuevo,
+          accion,
+        },
+        usuarioId,
+      }, client);
+    }
+
+    return {
+      resolvedCount: changes.length,
+      skippedCount: changeIds.length - changes.length,
+      recalculatedCostCount,
+      replacedCount: staleIds.length,
+    };
+  });
 }
 
 export async function getProveedorDiscounts(id_proveedor: number) {

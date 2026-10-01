@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     const result = await getPreciosModificadosProveedor({
       idProveedor: positiveInteger(searchParams.get("proveedor")),
       idImportacion: positiveInteger(searchParams.get("importacion")),
+      estado: "APROBADOS",
       limit: 100000,
     });
     const rows = result.data.map((item) => ({
@@ -36,8 +37,9 @@ export async function GET(request: NextRequest) {
       "Costo nuevo": item.costo_nuevo,
       Diferencia: item.diferencia,
       "Diferencia %": item.diferencia_porcentaje === null ? null : item.diferencia_porcentaje / 100,
+      Estado: item.estado_aprobacion === "APROBADO_MANUAL" ? "Aprobado manualmente" : "Aprobado automaticamente",
     }));
-    const headers = ["Fecha", "Proveedor", "Archivo", "Codigo item", "Descripcion", "Codigo proveedor", "Tipo", "Costo anterior", "Costo nuevo", "Diferencia", "Diferencia %"];
+    const headers = ["Fecha", "Proveedor", "Archivo", "Codigo item", "Descripcion", "Codigo proveedor", "Tipo", "Costo anterior", "Costo nuevo", "Diferencia", "Diferencia %", "Estado"];
     const worksheet = rows.length > 0 ? XLSX.utils.json_to_sheet(rows) : XLSX.utils.aoa_to_sheet([headers]);
     const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
 
@@ -56,7 +58,7 @@ export async function GET(request: NextRequest) {
     worksheet["!autofilter"] = { ref: XLSX.utils.encode_range(range) };
     worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
     worksheet["!cols"] = [
-      { wch: 19 }, { wch: 28 }, { wch: 28 }, { wch: 18 }, { wch: 44 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 15 },
+      { wch: 19 }, { wch: 28 }, { wch: 28 }, { wch: 18 }, { wch: 44 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 15 }, { wch: 24 },
     ];
 
     const workbook = XLSX.utils.book_new();

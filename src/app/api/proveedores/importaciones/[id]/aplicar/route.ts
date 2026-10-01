@@ -28,6 +28,7 @@ export async function POST(
       message: "Lista aplicada correctamente",
       updatedCount: result.updatedCount,
       recalculatedCostCount: result.recalculatedCostCount,
+      pendingApprovalCount: result.pendingApprovalCount,
       notFoundCount: result.notFoundCount,
       invalidCount: result.invalidCount,
       duplicateCount: result.duplicateCount,
