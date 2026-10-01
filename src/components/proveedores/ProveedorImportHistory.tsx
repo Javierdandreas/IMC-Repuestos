@@ -4,7 +4,7 @@ import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { HiCheckCircle, HiClock, HiInformationCircle, HiLightningBolt, HiOutlineDocumentText, HiXCircle } from "react-icons/hi";
+import { HiCheckCircle, HiClock, HiDownload, HiInformationCircle, HiLightningBolt, HiOutlineDocumentText, HiXCircle } from "react-icons/hi";
 import { toast } from "sonner";
 
 import type { ProveedorImportacion, ProveedorImportacionItem } from "@/interfaces/importaciones";
@@ -164,6 +164,17 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                     >
                       Ver
                     </button>
+                    {item.estado === "APLICADA" ? (
+                      <button
+                        type="button"
+                        title="Exportar costos modificados"
+                        aria-label="Exportar costos modificados"
+                        onClick={() => { window.location.href = `/api/listados/precios-modificados/export?importacion=${item.id}`; }}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 text-slate-300 transition hover:border-blue-500 hover:text-blue-300"
+                      >
+                        <HiDownload className="h-4 w-4" />
+                      </button>
+                    ) : null}
                     {canApply ? (
                       <button
                         type="button"

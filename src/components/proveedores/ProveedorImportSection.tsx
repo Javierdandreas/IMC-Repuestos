@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { HiCheck, HiCloudUpload, HiExclamation, HiPlay, HiSave, HiTable } from "react-icons/hi";
+import { HiCheck, HiCloudUpload, HiDownload, HiExclamation, HiPlay, HiSave, HiTable } from "react-icons/hi";
 import useSWR, { mutate } from "swr";
 
 import { ProveedorImportHistory } from "./ProveedorImportHistory";
@@ -19,6 +19,7 @@ import {
 type Step = "upload" | "mapping" | "importing" | "results";
 
 interface ImportResults {
+  idImportacion: number;
   total: number;
   updatedCount: number;
   recalculatedCostCount: number;
@@ -540,6 +541,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       const providerMismatchCount = Number(data.providerMismatchCount || 0);
 
       setResults({
+        idImportacion,
         total: mappedData.items.length,
         updatedCount,
         recalculatedCostCount,
@@ -791,6 +793,14 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
               {results.invalidCount} invalida(s), {results.duplicateCount} duplicada(s), {results.providerMismatchCount} de otro proveedor.
             </div>
           )}
+          <button
+            type="button"
+            onClick={() => { window.location.href = `/api/listados/precios-modificados/export?importacion=${results.idImportacion}`; }}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-500/40 px-3 text-[10px] font-black uppercase tracking-widest text-blue-300 transition hover:bg-blue-500/10"
+          >
+            <HiDownload className="h-4 w-4" />
+            Exportar costos modificados
+          </button>
           <button
             type="button"
             onClick={() => setStep("upload")}

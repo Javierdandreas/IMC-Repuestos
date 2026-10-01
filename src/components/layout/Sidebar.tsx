@@ -69,6 +69,7 @@ const navGroups: NavGroup[] = [
     label: "Listados",
     icon: HiOutlineLibrary,
     links: [
+      { href: "/listados/precios-modificados", label: "Costos modificados" },
       { label: "Exportar items y kits", disabled: true },
       { label: "Exportar proveedores", disabled: true },
       { label: "Movimientos de stock", disabled: true },
@@ -119,6 +120,7 @@ export const Sidebar = () => {
       if (group.label === "Configuracion") {
         return ["/configuracion", "/importaciones", "/marcas", "/categorias", "/ubicaciones"].some((route) => pathname.startsWith(route));
       }
+      if (group.label === "Listados") return pathname.startsWith("/listados");
       return false;
     },
     [pathname],

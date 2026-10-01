@@ -1,4 +1,4 @@
-import { query, withTransaction } from "@/lib/db-utils";
+import { query, type DbClient, withTransaction } from "@/lib/db-utils";
 import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
 import { AppError } from "@/lib/api-errors";
@@ -10,6 +10,63 @@ import {
 } from "@/interfaces/importaciones";
 
 type ImportacionItemInput = CreateImportacionInput["items"][number];
+
+type CostoReferenciaImportacion = {
+  idProducto: number;
+  codigoItem: string;
+  descripcionItem: string;
+  codigoProveedor: string;
+  criterioCosto: "PROVEEDOR_UNICO" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
+  costoReferencia: number | null;
+};
+
+async function obtenerCostosReferenciaImportacion(client: DbClient, idImportacion: number) {
+  const result = await client.query(
+    `
+      WITH tipo_costo AS (
+        SELECT id
+        FROM public.tipo_precio
+        WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+        ORDER BY id
+        LIMIT 1
+      ),
+      items_actualizados AS (
+        SELECT DISTINCT ON (pii.id_producto)
+          pii.id_producto,
+          pii.codigo_proveedor
+        FROM public.proveedor_importacion_item pii
+        WHERE pii.id_importacion = $1
+          AND pii.estado = 'ACTUALIZADO'
+          AND pii.id_producto IS NOT NULL
+        ORDER BY pii.id_producto, pii.id
+      )
+      SELECT
+        producto.id AS id_producto,
+        COALESCE(producto.cod_unico, '') AS codigo_item,
+        COALESCE(producto.descripcion, '') AS descripcion_item,
+        item.codigo_proveedor,
+        producto.criterio_costo,
+        precio.precio::float AS costo_referencia
+      FROM items_actualizados item
+      INNER JOIN public.productos producto ON producto.id = item.id_producto
+      LEFT JOIN tipo_costo ON true
+      LEFT JOIN public.producto_precio precio
+        ON precio.id_producto = producto.id
+       AND precio.id_tipo_precio = tipo_costo.id
+      WHERE producto.criterio_costo IN ('PROVEEDOR_UNICO', 'MENOR_PRECIO', 'PROMEDIO_PRECIO', 'MAYOR_PRECIO')
+    `,
+    [idImportacion],
+  );
+
+  return result.rows.map((row) => ({
+    idProducto: Number(row.id_producto),
+    codigoItem: String(row.codigo_item),
+    descripcionItem: String(row.descripcion_item),
+    codigoProveedor: String(row.codigo_proveedor),
+    criterioCosto: row.criterio_costo,
+    costoReferencia: row.costo_referencia === null ? null : Number(row.costo_referencia),
+  })) as CostoReferenciaImportacion[];
+}
 
 export async function iniciarImportacionProveedor(
   idProveedor: number,
@@ -266,6 +323,9 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
       [id_importacion]
     );
 
+    // Se captura antes de actualizar la lista para comparar el costo elegido del item.
+    const costosAntes = await obtenerCostosReferenciaImportacion(client, id_importacion);
+
     const updateResult = await client.query(
       `
         UPDATE public.producto_proveedor pp
@@ -301,6 +361,54 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
       client,
       updatedProductIds
     );
+
+    const costosDespues = await obtenerCostosReferenciaImportacion(client, id_importacion);
+    const costosAnterioresPorProducto = new Map(
+      costosAntes.map((item) => [item.idProducto, item.costoReferencia]),
+    );
+    const cambiosDeCosto = costosDespues
+      .map((item) => ({ ...item, costoAnterior: costosAnterioresPorProducto.get(item.idProducto) ?? null }))
+      .filter((item) => (
+        item.costoReferencia !== null
+        && item.costoReferencia > 0
+        && (item.costoAnterior === null || Math.abs(item.costoReferencia - item.costoAnterior) > 0.000001)
+      ));
+
+    if (cambiosDeCosto.length > 0) {
+      await client.query(
+        `
+          INSERT INTO public.proveedor_importacion_cambio_costo (
+            id_importacion, id_producto, codigo_item, descripcion_item, codigo_proveedor,
+            criterio_costo, costo_anterior, costo_nuevo
+          )
+          SELECT $1, * FROM UNNEST(
+            $2::int[], $3::text[], $4::text[], $5::text[],
+            $6::text[], $7::numeric[], $8::numeric[]
+          ) AS valores(
+            id_producto, codigo_item, descripcion_item, codigo_proveedor,
+            criterio_costo, costo_anterior, costo_nuevo
+          )
+          ON CONFLICT (id_importacion, id_producto) DO UPDATE
+          SET
+            codigo_item = EXCLUDED.codigo_item,
+            descripcion_item = EXCLUDED.descripcion_item,
+            codigo_proveedor = EXCLUDED.codigo_proveedor,
+            criterio_costo = EXCLUDED.criterio_costo,
+            costo_anterior = EXCLUDED.costo_anterior,
+            costo_nuevo = EXCLUDED.costo_nuevo
+        `,
+        [
+          id_importacion,
+          cambiosDeCosto.map((item) => item.idProducto),
+          cambiosDeCosto.map((item) => item.codigoItem),
+          cambiosDeCosto.map((item) => item.descripcionItem),
+          cambiosDeCosto.map((item) => item.codigoProveedor),
+          cambiosDeCosto.map((item) => item.criterioCosto),
+          cambiosDeCosto.map((item) => item.costoAnterior),
+          cambiosDeCosto.map((item) => item.costoReferencia),
+        ],
+      );
+    }
 
     await client.query(
       `
@@ -444,6 +552,98 @@ export async function getImportacionItems(id_importacion: number): Promise<Prove
     [id_importacion]
   );
   return rows as ProveedorImportacionItem[];
+}
+
+export type PrecioModificadoProveedor = {
+  id: number;
+  id_importacion: number;
+  id_proveedor: number;
+  fecha_importacion: string;
+  archivo: string;
+  proveedor: string;
+  codigo_item: string | null;
+  descripcion_item: string | null;
+  codigo_proveedor: string;
+  criterio_costo: "PROVEEDOR_UNICO" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
+  costo_anterior: number | null;
+  costo_nuevo: number;
+  diferencia: number | null;
+  diferencia_porcentaje: number | null;
+  tipo_cambio: "COSTO_NUEVO" | "COSTO_MODIFICADO";
+};
+
+type PreciosModificadosFilters = {
+  idProveedor?: number;
+  idImportacion?: number;
+  page?: number;
+  limit?: number;
+};
+
+function normalizarEnteroPositivo(value: number | undefined) {
+  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : undefined;
+}
+
+export async function getPreciosModificadosProveedor(filters: PreciosModificadosFilters = {}) {
+  const idProveedor = normalizarEnteroPositivo(filters.idProveedor);
+  const idImportacion = normalizarEnteroPositivo(filters.idImportacion);
+  const page = Math.max(1, Math.floor(filters.page ?? 1));
+  const limit = Math.max(10, Math.min(100000, Math.floor(filters.limit ?? 50)));
+  const params: unknown[] = [];
+  const where = [
+    "pi.estado = 'APLICADA'",
+  ];
+
+  if (idProveedor) {
+    params.push(idProveedor);
+    where.push(`pi.id_proveedor = $${params.length}`);
+  }
+  if (idImportacion) {
+    params.push(idImportacion);
+    where.push(`pi.id = $${params.length}`);
+  }
+
+  const source = `
+    FROM public.proveedor_importacion_cambio_costo cambio
+    INNER JOIN public.proveedor_importacion pi ON pi.id = cambio.id_importacion
+    INNER JOIN public.proveedores proveedor ON proveedor.id = pi.id_proveedor
+    WHERE ${where.join(" AND ")}
+  `;
+  const count = await query<{ total: number }>(`SELECT COUNT(*)::int AS total ${source}`, params);
+  const totalCount = Number(count.rows[0]?.total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  const currentPage = Math.min(page, totalPages);
+  const rows = await query<PrecioModificadoProveedor>(
+    `SELECT
+       cambio.id,
+       cambio.id_importacion,
+       pi.id_proveedor,
+       pi.updated_at AS fecha_importacion,
+       pi.nombre_archivo AS archivo,
+       proveedor.descripcion AS proveedor,
+       cambio.codigo_item,
+       cambio.descripcion_item,
+       cambio.codigo_proveedor,
+       cambio.criterio_costo,
+       cambio.costo_anterior::float AS costo_anterior,
+       cambio.costo_nuevo::float AS costo_nuevo,
+       CASE WHEN cambio.costo_anterior IS NULL THEN NULL ELSE (cambio.costo_nuevo - cambio.costo_anterior)::float END AS diferencia,
+       CASE
+         WHEN cambio.costo_anterior IS NULL OR cambio.costo_anterior = 0 THEN NULL
+         ELSE ROUND(((cambio.costo_nuevo - cambio.costo_anterior) / cambio.costo_anterior) * 100, 2)::float
+       END AS diferencia_porcentaje,
+       CASE WHEN cambio.costo_anterior IS NULL THEN 'COSTO_NUEVO' ELSE 'COSTO_MODIFICADO' END AS tipo_cambio
+     ${source}
+     ORDER BY pi.updated_at DESC, cambio.id DESC
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, (currentPage - 1) * limit]
+  );
+
+  return {
+    data: rows.rows,
+    page: currentPage,
+    totalPages,
+    totalCount,
+  };
 }
 
 export async function getProveedorDiscounts(id_proveedor: number) {
