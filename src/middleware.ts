@@ -44,6 +44,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Esta ruta valida su propio Bearer token y no puede requerir una sesion de usuario.
+  if (pathname === "/api/cron/catalogo-externo") {
+    return NextResponse.next();
+  }
+
   const { response, authUserId, usuarioId, rol, activo } = await updateSession(request);
   const hasReadAccess = Boolean(authUserId && usuarioId && activo && canReadContent(rol));
 
