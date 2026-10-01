@@ -15,6 +15,7 @@ type Status = "LISTA" | "REVISAR" | "SIN_DATOS";
 type Type = "PRODUCTO" | "GRUPO";
 type Component = { code: string; quantity: number };
 type ComponentSummary = { items: Component[]; count: number; unresolved: string[]; status: "LISTO" | "REVISAR"; manual: boolean };
+type ExternalCatalogApiConfig = { baseUrl: string; token: string };
 type RawRow = {
   id: string | number;
   sync_run_id: string | number | null;
@@ -42,6 +43,7 @@ type Item = {
   provider: string;
   providerCode: string;
   type: Type;
+  sourceComponents: Component[];
 };
 type Staged = Item & {
   status: Status;
@@ -170,7 +172,24 @@ function pick(source: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
-function client() {
+function externalCatalogApiConfig(): ExternalCatalogApiConfig | null {
+  const baseUrl = clean(process.env.EXTERNAL_CATALOG_API_URL).replace(/\/+$/, "");
+  const token = clean(process.env.EXTERNAL_CATALOG_API_TOKEN);
+  if (!baseUrl && !token) return null;
+  if (!baseUrl || !token) {
+    throw new AppError("Faltan EXTERNAL_CATALOG_API_URL o EXTERNAL_CATALOG_API_TOKEN en la configuracion del proyecto.", 503);
+  }
+  try {
+    const url = new URL(baseUrl);
+    const localUrl = url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+    if (url.protocol !== "https:" && !localUrl) throw new Error("invalid protocol");
+  } catch {
+    throw new AppError("EXTERNAL_CATALOG_API_URL no tiene un formato valido.", 503);
+  }
+  return { baseUrl, token };
+}
+
+function externalSupabaseClient() {
   const url = clean(process.env.EXTERNAL_SUPABASE_URL);
   const key = clean(process.env.EXTERNAL_SUPABASE_KEY);
   if (!url || !key) throw new AppError("Faltan EXTERNAL_SUPABASE_URL o EXTERNAL_SUPABASE_KEY en la configuracion del proyecto.", 503);
@@ -199,6 +218,7 @@ function parseRow(row: RawRow): Item | null {
     provider: pick(data, ["proveedor"]),
     providerCode: pick(data, ["codigoProveedor", "codigo_proveedor"]),
     type: rawType,
+    sourceComponents: cleanComponents(data.componentes ?? data.components),
   };
 }
 
@@ -236,8 +256,8 @@ function components(title: string, localProducts: Map<string, number>, configure
   };
 }
 
-async function fetchSource() {
-  const api = client();
+async function fetchExternalSupabaseSource() {
+  const api = externalSupabaseClient();
   const latest = await api.from(TABLE).select("sync_run_id, imported_at").not("sync_run_id", "is", null).order("imported_at", { ascending: false }).limit(1).maybeSingle();
   if (latest.error || latest.data?.sync_run_id === null || latest.data?.sync_run_id === undefined) {
     throw new AppError("No se pudo encontrar una sincronizacion disponible en el catalogo externo.", 502);
@@ -255,6 +275,105 @@ async function fetchSource() {
     if (pageRows.length < PAGE_SIZE) return { rows, syncRunId: String(latest.data.sync_run_id), importedAt: latest.data.imported_at ?? null };
   }
   throw new AppError("La sincronizacion externa supera el limite permitido de 50.000 filas.", 422);
+}
+
+async function externalCatalogApiRequest(config: ExternalCatalogApiConfig, path: string, search: Record<string, string> = {}) {
+  const url = new URL(`${config.baseUrl}/${path.replace(/^\/+/, "")}`);
+  Object.entries(search).forEach(([key, value]) => url.searchParams.set(key, value));
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      cache: "no-store",
+      redirect: "error",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${config.token}`,
+      },
+      signal: AbortSignal.timeout(90_000),
+    });
+  } catch {
+    throw new AppError("No se pudo conectar con la API del catalogo externo.", 502);
+  }
+
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = clean(payload(body).message);
+    throw new AppError(message || `La API del catalogo externo respondio ${response.status}.`, 502);
+  }
+  return payload(body);
+}
+
+function apiRow(value: unknown, syncRunId: string, importedAt: string | null): RawRow {
+  const data = payload(value);
+  const stock = data.stock;
+  return {
+    id: clean(data.id) || clean(data.codigoInterno) || clean(data.codigo_interno),
+    sync_run_id: syncRunId,
+    imported_at: importedAt,
+    codigo_interno: nullable(data.codigoInterno ?? data.codigo_interno),
+    codigo_barras: nullable(data.codigoBarras ?? data.codigo_barras),
+    stock: typeof stock === "string" || typeof stock === "number" ? stock : null,
+    marca: nullable(data.marca),
+    titulo: nullable(data.titulo),
+    tipo: nullable(data.tipo),
+    payload: data,
+  };
+}
+
+async function fetchExternalApiSource(config: ExternalCatalogApiConfig) {
+  const metadata = await externalCatalogApiRequest(config, "catalogo/resumen");
+  const syncRunId = clean(metadata.syncRunId);
+  const total = Number(metadata.total);
+  const importedAt = nullable(metadata.updatedAt);
+
+  if (!syncRunId || !Number.isInteger(total) || total < 0) {
+    throw new AppError("La API del catalogo externo devolvio un resumen invalido.", 502);
+  }
+  if (total > MAX_ROWS) {
+    throw new AppError("La sincronizacion externa supera el limite permitido de 50.000 filas.", 422);
+  }
+
+  const rows: RawRow[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | null = null;
+
+  do {
+    const page = await externalCatalogApiRequest(config, "catalogo/items", {
+      limit: String(PAGE_SIZE),
+      syncRunId,
+      ...(cursor ? { cursor } : {}),
+    });
+    const pageSyncRunId = clean(page.syncRunId);
+    const pageTotal = Number(page.total);
+    const items = page.items;
+
+    if (pageSyncRunId !== syncRunId || !Number.isInteger(pageTotal) || pageTotal !== total || !Array.isArray(items) || items.length > PAGE_SIZE) {
+      throw new AppError("La API del catalogo externo devolvio una pagina invalida.", 502);
+    }
+    rows.push(...items.map((item) => apiRow(item, syncRunId, importedAt)));
+
+    const nextCursor = nullable(page.nextCursor);
+    if (!nextCursor) {
+      cursor = null;
+      break;
+    }
+    if (cursors.has(nextCursor) || rows.length >= total) {
+      throw new AppError("La API del catalogo externo devolvio una paginacion invalida.", 502);
+    }
+    cursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (cursor);
+
+  if (rows.length !== total) {
+    throw new AppError("La API del catalogo externo no devolvio todos los registros de la sincronizacion.", 502);
+  }
+  return { rows, syncRunId, importedAt };
+}
+
+async function fetchSource() {
+  const apiConfig = externalCatalogApiConfig();
+  return apiConfig ? fetchExternalApiSource(apiConfig) : fetchExternalSupabaseSource();
 }
 
 async function existingCodes(table: "productos" | "kits", column: "cod_unico" | "codigo_kit", codes: string[]) {
@@ -364,7 +483,7 @@ function stageRows(
       exists,
       localProductId: item.type === "PRODUCTO" ? products.get(item.code) ?? null : null,
       components: item.type === "GRUPO"
-        ? components(item.title || item.description, products, manualComponents.get(item.code))
+        ? components(item.title || item.description, products, manualComponents.get(item.code) ?? item.sourceComponents)
         : { items: [], count: 0, unresolved: [], status: "REVISAR", manual: false },
     };
   });
