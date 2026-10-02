@@ -40,7 +40,10 @@ export async function replaceProveedorReglasCosto(
   if (reglas.length === 0) return;
 
   for (const regla of reglas) {
-    const marcas = regla.id_marcas?.length ? regla.id_marcas : regla.id_marca ? [regla.id_marca] : [];
+    const idMarca = regla.alcance === "MARCA"
+      ? Number(regla.id_marca ?? regla.id_marcas?.[0])
+      : null;
+    const marcaValida = Number.isInteger(idMarca) && Number(idMarca) > 0;
     await client.query(
       `
         INSERT INTO public.proveedor_regla_costo (
@@ -53,14 +56,14 @@ export async function replaceProveedorReglasCosto(
         idProveedor,
         regla.nombre,
         regla.alcance,
-        regla.alcance === "MARCA" ? marcas[0] : null,
-        regla.alcance === "MARCA" ? marcas : [],
+        marcaValida ? Number(idMarca) : null,
+        marcaValida ? [Number(idMarca)] : [],
         regla.tipo_ajuste,
         regla.valor,
         regla.orden,
         regla.activo,
         regla.condicion_tipo ?? "SIEMPRE",
-        regla.condicion_operador ?? "IGUAL",
+        "CONTIENE",
         regla.condicion_tipo === "STOCK_TEXTO" ? regla.condicion_valor?.trim() || null : null,
       ],
     );

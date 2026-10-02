@@ -8,7 +8,6 @@ import {
   HiPlus,
   HiSave,
   HiTrash,
-  HiX,
 } from "react-icons/hi";
 import { toast } from "sonner";
 import type {
@@ -47,21 +46,23 @@ function createRule(index: number): EditableRule {
     orden: index,
     activo: true,
     condicion_tipo: "SIEMPRE",
-    condicion_operador: "IGUAL",
+    condicion_operador: "CONTIENE",
     condicion_valor: null,
   };
 }
 
-function getRuleBrandIds(rule: EditableRule) {
-  return rule.id_marcas?.length
-    ? rule.id_marcas
-    : rule.id_marca ? [rule.id_marca] : [];
+function getRuleBrandId(rule: EditableRule) {
+  const idMarca = Number(rule.id_marca);
+  if (Number.isInteger(idMarca) && idMarca > 0) return idMarca;
+
+  const idMarcaLegacy = Number(rule.id_marcas?.[0]);
+  return Number.isInteger(idMarcaLegacy) && idMarcaLegacy > 0 ? idMarcaLegacy : null;
 }
 
 function validateRules(rules: EditableRule[]) {
   for (const rule of rules) {
     if (!rule.nombre.trim()) return "Cada capa necesita un nombre";
-    if (rule.alcance === "MARCA" && getRuleBrandIds(rule).length === 0) return "Selecciona una marca para cada capa por marca";
+    if (rule.alcance === "MARCA" && getRuleBrandId(rule) === null) return "Selecciona una marca para cada capa por marca";
     if (rule.condicion_tipo === "STOCK_TEXTO" && !String(rule.condicion_valor ?? "").trim()) {
       return "Indica el texto de stock que debe activar la capa";
     }
@@ -87,7 +88,16 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
 
   useEffect(() => {
     if (!remoteRules) return;
-    setRules(remoteRules.map((rule, index) => ({ ...rule, key: String(rule.id ?? `saved-${index}`) })));
+    setRules(remoteRules.map((rule, index) => {
+      const idMarca = getRuleBrandId({ ...rule, key: "" });
+      return {
+        ...rule,
+        id_marca: rule.alcance === "MARCA" ? idMarca : null,
+        id_marcas: rule.alcance === "MARCA" && idMarca ? [idMarca] : [],
+        condicion_operador: "CONTIENE",
+        key: String(rule.id ?? `saved-${index}`),
+      };
+    }));
   }, [remoteRules]);
 
   const marcas = marcasData?.data ?? [];
@@ -204,60 +214,36 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
               />
               <select
                 value={rule.alcance}
-                onChange={(event) => updateRule(rule.key, {
-                  alcance: event.target.value as AlcanceReglaCosto,
-                  id_marca: event.target.value === "MARCA" ? getRuleBrandIds(rule)[0] ?? null : null,
-                  id_marcas: event.target.value === "MARCA" ? getRuleBrandIds(rule) : [],
-                })}
+                onChange={(event) => {
+                  const alcance = event.target.value as AlcanceReglaCosto;
+                  const idMarca = alcance === "MARCA" ? getRuleBrandId(rule) : null;
+                  updateRule(rule.key, {
+                    alcance,
+                    id_marca: idMarca,
+                    id_marcas: idMarca ? [idMarca] : [],
+                  });
+                }}
                 className="h-9 rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500"
               >
-                <option value="GENERAL">General</option>
-                <option value="MARCA">Por marca</option>
+                <option value="GENERAL">Todas las marcas</option>
+                <option value="MARCA">Una marca</option>
               </select>
               {rule.alcance === "MARCA" ? (
-                <div className="space-y-1">
-                  <select
-                    value=""
-                    onChange={(event) => {
-                      const idMarca = Number(event.target.value);
-                      const selected = getRuleBrandIds(rule);
-                      if (!Number.isInteger(idMarca) || idMarca <= 0 || selected.includes(idMarca)) return;
-                      const idMarcas = [...selected, idMarca];
-                      updateRule(rule.key, { id_marca: idMarcas[0], id_marcas: idMarcas });
-                    }}
-                    className="h-9 w-full min-w-0 rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500"
-                    aria-label="Agregar marca a la capa"
-                  >
-                    <option value="">Agregar marca...</option>
-                    {marcas
-                      .filter((marca) => !getRuleBrandIds(rule).includes(marca.id))
-                      .map((marca) => <option key={marca.id} value={marca.id}>{marca.descripcion}</option>)}
-                  </select>
-                  {getRuleBrandIds(rule).length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {getRuleBrandIds(rule).map((idMarca) => {
-                        const marca = marcas.find((item) => item.id === idMarca);
-                        return (
-                          <span key={idMarca} className="inline-flex h-6 max-w-full items-center gap-1 rounded border border-blue-500/30 bg-blue-500/10 px-1.5 text-[9px] font-black uppercase text-blue-200">
-                            <span className="truncate">{marca?.descripcion ?? `Marca ${idMarca}`}</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const idMarcas = getRuleBrandIds(rule).filter((id) => id !== idMarca);
-                                updateRule(rule.key, { id_marca: idMarcas[0] ?? null, id_marcas: idMarcas });
-                              }}
-                              className="shrink-0 text-blue-300 hover:text-white"
-                              title="Quitar marca"
-                              aria-label={`Quitar ${marca?.descripcion ?? "marca"}`}
-                            >
-                              <HiX className="h-3 w-3" />
-                            </button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
+                <select
+                  value={String(getRuleBrandId(rule) ?? "")}
+                  onChange={(event) => {
+                    const idMarca = Number(event.target.value);
+                    updateRule(rule.key, {
+                      id_marca: Number.isInteger(idMarca) && idMarca > 0 ? idMarca : null,
+                      id_marcas: Number.isInteger(idMarca) && idMarca > 0 ? [idMarca] : [],
+                    });
+                  }}
+                  className="h-9 w-full min-w-0 rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500"
+                  aria-label="Marca de la capa"
+                >
+                  <option value="">Seleccionar marca...</option>
+                  {marcas.map((marca) => <option key={marca.id} value={marca.id}>{marca.descripcion}</option>)}
+                </select>
               ) : <span className="px-2 text-[10px] font-bold text-slate-600">Todas las marcas</span>}
               <div className="space-y-1">
                 <select
@@ -265,22 +251,16 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
                   onChange={(event) => updateRule(rule.key, {
                     condicion_tipo: event.target.value as ReglaCostoProveedor["condicion_tipo"],
                     condicion_valor: event.target.value === "STOCK_TEXTO" ? rule.condicion_valor : null,
+                    condicion_operador: "CONTIENE",
                   })}
                   className="h-9 w-full rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500"
                 >
                   <option value="SIEMPRE">Siempre</option>
-                  <option value="STOCK_TEXTO">Texto de stock</option>
+                  <option value="STOCK_TEXTO">Por texto de stock</option>
                 </select>
                 {rule.condicion_tipo === "STOCK_TEXTO" ? (
                   <div className="flex gap-1">
-                    <select
-                      value={rule.condicion_operador ?? "IGUAL"}
-                      onChange={(event) => updateRule(rule.key, { condicion_operador: event.target.value as ReglaCostoProveedor["condicion_operador"] })}
-                      className="h-8 w-[76px] rounded-lg border border-slate-800 bg-slate-950 px-1 text-[9px] font-black text-white outline-none focus:border-blue-500"
-                    >
-                      <option value="IGUAL">Igual</option>
-                      <option value="CONTIENE">Contiene</option>
-                    </select>
+                    <span className="inline-flex h-8 shrink-0 items-center rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black uppercase text-slate-400">Contiene</span>
                     <input
                       value={rule.condicion_valor ?? ""}
                       onChange={(event) => updateRule(rule.key, { condicion_valor: event.target.value })}

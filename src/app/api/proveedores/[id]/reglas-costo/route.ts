@@ -45,19 +45,22 @@ export async function POST(request: NextRequest, { params }: { params: Params })
           .map((id) => Number(id))
           .filter((id) => Number.isInteger(id) && id > 0),
       )];
+      if (alcance === "MARCA" && idMarcas.length > 1) {
+        throw new AppError("Cada capa por marca solo puede tener una marca.", 400);
+      }
       const condicionTipo = raw.condicion_tipo === "STOCK_TEXTO" ? "STOCK_TEXTO" : "SIEMPRE";
 
       return {
         nombre: String(raw.nombre ?? "").trim(),
         alcance,
         id_marca: alcance === "MARCA" ? idMarcas[0] ?? null : null,
-        id_marcas: alcance === "MARCA" ? idMarcas : [],
+        id_marcas: alcance === "MARCA" ? idMarcas.slice(0, 1) : [],
         tipo_ajuste: raw.tipo_ajuste as ReglaCostoProveedor["tipo_ajuste"],
         valor: Number(raw.valor),
         orden: index,
         activo: raw.activo !== false,
         condicion_tipo: condicionTipo,
-        condicion_operador: raw.condicion_operador === "CONTIENE" ? "CONTIENE" : "IGUAL",
+        condicion_operador: "CONTIENE",
         condicion_valor: condicionTipo === "STOCK_TEXTO"
           ? String(raw.condicion_valor ?? "").trim()
           : null,
