@@ -14,3 +14,10 @@ Estos puntos fueron detectados en la revision previa al despliegue del catalogo.
 2. Las rutas de `imc-cerebro` estan publicadas, pero la llamada autenticada sigue devolviendo 401. Igualar el token de IMC con la variable exacta que valida la API externa y redeployar ambos proyectos.
 3. Al retomarlo, validar resumen, paginacion completa, productos, kits y componentes con una sincronizacion real.
 4. Solo despues de esa validacion, eliminar `EXTERNAL_SUPABASE_URL` y `EXTERNAL_SUPABASE_KEY` de IMC.
+
+## Organizacion de datos y listados (pendiente acordado)
+
+1. Centralizar las cargas y descargas en `Configuracion > Datos`, con pestañas `Importar`, `Exportar`, `Historial` e `Integraciones`.
+2. Mantener las listas de precio dentro de cada proveedor, porque sus columnas, capas y estados de stock dependen de ese proveedor.
+3. Reservar `Listados` para control operativo: costos modificados, inventario por ubicacion, movimientos de stock y futuros controles de faltantes.
+4. Unificar la exportacion de catalogo en una sola pantalla con dos modos: personalizada y respaldo completo.

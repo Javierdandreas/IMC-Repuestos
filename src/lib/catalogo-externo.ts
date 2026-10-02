@@ -10,6 +10,7 @@ const PAGE_SIZE = 1000;
 const MAX_ROWS = 50000;
 const SAMPLE_LIMIT = 80;
 const IMPORT_LIMIT = 500;
+const MANUAL_UPLOAD_BATCH_SIZE = 250;
 
 type Status = "LISTA" | "REVISAR" | "SIN_DATOS";
 type Type = "PRODUCTO" | "GRUPO";
@@ -28,6 +29,7 @@ type RawRow = {
   tipo: string | null;
   payload: unknown;
 };
+type ManualUploadRow = Record<string, unknown>;
 type Item = {
   sourceId: string;
   code: string;
@@ -153,6 +155,8 @@ const stockValue = (value: unknown) => {
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
 };
 
+const normalizeHeader = (value: unknown) => normalize(value).replace(/[^A-Z0-9]/g, "");
+
 function payload(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
   if (typeof value !== "string" || !value.trim()) return {};
@@ -170,6 +174,63 @@ function pick(source: Record<string, unknown>, keys: string[]) {
     if (value) return value;
   }
   return "";
+}
+
+function manualValue(source: ManualUploadRow, keys: string[]) {
+  const aliases = new Set(keys.map(normalizeHeader));
+  for (const [key, value] of Object.entries(source)) {
+    if (aliases.has(normalizeHeader(key)) && clean(value)) return value;
+  }
+  return "";
+}
+
+function manualComponents(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+}
+
+function manualRowToRawRow(row: ManualUploadRow, position: number, uploadId: string): RawRow {
+  const storedPayload = payload(manualValue(row, ["payload"]));
+  const fromFile = {
+    tipo: manualValue(row, ["tipo", "type"]),
+    codigoInterno: manualValue(row, ["codigoInterno", "codigo_interno", "codigo", "code", "sku"]),
+    titulo: manualValue(row, ["titulo", "title", "nombre"]),
+    descripcion: manualValue(row, ["descripcion", "description"]),
+    marca: manualValue(row, ["marca", "brand"]),
+    categoria: manualValue(row, ["categoria", "category"]),
+    subCategoria: manualValue(row, ["subCategoria", "subcategoria", "sub_category", "subcategory"]),
+    codigoBarras: manualValue(row, ["codigoBarras", "codigo_barras", "barcode"]),
+    palabrasClave: manualValue(row, ["palabrasClave", "palabras_clave", "keywords"]),
+    stock: manualValue(row, ["stock", "cantidad_stock"]),
+    ubicacionInterna: manualValue(row, ["ubicacionInterna", "ubicacion_interna", "ubicacion", "location"]),
+    proveedor: manualValue(row, ["proveedor", "provider"]),
+    codigoProveedor: manualValue(row, ["codigoProveedor", "codigo_proveedor", "supplier_code"]),
+    componentes: manualComponents(manualValue(row, ["componentes", "components"])),
+  };
+  const sourceId = clean(manualValue(row, ["id", "external_id", "externalId"])) || `${uploadId}-${position + 1}`;
+  const sourcePayload = {
+    ...storedPayload,
+    ...Object.fromEntries(Object.entries(fromFile).filter(([, value]) => value !== "")),
+  };
+
+  return {
+    id: sourceId,
+    sync_run_id: `MANUAL-${uploadId}`,
+    imported_at: nullable(manualValue(row, ["imported_at", "importedAt", "fecha", "fecha_origen"])),
+    codigo_interno: nullable(fromFile.codigoInterno),
+    codigo_barras: nullable(fromFile.codigoBarras),
+    stock: clean(fromFile.stock) || null,
+    marca: nullable(fromFile.marca),
+    titulo: nullable(fromFile.titulo),
+    tipo: nullable(fromFile.tipo),
+    payload: sourcePayload,
+  };
 }
 
 function externalCatalogApiConfig(): ExternalCatalogApiConfig | null {
@@ -591,14 +652,13 @@ async function summary(snapshotId: number): Promise<ExternalCatalogPreview> {
   };
 }
 
-export async function refreshExternalCatalogPreview() {
-  const source = await fetchSource();
-  const sourceItems = source.rows.map(parseRow).filter((item): item is Item => Boolean(item));
+async function stageCatalogRows(rows: RawRow[], syncRunId: string, importedAt: string | null) {
+  const sourceItems = rows.map(parseRow).filter((item): item is Item => Boolean(item));
   const productCodes = sourceItems.filter((item) => item.type === "PRODUCTO").map((item) => item.code).filter(Boolean);
   const groupCodes = sourceItems.filter((item) => item.type === "GRUPO").map((item) => item.code).filter(Boolean);
   const componentCodes = sourceItems
     .filter((item) => item.type === "GRUPO")
-    .flatMap((item) => parseComponents(item.title || item.description).map((component) => component.code));
+    .flatMap((item) => (item.sourceComponents.length ? item.sourceComponents : parseComponents(item.title || item.description)).map((component) => component.code));
   const [catalog, products, groups, manual, configuredComponents] = await Promise.all([
     lookups(),
     existingCodes("productos", "cod_unico", Array.from(new Set([...productCodes, ...componentCodes]))),
@@ -606,8 +666,57 @@ export async function refreshExternalCatalogPreview() {
     manualClassifications(sourceItems.map((item) => item.code).filter(Boolean)),
     manualGroupComponents(groupCodes),
   ]);
-  const snapshotId = await saveSnapshot(source.syncRunId, source.importedAt, source.rows.length, stageRows(source.rows, catalog, products, groups, manual, configuredComponents));
+  const snapshotId = await saveSnapshot(syncRunId, importedAt, rows.length, stageRows(rows, catalog, products, groups, manual, configuredComponents));
   return summary(snapshotId);
+}
+
+export async function refreshExternalCatalogPreview() {
+  const source = await fetchSource();
+  return stageCatalogRows(source.rows, source.syncRunId, source.importedAt);
+}
+
+export async function saveManualExternalCatalogBatch(uploadId: string, offset: number, rows: ManualUploadRow[]) {
+  if (!/^[a-zA-Z0-9-]{16,80}$/.test(uploadId)) throw new AppError("Identificador de carga manual invalido.", 422);
+  if (!Number.isInteger(offset) || offset < 0) throw new AppError("Lote de carga manual invalido.", 422);
+  if (!rows.length || rows.length > MANUAL_UPLOAD_BATCH_SIZE) throw new AppError(`Cada lote admite hasta ${MANUAL_UPLOAD_BATCH_SIZE} filas.`, 422);
+
+  await withTransaction(async (db) => {
+    if (offset === 0) {
+      await db.query("DELETE FROM public.catalogo_externo_carga_manual WHERE created_at < NOW() - INTERVAL '1 day'");
+    }
+    await db.query(
+      `INSERT INTO public.catalogo_externo_carga_manual (lote_id, orden, fila)
+       SELECT $1, datos.orden, datos.fila::jsonb
+       FROM UNNEST($2::integer[], $3::text[]) AS datos(orden, fila)
+       ON CONFLICT (lote_id, orden) DO UPDATE SET fila = EXCLUDED.fila, created_at = NOW()`,
+      [uploadId, rows.map((_, index) => offset + index), rows.map((row) => JSON.stringify(row))]
+    );
+  });
+}
+
+export async function finalizeManualExternalCatalogUpload(uploadId: string) {
+  if (!/^[a-zA-Z0-9-]{16,80}$/.test(uploadId)) throw new AppError("Identificador de carga manual invalido.", 422);
+  const syncRunId = `MANUAL-${uploadId}`;
+  const stagedRows = await query<{ orden: number; fila: unknown }>(
+    "SELECT orden, fila FROM public.catalogo_externo_carga_manual WHERE lote_id = $1 ORDER BY orden",
+    [uploadId]
+  );
+
+  if (!stagedRows.rows.length) {
+    const existing = await query<{ id: number }>(
+      "SELECT id FROM public.catalogo_externo_sincronizacion WHERE origen = $1 AND sync_run_id = $2",
+      [ORIGIN, syncRunId]
+    );
+    if (existing.rows[0]) return summary(Number(existing.rows[0].id));
+    throw new AppError("No se encontraron filas para la carga manual.", 422);
+  }
+  if (stagedRows.rows.length > MAX_ROWS) throw new AppError("La carga manual supera el limite permitido de 50.000 filas.", 422);
+
+  const rows = stagedRows.rows.map((row) => manualRowToRawRow(payload(row.fila), Number(row.orden), uploadId));
+  const importedAt = rows.map((row) => row.imported_at).find((value): value is string => Boolean(value)) ?? new Date().toISOString();
+  const preview = await stageCatalogRows(rows, syncRunId, importedAt);
+  await query("DELETE FROM public.catalogo_externo_carga_manual WHERE lote_id = $1", [uploadId]);
+  return preview;
 }
 
 export async function getExternalCatalogProducts(snapshotId: number, page: number, limit: number, search?: string, status?: Status): Promise<CatalogProductsPage> {
