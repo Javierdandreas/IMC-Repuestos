@@ -1,10 +1,8 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import Papa from "papaparse";
-import * as XLSX from "xlsx";
 import {
   HiArrowLeft,
   HiChevronLeft,
@@ -135,8 +133,6 @@ type GroupComponentsResult = {
   preview: Preview;
 };
 
-type ManualRow = Record<string, unknown>;
-
 const IMPORT_LIMIT = 500;
 
 type Props = {
@@ -195,44 +191,12 @@ function normalizeText(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
 }
 
-function isCatalogSheet(rows: ManualRow[]) {
-  const headers = new Set(rows.flatMap((row) => Object.keys(row)).map(normalizeText));
-  return ["PAYLOAD", "CODIGO", "CODIGO INTERNO", "CODIGOINTERNO", "SKU", "CODE"].some((header) => headers.has(header));
-}
-
-async function readManualCatalogFile(file: File): Promise<ManualRow[]> {
-  const name = file.name.toLowerCase();
-  if (name.endsWith(".csv")) {
-    const text = await file.text();
-    const result = Papa.parse<ManualRow>(text, { header: true, skipEmptyLines: "greedy" });
-    if (result.errors.length) throw new Error(`No se pudo leer el CSV: ${result.errors[0].message}`);
-    return result.data.filter((row) => Object.values(row).some((value) => String(value ?? "").trim()));
-  }
-
-  if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) {
-    throw new Error("Selecciona un archivo CSV, XLSX o XLS.");
-  }
-
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-  const rows: ManualRow[] = [];
-  workbook.SheetNames.forEach((sheetName) => {
-    const sheetRows = XLSX.utils.sheet_to_json<ManualRow>(workbook.Sheets[sheetName], { defval: "" });
-    if (!isCatalogSheet(sheetRows)) return;
-    const inferredType = /KIT|GRUPO/.test(normalizeText(sheetName)) ? "GRUPO" : "PRODUCTO";
-    sheetRows.forEach((row) => {
-      const hasType = Object.entries(row).some(([key, value]) => ["TIPO", "TYPE"].includes(normalizeText(key)) && String(value ?? "").trim());
-      rows.push(hasType ? row : { ...row, Tipo: inferredType });
-    });
-  });
-  return rows.filter((row) => Object.values(row).some((value) => String(value ?? "").trim()));
-}
-
 export function ExternalCatalogPage({ canManage }: Props) {
   const router = useRouter();
-  const manualFileRef = useRef<HTMLInputElement>(null);
   const { categorias, subcategorias } = useMetadata();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingSource, setLoadingSource] = useState<"API" | "SUPABASE">("SUPABASE");
   const [productsPage, setProductsPage] = useState<ProductsPage | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productSearch, setProductSearch] = useState("");
@@ -254,10 +218,6 @@ export function ExternalCatalogPage({ canManage }: Props) {
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [editingComponents, setEditingComponents] = useState<Component[]>([]);
   const [savingComponents, setSavingComponents] = useState(false);
-  const [manualLoading, setManualLoading] = useState(false);
-  const [manualRowsTotal, setManualRowsTotal] = useState(0);
-  const [manualRowsProcessed, setManualRowsProcessed] = useState(0);
-  const [manualStage, setManualStage] = useState("Leyendo el archivo.");
 
   const availableSubcategories = useMemo(
     () => subcategorias.filter((item) => Number(item.id_categoria) === Number(classificationCategoryId)),
@@ -298,7 +258,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
     }
   };
 
-  const loadPreview = async () => {
+  const loadPreview = async (source: "API" | "SUPABASE" = "SUPABASE") => {
     if (!canManage) {
       toast.error("Solo administradores pueden consultar el catalogo externo.");
       return;
@@ -306,7 +266,8 @@ export function ExternalCatalogPage({ canManage }: Props) {
 
     try {
       setLoading(true);
-      const response = await fetch("/api/catalogo-externo/resumen", { cache: "no-store" });
+      setLoadingSource(source);
+      const response = await fetch(`/api/catalogo-externo/resumen?source=${source}`, { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "No se pudo consultar el catalogo externo.");
       const nextPreview = data as Preview;
@@ -325,69 +286,6 @@ export function ExternalCatalogPage({ canManage }: Props) {
       toast.error(error instanceof Error ? error.message : "No se pudo consultar el catalogo externo.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadManualFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    if (!canManage) {
-      toast.error("Solo administradores pueden cargar catalogos.");
-      return;
-    }
-
-    try {
-      setManualLoading(true);
-      setManualRowsTotal(0);
-      setManualRowsProcessed(0);
-      setManualStage("Leyendo el archivo.");
-      const rows = await readManualCatalogFile(file);
-      if (!rows.length) throw new Error("El archivo no contiene filas de catalogo reconocibles.");
-      if (rows.length > 50000) throw new Error("La carga manual admite hasta 50.000 filas.");
-
-      setManualRowsTotal(rows.length);
-      setManualStage("Guardando filas para revisar.");
-      const uploadId = crypto.randomUUID();
-      const batchSize = 250;
-      for (let offset = 0; offset < rows.length; offset += batchSize) {
-        const response = await fetch("/api/catalogo-externo/manual/lote", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ uploadId, offset, rows: rows.slice(offset, offset + batchSize) }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.message || "No se pudo guardar una parte del archivo.");
-        setManualRowsProcessed(Math.min(rows.length - 1, offset + Math.min(batchSize, rows.length - offset)));
-      }
-
-      setManualStage("Validando productos, categorias y componentes.");
-      const response = await fetch("/api/catalogo-externo/manual/finalizar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadId }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || "No se pudo preparar la revision del catalogo.");
-
-      const nextPreview = data as Preview;
-      setPreview(nextPreview);
-      setProductSearch("");
-      setProductStatus("");
-      setSelectedIds([]);
-      setGroupSearch("");
-      setGroupStatus("");
-      setSelectedGroupIds([]);
-      setManualRowsProcessed(rows.length);
-      await Promise.all([
-        loadProducts(nextPreview.snapshotId, 1, "", ""),
-        loadGroups(nextPreview.snapshotId, 1, "", ""),
-      ]);
-      toast.success(`Catalogo manual listo: ${nextPreview.sourceRows.toLocaleString("es-AR")} registros para revisar.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo cargar el catalogo manual.");
-    } finally {
-      setManualLoading(false);
     }
   };
 
@@ -607,24 +505,23 @@ export function ExternalCatalogPage({ canManage }: Props) {
             <p className="mt-1 text-sm font-medium text-slate-500">Revision de productos y grupos antes de integrarlos a IMC.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <input ref={manualFileRef} type="file" accept=".csv,.xlsx,.xls" onChange={loadManualFile} className="sr-only" />
             <button
               type="button"
-              onClick={() => manualFileRef.current?.click()}
-              disabled={manualLoading || !canManage}
+              onClick={() => loadPreview("SUPABASE")}
+              disabled={loading || !canManage}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-blue-500/40 px-4 text-xs font-black uppercase tracking-wide text-blue-600 transition hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-300"
             >
-              <HiUpload className="h-4 w-4" />
-              Cargar archivo
+              <HiRefresh className={`h-4 w-4 ${loading && loadingSource === "SUPABASE" ? "animate-spin" : ""}`} />
+              Consultar base externa
             </button>
             <button
               type="button"
-              onClick={loadPreview}
-              disabled={loading || manualLoading || !canManage}
+              onClick={() => loadPreview("API")}
+              disabled={loading || !canManage}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-xs font-black uppercase tracking-wide text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <HiRefresh className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              {preview ? "Actualizar API" : "Consultar API"}
+              <HiRefresh className={`h-4 w-4 ${loading && loadingSource === "API" ? "animate-spin" : ""}`} />
+              Consultar API
             </button>
           </div>
         </header>
@@ -635,7 +532,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
             <p className="mt-4 text-sm font-black text-slate-900 dark:text-white">Catalogo listo para consultar</p>
             <button
               type="button"
-              onClick={loadPreview}
+              onClick={() => loadPreview("SUPABASE")}
               disabled={loading || !canManage}
               className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500/40 px-4 text-xs font-black uppercase tracking-wide text-blue-600 transition hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-300"
             >
@@ -1034,11 +931,9 @@ export function ExternalCatalogPage({ canManage }: Props) {
       </Modal>
 
       <TransferProgressModal
-        open={manualLoading || loading || importing || importingGroups}
-        title={manualLoading ? "Preparando catalogo manual" : importingGroups ? "Importando kits externos" : importing ? "Importando productos externos" : "Consultando catalogo externo"}
-        description={manualLoading ? manualStage : importingGroups ? "Creando los kits y vinculando sus componentes." : importing ? "Creando los items seleccionados en el catalogo propio." : "Leyendo y comparando los registros disponibles."}
-        total={manualLoading && manualRowsTotal ? manualRowsTotal : undefined}
-        processed={manualLoading ? manualRowsProcessed : undefined}
+        open={loading || importing || importingGroups}
+        title={importingGroups ? "Importando kits externos" : importing ? "Importando productos externos" : loadingSource === "SUPABASE" ? "Consultando base externa" : "Consultando catalogo externo"}
+        description={importingGroups ? "Creando los kits y vinculando sus componentes." : importing ? "Creando los items seleccionados en el catalogo propio." : loadingSource === "SUPABASE" ? "Leyendo la ultima sincronizacion de gesu_items_raw." : "Leyendo y comparando los registros disponibles."}
       />
     </main>
   );
