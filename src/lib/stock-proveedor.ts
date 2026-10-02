@@ -1,4 +1,13 @@
-export const ESTADOS_STOCK_PROVEEDOR = ["DISPONIBLE", "PROXIMO_INGRESO", "SIN_STOCK", "DESCONOCIDO"] as const;
+export const ESTADOS_STOCK_PROVEEDOR = [
+  "DISPONIBLE",
+  "POR_PEDIDO",
+  "DEMORADO",
+  "CONSULTE",
+  "PROXIMAMENTE",
+  "PROXIMO_INGRESO",
+  "SIN_STOCK",
+  "DESCONOCIDO",
+] as const;
 
 export type EstadoStockProveedor = typeof ESTADOS_STOCK_PROVEEDOR[number];
 
@@ -44,6 +53,11 @@ export function normalizarStockProveedor(value: unknown): StockProveedorNormaliz
   if (/\b(SIN STOCK|AGOTADO|NO DISPONIBLE|NO HAY|SIN EXISTENCIA)\b/.test(texto)) {
     return { original, estado: "SIN_STOCK", cantidad: 0 };
   }
+
+  if (/\bPOR PEDIDO\b/.test(texto)) return { original, estado: "POR_PEDIDO", cantidad: null };
+  if (/\bDEMORADO\b/.test(texto)) return { original, estado: "DEMORADO", cantidad: null };
+  if (/\bCONSULTE\b/.test(texto)) return { original, estado: "CONSULTE", cantidad: null };
+  if (/\bPROXIMAMENTE\b/.test(texto)) return { original, estado: "PROXIMAMENTE", cantidad: null };
 
   const cantidad = parseCantidad(original);
   if (cantidad !== null) {
@@ -113,6 +127,10 @@ export function labelEstadoStockProveedor(estado?: string | null, cantidad?: num
       ? `Disponible: ${Number(cantidad).toLocaleString("es-AR")}`
       : "Disponible";
   }
+  if (estado === "POR_PEDIDO") return "Por pedido";
+  if (estado === "DEMORADO") return "Demorado";
+  if (estado === "CONSULTE") return "Consulte";
+  if (estado === "PROXIMAMENTE") return "Proximamente";
   if (estado === "PROXIMO_INGRESO") return "Proximo ingreso";
   if (estado === "SIN_STOCK") return "Sin stock";
   return "Desconocido";

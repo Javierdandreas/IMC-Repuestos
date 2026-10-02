@@ -11,7 +11,10 @@ import { labelEstadoStockProveedor } from "@/lib/stock-proveedor";
 
 function stockClass(estado?: string | null) {
   if (estado === "DISPONIBLE") return "border-green-500/30 bg-green-500/10 text-green-500";
-  if (estado === "PROXIMO_INGRESO") return "border-amber-500/30 bg-amber-500/10 text-amber-400";
+  if (estado === "POR_PEDIDO") return "border-sky-500/30 bg-sky-500/10 text-sky-400";
+  if (estado === "DEMORADO") return "border-orange-500/30 bg-orange-500/10 text-orange-400";
+  if (estado === "CONSULTE") return "border-slate-600 bg-slate-800/70 text-slate-300";
+  if (estado === "PROXIMAMENTE" || estado === "PROXIMO_INGRESO") return "border-amber-500/30 bg-amber-500/10 text-amber-400";
   if (estado === "SIN_STOCK") return "border-red-500/30 bg-red-500/10 text-red-500";
   return "border-slate-700 bg-slate-800/50 text-slate-400";
 }

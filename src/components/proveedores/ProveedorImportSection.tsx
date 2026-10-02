@@ -710,6 +710,10 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
                     className="mt-1 h-8 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500 disabled:opacity-50"
                   >
                     <option value="DISPONIBLE">Disponible</option>
+                    <option value="POR_PEDIDO">Por pedido</option>
+                    <option value="DEMORADO">Demorado</option>
+                    <option value="CONSULTE">Consulte</option>
+                    <option value="PROXIMAMENTE">Proximamente</option>
                     <option value="PROXIMO_INGRESO">Proximo ingreso</option>
                     <option value="SIN_STOCK">Sin stock</option>
                     <option value="DESCONOCIDO">Desconocido</option>

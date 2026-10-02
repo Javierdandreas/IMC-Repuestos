@@ -591,6 +591,10 @@ type PrecioProveedorImportResult = {
 
 const ESTADOS_STOCK_PROVEEDOR_IMPORTABLES = new Set([
   "DISPONIBLE",
+  "POR_PEDIDO",
+  "DEMORADO",
+  "CONSULTE",
+  "PROXIMAMENTE",
   "PROXIMO_INGRESO",
   "SIN_STOCK",
   "DESCONOCIDO",
@@ -625,6 +629,7 @@ function parseImportProviderStockState(value: unknown) {
   if (!normalized) return "DESCONOCIDO";
   if (normalized === "PROXIMO" || normalized === "PROXIMO_INGRESO") return "PROXIMO_INGRESO";
   if (normalized === "SIN_STOCK" || normalized === "AGOTADO") return "SIN_STOCK";
+  if (normalized === "POR_PEDIDO") return "POR_PEDIDO";
   return ESTADOS_STOCK_PROVEEDOR_IMPORTABLES.has(normalized) ? normalized : null;
 }
 

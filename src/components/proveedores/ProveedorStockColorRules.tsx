@@ -142,6 +142,10 @@ export function ProveedorStockColorRules({ id_proveedor }: { id_proveedor: numbe
                 className="h-9 rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500 disabled:opacity-50"
               >
                 <option value="DISPONIBLE">Disponible</option>
+                <option value="POR_PEDIDO">Por pedido</option>
+                <option value="DEMORADO">Demorado</option>
+                <option value="CONSULTE">Consulte</option>
+                <option value="PROXIMAMENTE">Proximamente</option>
                 <option value="PROXIMO_INGRESO">Proximo ingreso</option>
                 <option value="SIN_STOCK">Sin stock</option>
                 <option value="DESCONOCIDO">Desconocido</option>
