@@ -15,7 +15,7 @@ export default function ImportarProductosPage() {
             <div>
             <button
               type="button"
-              onClick={() => router.push("/configuracion/catalogo")}
+              onClick={() => router.push("/configuracion/datos")}
               className="mb-3 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:text-slate-900 dark:hover:text-white"
             >
               <HiArrowLeft className="h-4 w-4" />
@@ -36,7 +36,7 @@ export default function ImportarProductosPage() {
         </header>
 
         <section>
-          <ImportProductModal onClose={() => router.push("/configuracion/catalogo")} variant="page" />
+          <ImportProductModal onClose={() => router.push("/configuracion/datos")} variant="page" />
         </section>
       </div>
     </div>

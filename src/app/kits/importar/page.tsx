@@ -13,7 +13,7 @@ export default function ImportarKitsPage() {
         <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/40">
           <button
             type="button"
-            onClick={() => router.push("/configuracion/catalogo")}
+            onClick={() => router.push("/configuracion/datos")}
             className="mb-3 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:text-slate-900 dark:hover:text-white"
           >
             <HiArrowLeft className="h-4 w-4" />
@@ -24,7 +24,7 @@ export default function ImportarKitsPage() {
         </header>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <ImportKitModal onClose={() => router.push("/configuracion/catalogo")} />
+          <ImportKitModal onClose={() => router.push("/configuracion/datos")} />
         </section>
       </div>
     </div>

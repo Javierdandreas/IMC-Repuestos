@@ -70,8 +70,7 @@ const navGroups: NavGroup[] = [
     icon: HiOutlineLibrary,
     links: [
       { href: "/listados/precios-modificados", label: "Costos modificados" },
-      { label: "Exportar items y kits", disabled: true },
-      { label: "Exportar proveedores", disabled: true },
+      { href: "/ubicaciones/inventario", label: "Inventario por ubicacion" },
       { label: "Movimientos de stock", disabled: true },
     ],
   },
@@ -79,7 +78,7 @@ const navGroups: NavGroup[] = [
     label: "Configuracion",
     icon: HiOutlineCog,
     links: [
-      { href: "/configuracion/catalogo", label: "Catalogo" },
+      { href: "/configuracion/datos", label: "Datos" },
       { href: "/configuracion/precios", label: "Listas de precio" },
       { href: "/importaciones", label: "Importaciones" },
       { href: "/marcas", label: "Marcas" },
@@ -118,9 +117,10 @@ export const Sidebar = () => {
       if (group.label === "Operaciones") return pathname.startsWith("/operaciones");
       if (group.label === "Contactos") return pathname.startsWith("/proveedores") || pathname.startsWith("/clientes");
       if (group.label === "Configuracion") {
-        return ["/configuracion", "/importaciones", "/marcas", "/categorias", "/ubicaciones"].some((route) => pathname.startsWith(route));
+        return ["/configuracion", "/importaciones", "/marcas", "/categorias", "/ubicaciones"].some((route) => pathname.startsWith(route))
+          && pathname !== "/ubicaciones/inventario";
       }
-      if (group.label === "Listados") return pathname.startsWith("/listados");
+      if (group.label === "Listados") return pathname.startsWith("/listados") || pathname === "/ubicaciones/inventario";
       return false;
     },
     [pathname],
