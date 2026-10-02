@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { HelpAssistant } from "@/components/asistente/HelpAssistant";
 
 type Props = { children: React.ReactNode };
 
@@ -13,6 +14,7 @@ export default function AppShell({ children }: Props) {
     <div className="min-h-screen bg-white dark:bg-slate-950">
       <Sidebar />
       <main>{children}</main>
+      <HelpAssistant />
     </div>
   );
 }
