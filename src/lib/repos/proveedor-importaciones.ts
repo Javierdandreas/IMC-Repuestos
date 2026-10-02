@@ -218,6 +218,10 @@ export async function createImportacion(input: CreateImportacionInput): Promise<
 
 export async function aplicarImportacionAlCatalogo(id_importacion: number) {
   return await withTransaction(async (client) => {
+    // Las listas grandes actualizan miles de asociaciones y precios dentro de la misma operacion.
+    // El limite corto del pool cancela una consulta valida antes de que pueda terminar.
+    await client.query("SET LOCAL statement_timeout = '5min'");
+
     await client.query(
       `
         UPDATE public.proveedor_importacion_item pii
