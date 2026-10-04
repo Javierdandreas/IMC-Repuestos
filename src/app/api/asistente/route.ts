@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       .join("\n");
     const client = new OpenAI({ apiKey });
     const response = await client.responses.create({
-      model: process.env.OPENAI_HELP_MODEL?.trim() || "gpt-6-astra",
+      model: process.env.OPENAI_HELP_MODEL?.trim() || "gpt-5-mini",
       instructions: `${IMC_HELP_KNOWLEDGE}\n\nContexto actual:\n- Pantalla: ${page.title}\n- En esta pantalla se puede: ${page.capabilities}\n- Rol del usuario: ${session.rol ?? "sin rol"}`,
       input: conversation,
       max_output_tokens: 450,

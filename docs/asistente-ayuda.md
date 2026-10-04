@@ -7,7 +7,7 @@ El asistente solo responde dudas sobre el uso del sistema. No recibe ni consulta
 En Vercel crear estas variables para Production:
 
 - `OPENAI_API_KEY`: Secret con la clave de OpenAI.
-- `OPENAI_HELP_MODEL`: opcional. Si se omite se usa `gpt-6-astra`.
+- `OPENAI_HELP_MODEL`: opcional. Si se omite se usa `gpt-5-mini`.
 
 La clave se usa exclusivamente desde `POST /api/asistente`. Nunca debe exponerse en variables `NEXT_PUBLIC_*`.
 
