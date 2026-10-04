@@ -31,5 +31,8 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# Local database exports may contain production data.
+/backups/
+
 # vercel
 .vercel
