@@ -9,7 +9,7 @@ Esta seccion reemplaza las prioridades y decisiones antiguas conservadas debajo.
 - Implementado localmente: el item convertido se borra fisicamente despues de validar el kit, no se oculta. Antes del borrado se bloquean stock propio, stock por ubicacion, series, operaciones, uso en otros kits e integraciones o relaciones no reconocidas. Se conserva una actividad con una copia de producto, precios y proveedores.
 - Implementado localmente: pantalla para revisar los items ya ocultos por conversiones anteriores, mostrando los bloqueos y permitiendo eliminar explicitamente solo los elegibles.
 - Implementado localmente: todas las entradas de kits, incluidas las manuales, exigen cantidades enteras positivas y seguras. Una celda vacia ya no se transforma silenciosamente en 1 cuando la columna esta mapeada.
-- Requiere aplicar `database/42-importacion-gesu-atomica.sql` antes de desplegar. La migracion y los flujos se validaron en PostgreSQL aislado; no se ejecuto en Supabase productivo.
+- Aplicada en Supabase: `database/42-importacion-gesu-atomica.sql`. La migracion y los flujos se validaron tambien contra la base configurada.
 - Unificar orden de items y kits por fecha de creacion y desempate estable. Hoy se combinan posiciones calculadas por separado.
 
 ## 2. Completar Datos y Listados
@@ -18,6 +18,7 @@ Esta seccion reemplaza las prioridades y decisiones antiguas conservadas debajo.
 - Mantener listas de precios dentro del proveedor.
 - Completar exportacion con modos personalizada y respaldo completo, criterios y columnas consistentes.
 - Costos modificados e inventario ya disponibles. Pendiente movimientos de stock y revision de filtros, exportaciones e historial.
+- Aplicada en Supabase: `database/43-historial-costo-referencia-origenes.sql`. El ultimo commit amplía Costos modificados con origenes de importacion, criterios, capas, descuentos y edicion individual; falta deploy para activarlo en la web.
 
 ## 3. Nuevos puntos
 
@@ -45,12 +46,10 @@ Estos puntos fueron detectados en la revision previa al despliegue del catalogo.
 4. Ordenar items y kits juntos por una misma fecha de creacion, no por dos listados separados.
 5. Confirmar que Vercel use la misma base de datos donde se aplicaron las migraciones 24 a 32.
 
-## Catalogo externo por API (pausado)
+## Descartado por ahora
 
-1. IMC ya puede consumir la API mediante `EXTERNAL_CATALOG_API_URL` y `EXTERNAL_CATALOG_API_TOKEN`.
-2. Las rutas de `imc-cerebro` estan publicadas, pero la llamada autenticada sigue devolviendo 401. Igualar el token de IMC con la variable exacta que valida la API externa y redeployar ambos proyectos.
-3. Al retomarlo, validar resumen, paginacion completa, productos, kits y componentes con una sincronizacion real.
-4. Solo despues de esa validacion, eliminar `EXTERNAL_SUPABASE_URL` y `EXTERNAL_SUPABASE_KEY` de IMC.
+- Catalogo externo por API: no continuar con el 401, cron ni la sincronizacion automatica. Se conserva el codigo y la pantalla actual hasta decidir expresamente retirarlos.
+- Solaut: no continuar con scraper ni descarga de productos relacionados.
 
 ## Organizacion de datos y listados (pendiente acordado)
 

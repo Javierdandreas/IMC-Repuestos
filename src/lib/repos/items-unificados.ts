@@ -45,7 +45,6 @@ export async function getItemsUnificadosListado(
   const params: unknown[] = [];
   const productConditions = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
   const kitConditions: string[] = [];
-  const hasCodeSearch = Boolean(filters.search?.trim() || filters.searchSpecific?.trim());
 
   if (filters.search?.trim()) {
     params.push(parametroBusquedaItems(filters.search));
@@ -87,29 +86,6 @@ export async function getItemsUnificadosListado(
   }
 
   const kitWhere = kitConditions.length ? kitConditions.join(" AND ") : "TRUE";
-  const componentSource = hasCodeSearch
-    ? `
-      SELECT
-        'ITEM'::text AS tipo,
-        p.id,
-        k.sort_order,
-        k.id AS parent_kit_id,
-        1 AS row_position
-      FROM kit_base k
-      JOIN public.kit_detalle kd ON kd.id_kit = k.id
-      JOIN public.productos p ON p.id = kd.id_producto
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
-    `
-    : `
-      SELECT
-        'ITEM'::text AS tipo,
-        NULL::int AS id,
-        NULL::bigint AS sort_order,
-        NULL::int AS parent_kit_id,
-        1 AS row_position
-      WHERE FALSE
-    `;
-
   const baseSql = `
     WITH kit_base AS (
       SELECT
@@ -137,9 +113,6 @@ export async function getItemsUnificadosListado(
         0 AS row_position
       FROM kit_base k
 
-      UNION ALL
-
-      ${componentSource}
     ), deduplicated AS (
       SELECT DISTINCT ON (tipo, id)
         tipo,
