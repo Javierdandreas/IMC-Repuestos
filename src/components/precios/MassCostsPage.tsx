@@ -7,6 +7,9 @@ import { toast } from "sonner";
 import {
   HiArrowLeft,
   HiCheck,
+  HiChevronLeft,
+  HiChevronRight,
+  HiDownload,
   HiExclamation,
   HiRefresh,
   HiSwitchHorizontal,
@@ -35,6 +38,28 @@ type Resultado = {
   itemsConCosto: number;
   itemsSinCosto: number;
   itemsRecalculados: number;
+  cambiosCosto?: number;
+  cambiosPendientes?: number;
+};
+
+type ItemSinCosto = {
+  id: number;
+  codigo: string;
+  descripcion: string;
+  marca: string | null;
+  categoria: string;
+  subcategoria: string;
+  criterioCosto: string;
+  proveedoresConCosto: number;
+  proveedoresValidos: string;
+  motivo: string;
+};
+
+type ItemsSinCostoResponse = {
+  data: ItemSinCosto[];
+  page: number;
+  totalPages: number;
+  totalCount: number;
 };
 
 const criterios = [
@@ -47,11 +72,11 @@ const criterios = [
 
 const selectClass = "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100";
 
-const fetcher = async (url: string) => {
+const fetcher = async <T,>(url: string): Promise<T> => {
   const response = await fetch(url, { cache: "no-store" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.message || "No se pudo obtener el resumen.");
-  return data as Resumen;
+  return data as T;
 };
 
 function plural(value: number, singular: string, pluralLabel = `${singular}s`) {
@@ -67,6 +92,7 @@ export function MassCostsPage() {
   const [criterio, setCriterio] = useState<(typeof criterios)[number]["value"]>("MENOR_PRECIO");
   const [running, setRunning] = useState<"REPARAR_PRECIOS" | "ASIGNAR_CRITERIO" | null>(null);
   const [lastResult, setLastResult] = useState<Resultado | null>(null);
+  const [sinCostoPage, setSinCostoPage] = useState(1);
 
   const params = useMemo(() => {
     const next = new URLSearchParams();
@@ -77,6 +103,11 @@ export function MassCostsPage() {
     return next.toString();
   }, [filters]);
   const { data: summary, error, isLoading, mutate } = useSWR<Resumen>(`/api/costos-masivos?${params}`, fetcher);
+  const sinCostoEndpoint = lastResult && lastResult.itemsSinCosto > 0
+    ? `/api/costos-masivos/sin-costo?${params}${params ? "&" : ""}page=${sinCostoPage}&limit=50`
+    : null;
+  const { data: sinCostoData, error: sinCostoError, isLoading: isLoadingSinCosto } = useSWR<ItemsSinCostoResponse>(sinCostoEndpoint, fetcher);
+  const sinCostoExportEndpoint = `/api/costos-masivos/sin-costo/export${params ? `?${params}` : ""}`;
   const subcategoriasDisponibles = useMemo(
     () => filters.categoria ? subcategorias.filter((item) => String(item.id_categoria) === filters.categoria) : subcategorias,
     [filters.categoria, subcategorias],
@@ -84,6 +115,7 @@ export function MassCostsPage() {
 
   useEffect(() => {
     setLastResult(null);
+    setSinCostoPage(1);
   }, [params]);
 
   function updateFilter(key: keyof Filtros, value: string) {
@@ -120,7 +152,14 @@ export function MassCostsPage() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudo ejecutar el proceso.");
       setLastResult(result as Resultado);
-      toast.success(action === "REPARAR_PRECIOS" ? "Precios faltantes corregidos." : "Criterio y precios actualizados.");
+      setSinCostoPage(1);
+      if (action === "REPARAR_PRECIOS") {
+        toast.success("Precios faltantes corregidos.");
+      } else if (Number(result.cambiosPendientes || 0) > 0) {
+        toast.warning(`Criterio actualizado. ${result.cambiosPendientes} cambio(s) de costo esperan aprobacion.`);
+      } else {
+        toast.success("Criterio y precios actualizados.");
+      }
       await mutate();
     } catch (requestError) {
       showError(requestError, "No se pudo actualizar los costos y precios.");
@@ -180,7 +219,50 @@ export function MassCostsPage() {
 
         <p className="flex items-start gap-2 border-t border-slate-200 pt-4 text-xs font-medium leading-5 text-slate-500 dark:border-slate-800"><HiExclamation className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />Los items sin un costo valido de proveedor ni un costo manual se informan al final y no reciben un precio inventado.</p>
 
-        {lastResult && <section className="border border-blue-500/30 bg-blue-500/5 px-4 py-3 text-sm text-slate-700 dark:text-slate-200"><strong>{plural(lastResult.totalItems, "item")} procesado(s).</strong> {lastResult.criteriosActualizados > 0 && `${plural(lastResult.criteriosActualizados, "criterio")} actualizado(s). `}{plural(lastResult.itemsRecalculados, "item")} con precios recalculados. {lastResult.itemsSinCosto > 0 && `${plural(lastResult.itemsSinCosto, "item")} quedaron sin modificar por no tener un costo valido.`}</section>}
+        {lastResult && <section className="border border-blue-500/30 bg-blue-500/5 px-4 py-3 text-sm text-slate-700 dark:text-slate-200"><strong>{plural(lastResult.totalItems, "item")} procesado(s).</strong> {lastResult.criteriosActualizados > 0 && `${plural(lastResult.criteriosActualizados, "criterio")} actualizado(s). `}{plural(lastResult.itemsRecalculados, "item")} con precios recalculados. {lastResult.cambiosCosto !== undefined && `${plural(lastResult.cambiosCosto, "cambio")} de costo registrado(s). `}{Number(lastResult.cambiosPendientes || 0) > 0 && `${plural(Number(lastResult.cambiosPendientes), "cambio")} quedaron pendientes de aprobacion. `}{lastResult.itemsSinCosto > 0 && `${plural(lastResult.itemsSinCosto, "item")} quedaron sin modificar por no tener un costo valido.`}</section>}
+
+        {lastResult && lastResult.itemsSinCosto > 0 && (
+          <section className="overflow-hidden border border-amber-500/30 dark:border-amber-500/25">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/25 bg-amber-500/5 px-4 py-3">
+              <div>
+                <h2 className="text-sm font-black text-slate-900 dark:text-white">Items sin costo asignable</h2>
+                <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-400">Codigos que no pudieron recibir un costo con los filtros y criterio aplicados.</p>
+              </div>
+              <a href={sinCostoExportEndpoint} className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-500/40 px-3 text-[10px] font-black uppercase tracking-wide text-amber-700 transition hover:bg-amber-500/10 dark:text-amber-300">
+                <HiDownload className="h-4 w-4" /> Exportar Excel
+              </a>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1150px] text-left text-xs">
+                <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:bg-slate-900/60">
+                  <tr><th className="px-4 py-3">Codigo</th><th className="px-3 py-3">Descripcion</th><th className="px-3 py-3">Clasificacion</th><th className="px-3 py-3">Criterio</th><th className="px-3 py-3">Proveedores validos</th><th className="px-3 py-3">Motivo</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {isLoadingSinCosto ? (
+                    <tr><td colSpan={6} className="px-4 py-10 text-center font-bold text-slate-500">Buscando items sin costo...</td></tr>
+                  ) : sinCostoError ? (
+                    <tr><td colSpan={6} className="px-4 py-10 text-center font-bold text-red-500">{sinCostoError.message}</td></tr>
+                  ) : sinCostoData?.data.length ? sinCostoData.data.map((item) => (
+                    <tr key={item.id} className="text-slate-700 dark:text-slate-300">
+                      <td className="px-4 py-3 font-mono font-black text-slate-900 dark:text-white">{item.codigo}</td>
+                      <td className="max-w-md px-3 py-3 font-semibold">{item.descripcion}</td>
+                      <td className="px-3 py-3"><p className="font-semibold">{item.marca || "Sin marca"}</p><p className="mt-1 text-[10px] text-slate-500">{item.categoria} / {item.subcategoria}</p></td>
+                      <td className="px-3 py-3 font-mono text-[10px] font-bold">{item.criterioCosto.replace(/_/g, " ")}</td>
+                      <td className="max-w-xs px-3 py-3"><p className="font-black">{item.proveedoresConCosto}</p><p className="mt-1 truncate text-[10px] text-slate-500" title={item.proveedoresValidos}>{item.proveedoresValidos || "Ninguno"}</p></td>
+                      <td className="max-w-md px-3 py-3 font-medium leading-5 text-amber-700 dark:text-amber-300">{item.motivo}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={6} className="px-4 py-10 text-center font-bold text-slate-500">No hay items sin costo con estos filtros.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+              <span className="text-xs font-semibold text-slate-500">{(sinCostoData?.totalCount ?? lastResult.itemsSinCosto).toLocaleString("es-AR")} items sin costo</span>
+              <div className="flex items-center gap-2"><button type="button" title="Pagina anterior" aria-label="Pagina anterior" onClick={() => setSinCostoPage((page) => Math.max(1, page - 1))} disabled={sinCostoPage <= 1 || isLoadingSinCosto} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 disabled:opacity-40 dark:border-slate-700"><HiChevronLeft className="h-4 w-4" /></button><span className="min-w-24 text-center text-xs font-bold text-slate-500">Pag. {sinCostoData?.page ?? 1} de {sinCostoData?.totalPages ?? 1}</span><button type="button" title="Pagina siguiente" aria-label="Pagina siguiente" onClick={() => setSinCostoPage((page) => Math.min(sinCostoData?.totalPages ?? page, page + 1))} disabled={!sinCostoData || sinCostoPage >= sinCostoData.totalPages || isLoadingSinCosto} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 disabled:opacity-40 dark:border-slate-700"><HiChevronRight className="h-4 w-4" /></button></div>
+            </div>
+          </section>
+        )}
       </div>
     </main>
   );

@@ -27,6 +27,7 @@ Esta seccion reemplaza las prioridades y decisiones antiguas conservadas debajo.
 - Implementado localmente: `Configuracion > Datos > Mantenimiento > Criterios y precios` filtra por marca, categoria, subcategoria y proveedor. Permite asignar un criterio de costo al conjunto filtrado y muestra el alcance antes de aplicar.
 - Implementado localmente: la correccion masiva calcula primero el costo neto de cada proveedor, aplica el criterio vigente y crea la fila `PRECIO COSTO` y las listas activas faltantes. Las listas ya existentes conservan su margen; las nuevas usan el margen por defecto configurado. Los items sin costo valido quedan sin modificar y se informan en el resultado.
 - Implementado localmente: `aplicarPreciosDesdeCostosReferencia` completa filas faltantes tambien cuando se importa una lista de proveedor, de modo que no hace falta abrir y guardar cada ficha individual para que aparezcan sus precios.
+- Implementado localmente: despues de un proceso masivo, los items sin costo asignable se muestran por codigo con criterio, proveedores validos y motivo; se pueden paginar y exportar a Excel. Es un resultado inmediato segun los filtros actuales, no un historial guardado de ejecuciones.
 - Mantener calculos sin stock y excluir proveedores sin precio valido. Usar costo neto con capas y no aprobar cambios pendientes implicitamente durante el recalculo masivo.
 
 ## Fuera del foco actual

@@ -2,9 +2,13 @@ import { query, type DbClient, withTransaction } from "@/lib/db-utils";
 import {
   aplicarPreciosDesdeCostosReferencia,
   obtenerCostosReferenciaAutomaticos,
-  recalcularPreciosAutomaticos,
 } from "@/lib/precios-automaticos";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
+import {
+  capturarCostosReferencia,
+  obtenerProductosProveedor,
+  registrarCambiosCostoReferencia,
+} from "@/lib/cambios-costo-referencia";
 import { AppError } from "@/lib/api-errors";
 import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
 import {
@@ -619,14 +623,15 @@ export async function getImportacionItems(id_importacion: number): Promise<Prove
 
 export type PrecioModificadoProveedor = {
   id: number;
-  id_importacion: number;
-  id_proveedor: number;
+  id_importacion: number | null;
+  id_proveedor: number | null;
   fecha_importacion: string;
   archivo: string;
   proveedor: string;
   codigo_item: string | null;
   descripcion_item: string | null;
-  codigo_proveedor: string;
+  codigo_proveedor: string | null;
+  origen: "IMPORTACION" | "CARGA_MANUAL_PROVEEDOR" | "CRITERIO_MASIVO" | "REGLAS_PROVEEDOR" | "DESCUENTOS_PROVEEDOR" | "EDICION_ITEM";
   criterio_costo: "PROVEEDOR_UNICO" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
   costo_anterior: number | null;
   costo_nuevo: number;
@@ -666,12 +671,12 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
   const limit = Math.max(10, Math.min(100000, Math.floor(filters.limit ?? 50)));
   const params: unknown[] = [];
   const where = [
-    "pi.estado = 'APLICADA'",
+    "(pi.id IS NULL OR pi.estado = 'APLICADA')",
   ];
 
   if (idProveedor) {
     params.push(idProveedor);
-    where.push(`pi.id_proveedor = $${params.length}`);
+    where.push(`COALESCE(cambio.id_proveedor, pi.id_proveedor) = $${params.length}`);
   }
   if (idImportacion) {
     params.push(idImportacion);
@@ -688,8 +693,8 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
 
   const source = `
     FROM public.proveedor_importacion_cambio_costo cambio
-    INNER JOIN public.proveedor_importacion pi ON pi.id = cambio.id_importacion
-    INNER JOIN public.proveedores proveedor ON proveedor.id = pi.id_proveedor
+    LEFT JOIN public.proveedor_importacion pi ON pi.id = cambio.id_importacion
+    LEFT JOIN public.proveedores proveedor ON proveedor.id = COALESCE(cambio.id_proveedor, pi.id_proveedor)
     WHERE ${where.join(" AND ")}
   `;
   const count = await query<{ total: number }>(`SELECT COUNT(*)::int AS total ${source}`, params);
@@ -700,13 +705,25 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
     `SELECT
        cambio.id,
        cambio.id_importacion,
-       pi.id_proveedor,
-       pi.updated_at AS fecha_importacion,
-       pi.nombre_archivo AS archivo,
-       proveedor.descripcion AS proveedor,
+       COALESCE(cambio.id_proveedor, pi.id_proveedor) AS id_proveedor,
+       COALESCE(pi.updated_at, cambio.created_at) AS fecha_importacion,
+       COALESCE(
+         pi.nombre_archivo,
+         cambio.detalle_origen,
+         CASE cambio.origen
+           WHEN 'CARGA_MANUAL_PROVEEDOR' THEN 'Carga manual de precios'
+           WHEN 'CRITERIO_MASIVO' THEN 'Cambio masivo de criterio'
+           WHEN 'REGLAS_PROVEEDOR' THEN 'Capas de costo'
+           WHEN 'DESCUENTOS_PROVEEDOR' THEN 'Descuentos de proveedor'
+           WHEN 'EDICION_ITEM' THEN 'Edicion de item'
+           ELSE 'Importacion de proveedor'
+         END
+       ) AS archivo,
+       COALESCE(proveedor.descripcion, 'Sin proveedor') AS proveedor,
        cambio.codigo_item,
        cambio.descripcion_item,
        cambio.codigo_proveedor,
+       cambio.origen,
        cambio.criterio_costo,
        cambio.costo_anterior::float AS costo_anterior,
        cambio.costo_nuevo::float AS costo_nuevo,
@@ -717,7 +734,7 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
        cambio.umbral_aprobacion::float AS umbral_aprobacion,
        cambio.resuelto_at
      ${source}
-     ORDER BY pi.updated_at DESC, cambio.id DESC
+     ORDER BY COALESCE(pi.updated_at, cambio.created_at) DESC, cambio.id DESC
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, (currentPage - 1) * limit]
   );
@@ -918,6 +935,8 @@ export async function updateProveedorDiscounts(
   });
 
   return await withTransaction(async (client) => {
+    const productIds = await obtenerProductosProveedor(client, id_proveedor);
+    const costosAntes = await capturarCostosReferencia(client, productIds);
     await client.query(
       `UPDATE proveedores SET descuento_general = $1 WHERE id = $2`,
       [general, id_proveedor]
@@ -942,13 +961,19 @@ export async function updateProveedorDiscounts(
       );
     }
 
-    const productIds = await recalcularCostosProveedorProductos(client, { idProveedor: id_proveedor });
-    const preciosRecalculados = await recalcularPreciosAutomaticos(client, productIds);
+    await recalcularCostosProveedorProductos(client, { idProveedor: id_proveedor, productIds });
+    const seguimiento = await registrarCambiosCostoReferencia(client, costosAntes, {
+      origen: "DESCUENTOS_PROVEEDOR",
+      idProveedor: id_proveedor,
+      detalle: "Descuentos o coeficientes del proveedor actualizados.",
+    });
 
     return {
       success: true,
       productosAfectados: productIds.length,
-      preciosRecalculados,
+      preciosRecalculados: seguimiento.preciosRecalculados,
+      cambiosCosto: seguimiento.cambios,
+      cambiosPendientes: seguimiento.pendientes,
     };
   });
 }

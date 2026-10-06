@@ -157,6 +157,7 @@ export function CatalogForm({
       }
 
       // 2. Guardar Descuentos (si es proveedor y edición)
+      let cambiosCostoPendientes = 0;
       if (isEditing && isProveedor && entityId) {
         const resDiscounts = await fetch(`/api/proveedores/${entityId}/descuentos`, {
           method: "POST",
@@ -171,9 +172,15 @@ export function CatalogForm({
         if (!resDiscounts.ok) {
           throw new Error("El nombre se guardó, pero hubo un error con los descuentos.");
         }
+        const discountResult = await resDiscounts.json().catch(() => ({}));
+        cambiosCostoPendientes = Number(discountResult.cambiosPendientes || 0);
       }
 
-      toast.success("Cambios guardados correctamente");
+      toast.success(
+        cambiosCostoPendientes > 0
+          ? `Cambios guardados. ${cambiosCostoPendientes} cambio(s) de costo esperan aprobacion.`
+          : "Cambios guardados correctamente",
+      );
       
       if (onSuccess) {
         onSuccess();

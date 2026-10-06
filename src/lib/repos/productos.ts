@@ -13,6 +13,7 @@ import { getTiposPrecio } from "@/lib/repos/catalogos";
 import { normalizarCriterioCosto } from "@/lib/costos";
 import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
+import { capturarCostosReferencia, registrarCambiosCostoReferencia } from "@/lib/cambios-costo-referencia";
 import { condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
 
 export type ProductoInput = {
@@ -718,6 +719,7 @@ export async function importPreciosProveedores(
 
     const rows = Array.from(validRows.values());
     if (rows.length === 0) return results;
+    const costosAntes = await capturarCostosReferencia(client, rows.map((item) => item.productId));
 
     const updateResult = await client.query<{ id_producto: number }>(`
       INSERT INTO public.producto_proveedor (
@@ -770,9 +772,14 @@ export async function importPreciosProveedores(
     results.pricesUpdated = priceUpdates ? rows.length : 0;
     results.stockUpdated = stockUpdates ? rows.length : 0;
     if ((priceUpdates || stockUpdates) && affectedProductIds.length > 0) {
-      const recalculatedProducts = await recalcularCostosProveedorProductos(client, { productIds: affectedProductIds });
-      await recalcularPreciosAutomaticos(client, recalculatedProducts);
-      results.recalculated = recalculatedProducts.length;
+      await recalcularCostosProveedorProductos(client, { productIds: affectedProductIds });
+      const providerIds = [...new Set(rows.map((item) => item.providerId))];
+      const seguimiento = await registrarCambiosCostoReferencia(client, costosAntes, {
+        origen: "CARGA_MANUAL_PROVEEDOR",
+        idProveedor: providerIds.length === 1 ? providerIds[0] : undefined,
+        detalle: "Carga manual de precios o stock de proveedores.",
+      });
+      results.recalculated = seguimiento.preciosRecalculados;
     }
 
     return results;
@@ -1010,6 +1017,8 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
 
   const result = await withTransaction(async (client) => {
     const payload = sanitizeProductoInput(input);
+    const productId = Number(id);
+    const costosAntes = await capturarCostosReferencia(client, [productId]);
 
     // Validamos duplicado si se cambió el código
     if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, id)) {
@@ -1061,9 +1070,12 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
     }
 
     await syncProductoProveedores(client, id, payload.proveedores);
-    await recalcularCostosProveedorProductos(client, { productIds: [Number(id)] });
+    await recalcularCostosProveedorProductos(client, { productIds: [productId] });
     await syncProductoPrecios(client, id, payload.precios);
-    await recalcularPreciosAutomaticos(client, [Number(id)]);
+    await registrarCambiosCostoReferencia(client, costosAntes, {
+      origen: "EDICION_ITEM",
+      detalle: "Criterio o datos de costo editados desde la ficha del item.",
+    });
 
 
     const updatedProduct = result.rows[0];

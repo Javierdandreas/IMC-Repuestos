@@ -1,5 +1,6 @@
 import { AppError } from "@/lib/api-errors";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
+import { capturarCostosReferencia, registrarCambiosCostoReferencia } from "@/lib/cambios-costo-referencia";
 import type { CriterioCosto } from "@/lib/costos";
 import { query, type DbClient } from "@/lib/db-utils";
 import {
@@ -28,6 +29,28 @@ export type ResultadoCostoMasivo = {
   itemsConCosto: number;
   itemsSinCosto: number;
   itemsRecalculados: number;
+  cambiosCosto?: number;
+  cambiosPendientes?: number;
+};
+
+export type ItemSinCostoMasivo = {
+  id: number;
+  codigo: string;
+  descripcion: string;
+  marca: string | null;
+  categoria: string;
+  subcategoria: string;
+  criterioCosto: CriterioCosto;
+  proveedoresConCosto: number;
+  proveedoresValidos: string;
+  motivo: string;
+};
+
+export type ItemsSinCostoMasivoPage = {
+  data: ItemSinCostoMasivo[];
+  page: number;
+  totalPages: number;
+  totalCount: number;
 };
 
 const BATCH_SIZE = 2_000;
@@ -222,6 +245,112 @@ export async function getResumenCostosMasivos(filters: FiltrosCostoMasivo): Prom
   };
 }
 
+export async function getItemsSinCostoMasivo(
+  filters: FiltrosCostoMasivo,
+  page = 1,
+  limit = 50,
+): Promise<ItemsSinCostoMasivoPage> {
+  const filter = filtroSql(filters);
+  const currentPage = Math.max(1, Math.floor(page));
+  const currentLimit = Math.max(10, Math.min(100000, Math.floor(limit)));
+  const result = await query<{
+    id: number;
+    codigo: string;
+    descripcion: string;
+    marca: string | null;
+    categoria: string;
+    subcategoria: string;
+    criterio_costo: CriterioCosto;
+    proveedores_con_costo: number;
+    proveedores_validos: string | null;
+    motivo: string;
+    total_count: number;
+  }>(
+    `
+      WITH tipo_costo AS (
+        SELECT id
+        FROM public.tipo_precio
+        WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+        ORDER BY id
+        LIMIT 1
+      ),
+      costos_manuales AS (
+        SELECT DISTINCT ON (precio.id_producto)
+          precio.id_producto,
+          precio.precio::float AS costo
+        FROM public.producto_precio precio
+        INNER JOIN tipo_costo ON tipo_costo.id = precio.id_tipo_precio
+        WHERE precio.precio > 0
+        ORDER BY precio.id_producto, precio.id DESC
+      ),
+      proveedores_validos AS (
+        SELECT
+          proveedor.id_producto,
+          COUNT(*)::int AS cantidad,
+          STRING_AGG(DISTINCT proveedor_catalogo.descripcion, ', ' ORDER BY proveedor_catalogo.descripcion) AS nombres
+        FROM public.producto_proveedor proveedor
+        INNER JOIN public.proveedores proveedor_catalogo ON proveedor_catalogo.id = proveedor.id_proveedor
+        WHERE COALESCE(proveedor.costo_actual, proveedor.precio_lista_actual) > 0
+        GROUP BY proveedor.id_producto
+      ),
+      pendientes AS (
+        SELECT
+          p.id,
+          p.cod_unico AS codigo,
+          p.descripcion,
+          marca.descripcion AS marca,
+          categoria.descripcion AS categoria,
+          subcategoria.descripcion AS subcategoria,
+          p.criterio_costo,
+          COALESCE(proveedor.cantidad, 0)::int AS proveedores_con_costo,
+          proveedor.nombres AS proveedores_validos,
+          CASE
+            WHEN p.criterio_costo = 'MANUAL' THEN 'No tiene un costo manual mayor a cero.'
+            WHEN p.criterio_costo = 'PROVEEDOR_UNICO' AND COALESCE(proveedor.cantidad, 0) = 0 THEN 'No tiene proveedores con costo neto valido.'
+            WHEN p.criterio_costo = 'PROVEEDOR_UNICO' THEN 'El criterio proveedor unico requiere exactamente un proveedor con costo neto valido.'
+            ELSE 'No tiene proveedores con costo neto valido.'
+          END AS motivo
+        FROM public.productos p
+        INNER JOIN public.subcategoria subcategoria ON subcategoria.id = p.id_subcategoria
+        INNER JOIN public.categoria categoria ON categoria.id = subcategoria.id_categoria
+        LEFT JOIN public.marcas marca ON marca.id = p.id_marca
+        LEFT JOIN proveedores_validos proveedor ON proveedor.id_producto = p.id
+        LEFT JOIN costos_manuales manual ON manual.id_producto = p.id
+        WHERE ${filter.sql}
+          AND (
+            (p.criterio_costo = 'MANUAL' AND manual.id_producto IS NULL)
+            OR (p.criterio_costo = 'PROVEEDOR_UNICO' AND COALESCE(proveedor.cantidad, 0) <> 1)
+            OR (p.criterio_costo IN ('MENOR_PRECIO', 'PROMEDIO_PRECIO', 'MAYOR_PRECIO') AND COALESCE(proveedor.cantidad, 0) = 0)
+          )
+      )
+      SELECT pendientes.*, COUNT(*) OVER()::int AS total_count
+      FROM pendientes
+      ORDER BY categoria, subcategoria, marca NULLS LAST, codigo
+      LIMIT $5 OFFSET $6
+    `,
+    [...filter.values, currentLimit, (currentPage - 1) * currentLimit],
+  );
+  const totalCount = Number(result.rows[0]?.total_count ?? 0);
+  const totalPages = Math.max(1, Math.ceil(totalCount / currentLimit));
+  return {
+    data: result.rows.map((row) => ({
+      id: Number(row.id),
+      codigo: String(row.codigo),
+      descripcion: String(row.descripcion),
+      marca: row.marca,
+      categoria: String(row.categoria),
+      subcategoria: String(row.subcategoria),
+      criterioCosto: row.criterio_costo,
+      proveedoresConCosto: Number(row.proveedores_con_costo),
+      proveedoresValidos: String(row.proveedores_validos ?? ""),
+      motivo: String(row.motivo),
+    })),
+    page: Math.min(currentPage, totalPages),
+    totalPages,
+    totalCount,
+  };
+}
+
 export async function repararPreciosMasivos(client: DbClient, filters: FiltrosCostoMasivo): Promise<ResultadoCostoMasivo> {
   const productIds = await obtenerIdsProductos(client, filters);
   const result = await recalcularPreciosDeProductos(client, productIds, { actualizarExistentes: false });
@@ -243,17 +372,25 @@ export async function asignarCriterioCostoMasivo(
   if (productIds.length === 0) {
     return { totalItems: 0, criteriosActualizados: 0, itemsConCosto: 0, itemsSinCosto: 0, itemsRecalculados: 0 };
   }
+  const costosAntes = await capturarCostosReferencia(client, productIds);
   await client.query(
     `UPDATE public.productos SET criterio_costo = $2 WHERE id = ANY($1::int[])`,
     [productIds, criterio],
   );
-  const result = await recalcularPreciosDeProductos(client, productIds, { actualizarExistentes: true });
+  await recalcularCostosProveedorProductos(client, { productIds });
+  const result = await registrarCambiosCostoReferencia(client, costosAntes, {
+    origen: "CRITERIO_MASIVO",
+    idProveedor: filters.idProveedor,
+    detalle: `Criterio de costo asignado: ${criterio}.`,
+  });
   return {
     totalItems: productIds.length,
     criteriosActualizados: productIds.length,
-    itemsConCosto: result.itemsConCosto,
-    itemsSinCosto: productIds.length - result.itemsConCosto,
-    itemsRecalculados: result.itemsRecalculados,
+    itemsConCosto: result.costosDisponibles,
+    itemsSinCosto: productIds.length - result.costosDisponibles,
+    itemsRecalculados: result.preciosRecalculados,
+    cambiosCosto: result.cambios,
+    cambiosPendientes: result.pendientes,
   };
 }
 

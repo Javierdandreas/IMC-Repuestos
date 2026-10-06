@@ -3,7 +3,11 @@ import { jsonError, AppError } from "@/lib/api-errors";
 import { requireApiReadSession, requireApiWriteSession } from "@/lib/api-auth";
 import { withTransaction } from "@/lib/db-utils";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
-import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
+import {
+  capturarCostosReferencia,
+  obtenerProductosProveedor,
+  registrarCambiosCostoReferencia,
+} from "@/lib/cambios-costo-referencia";
 import {
   getProveedorReglasCosto,
   replaceProveedorReglasCosto,
@@ -76,10 +80,21 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       const provider = await client.query(`SELECT id FROM public.proveedores WHERE id = $1`, [idProveedor]);
       if (provider.rowCount === 0) throw new AppError("Proveedor no encontrado", 404);
 
+      const productIds = await obtenerProductosProveedor(client, idProveedor);
+      const costosAntes = await capturarCostosReferencia(client, productIds);
       await replaceProveedorReglasCosto(client, idProveedor, reglas);
-      const productIds = await recalcularCostosProveedorProductos(client, { idProveedor });
-      const preciosRecalculados = await recalcularPreciosAutomaticos(client, productIds);
-      return { productosAfectados: productIds.length, preciosRecalculados };
+      await recalcularCostosProveedorProductos(client, { idProveedor, productIds });
+      const seguimiento = await registrarCambiosCostoReferencia(client, costosAntes, {
+        origen: "REGLAS_PROVEEDOR",
+        idProveedor,
+        detalle: "Capas de costo del proveedor actualizadas.",
+      });
+      return {
+        productosAfectados: productIds.length,
+        preciosRecalculados: seguimiento.preciosRecalculados,
+        cambiosCosto: seguimiento.cambios,
+        cambiosPendientes: seguimiento.pendientes,
+      };
     });
 
     return NextResponse.json({ success: true, ...result });

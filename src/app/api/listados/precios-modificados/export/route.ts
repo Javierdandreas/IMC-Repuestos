@@ -29,6 +29,17 @@ export async function GET(request: NextRequest) {
       Fecha: new Date(item.fecha_importacion).toLocaleString("es-AR"),
       Proveedor: item.proveedor,
       Archivo: item.archivo,
+      Origen: item.origen === "IMPORTACION"
+        ? "Importacion de lista"
+        : item.origen === "CARGA_MANUAL_PROVEEDOR"
+          ? "Carga manual de precios"
+        : item.origen === "CRITERIO_MASIVO"
+          ? "Cambio masivo de criterio"
+          : item.origen === "REGLAS_PROVEEDOR"
+            ? "Capas de costo"
+            : item.origen === "DESCUENTOS_PROVEEDOR"
+              ? "Descuentos de proveedor"
+              : "Edicion de item",
       "Codigo item": item.codigo_item ?? "",
       Descripcion: item.descripcion_item ?? "",
       "Codigo proveedor": item.codigo_proveedor,
@@ -39,7 +50,7 @@ export async function GET(request: NextRequest) {
       "Diferencia %": item.diferencia_porcentaje === null ? null : item.diferencia_porcentaje / 100,
       Estado: item.estado_aprobacion === "APROBADO_MANUAL" ? "Aprobado manualmente" : "Aprobado automaticamente",
     }));
-    const headers = ["Fecha", "Proveedor", "Archivo", "Codigo item", "Descripcion", "Codigo proveedor", "Tipo", "Costo anterior", "Costo nuevo", "Diferencia", "Diferencia %", "Estado"];
+    const headers = ["Fecha", "Proveedor", "Archivo", "Origen", "Codigo item", "Descripcion", "Codigo proveedor", "Tipo", "Costo anterior", "Costo nuevo", "Diferencia", "Diferencia %", "Estado"];
     const worksheet = rows.length > 0 ? XLSX.utils.json_to_sheet(rows) : XLSX.utils.aoa_to_sheet([headers]);
     const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
 
@@ -48,17 +59,17 @@ export async function GET(request: NextRequest) {
       if (worksheet[address]) worksheet[address].s = headerStyle;
     }
     for (let row = 1; row <= range.e.r; row += 1) {
-      [7, 8, 9].forEach((column) => {
+      [8, 9, 10].forEach((column) => {
         const cell = worksheet[XLSX.utils.encode_cell({ r: row, c: column })];
         if (cell) cell.z = '"$" #,##0.00';
       });
-      const percentage = worksheet[XLSX.utils.encode_cell({ r: row, c: 10 })];
+      const percentage = worksheet[XLSX.utils.encode_cell({ r: row, c: 11 })];
       if (percentage) percentage.z = "0.00%";
     }
     worksheet["!autofilter"] = { ref: XLSX.utils.encode_range(range) };
     worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
     worksheet["!cols"] = [
-      { wch: 19 }, { wch: 28 }, { wch: 28 }, { wch: 18 }, { wch: 44 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 15 }, { wch: 24 },
+      { wch: 19 }, { wch: 28 }, { wch: 28 }, { wch: 28 }, { wch: 18 }, { wch: 44 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 15 }, { wch: 24 },
     ];
 
     const workbook = XLSX.utils.book_new();

@@ -25,7 +25,8 @@ type Row = {
   proveedor: string;
   codigo_item: string | null;
   descripcion_item: string | null;
-  codigo_proveedor: string;
+  codigo_proveedor: string | null;
+  origen: "IMPORTACION" | "CARGA_MANUAL_PROVEEDOR" | "CRITERIO_MASIVO" | "REGLAS_PROVEEDOR" | "DESCUENTOS_PROVEEDOR" | "EDICION_ITEM";
   costo_anterior: number | null;
   costo_nuevo: number;
   diferencia: number | null;
@@ -70,6 +71,15 @@ function statusClass(status: Row["estado_aprobacion"]) {
   if (status === "APROBADO_AUTOMATICO" || status === "APROBADO_MANUAL") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
   if (status === "RECHAZADO") return "bg-red-500/10 text-red-700 dark:text-red-300";
   return "bg-slate-500/10 text-slate-600 dark:text-slate-400";
+}
+
+function originLabel(origin: Row["origen"]) {
+  if (origin === "IMPORTACION") return "Importacion";
+  if (origin === "CARGA_MANUAL_PROVEEDOR") return "Carga manual";
+  if (origin === "CRITERIO_MASIVO") return "Criterio masivo";
+  if (origin === "REGLAS_PROVEEDOR") return "Capas de costo";
+  if (origin === "DESCUENTOS_PROVEEDOR") return "Descuentos";
+  return "Edicion de item";
 }
 
 export function PriceChangesReportPage() {
@@ -193,19 +203,19 @@ export function PriceChangesReportPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1280px] text-left text-xs">
+            <table className="w-full min-w-[1400px] text-left text-xs">
               <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:bg-slate-900/60">
                 <tr>
                   {canManage && <th className="w-12 px-4 py-3"><input type="checkbox" aria-label="Seleccionar cambios pendientes de la pagina" checked={allSelected} onChange={toggleAll} disabled={selectableIds.length === 0 || isResolving} className="h-4 w-4 rounded border-slate-300 text-blue-600" /></th>}
-                  <th className="px-4 py-3">Fecha</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Item</th><th className="px-3 py-3">Codigo proveedor</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3 text-right">Costo anterior</th><th className="px-3 py-3 text-right">Costo nuevo</th><th className="px-3 py-3 text-right">Diferencia</th><th className="px-3 py-3 text-right">%</th>
+                  <th className="px-4 py-3">Fecha</th><th className="px-3 py-3">Origen</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Item</th><th className="px-3 py-3">Codigo proveedor</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3 text-right">Costo anterior</th><th className="px-3 py-3 text-right">Costo nuevo</th><th className="px-3 py-3 text-right">Diferencia</th><th className="px-3 py-3 text-right">%</th>
                   {canManage && <th className="px-3 py-3 text-right">Accion</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                 {isLoading ? (
-                  <tr><td colSpan={canManage ? 11 : 9} className="px-4 py-12 text-center font-bold text-slate-500">Cargando costos modificados...</td></tr>
+                  <tr><td colSpan={canManage ? 12 : 10} className="px-4 py-12 text-center font-bold text-slate-500">Cargando costos modificados...</td></tr>
                 ) : error ? (
-                  <tr><td colSpan={canManage ? 11 : 9} className="px-4 py-12 text-center font-bold text-red-500">{error.message}</td></tr>
+                  <tr><td colSpan={canManage ? 12 : 10} className="px-4 py-12 text-center font-bold text-red-500">{error.message}</td></tr>
                 ) : data?.data.length ? data.data.map((row) => {
                   const isPending = row.estado_aprobacion === "PENDIENTE";
                   const differenceClass = Number(row.diferencia) < 0 ? "text-emerald-600 dark:text-emerald-300" : "text-amber-600 dark:text-amber-300";
@@ -213,9 +223,10 @@ export function PriceChangesReportPage() {
                     <tr key={row.id} className="text-slate-700 dark:text-slate-300">
                       {canManage && <td className="px-4 py-3"><input type="checkbox" aria-label={`Seleccionar ${row.codigo_item || row.codigo_proveedor}`} checked={selectedIds.includes(row.id)} onChange={() => toggleSelected(row.id)} disabled={!isPending || isResolving} className="h-4 w-4 rounded border-slate-300 text-blue-600 disabled:opacity-40" /></td>}
                       <td className="whitespace-nowrap px-4 py-3 font-mono text-[10px] font-semibold">{formatDate(row.fecha_importacion)}</td>
+                       <td className="px-3 py-3 font-black text-[10px] uppercase tracking-wide text-slate-500">{originLabel(row.origen)}</td>
                       <td className="max-w-48 truncate px-3 py-3 font-semibold" title={row.proveedor}>{row.proveedor}</td>
                       <td className="max-w-sm px-3 py-3"><p className="font-semibold text-slate-900 dark:text-white">{row.descripcion_item || "Item sin descripcion"}</p><p className="mt-1 font-mono text-[10px] text-slate-500">{row.codigo_item || "Sin codigo interno"}</p></td>
-                      <td className="px-3 py-3 font-mono font-semibold">{row.codigo_proveedor}</td>
+                       <td className="px-3 py-3 font-mono font-semibold">{row.codigo_proveedor || "-"}</td>
                       <td className="px-3 py-3"><span className={`inline-flex rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-wide ${statusClass(row.estado_aprobacion)}`}>{statusLabel(row.estado_aprobacion)}</span></td>
                       <td className="px-3 py-3 text-right font-mono font-semibold">{formatMoney(row.costo_anterior)}</td>
                       <td className="px-3 py-3 text-right font-mono font-black text-slate-900 dark:text-white">{formatMoney(row.costo_nuevo)}</td>
@@ -225,7 +236,7 @@ export function PriceChangesReportPage() {
                     </tr>
                   );
                 }) : (
-                  <tr><td colSpan={canManage ? 11 : 9} className="px-4 py-12 text-center font-bold text-slate-500">No hay costos modificados con este filtro.</td></tr>
+                  <tr><td colSpan={canManage ? 12 : 10} className="px-4 py-12 text-center font-bold text-slate-500">No hay costos modificados con este filtro.</td></tr>
                 )}
               </tbody>
             </table>

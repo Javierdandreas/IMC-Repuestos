@@ -137,9 +137,11 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
       if (!response.ok) throw new Error(data.message || "No se pudieron guardar las capas");
 
       toast.success(
-        data.preciosRecalculados > 0
-          ? `Capas guardadas. ${data.preciosRecalculados} precios recalculados.`
-          : "Capas de costo guardadas.",
+        data.cambiosPendientes > 0
+          ? `Capas guardadas. ${data.cambiosPendientes} cambio(s) de costo esperan aprobacion.`
+          : data.preciosRecalculados > 0
+            ? `Capas guardadas. ${data.preciosRecalculados} precios recalculados.`
+            : "Capas de costo guardadas.",
       );
       await mutate();
     } catch (error) {
