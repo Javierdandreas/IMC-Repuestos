@@ -18,7 +18,7 @@ import {
 import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
 
 type Props = { canManage: boolean };
-type Tab = "IMPORTAR" | "EXPORTAR" | "HISTORIAL" | "INTEGRACIONES";
+type Tab = "IMPORTAR" | "EXPORTAR" | "MANTENIMIENTO" | "HISTORIAL" | "INTEGRACIONES";
 
 function ActionButton({ icon: Icon, title, detail, onClick, disabled = false }: {
   icon: typeof HiCube;
@@ -38,6 +38,7 @@ function ActionButton({ icon: Icon, title, detail, onClick, disabled = false }: 
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: "IMPORTAR", label: "Importar" },
   { id: "EXPORTAR", label: "Exportar" },
+  { id: "MANTENIMIENTO", label: "Mantenimiento" },
   { id: "HISTORIAL", label: "Historial" },
   { id: "INTEGRACIONES", label: "Integraciones" },
 ];
@@ -129,6 +130,15 @@ export function CatalogTransfersPage({ canManage }: Props) {
               <label className={`flex min-h-24 cursor-pointer items-center gap-3 rounded-lg border p-4 transition ${includeItems ? "border-blue-500/40 bg-blue-500/5" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"}`}><input type="checkbox" checked={includeItems} onChange={(event) => setIncludeItems(event.target.checked)} className="h-4 w-4 accent-blue-600" /><span><span className="block text-sm font-black text-slate-900 dark:text-white">Items</span><span className="mt-1 block text-xs font-medium text-slate-500">Items, asociados, proveedores y precios</span></span></label>
               <label className={`flex min-h-24 cursor-pointer items-center gap-3 rounded-lg border p-4 transition ${includeKits ? "border-violet-500/40 bg-violet-500/5" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"}`}><input type="checkbox" checked={includeKits} onChange={(event) => setIncludeKits(event.target.checked)} className="h-4 w-4 accent-violet-600" /><span><span className="block text-sm font-black text-slate-900 dark:text-white">Kits</span><span className="mt-1 block text-xs font-medium text-slate-500">Kits y componentes</span></span></label>
               <button type="button" onClick={downloadCatalog} disabled={exporting || (!includeItems && !includeKits)} className="inline-flex min-h-24 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 text-xs font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><HiCloudDownload className="h-5 w-5" /> Exportar Excel</button>
+            </div>
+          </section>
+        </div>}
+
+        {activeTab === "MANTENIMIENTO" && <div className="space-y-7">
+          <section>
+            <div className="mb-3 flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500"><HiCurrencyDollar className="h-4 w-4" /></span><h2 className="text-sm font-black uppercase tracking-wide text-slate-900 dark:text-white">Costos y precios</h2></div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <ActionButton icon={HiCurrencyDollar} title="Criterios y precios" detail="Asignar costo masivamente y completar listas de precio faltantes" onClick={() => router.push("/configuracion/costos-precios")} disabled={!canManage} />
             </div>
           </section>
         </div>}

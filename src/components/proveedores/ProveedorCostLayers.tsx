@@ -180,8 +180,8 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
       </div>
 
       <div className="overflow-x-auto">
-        <div className="min-w-[1180px]">
-          <div className="grid grid-cols-[54px_minmax(160px,1fr)_110px_minmax(180px,1fr)_minmax(190px,1fr)_155px_95px_100px] gap-2 border-b border-slate-800 bg-slate-950/60 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
+        <div className="min-w-[1240px]">
+          <div className="grid grid-cols-[54px_minmax(160px,1fr)_110px_minmax(180px,1fr)_minmax(280px,1.5fr)_155px_95px_100px] gap-2 border-b border-slate-800 bg-slate-950/60 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
             <span>Usar</span>
             <span>Capa</span>
             <span>Alcance</span>
@@ -197,7 +197,7 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
           ) : rules.length === 0 ? (
             <div className="px-4 py-8 text-center text-xs font-bold text-slate-500">Sin capas. El costo usa directamente el precio de lista.</div>
           ) : rules.map((rule, index) => (
-            <div key={rule.key} className={`grid grid-cols-[54px_minmax(160px,1fr)_110px_minmax(180px,1fr)_minmax(190px,1fr)_155px_95px_100px] items-center gap-2 border-b border-slate-800 px-4 py-2 last:border-b-0 ${rule.activo ? "" : "opacity-50"}`}>
+            <div key={rule.key} className={`grid grid-cols-[54px_minmax(160px,1fr)_110px_minmax(180px,1fr)_minmax(280px,1.5fr)_155px_95px_100px] items-center gap-2 border-b border-slate-800 px-4 py-2 last:border-b-0 ${rule.activo ? "" : "opacity-50"}`}>
               <label className="flex cursor-pointer items-center gap-2 text-[10px] font-black uppercase text-slate-400">
                 <input
                   type="checkbox"
@@ -245,7 +245,7 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
                   {marcas.map((marca) => <option key={marca.id} value={marca.id}>{marca.descripcion}</option>)}
                 </select>
               ) : <span className="px-2 text-[10px] font-bold text-slate-600">Todas las marcas</span>}
-              <div className="space-y-1">
+              <div className={`grid min-w-0 items-center gap-1 ${rule.condicion_tipo === "STOCK_TEXTO" ? "grid-cols-[144px_minmax(0,1fr)]" : "grid-cols-1"}`}>
                 <select
                   value={rule.condicion_tipo ?? "SIEMPRE"}
                   onChange={(event) => updateRule(rule.key, {
@@ -253,22 +253,20 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
                     condicion_valor: event.target.value === "STOCK_TEXTO" ? rule.condicion_valor : null,
                     condicion_operador: "CONTIENE",
                   })}
-                  className="h-9 w-full rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500"
+                  className="h-9 w-full min-w-0 rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500"
+                  aria-label="Condicion de la capa"
                 >
                   <option value="SIEMPRE">Siempre</option>
                   <option value="STOCK_TEXTO">Por texto de stock</option>
                 </select>
                 {rule.condicion_tipo === "STOCK_TEXTO" ? (
-                  <div className="flex gap-1">
-                    <span className="inline-flex h-8 shrink-0 items-center rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black uppercase text-slate-400">Contiene</span>
-                    <input
-                      value={rule.condicion_valor ?? ""}
-                      onChange={(event) => updateRule(rule.key, { condicion_valor: event.target.value })}
-                      placeholder="POR PEDIDO"
-                      className="h-8 min-w-0 flex-1 rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-bold uppercase text-white outline-none focus:border-blue-500"
-                      aria-label="Texto de stock"
-                    />
-                  </div>
+                  <input
+                    value={rule.condicion_valor ?? ""}
+                    onChange={(event) => updateRule(rule.key, { condicion_valor: event.target.value })}
+                    placeholder="POR PEDIDO"
+                    className="h-9 w-full min-w-0 rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-bold uppercase text-white outline-none focus:border-blue-500"
+                    aria-label="Texto de stock"
+                  />
                 ) : null}
               </div>
               <select

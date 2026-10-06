@@ -13,6 +13,7 @@ import { getTiposPrecio } from "@/lib/repos/catalogos";
 import { normalizarCriterioCosto } from "@/lib/costos";
 import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
+import { condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
 
 export type ProductoInput = {
   cod_unico: string;
@@ -200,26 +201,14 @@ export async function getProductosListado(
   const params: any[] = [];
   let whereClauses = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
 
-  if (filters.search) {
-    params.push(`%${filters.search}%`);
-    whereClauses.push(`(
-      p.descripcion ILIKE $${params.length} OR 
-      p.cod_unico::text ILIKE $${params.length} OR 
-      pi.codigo_pieza::text ILIKE $${params.length} OR 
-      p.palabra_clave::text ILIKE $${params.length} OR
-      p.cod_barra::text ILIKE $${params.length} OR
-      cr.codigo::text ILIKE $${params.length}
-    )`);
+  if (filters.search?.trim()) {
+    params.push(parametroBusquedaItems(filters.search));
+    whereClauses.push(condicionBusquedaProducto(params.length));
   }
 
-  if (filters.searchSpecific) {
-    params.push(filters.searchSpecific);
-    whereClauses.push(`(
-      p.cod_unico::text = $${params.length} OR 
-      pi.codigo_pieza::text = $${params.length} OR
-      p.cod_barra::text = $${params.length} OR
-      cr.codigo::text = $${params.length}
-    )`);
+  if (filters.searchSpecific?.trim()) {
+    params.push(parametroBusquedaItems(filters.searchSpecific, true));
+    whereClauses.push(condicionBusquedaProducto(params.length, true));
   }
 
   if (filters.categoria) {
@@ -403,26 +392,14 @@ export async function getProductosParaExportar(filters: {
   const params: any[] = [];
   let whereClauses = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
 
-  if (filters.search) {
-    params.push(`%${filters.search}%`);
-    whereClauses.push(`(
-      p.descripcion ILIKE $${params.length} OR 
-      p.cod_unico::text ILIKE $${params.length} OR 
-      pi.codigo_pieza::text ILIKE $${params.length} OR 
-      p.palabra_clave::text ILIKE $${params.length} OR
-      p.cod_barra::text ILIKE $${params.length} OR
-      cr.codigo::text ILIKE $${params.length}
-    )`);
+  if (filters.search?.trim()) {
+    params.push(parametroBusquedaItems(filters.search));
+    whereClauses.push(condicionBusquedaProducto(params.length));
   }
 
-  if (filters.searchSpecific) {
-    params.push(filters.searchSpecific);
-    whereClauses.push(`(
-      p.cod_unico::text = $${params.length} OR 
-      pi.codigo_pieza::text = $${params.length} OR
-      p.cod_barra::text = $${params.length} OR
-      cr.codigo::text = $${params.length}
-    )`);
+  if (filters.searchSpecific?.trim()) {
+    params.push(parametroBusquedaItems(filters.searchSpecific, true));
+    whereClauses.push(condicionBusquedaProducto(params.length, true));
   }
 
   if (filters.categoria) {
@@ -1154,7 +1131,16 @@ export async function importProductos(
   archivo: string,
   mappings: Record<string, { csvHeader: string; updateExisting: boolean }>
 ) {
-  return await withTransaction(async (client) => {
+  return withTransaction((client) => importProductosConCliente(client, items, usuario, archivo, mappings));
+}
+
+export async function importProductosConCliente(
+  client: DbClient,
+  items: any[],
+  usuario: string,
+  archivo: string,
+  mappings: Record<string, { csvHeader: string; updateExisting: boolean }>
+) {
     // 1. Cargar metadatos para resolución rápida
     const [marcas, categorias, subcategorias, ubicaciones, piezas, proveedores, tiposPrecio] = await Promise.all([
       client.query("SELECT id, descripcion FROM marcas"),
@@ -1617,7 +1603,6 @@ export async function importProductos(
     const durationMs = Date.now() - startTime;
 
     return { ...results, durationMs };
-  });
 }
 
 export async function getImportacionesLogs(page: number = 1, limit: number = 20): Promise<{ data: any[]; totalCount: number; totalPages: number }> {

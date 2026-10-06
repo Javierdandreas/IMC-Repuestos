@@ -1,6 +1,8 @@
 import { query, withTransaction, paginateQuery } from "@/lib/db-utils";
 import type { DbClient } from "@/lib/db-utils";
 import type { Kit, KitListado, KitComponente } from "@/interfaces/kits";
+import { condicionBusquedaKit, condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
+import { cantidadComponenteKitValida } from "@/lib/kit-cantidades";
 
 const TIPO_CUENTA_CORRIENTE_SQL = `
   SELECT id
@@ -18,9 +20,9 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
   const whereClauses: string[] = [];
   const params: any[] = [];
 
-  if (search) {
-    whereClauses.push(`(k.nombre ILIKE $1 OR k.codigo_kit ILIKE $1)`);
-    params.push(`%${search}%`);
+  if (search?.trim()) {
+    params.push(parametroBusquedaItems(search));
+    whereClauses.push(condicionBusquedaKit(params.length));
   }
 
   if (ids?.length) {
@@ -152,6 +154,7 @@ export async function getKitById(id: number): Promise<Kit | null> {
  * Crea un nuevo kit.
  */
 export async function createKit(payload: Kit): Promise<Kit> {
+  validarCantidadesKit(payload);
   return await withTransaction(async (client) => {
     // 1. Insertar Kit
     const kitRes = await client.query(`
@@ -180,6 +183,7 @@ export async function createKit(payload: Kit): Promise<Kit> {
  * Actualiza un kit existente.
  */
 export async function updateKit(id: number, payload: Kit): Promise<Kit> {
+  validarCantidadesKit(payload);
   return await withTransaction(async (client) => {
     // 1. Actualizar Kit
     const kitRes = await client.query(`
@@ -216,7 +220,7 @@ export async function deleteKit(id: number): Promise<void> {
 
 /**
  * Buscador de componentes para kits.
- * Solo busca por código (cod_unico) y muestra stock y precios.
+ * Busca por los datos del item y muestra stock y precios.
  */
 export async function searchComponentesForKit(search: string) {
   const sql = `
@@ -232,10 +236,11 @@ export async function searchComponentesForKit(search: string) {
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})), 0) AS precio_mecanico
     FROM public.productos p
     WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
-      AND p.cod_unico ILIKE $1
+      AND ${condicionBusquedaProducto(1)}
+    ORDER BY p.cod_unico, p.id
     LIMIT 10
   `;
-  const res = await query(sql, [`%${search}%`]);
+  const res = await query(sql, [parametroBusquedaItems(search)]);
   return res.rows;
 }
 
@@ -460,12 +465,10 @@ function normalizeKitImportKey(value: unknown) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-function parseImportedQuantity(value: unknown) {
-  const rawValue = String(value ?? "").trim();
-  if (!rawValue) return 1;
-
-  const quantity = Number(rawValue.replace(",", "."));
-  return Number.isInteger(quantity) && quantity > 0 ? quantity : null;
+function validarCantidadesKit(payload: Kit) {
+  if (!payload.componentes?.length || payload.componentes.some((component) => !cantidadComponenteKitValida(component.cantidad))) {
+    throw new Error("El kit debe tener componentes con cantidades enteras mayores a cero.");
+  }
 }
 
 function parseImportedActive(value: unknown) {
@@ -481,6 +484,16 @@ function parseImportedActive(value: unknown) {
  * compatibilidad con archivos antiguos que solamente tienen componentes.
  */
 export async function importKits(
+  items: unknown[],
+  _user: string,
+  _fileName: string,
+  mappings: KitImportMappings
+) {
+  return withTransaction((client) => importKitsConCliente(client, items, _user, _fileName, mappings));
+}
+
+export async function importKitsConCliente(
+  client: DbClient,
   items: unknown[],
   _user: string,
   _fileName: string,
@@ -504,7 +517,6 @@ export async function importKits(
   }
   if (items.length === 0) return { ...results, appliedCodes: [], durationMs: 0 };
 
-  return withTransaction(async (client) => {
     const kitsByCode = new Map<string, ImportedKit>();
     const invalidKitCodes = new Set<string>();
     let invalidRowsWithoutKit = 0;
@@ -517,7 +529,7 @@ export async function importKits(
       const item = rawItem && typeof rawItem === "object" ? rawItem as Record<string, unknown> : {};
       const code = normalizeKitImportText(read(item, "codigo_kit"));
       const productCode = normalizeKitImportText(read(item, "cod_producto"));
-      const quantity = hasMapping("cantidad") ? parseImportedQuantity(read(item, "cantidad")) : 1;
+      const quantity = hasMapping("cantidad") ? cantidadComponenteKitValida(read(item, "cantidad")) : 1;
 
       if (!code) {
         invalidRowsWithoutKit += 1;
@@ -537,6 +549,11 @@ export async function importKits(
 
       const kit = kitsByCode.get(code) || { code, row, source: item, components: new Map() };
       const previous = kit.components.get(productCode);
+      if (!cantidadComponenteKitValida((previous?.quantity || 0) + quantity)) {
+        invalidKitCodes.add(code);
+        addError(row, "La cantidad acumulada del componente excede el limite permitido.", code);
+        return;
+      }
       kit.components.set(productCode, {
         code: productCode,
         quantity: (previous?.quantity || 0) + quantity,
@@ -738,5 +755,4 @@ export async function importKits(
       appliedCodes: validKits.map((kit) => kit.code),
       durationMs: Date.now() - startTime,
     };
-  });
 }

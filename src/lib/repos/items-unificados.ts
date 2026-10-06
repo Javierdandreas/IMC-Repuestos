@@ -2,6 +2,7 @@ import type { ProductoListado } from "@/interfaces/productos";
 import { query } from "@/lib/db-utils";
 import { getProductosListado } from "@/lib/repos/productos";
 import { getComponentesParaKitsListado, getKitsListado } from "@/lib/repos/kits";
+import { condicionBusquedaKit, condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
 
 export type FiltrosItemsUnificados = {
   search?: string;
@@ -44,37 +45,18 @@ export async function getItemsUnificadosListado(
   const params: unknown[] = [];
   const productConditions = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
   const kitConditions: string[] = [];
-  const hasCodeSearch = Boolean(filters.search || filters.searchSpecific);
+  const hasCodeSearch = Boolean(filters.search?.trim() || filters.searchSpecific?.trim());
 
-  if (filters.search) {
-    const productSearch = addParam(params, `%${filters.search}%`);
-    productConditions.push(`(
-      p.descripcion ILIKE ${productSearch}
-      OR p.cod_unico::text ILIKE ${productSearch}
-      OR p.cod_barra::text ILIKE ${productSearch}
-      OR p.palabra_clave::text ILIKE ${productSearch}
-      OR EXISTS (
-        SELECT 1
-        FROM public.pieza pi
-        WHERE pi.id = p.id_pieza
-          AND (pi.codigo_pieza::text ILIKE ${productSearch} OR pi.descripcion ILIKE ${productSearch})
-      )
-    )`);
-    const kitCode = addParam(params, filters.search);
-    kitConditions.push(`UPPER(k.codigo_kit) = UPPER(${kitCode})`);
+  if (filters.search?.trim()) {
+    params.push(parametroBusquedaItems(filters.search));
+    productConditions.push(condicionBusquedaProducto(params.length));
+    kitConditions.push(condicionBusquedaKit(params.length));
   }
 
-  if (filters.searchSpecific) {
-    const exactCode = addParam(params, filters.searchSpecific);
-    productConditions.push(`(
-      p.cod_unico::text = ${exactCode}
-      OR p.cod_barra::text = ${exactCode}
-      OR EXISTS (
-        SELECT 1 FROM public.pieza pi
-        WHERE pi.id = p.id_pieza AND pi.codigo_pieza::text = ${exactCode}
-      )
-    )`);
-    kitConditions.push(`k.codigo_kit = ${exactCode}`);
+  if (filters.searchSpecific?.trim()) {
+    params.push(parametroBusquedaItems(filters.searchSpecific, true));
+    productConditions.push(condicionBusquedaProducto(params.length, true));
+    kitConditions.push(condicionBusquedaKit(params.length, true));
   }
 
   if (filters.categoria) {

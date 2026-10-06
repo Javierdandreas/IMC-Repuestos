@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { HiArrowLeft } from "react-icons/hi";
 import { GesuImportPreview } from "@/components/products/GesuImportPreview";
+import { GesuConvertedProducts } from "@/components/products/GesuConvertedProducts";
 
 export default function ImportarDesdeGesuPage() {
   const router = useRouter();
@@ -24,6 +25,7 @@ export default function ImportarDesdeGesuPage() {
         </header>
 
         <GesuImportPreview />
+        <GesuConvertedProducts />
       </div>
     </div>
   );

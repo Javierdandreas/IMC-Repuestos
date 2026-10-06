@@ -1,11 +1,13 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { HiCheck, HiCloudUpload, HiCollection, HiCube, HiExclamation, HiPlay, HiRefresh } from "react-icons/hi";
 import { Modal } from "@/components/ui/Modal";
 import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
+import type { GesuImportResult } from "@/lib/gesu-importacion";
+import { cantidadComponenteKitValida } from "@/lib/kit-cantidades";
 
 type ProductImportRow = Record<string, string | number | null>;
 
@@ -38,37 +40,17 @@ type PreviewData = ParsedGesuFile & {
   existingKitCodes: Set<string>;
 };
 
-type ApplyResults = {
-  productsImported: number;
-  productsUpdated: number;
-  kitsImported: number;
-  kitsUpdated: number;
-  hiddenProducts: number;
-  missingProviders: string[];
-  errors: string[];
-};
+type ApplyResults = GesuImportResult;
+const RECOVERY_KEY = "imc:gesu:pending";
 
-const GESU_PRODUCT_MAPPINGS = {
-  cod_unico: { csvHeader: "Codigo Unico", updateExisting: true },
-  titulo: { csvHeader: "Descripcion", updateExisting: true },
-  cod_barra: { csvHeader: "Codigo de Barras", updateExisting: true },
-  stock: { csvHeader: "Stock", updateExisting: true },
-  marca: { csvHeader: "Marca", updateExisting: false },
-  subcategoria: { csvHeader: "Subcategoria", updateExisting: false },
-  ubicacion: { csvHeader: "Ubicacion", updateExisting: false },
-  codigo_pieza: { csvHeader: "", updateExisting: false },
-  palabra_clave: { csvHeader: "", updateExisting: false },
-  proveedor: { csvHeader: "Proveedor", updateExisting: true },
-  codigo_proveedor: { csvHeader: "Codigo Proveedor", updateExisting: true },
-  precio_lista_proveedor: { csvHeader: "Precio Lista Proveedor", updateExisting: true },
-};
-
-const GESU_KIT_MAPPINGS = {
-  codigo_kit: { csvHeader: "Codigo Kit" },
-  nombre_kit: { csvHeader: "Nombre Kit" },
-  cod_producto: { csvHeader: "Codigo Item" },
-  cantidad: { csvHeader: "Cantidad" },
-};
+async function sendGesu(body: Record<string, unknown>) {
+  const response = await fetch("/api/productos/import/gesu/sesion", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || "No se pudo confirmar la importacion. Reintenta con la misma sesion.");
+  return data;
+}
 
 const normalize = (value: unknown) =>
   String(value ?? "")
@@ -90,22 +72,24 @@ const parseKitComponents = (title: string, productCodes: Set<string>) => {
   const matches = Array.from(title.toUpperCase().matchAll(/([A-Z0-9+._/-]+?)\s*X\s*(\d+)(?=\s|$)/g));
   const componentTotals = new Map<string, number>();
   const unresolved = new Set<string>();
+  let invalidQuantity = false;
 
   matches.forEach((match) => {
     const code = normalize(match[1]);
-    const quantity = Number(match[2]);
-    if (!code || !Number.isFinite(quantity) || quantity <= 0) return;
+    const quantity = cantidadComponenteKitValida(match[2]);
+    if (!code || !quantity) { invalidQuantity = true; return; }
 
     if (!productCodes.has(code)) {
       unresolved.add(code);
-      return;
     }
 
-    componentTotals.set(code, (componentTotals.get(code) ?? 0) + quantity);
+    const total = (componentTotals.get(code) ?? 0) + quantity;
+    if (!cantidadComponenteKitValida(total)) invalidQuantity = true;
+    componentTotals.set(code, total);
   });
 
   return {
-    hasComponentFormat: matches.length > 0,
+    hasComponentFormat: matches.length > 0 && !invalidQuantity,
     components: Array.from(componentTotals, ([code, quantity]) => ({ code, quantity })),
     unresolvedComponents: Array.from(unresolved),
   };
@@ -265,6 +249,18 @@ export function GesuImportPreview() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [estimatedRemainingMs, setEstimatedRemainingMs] = useState<number | null>(null);
   const [applyResults, setApplyResults] = useState<ApplyResults | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [recoveryId, setRecoveryId] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"preparing" | "applying">("preparing");
+  const [totalBatches, setTotalBatches] = useState(0);
+
+  useEffect(() => { setRecoveryId(sessionStorage.getItem(RECOVERY_KEY)); }, []);
+  useEffect(() => {
+    if (!applying) return;
+    const started = Date.now();
+    const timer = setInterval(() => setElapsedMs(Date.now() - started), 1000);
+    return () => clearInterval(timer);
+  }, [applying]);
 
   const calculations = useMemo(() => {
     if (!preview) return null;
@@ -284,6 +280,8 @@ export function GesuImportPreview() {
     if (!selectedFile) return;
 
     setFile(selectedFile);
+    setSessionId(null);
+    setApplyResults(null);
     setPreview(null);
     setLoading(true);
 
@@ -293,14 +291,19 @@ export function GesuImportPreview() {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true });
       const parsed = parseGesuRows(rows);
-      const productAndKitCodes = Array.from(new Set([...parsed.products, ...parsed.kits].map((item) => item.code)));
+      const productAndKitCodes = Array.from(new Set([
+        ...[...parsed.products, ...parsed.kits].map((item) => item.code),
+        ...parsed.kits.flatMap((kit) => kit.unresolvedComponents),
+      ]));
 
       const [existingProductCodes, existingKitCodes] = await Promise.all([
         findExistingCodes("productos", productAndKitCodes),
         findExistingCodes("kits", parsed.kits.map((item) => item.code)),
       ]);
 
-      setPreview({ ...parsed, existingProductCodes, existingKitCodes });
+      setPreview({ ...parsed, kits: parsed.kits.map((kit) => ({ ...kit,
+        unresolvedComponents: kit.unresolvedComponents.filter((code) => !existingProductCodes.has(code)),
+      })), existingProductCodes, existingKitCodes });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo leer el archivo de GESU.");
       setFile(null);
@@ -314,10 +317,15 @@ export function GesuImportPreview() {
     setPreview(null);
     setApplyResults(null);
     setConfirmingApply(false);
+    setSessionId(null);
   };
 
   const applyImport = async () => {
     if (!preview || !calculations) return;
+    if (preview.duplicates.length || calculations.kitsNeedingReview.length) {
+      toast.error("Corrige los duplicados y kits pendientes antes de aplicar.");
+      return;
+    }
 
     setConfirmingApply(false);
     setApplying(true);
@@ -337,99 +345,56 @@ export function GesuImportPreview() {
       }))),
       500
     );
-    const totalRecords = preview.products.length + validKits.length;
+    const batches: Array<{ type: "productos" | "kits"; rows: ProductImportRow[] }> = [
+      ...productBatches.map((rows) => ({ type: "productos" as const, rows })),
+      ...kitBatches.map((rows) => ({ type: "kits" as const, rows })),
+    ];
+    if (!batches.length) { setApplying(false); return; }
+    const id = sessionId || crypto.randomUUID();
+    setSessionId(id);
+    setPhase("preparing");
+    setTotalBatches(batches.length);
     const startTime = Date.now();
-    const results: ApplyResults = {
-      productsImported: 0,
-      productsUpdated: 0,
-      kitsImported: 0,
-      kitsUpdated: 0,
-      hiddenProducts: 0,
-      missingProviders: [],
-      errors: [],
-    };
-    const convertedProductCodes = new Set(calculations.productsToConvert.map((kit) => kit.code));
-    const appliedKitCodes = new Set<string>();
-    let processedProducts = 0;
-    let processedKits = 0;
-
-    const updateProgress = () => {
-      const processed = processedProducts + processedKits;
-      const elapsed = Date.now() - startTime;
-      const recordsPerMs = processed / Math.max(elapsed, 1);
-      setProcessedCount(processed);
-      setElapsedMs(elapsed);
-      setEstimatedRemainingMs(recordsPerMs > 0 ? Math.ceil((totalRecords - processed) / recordsPerMs) : null);
-    };
 
     try {
-      for (const batch of productBatches) {
-        const response = await fetch("/api/productos/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: batch, mappings: GESU_PRODUCT_MAPPINGS, fileName: file?.name || "gesu.xls" }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.message || "No se pudo importar un lote de items.");
-
-        results.productsImported += Number(data.imported || 0);
-        results.productsUpdated += Number(data.updated || 0);
-        (data.errors || []).forEach((error: { error?: string; cod_unico?: string }) => {
-          const errorMessage = error.error || "Error al importar";
-          const providerMatch = errorMessage.match(/^Proveedor no encontrado:\s*(.+)$/i);
-          if (providerMatch) {
-            const provider = providerMatch[1].trim();
-            if (provider && !results.missingProviders.includes(provider)) results.missingProviders.push(provider);
-            return;
-          }
-          if (results.errors.length < 12) results.errors.push(`${error.cod_unico || "Item"}: ${errorMessage}`);
-        });
-        processedProducts += batch.length;
-        updateProgress();
+      await sendGesu({ action: "iniciar", id, fileName: file?.name || "gesu.xls", totalBatches: batches.length });
+      sessionStorage.setItem(RECOVERY_KEY, id);
+      setRecoveryId(id);
+      for (let index = 0; index < batches.length; index += 1) {
+        await sendGesu({ action: "lote", id, batch: index, type: batches[index].type, rows: batches[index].rows });
+        setProcessedCount(index + 1);
       }
-
-      for (const batch of kitBatches) {
-        const kitCodesInBatch = new Set(batch.map((row) => String(row["Codigo Kit"])));
-        const response = await fetch("/api/kits/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: batch, mappings: GESU_KIT_MAPPINGS, fileName: file?.name || "gesu.xls" }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.message || "No se pudo importar un lote de kits.");
-
-        results.kitsImported += Number(data.imported || 0);
-        results.kitsUpdated += Number(data.updated || 0);
-        (data.appliedCodes || []).forEach((code: string) => appliedKitCodes.add(normalize(code)));
-        (data.errors || []).slice(0, 5).forEach((error: { error?: string; cod_kit?: string }) => {
-          if (results.errors.length < 12) results.errors.push(`${error.cod_kit || "Kit"}: ${error.error || "Error al importar"}`);
-        });
-        processedKits += kitCodesInBatch.size;
-        updateProgress();
-      }
-
-      const codesToHide = Array.from(appliedKitCodes).filter((code) => convertedProductCodes.has(code));
-      for (const codes of chunk(codesToHide, 900)) {
-        const response = await fetch("/api/productos/import/gesu/ocultar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ codes }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.message || "Los kits se crearon, pero no se pudieron ocultar los productos originales.");
-        results.hiddenProducts += Array.isArray(data.hiddenCodes) ? data.hiddenCodes.length : 0;
-      }
-
-      setApplyResults(results);
+      setPhase("applying");
+      setProcessedCount(0);
+      const data = await sendGesu({ action: "aplicar", id });
+      setApplyResults(data.result as ApplyResults);
+      sessionStorage.removeItem(RECOVERY_KEY);
+      setRecoveryId(null);
       toast.success("Importacion de GESU terminada.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo completar la importacion.";
-      results.errors.push(message);
-      setApplyResults(results);
       toast.error(message);
     } finally {
       setApplying(false);
       setElapsedMs(Date.now() - startTime);
+    }
+  };
+
+  const recoverImport = async () => {
+    if (!recoveryId) return;
+    setApplying(true);
+    setPhase("applying");
+    setElapsedMs(0);
+    try {
+      const data = await sendGesu({ action: "aplicar", id: recoveryId });
+      setApplyResults(data.result as ApplyResults);
+      sessionStorage.removeItem(RECOVERY_KEY);
+      setRecoveryId(null);
+      toast.success("Importacion confirmada.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo confirmar la importacion.");
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -445,14 +410,15 @@ export function GesuImportPreview() {
 
   if (!preview || !calculations) {
     return (
-      <label className="group flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center transition hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:border-blue-500/60 dark:hover:bg-blue-500/5">
-        <input type="file" className="hidden" accept=".xls,.xlsx" onChange={handleFileChange} />
-        <span className="flex h-16 w-16 items-center justify-center rounded-xl bg-white text-blue-500 shadow-sm ring-1 ring-slate-200 transition group-hover:scale-105 dark:bg-slate-900 dark:ring-slate-800">
-          <HiCloudUpload className="h-8 w-8" />
-        </span>
-        <span className="mt-5 text-base font-black text-slate-900 dark:text-white">Seleccionar exportacion de GESU</span>
-        <span className="mt-1 text-xs font-medium text-slate-500">Archivo Excel con las columnas Tipo, Codigo y Titulo.</span>
-      </label>
+      <div className="space-y-4">
+        {recoveryId && <section className="flex flex-col gap-3 border border-amber-500/30 bg-amber-500/10 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm font-bold text-amber-900 dark:text-amber-100">Hay una importacion iniciada que necesita confirmacion.</p><button type="button" onClick={recoverImport} disabled={applying} className="h-10 rounded-lg bg-blue-600 px-4 text-xs font-black text-white disabled:opacity-50">Consultar / reintentar</button></section>}
+        <label className="group flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center transition hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:border-blue-500/60 dark:hover:bg-blue-500/5">
+          <input type="file" className="hidden" accept=".xls,.xlsx" onChange={handleFileChange} />
+          <span className="flex h-16 w-16 items-center justify-center rounded-xl bg-white text-blue-500 shadow-sm ring-1 ring-slate-200 transition group-hover:scale-105 dark:bg-slate-900 dark:ring-slate-800"><HiCloudUpload className="h-8 w-8" /></span>
+          <span className="mt-5 text-base font-black text-slate-900 dark:text-white">Seleccionar exportacion de GESU</span>
+          <span className="mt-1 text-xs font-medium text-slate-500">Archivo Excel con las columnas Tipo, Codigo y Titulo.</span>
+        </label>
+      </div>
     );
   }
 
@@ -567,7 +533,7 @@ export function GesuImportPreview() {
             <PreviewMetric label="Items actualizados" value={applyResults.productsUpdated} tone="blue" />
             <PreviewMetric label="Kits creados" value={applyResults.kitsImported} tone="green" />
             <PreviewMetric label="Kits actualizados" value={applyResults.kitsUpdated} tone="blue" />
-            <PreviewMetric label="Productos ocultos" value={applyResults.hiddenProducts} tone="amber" />
+            <PreviewMetric label="Originales eliminados" value={applyResults.deletedProducts} tone="amber" />
           </div>
           {applyResults.errors.length > 0 && (
             <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-amber-800 dark:text-amber-200">
@@ -584,7 +550,7 @@ export function GesuImportPreview() {
         </section>
       ) : (
         <section className="flex flex-col gap-3 rounded-xl border border-blue-500/25 bg-blue-500/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-bold text-blue-800 dark:text-blue-200">Al aplicar, se actualizan primero los items y despues los kits completos.</p>
+          <p className="text-xs font-bold text-blue-800 dark:text-blue-200">La carga se valida por completo y luego se aplica en una sola operacion. Los originales convertidos se eliminan solo si no tienen conflictos.</p>
           <button type="button" onClick={() => setConfirmingApply(true)} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-xs font-black uppercase tracking-widest text-white transition hover:bg-blue-700">
             <HiPlay className="h-5 w-5" />
             Aplicar importacion
@@ -600,7 +566,7 @@ export function GesuImportPreview() {
       <Modal title="Aplicar importacion de GESU" open={confirmingApply} onClose={() => setConfirmingApply(false)} width="max-w-lg">
         <div className="space-y-5 p-5">
           <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-            Se procesaran {preview.products.length.toLocaleString("es-AR")} items y {validKits.length.toLocaleString("es-AR")} kits completos. Los servicios, insumos y kits pendientes de revision no se aplican.
+            Se procesaran {preview.products.length.toLocaleString("es-AR")} items y {validKits.length.toLocaleString("es-AR")} kits completos. Si un original convertido tiene stock, ventas, compras, series o vinculos pendientes, se cancelara toda la importacion sin guardar cambios.
           </p>
           <div className="flex justify-end gap-3">
             <button type="button" onClick={() => setConfirmingApply(false)} className="h-10 rounded-lg border border-slate-200 px-4 text-xs font-black text-slate-600 dark:border-slate-700 dark:text-slate-300">Cancelar</button>
@@ -611,11 +577,11 @@ export function GesuImportPreview() {
 
       <TransferProgressModal
         open={applying}
-        title="Importando desde GESU"
-        description="Procesando items y kits completos."
-        total={preview.products.length + validKits.length}
-        processed={processedCount}
-        unit="registros"
+        title={phase === "preparing" ? "Preparando importacion de GESU" : "Aplicando importacion de GESU"}
+        description={phase === "preparing" ? "Enviando lotes validados. Todavia no se modifica el catalogo." : "Guardando items, kits y conversiones en una sola operacion."}
+        total={phase === "preparing" ? totalBatches : undefined}
+        processed={phase === "preparing" ? processedCount : undefined}
+        unit="lotes"
         elapsedMs={elapsedMs}
         estimatedRemainingMs={estimatedRemainingMs}
       />
