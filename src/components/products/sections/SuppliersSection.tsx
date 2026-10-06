@@ -22,6 +22,7 @@ function stockClass(estado?: string | null) {
 type SuppliersSectionProps = {
   proveedores: ProveedorProducto[];
   allProviders: CatalogoItem[];
+  idMarca?: number | null;
   onAdd: () => void;
   onRemove: (index: number) => void;
   onChange: (index: number, field: keyof ProveedorProducto, value: any) => void;
@@ -31,6 +32,7 @@ type SuppliersSectionProps = {
 export function SuppliersSection({
   proveedores,
   allProviders,
+  idMarca,
   onAdd,
   onRemove,
   onChange,
@@ -56,7 +58,12 @@ export function SuppliersSection({
 
     setLoadingMap(prev => ({ ...prev, [index]: true }));
     try {
-      const res = await fetch(`/api/proveedores/ultimo-item?id_proveedor=${item.id_proveedor}&codigo_proveedor=${item.codigo_proveedor}`);
+      const searchParams = new URLSearchParams({
+        id_proveedor: String(item.id_proveedor),
+        codigo_proveedor: item.codigo_proveedor,
+      });
+      if (idMarca) searchParams.set("id_marca", String(idMarca));
+      const res = await fetch(`/api/proveedores/ultimo-item?${searchParams.toString()}`);
       const data = await res.json();
 
       if (res.ok) {
@@ -78,6 +85,7 @@ export function SuppliersSection({
     if (!lookup) return;
 
     onChange(index, "precio_lista_actual", lookup.precio_lista);
+    onChange(index, "costo_actual", lookup.costo_neto ?? null);
     onChange(index, "stock_estado", lookup.stock_estado || "DESCONOCIDO");
     onChange(index, "stock_cantidad", lookup.stock_cantidad ?? null);
     onChange(index, "stock_texto_original", lookup.stock_original ?? null);
@@ -87,7 +95,7 @@ export function SuppliersSection({
     
     // Limpiar lookup después de aplicar
     setLastLookup(prev => ({ ...prev, [index]: null }));
-    toast.success("Precio aplicado correctamente");
+    toast.success("Precio y costo neto aplicados correctamente");
   };
 
   return (

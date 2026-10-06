@@ -935,8 +935,23 @@ export async function getImportacionesByProveedor(id_proveedor: number) {
   return rows as ProveedorImportacion[];
 }
 
-export async function getImportacionItems(id_importacion: number): Promise<ProveedorImportacionItem[]> {
-  const { rows } = await query(
+export type PaginaImportacionItems = {
+  data: ProveedorImportacionItem[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+export async function getImportacionItems(
+  id_importacion: number,
+  page = 1,
+  limit = 50,
+): Promise<PaginaImportacionItems> {
+  const safePage = Math.max(1, Math.floor(page) || 1);
+  const safeLimit = Math.min(100, Math.max(10, Math.floor(limit) || 50));
+  const [{ rows }, countResult] = await Promise.all([
+    query(
     `
       SELECT
         pii.id,
@@ -962,10 +977,23 @@ export async function getImportacionItems(id_importacion: number): Promise<Prove
       LEFT JOIN public.productos p ON p.id = pii.id_producto
       WHERE pii.id_importacion = $1
       ORDER BY pii.fila NULLS LAST, pii.id ASC
+      LIMIT $2 OFFSET $3
     `,
-    [id_importacion]
-  );
-  return rows as ProveedorImportacionItem[];
+    [id_importacion, safeLimit, (safePage - 1) * safeLimit],
+    ),
+    query<{ total: string }>(
+      `SELECT COUNT(*)::int AS total FROM public.proveedor_importacion_item WHERE id_importacion = $1`,
+      [id_importacion],
+    ),
+  ]);
+  const total = Number(countResult.rows[0]?.total || 0);
+  return {
+    data: rows as ProveedorImportacionItem[],
+    page: safePage,
+    limit: safeLimit,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
 }
 
 export type PrecioModificadoProveedor = {

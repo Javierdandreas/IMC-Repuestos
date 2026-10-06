@@ -20,8 +20,10 @@ export async function GET(
       return NextResponse.json({ error: "ID de importacion invalido" }, { status: 400 });
     }
 
-    const items = await getImportacionItems(importacionId);
-    return NextResponse.json(items);
+    const { searchParams } = new URL(request.url);
+    const page = Number(searchParams.get("page") || 1);
+    const limit = Number(searchParams.get("limit") || 50);
+    return NextResponse.json(await getImportacionItems(importacionId, page, limit));
   } catch (error: any) {
     return jsonError(error, "Error al obtener detalle de importacion");
   }

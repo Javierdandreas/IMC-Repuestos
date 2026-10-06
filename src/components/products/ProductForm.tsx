@@ -434,6 +434,10 @@ export function ProductForm({
         codigo_proveedor: item.codigo_proveedor?.trim() ?? "",
         precio_lista_actual: toNullableNumber(item.precio_lista_actual),
         costo_actual: toNullableNumber(item.costo_actual),
+        stock_estado: item.stock_estado || "DESCONOCIDO",
+        stock_cantidad: toNullableNumber(item.stock_cantidad),
+        stock_texto_original: item.stock_texto_original?.trim() || null,
+        fecha_stock_actualizacion: item.fecha_stock_actualizacion || null,
         fecha_ultima_actualizacion: item.fecha_ultima_actualizacion || null,
         ultima_importacion_id: toNullableNumber(item.ultima_importacion_id),
       }));
@@ -845,6 +849,7 @@ export function ProductForm({
               <SuppliersSection
                 proveedores={product.proveedores}
                 allProviders={meta.proveedores}
+                idMarca={product.id_marca}
                 onAdd={addProveedor}
                 onRemove={removeProveedor}
                 onChange={handleProveedorChange}

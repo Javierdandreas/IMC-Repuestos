@@ -46,6 +46,7 @@ export interface UltimoItemProveedor {
   stock_original?: string | null;
   stock_estado?: import("@/lib/stock-proveedor").EstadoStockProveedor | null;
   stock_cantidad?: number | null;
+  costo_neto?: number | null;
   fecha_importacion: string;
 }
 

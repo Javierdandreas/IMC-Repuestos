@@ -4,7 +4,7 @@ import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { HiCheckCircle, HiClock, HiDownload, HiInformationCircle, HiLightningBolt, HiOutlineDocumentText, HiXCircle } from "react-icons/hi";
+import { HiCheckCircle, HiChevronLeft, HiChevronRight, HiClock, HiDownload, HiInformationCircle, HiLightningBolt, HiOutlineDocumentText, HiXCircle } from "react-icons/hi";
 import { toast } from "sonner";
 
 import type { ProveedorImportacion, ProveedorImportacionItem } from "@/interfaces/importaciones";
@@ -18,20 +18,35 @@ type Props = {
   compact?: boolean;
 };
 
+type ImportacionItemsPage = {
+  data: ProveedorImportacionItem[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
 export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
   const { mutate } = useSWRConfig();
   const [applyingId, setApplyingId] = useState<number | null>(null);
   const [confirmImport, setConfirmImport] = useState<ProveedorImportacion | null>(null);
   const [detailImport, setDetailImport] = useState<ProveedorImportacion | null>(null);
+  const [detailPage, setDetailPage] = useState(1);
 
   const { data: history, error, isLoading } = useSWR<ProveedorImportacion[]>(
     `/api/proveedores/importaciones?id_proveedor=${id_proveedor}`,
     fetcher
   );
-  const { data: detailItems, isLoading: isLoadingDetail } = useSWR<ProveedorImportacionItem[]>(
-    detailImport ? `/api/proveedores/importaciones/${detailImport.id}/items` : null,
+  const { data: detailItemsPage, isLoading: isLoadingDetail } = useSWR<ImportacionItemsPage>(
+    detailImport ? `/api/proveedores/importaciones/${detailImport.id}/items?page=${detailPage}&limit=50` : null,
     fetcher
   );
+  const detailItems = detailItemsPage?.data ?? [];
+
+  const openDetail = (item: ProveedorImportacion) => {
+    setDetailPage(1);
+    setDetailImport(item);
+  };
 
   const handleApply = async (item: ProveedorImportacion) => {
     setApplyingId(item.id);
@@ -134,7 +149,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                     <span className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setDetailImport(item)}
+                        onClick={() => openDetail(item)}
                         className="text-[9px] font-black uppercase tracking-widest text-blue-400 transition hover:text-blue-300"
                       >
                         Ver
@@ -164,7 +179,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                   <span className="flex justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => setDetailImport(item)}
+                      onClick={() => openDetail(item)}
                       className="inline-flex h-8 items-center rounded-lg border border-slate-700 px-3 text-[10px] font-black uppercase tracking-widest text-slate-300 transition hover:bg-slate-900"
                     >
                       Ver
@@ -287,10 +302,10 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                 <div className="max-h-[430px] divide-y divide-slate-800 overflow-y-auto">
                   {isLoadingDetail ? (
                     <div className="px-5 py-8 text-center text-xs font-bold text-slate-500">Cargando detalle...</div>
-                  ) : (detailItems || []).length === 0 ? (
+                  ) : detailItems.length === 0 ? (
                     <div className="px-5 py-8 text-center text-xs font-bold text-slate-500">Sin detalle disponible.</div>
                   ) : (
-                    (detailItems || []).map((row) => (
+                    detailItems.map((row) => (
                       <div
                         key={row.id}
                         className="grid grid-cols-[60px_minmax(140px,1fr)_minmax(115px,0.8fr)_105px_120px_135px_minmax(230px,1.4fr)_115px_115px] items-center gap-3 px-5 py-4 text-xs transition hover:bg-slate-900/40"
@@ -324,6 +339,38 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                   )}
                 </div>
               </div>
+              {detailItemsPage && detailItemsPage.total > 0 && (
+                <div className="flex items-center justify-between gap-3 border-t border-slate-800 px-4 py-3 text-xs">
+                  <span className="font-bold text-slate-400">
+                    Mostrando {((detailItemsPage.page - 1) * detailItemsPage.limit) + 1}-{Math.min(detailItemsPage.page * detailItemsPage.limit, detailItemsPage.total)} de {detailItemsPage.total} filas
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDetailPage((page) => Math.max(1, page - 1))}
+                      disabled={detailItemsPage.page <= 1}
+                      title="Pagina anterior"
+                      aria-label="Pagina anterior"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 text-slate-300 transition hover:border-blue-500 hover:text-blue-300 disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      <HiChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="min-w-20 text-center text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Pag. {detailItemsPage.page} de {detailItemsPage.totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDetailPage((page) => Math.min(detailItemsPage.totalPages, page + 1))}
+                      disabled={detailItemsPage.page >= detailItemsPage.totalPages}
+                      title="Pagina siguiente"
+                      aria-label="Pagina siguiente"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 text-slate-300 transition hover:border-blue-500 hover:text-blue-300 disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      <HiChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
