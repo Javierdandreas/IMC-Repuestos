@@ -288,9 +288,11 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const [mappings, setMappings] = useState<Record<string, MappingConfig>>(() => createInitialMappings());
   const [importing, setImporting] = useState(false);
   const [processedRows, setProcessedRows] = useState(0);
-  const [importPhase, setImportPhase] = useState<"uploading" | "applying">("uploading");
+  const [importPhase, setImportPhase] = useState<"uploading" | "validating" | "applying">("uploading");
+  const [applicationTotal, setApplicationTotal] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [estimatedRemainingMs, setEstimatedRemainingMs] = useState<number | null>(null);
+  const importStartedAtRef = useRef<number | null>(null);
   const [results, setResults] = useState<ImportResults | null>(null);
   const { data: savedStockColorRules = [] } = useSWR<StockColorRule[]>(
     `/api/proveedores/${id_proveedor}/stock-colores`,
@@ -310,6 +312,14 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       return savedRule ? { ...savedRule, color: rule.color } : rule;
     }));
   }, [savedStockColorRules]);
+
+  useEffect(() => {
+    if (!importing) return;
+    const timer = window.setInterval(() => {
+      if (importStartedAtRef.current !== null) setElapsedMs(Date.now() - importStartedAtRef.current);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [importing]);
 
   const applyHeadersAndRows = (headers: string[], rows: any[], fromExcel: boolean) => {
     setCsvHeaders(headers);
@@ -482,9 +492,11 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       setImporting(true);
       setProcessedRows(0);
       setImportPhase("uploading");
+      setApplicationTotal(0);
       setElapsedMs(0);
       setEstimatedRemainingMs(null);
       const startTime = Date.now();
+      importStartedAtRef.current = startTime;
 
       const importacion = await requestImportJson("/api/proveedores/importar/iniciar", {
         method: "POST",
@@ -528,11 +540,20 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         body: JSON.stringify({ id_importacion: idImportacion, id_proveedor }),
       });
 
-      setImportPhase("applying");
+      setImportPhase("validating");
+      setProcessedRows(0);
       setEstimatedRemainingMs(null);
-      const data = await requestImportJson(`/api/proveedores/importaciones/${idImportacion}/aplicar`, {
-        method: "POST",
-      });
+      let data: Record<string, unknown> = {};
+      do {
+        data = await requestImportJson(`/api/proveedores/importaciones/${idImportacion}/aplicar`, {
+          method: "POST",
+        });
+        const total = Number(data.totalProcessable || 0);
+        const processed = Number(data.processedCount || 0);
+        if (total > 0) setApplicationTotal(total);
+        setProcessedRows(processed);
+        setImportPhase("applying");
+      } while (!data.complete);
 
       const updatedCount = Number(data.updatedCount || 0);
       const recalculatedCostCount = Number(data.recalculatedCostCount || 0);
@@ -568,6 +589,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       setStep("mapping");
     } finally {
       setImporting(false);
+      importStartedAtRef.current = null;
     }
   };
 
@@ -836,11 +858,13 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       {renderStep()}
       <TransferProgressModal
         open={importing}
-        title={importPhase === "uploading" ? "Cargando lista de precios" : "Aplicando lista de precios"}
+        title={importPhase === "uploading" ? "Cargando lista de precios" : importPhase === "validating" ? "Validando lista de precios" : "Aplicando lista de precios"}
         description={importPhase === "uploading"
           ? "Guardando las filas por partes. No cierres esta ventana."
-          : "Actualizando precios, stock y costos del proveedor."}
-        total={mappedData.items.length}
+          : importPhase === "validating"
+            ? "Verificando codigos, proveedor y duplicados antes de actualizar."
+            : "Actualizando precios, stock y costos por bloques confirmados."}
+        total={importPhase === "uploading" ? mappedData.items.length : applicationTotal}
         processed={processedRows}
         unit="filas"
         elapsedMs={elapsedMs}

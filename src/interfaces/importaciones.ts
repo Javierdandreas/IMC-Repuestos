@@ -1,4 +1,4 @@
-export type ImportacionEstado = "PENDIENTE" | "PROCESADA" | "APLICADA" | "ERROR";
+export type ImportacionEstado = "PENDIENTE" | "PROCESADA" | "APLICANDO" | "APLICADA" | "ERROR";
 
 export interface ProveedorImportacion {
   id: number;

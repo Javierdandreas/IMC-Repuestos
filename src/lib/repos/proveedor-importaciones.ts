@@ -38,7 +38,11 @@ type CostoReferenciaImportacion = {
   costoReferencia: number | null;
 };
 
-async function obtenerCostosReferenciaImportacion(client: DbClient, idImportacion: number) {
+async function obtenerCostosReferenciaImportacion(
+  client: DbClient,
+  idImportacion: number,
+  itemIds?: number[],
+) {
   const result = await client.query(
     `
       WITH tipo_costo AS (
@@ -56,6 +60,7 @@ async function obtenerCostosReferenciaImportacion(client: DbClient, idImportacio
         WHERE pii.id_importacion = $1
           AND pii.estado = 'ACTUALIZADO'
           AND pii.id_producto IS NOT NULL
+          AND ($2::int[] IS NULL OR pii.id = ANY($2::int[]))
         ORDER BY pii.id_producto, pii.id
       )
       SELECT
@@ -73,7 +78,7 @@ async function obtenerCostosReferenciaImportacion(client: DbClient, idImportacio
        AND precio.id_tipo_precio = tipo_costo.id
       WHERE producto.criterio_costo IN ('PROVEEDOR_UNICO', 'MENOR_PRECIO', 'PROMEDIO_PRECIO', 'MAYOR_PRECIO')
     `,
-    [idImportacion],
+    [idImportacion, itemIds?.length ? itemIds : null],
   );
 
   return result.rows.map((row) => ({
@@ -220,7 +225,196 @@ export async function createImportacion(input: CreateImportacionInput): Promise<
   });
 }
 
-export async function aplicarImportacionAlCatalogo(id_importacion: number) {
+const TAMANO_LOTE_APLICACION = 500;
+
+async function prepararImportacionParaAplicar(client: DbClient, idImportacion: number) {
+  const importacion = await client.query<{ estado: string }>(
+    `SELECT estado FROM public.proveedor_importacion WHERE id = $1 FOR UPDATE`,
+    [idImportacion],
+  );
+  if (importacion.rowCount === 0) throw new AppError("Importacion no encontrada", 404);
+
+  const estado = String(importacion.rows[0].estado);
+  if (estado === "APLICADA") return false;
+  if (estado === "APLICANDO") return true;
+  if (estado !== "PROCESADA") {
+    throw new AppError("La importacion todavia no esta lista para aplicar", 409);
+  }
+
+  await client.query(
+    `
+      UPDATE public.proveedor_importacion_item pii
+      SET
+        estado = CASE
+          WHEN trim(COALESCE(pii.proveedor_archivo, '')) = '' THEN 'INVALIDO'
+          WHEN trim(COALESCE(pii.codigo_proveedor, '')) = '' THEN 'INVALIDO'
+          WHEN pii.precio_lista IS NULL THEN 'INVALIDO'
+          WHEN pii.precio_lista < 0 THEN 'INVALIDO'
+          ELSE 'PENDIENTE'
+        END,
+        mensaje = CASE
+          WHEN trim(COALESCE(pii.proveedor_archivo, '')) = '' THEN 'Falta proveedor en la fila'
+          WHEN trim(COALESCE(pii.codigo_proveedor, '')) = '' THEN 'Falta codigo de proveedor'
+          WHEN pii.precio_lista IS NULL THEN 'Precio vacio o invalido'
+          WHEN pii.precio_lista < 0 THEN 'Precio negativo'
+          ELSE NULL
+        END,
+        id_producto = NULL,
+        precio_anterior = NULL,
+        precio_aplicado = NULL,
+        applied_at = NULL
+      WHERE pii.id_importacion = $1
+    `,
+    [idImportacion],
+  );
+
+  await client.query(
+    `
+      WITH proveedor_actual AS (
+        SELECT
+          pi.id,
+          pi.id_proveedor,
+          regexp_replace(upper(trim(p.descripcion)), '[^A-Z0-9]+', '', 'g') AS proveedor_nombre,
+          regexp_replace(COALESCE(p.documento, ''), '[^0-9]+', '', 'g') AS proveedor_documento
+        FROM public.proveedor_importacion pi
+        INNER JOIN public.proveedores p ON p.id = pi.id_proveedor
+        WHERE pi.id = $1
+      )
+      UPDATE public.proveedor_importacion_item pii
+      SET estado = 'PROVEEDOR_DISTINTO', mensaje = 'El proveedor del archivo no coincide con el proveedor abierto'
+      FROM proveedor_actual pa
+      WHERE pii.id_importacion = pa.id
+        AND pii.estado = 'PENDIENTE'
+        AND NOT (
+          regexp_replace(upper(trim(COALESCE(pii.proveedor_archivo, ''))), '[^A-Z0-9]+', '', 'g') = pa.proveedor_nombre
+          OR (pa.proveedor_documento <> '' AND regexp_replace(COALESCE(pii.proveedor_archivo, ''), '[^0-9]+', '', 'g') = pa.proveedor_documento)
+          OR trim(COALESCE(pii.proveedor_archivo, '')) = pa.id_proveedor::text
+        )
+    `,
+    [idImportacion],
+  );
+
+  await client.query(
+    `
+      WITH duplicados AS (
+        SELECT upper(trim(codigo_proveedor)) AS codigo_normalizado
+        FROM public.proveedor_importacion_item
+        WHERE id_importacion = $1 AND estado = 'PENDIENTE'
+        GROUP BY upper(trim(codigo_proveedor))
+        HAVING COUNT(*) > 1
+      )
+      UPDATE public.proveedor_importacion_item pii
+      SET estado = 'DUPLICADO', mensaje = 'El codigo aparece mas de una vez en este archivo'
+      FROM duplicados d
+      WHERE pii.id_importacion = $1
+        AND pii.estado = 'PENDIENTE'
+        AND upper(trim(pii.codigo_proveedor)) = d.codigo_normalizado
+    `,
+    [idImportacion],
+  );
+
+  await client.query(
+    `
+      WITH matches AS (
+        SELECT
+          pii.id,
+          COUNT(pp.id_producto)::int AS match_count,
+          MIN(pp.id_producto) AS id_producto,
+          MIN(pp.precio_lista_actual) AS precio_anterior
+        FROM public.proveedor_importacion_item pii
+        INNER JOIN public.proveedor_importacion pi ON pi.id = pii.id_importacion
+        LEFT JOIN public.producto_proveedor pp
+          ON pp.id_proveedor = pi.id_proveedor
+         AND upper(trim(pp.codigo_proveedor)) = upper(trim(pii.codigo_proveedor))
+        WHERE pi.id = $1 AND pii.estado = 'PENDIENTE'
+        GROUP BY pii.id
+      )
+      UPDATE public.proveedor_importacion_item pii
+      SET
+        estado = CASE WHEN matches.match_count = 0 THEN 'NO_ENCONTRADO' WHEN matches.match_count > 1 THEN 'DUPLICADO' ELSE 'ACTUALIZADO' END,
+        mensaje = CASE WHEN matches.match_count = 0 THEN 'No existe un item asociado a este proveedor con ese codigo' WHEN matches.match_count > 1 THEN 'El codigo esta asociado a mas de un item en este proveedor' ELSE 'Pendiente de aplicar' END,
+        id_producto = CASE WHEN matches.match_count = 1 THEN matches.id_producto ELSE NULL END,
+        precio_anterior = CASE WHEN matches.match_count = 1 THEN matches.precio_anterior ELSE NULL END,
+        precio_aplicado = CASE WHEN matches.match_count = 1 THEN pii.precio_lista ELSE NULL END,
+        applied_at = NULL
+      FROM matches
+      WHERE pii.id = matches.id
+    `,
+    [idImportacion],
+  );
+
+  await client.query(
+    `UPDATE public.proveedor_importacion SET estado = 'APLICANDO', updated_at = NOW() WHERE id = $1`,
+    [idImportacion],
+  );
+  return true;
+}
+
+async function resumenAplicacionImportacion(client: DbClient, idImportacion: number) {
+  const summary = await client.query(
+    `
+      SELECT
+        COUNT(*) FILTER (WHERE estado = 'ACTUALIZADO')::int AS updated_count,
+        COUNT(*) FILTER (WHERE estado = 'ACTUALIZADO' AND applied_at IS NOT NULL)::int AS processed_count,
+        COUNT(*) FILTER (WHERE estado = 'NO_ENCONTRADO')::int AS not_found_count,
+        COUNT(*) FILTER (WHERE estado = 'INVALIDO')::int AS invalid_count,
+        COUNT(*) FILTER (WHERE estado = 'DUPLICADO')::int AS duplicate_count,
+        COUNT(*) FILTER (WHERE estado = 'PROVEEDOR_DISTINTO')::int AS provider_mismatch_count
+      FROM public.proveedor_importacion_item
+      WHERE id_importacion = $1
+    `,
+    [idImportacion],
+  );
+  const costs = await client.query(
+    `
+      SELECT
+        COUNT(*) FILTER (WHERE estado_aprobacion = 'APROBADO_AUTOMATICO')::int AS recalculated_cost_count,
+        COUNT(*) FILTER (WHERE estado_aprobacion = 'PENDIENTE')::int AS pending_approval_count
+      FROM public.proveedor_importacion_cambio_costo
+      WHERE id_importacion = $1
+    `,
+    [idImportacion],
+  );
+  return {
+    updatedCount: Number(summary.rows[0]?.updated_count || 0),
+    processedCount: Number(summary.rows[0]?.processed_count || 0),
+    totalProcessable: Number(summary.rows[0]?.updated_count || 0),
+    recalculatedCostCount: Number(costs.rows[0]?.recalculated_cost_count || 0),
+    pendingApprovalCount: Number(costs.rows[0]?.pending_approval_count || 0),
+    notFoundCount: Number(summary.rows[0]?.not_found_count || 0),
+    invalidCount: Number(summary.rows[0]?.invalid_count || 0),
+    duplicateCount: Number(summary.rows[0]?.duplicate_count || 0),
+    providerMismatchCount: Number(summary.rows[0]?.provider_mismatch_count || 0),
+  };
+}
+
+async function finalizarAplicacionImportacion(client: DbClient, idImportacion: number) {
+  await client.query(
+    `
+      UPDATE public.proveedor_importacion
+      SET estado = 'APLICADA',
+          observacion = (
+            SELECT CONCAT(
+              COUNT(*) FILTER (WHERE estado = 'ACTUALIZADO'), ' actualizados, ',
+              COUNT(*) FILTER (WHERE estado = 'NO_ENCONTRADO'), ' no encontrados, ',
+              COUNT(*) FILTER (WHERE estado = 'INVALIDO'), ' invalidos, ',
+              COUNT(*) FILTER (WHERE estado = 'DUPLICADO'), ' duplicados, ',
+              COUNT(*) FILTER (WHERE estado = 'PROVEEDOR_DISTINTO'), ' proveedor distinto'
+            )
+            FROM public.proveedor_importacion_item WHERE id_importacion = $1
+          ),
+          updated_at = NOW()
+      WHERE id = $1
+    `,
+    [idImportacion],
+  );
+}
+
+/**
+ * Aplicacion antigua de una sola transaccion. Se conserva temporalmente como
+ * referencia de la migracion; las rutas web usan la version por lotes.
+ */
+async function aplicarImportacionAlCatalogoCompletaLegacy(id_importacion: number) {
   return await withTransaction(async (client) => {
     // Las listas grandes actualizan miles de asociaciones y precios dentro de la misma operacion.
     // El limite corto del pool cancela una consulta valida antes de que pueda terminar.
@@ -526,6 +720,159 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
       duplicateCount: Number(summary.rows[0]?.duplicate_count || 0),
       providerMismatchCount: Number(summary.rows[0]?.provider_mismatch_count || 0),
     };
+  });
+}
+
+/**
+ * Aplica un tramo confirmado de la importacion. Cada llamada dura poco y la
+ * siguiente continua desde `applied_at`, por lo que un timeout no descarta el
+ * trabajo ya completado.
+ */
+export async function aplicarImportacionAlCatalogo(id_importacion: number) {
+  return withTransaction(async (client) => {
+    await client.query("SET LOCAL statement_timeout = '120s'");
+    const preparada = await prepararImportacionParaAplicar(client, id_importacion);
+    if (!preparada) {
+      const summary = await resumenAplicacionImportacion(client, id_importacion);
+      return { ...summary, complete: true };
+    }
+
+    const lote = await client.query<{ id: number }>(
+      `
+        SELECT id
+        FROM public.proveedor_importacion_item
+        WHERE id_importacion = $1
+          AND estado = 'ACTUALIZADO'
+          AND applied_at IS NULL
+        ORDER BY id
+        LIMIT $2
+        FOR UPDATE SKIP LOCKED
+      `,
+      [id_importacion, TAMANO_LOTE_APLICACION],
+    );
+
+    if (lote.rowCount === 0) {
+      await finalizarAplicacionImportacion(client, id_importacion);
+      const summary = await resumenAplicacionImportacion(client, id_importacion);
+      return { ...summary, complete: true };
+    }
+
+    const itemIds = lote.rows.map((row) => Number(row.id));
+    const costosAntes = await obtenerCostosReferenciaImportacion(client, id_importacion, itemIds);
+    const updateResult = await client.query(
+      `
+        UPDATE public.producto_proveedor pp
+        SET
+          precio_lista_actual = pii.precio_lista,
+          stock_estado = COALESCE(pii.stock_estado, 'DESCONOCIDO'),
+          stock_cantidad = pii.stock_cantidad,
+          stock_texto_original = NULLIF(TRIM(pii.stock_original), ''),
+          fecha_stock_actualizacion = NOW(),
+          fecha_ultima_actualizacion = NOW(),
+          ultima_importacion_id = pii.id_importacion
+        FROM public.proveedor_importacion_item pii
+        INNER JOIN public.proveedor_importacion pi ON pi.id = pii.id_importacion
+        WHERE pii.id = ANY($1::int[])
+          AND pp.id_producto = pii.id_producto
+          AND pp.id_proveedor = pi.id_proveedor
+          AND (
+            pp.precio_lista_actual IS DISTINCT FROM pii.precio_lista
+            OR pp.stock_estado IS DISTINCT FROM COALESCE(pii.stock_estado, 'DESCONOCIDO')
+            OR pp.stock_cantidad IS DISTINCT FROM pii.stock_cantidad
+            OR pp.stock_texto_original IS DISTINCT FROM NULLIF(TRIM(pii.stock_original), '')
+          )
+        RETURNING pp.id_producto, pp.id_proveedor
+      `,
+      [itemIds],
+    );
+
+    const updatedProductIds = [...new Set(updateResult.rows.map((row) => Number(row.id_producto)))];
+    const updatedProviderId = Number(updateResult.rows[0]?.id_proveedor || 0);
+    if (updatedProviderId > 0 && updatedProductIds.length > 0) {
+      await recalcularCostosProveedorProductos(client, { idProveedor: updatedProviderId, productIds: updatedProductIds });
+    }
+
+    const costosPropuestos = await obtenerCostosReferenciaAutomaticos(client, updatedProductIds);
+    const costosAnterioresPorProducto = new Map(costosAntes.map((item) => [item.idProducto, item.costoReferencia]));
+    const costoPropuestoPorProducto = new Map(costosPropuestos.map((item) => [item.idProducto, item.costo]));
+    const cambiosDeCosto = costosAntes
+      .map((item) => {
+        const costoAnterior = costosAnterioresPorProducto.get(item.idProducto) ?? null;
+        const costoNuevo = costoPropuestoPorProducto.get(item.idProducto) ?? null;
+        const porcentajeVariacion = costoAnterior === null || costoAnterior <= 0 || costoNuevo === null
+          ? null
+          : ((costoNuevo - costoAnterior) / costoAnterior) * 100;
+        const estadoAprobacion: EstadoAprobacionCambioCosto = porcentajeVariacion !== null
+          && Math.abs(porcentajeVariacion) <= UMBRAL_APROBACION_AUTOMATICA
+          ? "APROBADO_AUTOMATICO"
+          : "PENDIENTE";
+        return { ...item, costoAnterior, costoNuevo, porcentajeVariacion, estadoAprobacion };
+      })
+      .filter((item) => item.costoNuevo !== null && item.costoNuevo > 0
+        && (item.costoAnterior === null || Math.abs(item.costoNuevo - item.costoAnterior) > 0.000001));
+
+    await aplicarPreciosDesdeCostosReferencia(
+      client,
+      cambiosDeCosto
+        .filter((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" && item.costoNuevo !== null)
+        .map((item) => ({ idProducto: item.idProducto, costo: Number(item.costoNuevo) })),
+    );
+
+    if (cambiosDeCosto.length > 0) {
+      await client.query(
+        `
+          UPDATE public.proveedor_importacion_cambio_costo
+          SET estado_aprobacion = 'REEMPLAZADO', resuelto_at = NOW(), resuelto_por = NULL
+          WHERE estado_aprobacion = 'PENDIENTE' AND id_producto = ANY($1::int[])
+        `,
+        [cambiosDeCosto.map((item) => item.idProducto)],
+      );
+      await client.query(
+        `
+          INSERT INTO public.proveedor_importacion_cambio_costo (
+            id_importacion, id_producto, codigo_item, descripcion_item, codigo_proveedor,
+            criterio_costo, costo_anterior, costo_nuevo, estado_aprobacion,
+            porcentaje_variacion, umbral_aprobacion, resuelto_at
+          )
+          SELECT $1, * FROM UNNEST(
+            $2::int[], $3::text[], $4::text[], $5::text[], $6::text[],
+            $7::numeric[], $8::numeric[], $9::text[], $10::numeric[], $11::numeric[], $12::timestamptz[]
+          ) AS valores(
+            id_producto, codigo_item, descripcion_item, codigo_proveedor, criterio_costo,
+            costo_anterior, costo_nuevo, estado_aprobacion, porcentaje_variacion, umbral_aprobacion, resuelto_at
+          )
+          ON CONFLICT (id_importacion, id_producto) DO UPDATE
+          SET codigo_item = EXCLUDED.codigo_item, descripcion_item = EXCLUDED.descripcion_item,
+              codigo_proveedor = EXCLUDED.codigo_proveedor, criterio_costo = EXCLUDED.criterio_costo,
+              costo_anterior = EXCLUDED.costo_anterior, costo_nuevo = EXCLUDED.costo_nuevo,
+              estado_aprobacion = EXCLUDED.estado_aprobacion, porcentaje_variacion = EXCLUDED.porcentaje_variacion,
+              umbral_aprobacion = EXCLUDED.umbral_aprobacion, resuelto_at = EXCLUDED.resuelto_at, resuelto_por = NULL
+        `,
+        [
+          id_importacion,
+          cambiosDeCosto.map((item) => item.idProducto),
+          cambiosDeCosto.map((item) => item.codigoItem),
+          cambiosDeCosto.map((item) => item.descripcionItem),
+          cambiosDeCosto.map((item) => item.codigoProveedor),
+          cambiosDeCosto.map((item) => item.criterioCosto),
+          cambiosDeCosto.map((item) => item.costoAnterior),
+          cambiosDeCosto.map((item) => item.costoNuevo),
+          cambiosDeCosto.map((item) => item.estadoAprobacion),
+          cambiosDeCosto.map((item) => item.porcentajeVariacion === null ? null : Math.round(item.porcentajeVariacion * 100) / 100),
+          cambiosDeCosto.map(() => UMBRAL_APROBACION_AUTOMATICA),
+          cambiosDeCosto.map((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" ? new Date() : null),
+        ],
+      );
+    }
+
+    await client.query(
+      `UPDATE public.proveedor_importacion_item SET applied_at = NOW() WHERE id = ANY($1::int[])`,
+      [itemIds],
+    );
+    const summary = await resumenAplicacionImportacion(client, id_importacion);
+    const complete = summary.processedCount >= summary.totalProcessable;
+    if (complete) await finalizarAplicacionImportacion(client, id_importacion);
+    return { ...summary, complete };
   });
 }
 
