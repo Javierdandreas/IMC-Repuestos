@@ -276,8 +276,7 @@ export async function buscarPublicacionesMercadoLibre(search: string) {
   const { rows } = await query<{ id: number; item_id: string; titulo: string; estado: string; permalink: string | null; seller_sku: string | null }>(
     `SELECT id, item_id, titulo, estado, permalink, seller_sku
      FROM public.mercadolibre_publicacion
-     WHERE id_producto IS NULL AND id_kit IS NULL
-       AND (item_id ILIKE $1 OR seller_sku ILIKE $1 OR titulo ILIKE $1)
+     WHERE item_id ILIKE $1 OR seller_sku ILIKE $1 OR titulo ILIKE $1
      ORDER BY estado = 'active' DESC, titulo ASC
      LIMIT 30`,
     [term]
@@ -293,7 +292,10 @@ export async function guardarVinculoManualMercadoLibre(
   target: { tipo: "ITEM" | "KIT"; id: number } | null
 ) {
   return withTransaction(async (db) => {
-    const publication = await db.query<{ id: number }>("SELECT id FROM public.mercadolibre_publicacion WHERE id = $1 FOR UPDATE", [idPublicacion]);
+    const publication = await db.query<{ id: number; item_id: string; id_producto: number | null; id_kit: number | null }>(
+      "SELECT id, item_id, id_producto, id_kit FROM public.mercadolibre_publicacion WHERE id = $1 FOR UPDATE",
+      [idPublicacion]
+    );
     if (!publication.rowCount) throw new AppError("La publicación no existe.", 404);
 
     if (!target) {
@@ -309,6 +311,23 @@ export async function guardarVinculoManualMercadoLibre(
     const table = target.tipo === "KIT" ? "kits" : "productos";
     const exists = await db.query(`SELECT id FROM public.${table} WHERE id = $1`, [target.id]);
     if (!exists.rowCount) throw new AppError(`${target.tipo === "KIT" ? "El kit" : "El item"} seleccionado ya no existe.`, 404);
+
+    const current = publication.rows[0];
+    const alreadyLinkedToTarget = target.tipo === "ITEM" ? current.id_producto === target.id : current.id_kit === target.id;
+    if (!alreadyLinkedToTarget && (current.id_producto !== null || current.id_kit !== null)) {
+      throw new AppError(`La PublicaciÃ³n # ${current.item_id} ya se encuentra asignada a otro ${current.id_kit !== null ? "kit" : "item"}.`, 409);
+    }
+
+    if (!alreadyLinkedToTarget) {
+      const column = target.tipo === "KIT" ? "id_kit" : "id_producto";
+      const linkedCount = await db.query<{ total: string }>(
+        `SELECT COUNT(*)::text AS total FROM public.mercadolibre_publicacion WHERE ${column} = $1`,
+        [target.id]
+      );
+      if (Number(linkedCount.rows[0]?.total || 0) >= 100) {
+        throw new AppError("Este registro ya tiene el maximo de 100 publicaciones de Mercado Libre.", 409);
+      }
+    }
 
     await db.query(
       `UPDATE public.mercadolibre_publicacion

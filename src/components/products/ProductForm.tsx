@@ -20,7 +20,7 @@ import { SuppliersSection } from "./sections/SuppliersSection";
 import { PricingSection } from "./sections/PricingSection";
 import { ProductSeriesManager } from "./ProductSeriesManager";
 import { ProductLocationsTab } from "./ProductLocationsTab";
-import { MercadoLibreLinksSection } from "@/components/mercadolibre/MercadoLibreLinksSection";
+import { MercadoLibreMlaManager } from "@/components/mercadolibre/MercadoLibreMlaManager";
 
 import { ImageUpload } from "./ImageUpload";
 import { useMetadata } from "@/context/MetadataContext";
@@ -978,7 +978,7 @@ export function ProductForm({
 
           {activeTab === "mercadolibre" && (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <MercadoLibreLinksSection sourceType="ITEM" sourceId={productId ? Number(productId) : null} />
+              <MercadoLibreMlaManager sourceType="ITEM" sourceId={productId ? Number(productId) : null} />
             </div>
           )}
         </div>
