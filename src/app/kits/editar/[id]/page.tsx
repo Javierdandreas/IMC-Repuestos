@@ -17,8 +17,10 @@ export default async function EditarKitPage({ params }: Props) {
     }
 
     return (
-        <div className="bg-white dark:bg-black min-h-screen p-6">
-            <KitForm kitId={id} initialData={kit} />
+        <div className="min-h-[calc(100dvh-4rem)] bg-white dark:bg-black">
+            <div className="w-full bg-white dark:bg-black">
+                <KitForm kitId={id} initialData={kit} />
+            </div>
         </div>
     );
 }

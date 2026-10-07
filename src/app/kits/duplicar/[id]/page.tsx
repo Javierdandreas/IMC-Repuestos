@@ -15,15 +15,17 @@ export default async function DuplicarKitPage({ params }: Props) {
   if (!kit) notFound();
 
   return (
-    <div className="min-h-screen bg-white p-6 dark:bg-black">
-      <KitForm
-        initialData={{
-          ...kit,
-          codigo_kit: "",
-          nombre: `COPIA ${kit.nombre}`,
-          imagen_url: null,
-        }}
-      />
+    <div className="min-h-[calc(100dvh-4rem)] bg-white dark:bg-black">
+      <div className="w-full bg-white dark:bg-black">
+        <KitForm
+          initialData={{
+            ...kit,
+            codigo_kit: "",
+            nombre: `COPIA ${kit.nombre}`,
+            imagen_url: null,
+          }}
+        />
+      </div>
     </div>
   );
 }
