@@ -71,7 +71,7 @@ const navGroups: NavGroup[] = [
     links: [
       { href: "/listados/precios-modificados", label: "Costos modificados" },
       { href: "/ubicaciones/inventario", label: "Inventario por ubicacion" },
-      { label: "Movimientos de stock", disabled: true },
+      { href: "/listados/movimientos-stock", label: "Movimientos de stock" },
     ],
   },
   {

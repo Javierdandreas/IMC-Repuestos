@@ -152,7 +152,7 @@ export function ProductExportPage() {
               <HiArrowLeft className="h-4 w-4" />
               Volver a catalogo
             </button>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white">Exportar items</h1>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white">Catálogo personalizado</h1>
             <p className="mt-1 text-sm font-medium text-slate-500">Filtrá qué items entran al archivo y elegí las columnas.</p>
           </div>
 

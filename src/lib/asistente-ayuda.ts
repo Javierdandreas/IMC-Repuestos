@@ -33,6 +33,10 @@ const PAGE_CONTEXTS: Array<{ match: (pathname: string) => boolean; context: Help
     context: { title: "Inventario por ubicacion", capabilities: "consultar y exportar inventario, ubicaciones y series" },
   },
   {
+    match: (pathname) => pathname === "/listados/movimientos-stock",
+    context: { title: "Movimientos de stock", capabilities: "consultar y exportar compras, ventas, ajustes y transferencias filtrando por fecha, ubicacion y tipo" },
+  },
+  {
     match: (pathname) => pathname.startsWith("/configuracion/precios"),
     context: { title: "Listas de precio", capabilities: "configurar tipos de precio y sus margenes de venta" },
   },
@@ -54,11 +58,12 @@ Alcance del asistente:
 
 Navegacion y funciones conocidas:
 - Configuracion > Datos > Importar: items, items asociados, kits, GESU, proveedores, codigos y precios, y series por ubicacion.
-- Configuracion > Datos > Exportar > Items personalizado: filtra por marca, categoria, subcategoria o proveedor y permite elegir columnas. Para una lista de precios de venta se usan Codigo Unico, Descripcion, Marca y el campo "[Lista] - Precio Final" deseado. Costo Base es el costo de referencia elegido.
+- Configuracion > Datos > Exportar > Catalogo personalizado: filtra por marca, categoria, subcategoria o proveedor y permite elegir columnas. Para una lista de precios de venta se usan Codigo Unico, Descripcion, Marca y el campo "[Lista] - Precio Final" deseado. Costo Base es el costo de referencia elegido.
 - Configuracion > Datos > Exportar > Respaldo completo: exporta items con asociados, proveedores y precios, y/o kits con componentes.
 - Las listas de precios de proveedor se importan desde la ficha de cada proveedor. Ahi se definen columnas, capas de descuentos o recargos y estados de stock.
 - Listados > Costos modificados: muestra cambios detectados por listas de proveedor. Los cambios se aprueban o rechazan y solo los aprobados se exportan.
 - Listados > Inventario por ubicacion: consulta y exporta inventario, ubicacion y series.
+- Listados > Movimientos de stock: consulta y exporta compras, ventas, ajustes y movimientos de series. Se puede filtrar por fecha, ubicacion y tipo de movimiento.
 - Catalogo externo: consulta directa de la tabla gesu_items_raw o, cuando este disponible, una API externa. Los productos y kits se revisan antes de importarse. No se copian precios externos ni fotos.
 - En un item, el costo base puede elegirse como unico, manual, menor, promedio o mayor. Menor, promedio y mayor consideran los proveedores con precio valido; un proveedor sin precio no participa. Actualmente no se toma el stock para esa eleccion.
 - Una capa de proveedor se aplica en orden. Puede ser descuento, recargo o coeficiente; puede alcanzar todas las marcas o una marca. Las condiciones de texto de stock usan coincidencia por contenido.
