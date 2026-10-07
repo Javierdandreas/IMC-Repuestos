@@ -77,7 +77,12 @@ export async function revisarConversionesKit(db: DbClient, rawCodes: string[], l
   return rows.map((row) => ({ ...row, motivos: [...new Set(row.motivos)] }));
 }
 
-export async function eliminarOriginalesConvertidos(db: DbClient, codes: string[], userId: number) {
+export async function eliminarOriginalesConvertidos(
+  db: DbClient,
+  codes: string[],
+  userId: number,
+  activityTitle = "Original eliminado tras conversion a kit",
+) {
   const review = await revisarConversionesKit(db, codes, true);
   const blocked = review.filter((row) => row.motivos.length);
   if (blocked.length) throw new AppError(`Conversion bloqueada. ${blocked.slice(0, 12).map((row) => `${row.codigo}: ${row.motivos.join(", ")}`).join(" | ")}`, 409);
@@ -85,13 +90,13 @@ export async function eliminarOriginalesConvertidos(db: DbClient, codes: string[
   const ids = review.map((row) => row.id);
   await db.query(`
     INSERT INTO public.producto_actividad (id_producto, codigo_producto, tipo, titulo, datos, usuario_id)
-    SELECT p.id, p.cod_unico, 'CONVERSION_KIT', 'Original eliminado tras conversion a kit',
+    SELECT p.id, p.cod_unico, 'CONVERSION_KIT', $3,
       jsonb_build_object('producto', to_jsonb(p), 'proveedores',
         (SELECT COALESCE(jsonb_agg(to_jsonb(pp)), '[]'::jsonb) FROM public.producto_proveedor pp WHERE pp.id_producto = p.id),
         'precios', (SELECT COALESCE(jsonb_agg(to_jsonb(precio)), '[]'::jsonb) FROM public.producto_precio precio WHERE precio.id_producto = p.id)),
       $2::int
     FROM public.productos p WHERE p.id = ANY($1::int[])
-  `, [ids, userId]);
+  `, [ids, userId, activityTitle]);
   await db.query("DELETE FROM public.producto_precio WHERE id_producto = ANY($1::int[])", [ids]);
   await db.query("DELETE FROM public.producto_proveedor WHERE id_producto = ANY($1::int[])", [ids]);
   await db.query("DELETE FROM public.producto_stock_ubicacion WHERE id_producto = ANY($1::int[])", [ids]);
@@ -119,5 +124,46 @@ export async function limpiarOriginalesOcultos(ids: number[], userId: number) {
     `, [ids]);
     if (selected.rows.length !== new Set(ids).size) throw new AppError("La seleccion cambio. Actualiza la revision antes de eliminar.", 409);
     return eliminarOriginalesConvertidos(db, selected.rows.map((row) => row.cod_unico), userId);
+  });
+}
+
+export async function listarItemsDuplicadosConKits() {
+  return withTransaction(async (db) => {
+    const candidates = await db.query<{ codigo: string }>(`
+      SELECT DISTINCT p.cod_unico AS codigo
+      FROM public.productos p
+      INNER JOIN public.kits k
+        ON upper(trim(k.codigo_kit)) = upper(trim(p.cod_unico))
+      ORDER BY p.cod_unico
+      LIMIT 501
+    `);
+    return {
+      rows: await revisarConversionesKit(db, candidates.rows.slice(0, 500).map((row) => row.codigo)),
+      hasMore: candidates.rows.length > 500,
+    };
+  });
+}
+
+export async function limpiarItemsDuplicadosConKits(ids: number[], userId: number) {
+  return withTransaction(async (db) => {
+    await db.query("SET LOCAL lock_timeout = '10s'");
+    const selected = await db.query<{ codigo: string }>(`
+      SELECT p.cod_unico AS codigo
+      FROM public.productos p
+      INNER JOIN public.kits k
+        ON upper(trim(k.codigo_kit)) = upper(trim(p.cod_unico))
+      WHERE p.id = ANY($1::int[])
+      ORDER BY p.id
+      FOR UPDATE
+    `, [ids]);
+    if (selected.rows.length !== new Set(ids).size) {
+      throw new AppError("La seleccion cambio. Actualiza la revision antes de eliminar.", 409);
+    }
+    return eliminarOriginalesConvertidos(
+      db,
+      selected.rows.map((row) => row.codigo),
+      userId,
+      "Item duplicado eliminado por coincidir con el codigo de un kit",
+    );
   });
 }

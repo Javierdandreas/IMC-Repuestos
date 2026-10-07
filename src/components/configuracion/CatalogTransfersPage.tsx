@@ -141,6 +141,7 @@ export function CatalogTransfersPage({ canManage }: Props) {
             <div className="mb-3 flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500"><HiCurrencyDollar className="h-4 w-4" /></span><h2 className="text-sm font-black uppercase tracking-wide text-slate-900 dark:text-white">Costos y precios</h2></div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <ActionButton icon={HiCurrencyDollar} title="Criterios y precios" detail="Asignar costo masivamente y completar listas de precio faltantes" onClick={() => router.push("/configuracion/costos-precios")} disabled={!canManage} />
+              <ActionButton icon={HiCollection} title="Duplicados con kits" detail="Revisar y eliminar items con el mismo codigo que un kit" onClick={() => router.push("/productos/duplicados-kits")} disabled={!canManage} />
             </div>
           </section>
         </div>}
