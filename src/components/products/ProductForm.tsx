@@ -20,6 +20,7 @@ import { SuppliersSection } from "./sections/SuppliersSection";
 import { PricingSection } from "./sections/PricingSection";
 import { ProductSeriesManager } from "./ProductSeriesManager";
 import { ProductLocationsTab } from "./ProductLocationsTab";
+import { MercadoLibreLinksSection } from "@/components/mercadolibre/MercadoLibreLinksSection";
 
 import { ImageUpload } from "./ImageUpload";
 import { useMetadata } from "@/context/MetadataContext";
@@ -38,12 +39,13 @@ import {
   Layers,
   Truck,
   Plus,
-  MapPin
+  MapPin,
+  ShoppingCart,
 } from "lucide-react";
 import { QuickAddModal, QuickAddType } from "./QuickAddModal";
 import { normalizarCriterioCosto } from "@/lib/costos";
 
-export type TabId = "principal" | "pieza" | "precios" | "ubicaciones" | "serial" | "foto";
+export type TabId = "principal" | "pieza" | "precios" | "ubicaciones" | "serial" | "foto" | "mercadolibre";
 
 export const PRODUCT_TABS = [
   { id: "principal" as const, label: "Principal", icon: Package },
@@ -52,6 +54,7 @@ export const PRODUCT_TABS = [
   { id: "ubicaciones" as const, label: "Ubicaciones", icon: MapPin },
   { id: "serial" as const, label: "Serialización", icon: Barcode },
   { id: "foto" as const, label: "Foto", icon: ImageIcon },
+  { id: "mercadolibre" as const, label: "Mercado Libre", icon: ShoppingCart },
 ];
 
 export type ProductFormProps = {
@@ -970,6 +973,12 @@ export function ProductForm({
                   disabled={loading}
                 />
               </section>
+            </div>
+          )}
+
+          {activeTab === "mercadolibre" && (
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <MercadoLibreLinksSection sourceType="ITEM" sourceId={productId ? Number(productId) : null} />
             </div>
           )}
         </div>

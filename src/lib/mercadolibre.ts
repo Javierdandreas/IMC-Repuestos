@@ -253,14 +253,15 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
 
 export async function getMercadoLibreVinculos(tipo: "ITEM" | "KIT", id: number) {
   const column = tipo === "KIT" ? "id_kit" : "id_producto";
-  const { rows } = await query<{ item_id: string; titulo: string; estado: string; permalink: string | null; seller_sku: string | null }>(
-    `SELECT item_id, titulo, estado, permalink, seller_sku
+  const { rows } = await query<{ id: number; item_id: string; titulo: string; estado: string; permalink: string | null; seller_sku: string | null }>(
+    `SELECT id, item_id, titulo, estado, permalink, seller_sku
      FROM public.mercadolibre_publicacion
      WHERE ${column} = $1
      ORDER BY estado = 'active' DESC, titulo ASC`,
     [id]
   );
   return rows.map((row) => ({
+    id: Number(row.id),
     itemId: String(row.item_id),
     titulo: String(row.titulo),
     estado: String(row.estado),
@@ -269,34 +270,22 @@ export async function getMercadoLibreVinculos(tipo: "ITEM" | "KIT", id: number) 
   }));
 }
 
-export type MercadoLibreVinculoCandidato = {
-  tipo: "ITEM" | "KIT";
-  id: number;
-  codigo: string;
-  descripcion: string;
-};
-
-export async function buscarCandidatosVinculoMercadoLibre(search: string): Promise<MercadoLibreVinculoCandidato[]> {
+export async function buscarPublicacionesMercadoLibre(search: string) {
   const term = `%${search.trim()}%`;
   if (search.trim().length < 2) return [];
-  const { rows } = await query<MercadoLibreVinculoCandidato>(
-    `SELECT tipo, id, codigo, descripcion
-     FROM (
-       SELECT 'ITEM'::text AS tipo, id, cod_unico AS codigo, descripcion, 0 AS prioridad
-       FROM public.productos
-       WHERE COALESCE(oculto_por_kit, FALSE) = FALSE
-         AND (cod_unico ILIKE $1 OR descripcion ILIKE $1)
-       UNION ALL
-       SELECT 'KIT'::text AS tipo, id, codigo_kit AS codigo, nombre AS descripcion, 1 AS prioridad
-       FROM public.kits
-       WHERE COALESCE(activo, TRUE) = TRUE
-         AND (codigo_kit ILIKE $1 OR nombre ILIKE $1)
-     ) candidatos
-     ORDER BY prioridad, codigo
+  const { rows } = await query<{ id: number; item_id: string; titulo: string; estado: string; permalink: string | null; seller_sku: string | null }>(
+    `SELECT id, item_id, titulo, estado, permalink, seller_sku
+     FROM public.mercadolibre_publicacion
+     WHERE id_producto IS NULL AND id_kit IS NULL
+       AND (item_id ILIKE $1 OR seller_sku ILIKE $1 OR titulo ILIKE $1)
+     ORDER BY estado = 'active' DESC, titulo ASC
      LIMIT 30`,
     [term]
   );
-  return rows.map((row) => ({ ...row, id: Number(row.id), tipo: row.tipo as "ITEM" | "KIT" }));
+  return rows.map((row) => ({
+    id: Number(row.id), itemId: String(row.item_id), titulo: String(row.titulo), estado: String(row.estado),
+    permalink: row.permalink ? String(row.permalink) : null, sellerSku: row.seller_sku ? String(row.seller_sku) : null,
+  }));
 }
 
 export async function guardarVinculoManualMercadoLibre(
@@ -310,7 +299,7 @@ export async function guardarVinculoManualMercadoLibre(
     if (!target) {
       await db.query(
         `UPDATE public.mercadolibre_publicacion
-         SET id_producto = NULL, id_kit = NULL, tipo_vinculo = 'SIN_VINCULO', updated_at = NOW()
+         SET id_producto = NULL, id_kit = NULL, tipo_vinculo = 'EXCLUIDO_MANUAL', updated_at = NOW()
          WHERE id = $1`,
         [idPublicacion]
       );
@@ -478,9 +467,9 @@ export async function sincronizarMercadoLibre(idCuenta: number): Promise<Mercado
           ultima_vez_vista_at, sincronizada_at, updated_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, NOW(), NOW(), NOW())
         ON CONFLICT (id_cuenta, item_id) DO UPDATE SET
-          id_producto = CASE WHEN mercadolibre_publicacion.tipo_vinculo = 'MANUAL' THEN mercadolibre_publicacion.id_producto ELSE EXCLUDED.id_producto END,
-          id_kit = CASE WHEN mercadolibre_publicacion.tipo_vinculo = 'MANUAL' THEN mercadolibre_publicacion.id_kit ELSE EXCLUDED.id_kit END,
-          tipo_vinculo = CASE WHEN mercadolibre_publicacion.tipo_vinculo = 'MANUAL' THEN 'MANUAL' ELSE EXCLUDED.tipo_vinculo END,
+          id_producto = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.id_producto ELSE EXCLUDED.id_producto END,
+          id_kit = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.id_kit ELSE EXCLUDED.id_kit END,
+          tipo_vinculo = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.tipo_vinculo ELSE EXCLUDED.tipo_vinculo END,
           seller_sku = EXCLUDED.seller_sku, titulo = EXCLUDED.titulo, estado = EXCLUDED.estado, categoria_id = EXCLUDED.categoria_id,
           tipo_publicacion = EXCLUDED.tipo_publicacion, precio = EXCLUDED.precio, precio_original = EXCLUDED.precio_original,
           moneda = EXCLUDED.moneda, cantidad_disponible = EXCLUDED.cantidad_disponible, cantidad_vendida = EXCLUDED.cantidad_vendida,

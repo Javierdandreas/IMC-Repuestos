@@ -34,7 +34,7 @@ export type MercadoLibrePublicacionListado = MercadoLibrePublicacion & {
   producto: string | null;
   codigoKit: string | null;
   kit: string | null;
-  tipoVinculo: "SIN_VINCULO" | "CODIGO_EXACTO" | "MANUAL";
+  tipoVinculo: "SIN_VINCULO" | "CODIGO_EXACTO" | "MANUAL" | "EXCLUIDO_MANUAL";
   sincronizadaAt: string;
 };
 

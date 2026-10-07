@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { HiCheckCircle, HiClipboardCopy, HiExternalLink, HiIdentification, HiLink, HiPlus, HiSearch, HiTrash } from "react-icons/hi";
+import { HiExternalLink, HiIdentification, HiLink, HiPlus, HiSearch, HiTrash } from "react-icons/hi";
 import { Box, Cpu, DollarSign, Image as ImageIcon, Layers, Save, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 
 import { ImageUpload } from "@/components/products/ImageUpload";
+import { MercadoLibreLinksSection } from "@/components/mercadolibre/MercadoLibreLinksSection";
 import { useMetadata } from "@/context/MetadataContext";
 import type { KitComponenteSearch } from "@/interfaces/kits";
 
@@ -26,6 +27,7 @@ type KitItem = {
 };
 
 type Publicacion = { itemId: string; titulo: string; estado: string; permalink: string | null; sellerSku: string | null };
+
 type KitTab = "principal" | "asociados" | "precios" | "componentes" | "foto" | "mercadolibre";
 
 const tabs: Array<{ id: KitTab; label: string; icon: typeof Box }> = [
@@ -186,6 +188,8 @@ export function KitForm({ kitId, initialData }: Props) {
       {activeTab === "foto" && <section className="max-w-xl"><h2 className="mb-2 text-lg font-bold text-slate-900 dark:text-white">Foto</h2><p className="mb-5 text-sm text-slate-500">Imagen principal del kit.</p><ImageUpload value={imagenUrl} onChange={setImagenUrl} bucket="productos" folder="kit-images" disabled={loading} /></section>}
 
       {activeTab === "mercadolibre" && <section className="max-w-3xl space-y-3"><p className="text-sm text-slate-500">Las publicaciones se vinculan al sincronizar cuando su SKU coincide exactamente con el código del kit.</p>{!kitId ? <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm font-bold text-slate-400 dark:border-slate-700">Guardá el kit para consultar sus publicaciones.</div> : loadingPublicaciones ? <div className="py-8 text-center text-sm font-bold text-slate-400">Cargando publicaciones...</div> : publicaciones.length ? publicaciones.map((publication) => <article key={publication.itemId} className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800 sm:flex-row sm:items-center"><div><p className="font-black text-slate-900 dark:text-white">{publication.titulo}</p><p className="mt-1 font-mono text-xs text-slate-500">{publication.itemId} {publication.sellerSku ? `- SKU ${publication.sellerSku}` : ""}</p></div><div className="flex items-center gap-2"><span className={`rounded px-2 py-1 text-[10px] font-black uppercase ${publication.estado === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>{publication.estado}</span>{publication.permalink ? <><button type="button" onClick={() => void copyLink(publication.permalink as string)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-blue-600 dark:border-slate-700" title="Copiar link"><HiLink className="h-4 w-4" /></button><a href={publication.permalink} target="_blank" rel="noreferrer" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-blue-600 dark:border-slate-700" title="Abrir publicación"><HiExternalLink className="h-4 w-4" /></a></> : null}</div></article>) : <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm font-bold text-slate-400 dark:border-slate-700">No hay publicaciones vinculadas a este kit.</div>}</section>}
+
+      {activeTab === "mercadolibre" && <div className="mt-3 border-t border-slate-200 pt-6 dark:border-slate-800"><MercadoLibreLinksSection sourceType="KIT" sourceId={kitId ? Number(kitId) : null} /></div>}
 
       <footer className="sticky bottom-0 z-20 -mx-6 mt-auto flex justify-end gap-3 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:-mx-8 md:px-8"><button type="button" onClick={() => router.push(itemsListHref)} className="rounded-xl bg-slate-100 px-5 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300">Cancelar</button><button type="submit" disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100 disabled:opacity-50 dark:bg-white dark:text-slate-900"><Save className="h-4 w-4" />{loading ? "Guardando..." : "Guardar cambios"}</button></footer>
     </form>
