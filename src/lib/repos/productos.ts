@@ -1203,7 +1203,7 @@ export async function importProductosConCliente(
     const parseNullableNumber = (value: any): number | null => {
       if (value === null || value === undefined || value === "") return null;
       const raw = String(value)
-        .replace(/\$/g, "")
+        .replace(/[$%]/g, "")
         .replace(/\s/g, "")
         .trim();
       const hasComma = raw.includes(",");
@@ -1400,17 +1400,10 @@ export async function importProductosConCliente(
             marginMappings.forEach((tipo) => {
               const mapping = mappings[tipo.mappingId];
               const rawMargin = mapping?.csvHeader ? item[mapping.csvHeader] : null;
-              if (rawMargin === null || rawMargin === undefined || String(rawMargin).trim() === "") return;
-
-              const margen = parseNullableNumber(rawMargin);
-              if (margen === null || margen < -100) {
-                results.errors.push({
-                  row: rowNum,
-                  error: `Margen invalido para ${tipo.descripcion}`,
-                  cod_unico: sku,
-                });
-                return;
-              }
+              const parsedMargin = parseNullableNumber(rawMargin);
+              // An imported margin never prevents the remaining values from applying.
+              // Empty or malformed cells explicitly reset that list's margin to zero.
+              const margen = parsedMargin === null || parsedMargin < -100 ? 0 : parsedMargin;
 
               marginUpdates.push({
                 sku,
