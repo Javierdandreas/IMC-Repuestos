@@ -126,7 +126,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
 
         <div className="divide-y divide-slate-800">
           {rows.map((item, index) => {
-            const canApply = index === 0 && ["PROCESADA", "APLICANDO"].includes(item.estado);
+            const canApply = index === 0 && item.estado === "PROCESADA";
             const problemCount = (item.no_encontrados || 0) + (item.invalidos || 0) + (item.duplicados || 0) + (item.proveedor_distinto || 0);
             return (
               <div
@@ -440,8 +440,6 @@ function getStatusBadge(estado: string) {
       return "text-blue-300 bg-blue-500/10 border-blue-500/20";
     case "PROCESADA":
       return "text-green-300 bg-green-500/10 border-green-500/20";
-    case "APLICANDO":
-      return "text-blue-300 bg-blue-500/10 border-blue-500/20";
     case "ERROR":
       return "text-red-300 bg-red-500/10 border-red-500/20";
     case "PENDIENTE":

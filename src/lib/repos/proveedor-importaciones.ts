@@ -236,10 +236,22 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
 
   const estado = String(importacion.rows[0].estado);
   if (estado === "APLICADA") return false;
-  if (estado === "APLICANDO") return true;
   if (estado !== "PROCESADA") {
     throw new AppError("La importacion todavia no esta lista para aplicar", 409);
   }
+
+  const preparacionExistente = await client.query<{ preparada: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM public.proveedor_importacion_item
+        WHERE id_importacion = $1
+          AND (estado <> 'PENDIENTE' OR applied_at IS NOT NULL)
+      ) AS preparada
+    `,
+    [idImportacion],
+  );
+  if (preparacionExistente.rows[0]?.preparada) return true;
 
   await client.query(
     `
@@ -343,10 +355,6 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
     [idImportacion],
   );
 
-  await client.query(
-    `UPDATE public.proveedor_importacion SET estado = 'APLICANDO', updated_at = NOW() WHERE id = $1`,
-    [idImportacion],
-  );
   return true;
 }
 
