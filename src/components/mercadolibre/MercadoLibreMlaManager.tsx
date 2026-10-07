@@ -9,6 +9,8 @@ type Publication = { id: number; itemId: string };
 
 const MAX_PUBLICATIONS = 100;
 
+const mlaNumber = (itemId: string) => itemId.replace(/^MLA/i, "");
+
 export function MercadoLibreMlaManager({ sourceType, sourceId }: { sourceType: SourceType; sourceId?: number | null }) {
   const [linked, setLinked] = useState<Publication[]>([]);
   const [activeRow, setActiveRow] = useState<number | null>(null);
@@ -97,23 +99,23 @@ export function MercadoLibreMlaManager({ sourceType, sourceId }: { sourceType: S
   return <section className="max-w-4xl animate-in fade-in slide-in-from-bottom-2 duration-300">
     <div className="space-y-2">
       {loading ? <p className="py-8 text-center text-sm font-bold text-slate-400">Cargando publicaciones...</p> : linked.map((publication, index) => (
-        <div key={publication.id} className="grid grid-cols-[minmax(185px,auto)_1fr_auto] items-center gap-3 sm:grid-cols-[210px_1fr_auto]">
-          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Publicación Mercado Libre {index + 1}: <span className="ml-1 font-mono">#</span></label>
-          <input value={publication.itemId} readOnly className="h-10 w-full rounded-sm border border-slate-300 bg-slate-50 px-3 font-mono text-sm text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+        <div key={publication.id} className="grid grid-cols-[225px_minmax(0,620px)_40px] items-center gap-3">
+          <label className="whitespace-nowrap text-sm font-medium text-slate-700 dark:text-slate-300">Publicación Mercado Libre {index + 1}: <span className="ml-1 font-mono">#</span></label>
+          <input value={mlaNumber(publication.itemId)} readOnly className="h-10 w-full rounded-sm border border-slate-300 bg-slate-50 px-3 font-mono text-sm text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
           <button type="button" disabled={savingId === publication.id} onClick={() => void updateLink(publication.id, false)} className="inline-flex h-10 w-10 items-center justify-center rounded-sm border border-red-200 text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/30" title="Desvincular MLA"><Trash2 className="h-4 w-4" /></button>
         </div>
       ))}
 
       {showEmptyRow && <div className="space-y-2">
-        <div className="grid grid-cols-[minmax(185px,auto)_1fr_auto] items-center gap-3 sm:grid-cols-[210px_1fr_auto]">
-          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Publicación Mercado Libre {linked.length + 1}: <span className="ml-1 font-mono">#</span></label>
+        <div className="grid grid-cols-[225px_minmax(0,620px)_40px] items-center gap-3">
+          <label className="whitespace-nowrap text-sm font-medium text-slate-700 dark:text-slate-300">Publicación Mercado Libre {linked.length + 1}: <span className="ml-1 font-mono">#</span></label>
           <input value={activeRow === linked.length ? search : ""} readOnly placeholder="Sin asignar" className="h-10 w-full rounded-sm border border-slate-300 bg-white px-3 font-mono text-sm text-slate-500 outline-none dark:border-slate-700 dark:bg-slate-950" />
           <button type="button" onClick={() => { setActiveRow(linked.length); setSearch(""); }} className="inline-flex h-10 w-10 items-center justify-center rounded-sm bg-blue-600 text-white transition hover:bg-blue-500" title="Buscar publicación"><Search className="h-4 w-4" /></button>
         </div>
 
-        {activeRow === linked.length && <div className="ml-0 border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:ml-[222px]">
+        {activeRow === linked.length && <div className="ml-0 border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:ml-[237px]">
           <div className="flex gap-2"><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar publicación" className="h-10 min-w-0 flex-1 rounded-sm border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950" /><button type="button" onClick={closeSearch} className="inline-flex h-10 w-10 items-center justify-center rounded-sm border border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900" title="Cerrar búsqueda"><X className="h-4 w-4" /></button></div>
-          {search.trim().length >= 2 && <div className="mt-2 max-h-56 overflow-y-auto border border-slate-200 dark:border-slate-800">{results.length ? results.map((publication) => <button key={publication.id} type="button" disabled={savingId === publication.id} onClick={() => void updateLink(publication.id, true)} className="flex w-full items-center justify-between border-b border-slate-100 px-3 py-2.5 text-left font-mono text-sm text-slate-800 transition last:border-0 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:text-slate-100 dark:hover:bg-slate-900"><span>{publication.itemId}</span><Search className="h-4 w-4 text-slate-400" /></button>) : <p className="px-3 py-4 text-center text-sm text-slate-500">No se encontraron publicaciones.</p>}</div>}
+          {search.trim().length >= 2 && <div className="mt-2 max-h-56 overflow-y-auto border border-slate-200 dark:border-slate-800">{results.length ? results.map((publication) => <button key={publication.id} type="button" disabled={savingId === publication.id} onClick={() => void updateLink(publication.id, true)} className="flex w-full items-center justify-between border-b border-slate-100 px-3 py-2.5 text-left font-mono text-sm text-slate-800 transition last:border-0 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:text-slate-100 dark:hover:bg-slate-900"><span>{mlaNumber(publication.itemId)}</span><Search className="h-4 w-4 text-slate-400" /></button>) : <p className="px-3 py-4 text-center text-sm text-slate-500">No se encontraron publicaciones.</p>}</div>}
         </div>}
       </div>}
     </div>
