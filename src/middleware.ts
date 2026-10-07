@@ -45,7 +45,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Esta ruta valida su propio Bearer token y no puede requerir una sesion de usuario.
-  if (pathname === "/api/cron/catalogo-externo") {
+  if (pathname === "/api/cron/catalogo-externo" || pathname === "/api/cron/mercadolibre") {
     return NextResponse.next();
   }
 
