@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     const userName = session.nombreUsuario || session.email || "Usuario Desconocido";
     const fileName = body.fileName || "archivo_desconocido.csv";
 
-    const results = await importProductos(body.items, userName, fileName, body.mappings);
+    const results = await importProductos(body.items, userName, fileName, body.mappings, body.options);
     
     return NextResponse.json(results);
   } catch (error: unknown) {

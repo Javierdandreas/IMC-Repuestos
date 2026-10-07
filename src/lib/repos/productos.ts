@@ -1141,9 +1141,10 @@ export async function importProductos(
   items: any[], 
   usuario: string, 
   archivo: string,
-  mappings: Record<string, { csvHeader: string; updateExisting: boolean }>
+  mappings: Record<string, { csvHeader: string; updateExisting: boolean }>,
+  options: { onlyExisting?: boolean; blockKitCodes?: boolean } = {}
 ) {
-  return withTransaction((client) => importProductosConCliente(client, items, usuario, archivo, mappings));
+  return withTransaction((client) => importProductosConCliente(client, items, usuario, archivo, mappings, options));
 }
 
 export async function importProductosConCliente(
@@ -1151,7 +1152,8 @@ export async function importProductosConCliente(
   items: any[],
   usuario: string,
   archivo: string,
-  mappings: Record<string, { csvHeader: string; updateExisting: boolean }>
+  mappings: Record<string, { csvHeader: string; updateExisting: boolean }>,
+  options: { onlyExisting?: boolean; blockKitCodes?: boolean } = {}
 ) {
     // 1. Cargar metadatos para resolución rápida
     const [marcas, categorias, subcategorias, ubicaciones, piezas, proveedores, tiposPrecio] = await Promise.all([
@@ -1255,6 +1257,22 @@ export async function importProductosConCliente(
       groupedBySku.set(sku, rows);
     }
 
+    const importedCodes = Array.from(groupedBySku.keys());
+    const [existingProducts, existingKits] = importedCodes.length > 0
+      ? await Promise.all([
+          client.query<{ code: string }>(
+            "SELECT UPPER(TRIM(cod_unico)) AS code FROM public.productos WHERE UPPER(TRIM(cod_unico)) = ANY($1::text[])",
+            [importedCodes],
+          ),
+          client.query<{ code: string }>(
+            "SELECT UPPER(TRIM(codigo_kit)) AS code FROM public.kits WHERE UPPER(TRIM(codigo_kit)) = ANY($1::text[])",
+            [importedCodes],
+          ),
+        ])
+      : [{ rows: [] as { code: string }[] }, { rows: [] as { code: string }[] }];
+    const existingProductCodes = new Set(existingProducts.rows.map((row) => normalize(row.code)));
+    const existingKitCodes = new Set(existingKits.rows.map((row) => normalize(row.code)));
+
     const consolidatedFields = [
       { id: "titulo", label: "Descripcion" },
       { id: "cod_barra", label: "Codigo de barras" },
@@ -1269,6 +1287,26 @@ export async function importProductosConCliente(
     const groupedItems: GroupedImportItem[] = [];
 
     groupedBySku.forEach((rows, sku) => {
+      if (options.blockKitCodes && existingKitCodes.has(sku)) {
+        results.ignored += rows.length;
+        results.errors.push({
+          row: rows[0].rowNum,
+          error: "El codigo pertenece a un kit y se omitio para no crear ni modificar un item duplicado.",
+          cod_unico: sku,
+        });
+        return;
+      }
+
+      if (options.onlyExisting && !existingProductCodes.has(sku)) {
+        results.ignored += rows.length;
+        results.errors.push({
+          row: rows[0].rowNum,
+          error: "El item no existe y se omitio porque la importacion solo actualiza items existentes.",
+          cod_unico: sku,
+        });
+        return;
+      }
+
       const consolidatedItem = { ...rows[0].item };
       let hasConflict = false;
 

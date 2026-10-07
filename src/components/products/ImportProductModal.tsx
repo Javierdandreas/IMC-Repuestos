@@ -32,6 +32,7 @@ type ErrorSummaryGroup = {
   label: string;
   count: number;
   codes: string[];
+  detail: string;
 };
 
 type ImportErrorSummary = {
@@ -117,7 +118,7 @@ const summarizeImportErrors = (errors: ImportError[]): ImportErrorSummary => {
     if (providerMatch) {
       const providerName = providerMatch[1].trim();
       const key = providerName.toLocaleLowerCase();
-      const group = missingProviders.get(key) ?? { label: providerName, count: 0, codes: [] };
+      const group = missingProviders.get(key) ?? { label: providerName, count: 0, codes: [], detail: item.error };
       group.count += 1;
       addErrorCode(group, item.cod_unico);
       missingProviders.set(key, group);
@@ -129,6 +130,10 @@ const summarizeImportErrors = (errors: ImportError[]): ImportErrorSummary => {
       label = "Datos de proveedor en conflicto";
     } else if (item.error.startsWith("El item ") && item.error.includes("tiene valores distintos para")) {
       label = "Items repetidos con datos distintos";
+    } else if (item.error.startsWith("El codigo pertenece a un kit")) {
+      label = "Codigos que pertenecen a kits";
+    } else if (item.error.startsWith("El item no existe")) {
+      label = "Items no existentes";
     } else if (item.cod_unico === "ERROR RED") {
       label = "Errores de conexion";
     } else if (item.cod_unico.startsWith("Lote ")) {
@@ -137,7 +142,7 @@ const summarizeImportErrors = (errors: ImportError[]): ImportErrorSummary => {
       label = "Filas con datos invalidos";
     }
 
-    const group = otherErrors.get(label) ?? { label, count: 0, codes: [] };
+    const group = otherErrors.get(label) ?? { label, count: 0, codes: [], detail: item.error };
     group.count += 1;
     addErrorCode(group, item.cod_unico);
     otherErrors.set(label, group);
@@ -210,6 +215,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
 
   const { proveedores, tiposPrecio } = useMetadata();
   const [isReplaceMode, setIsReplaceMode] = useState(false);
+  const [onlyUpdateExisting, setOnlyUpdateExisting] = useState(true);
 
   const marginFields = useMemo<ImportField[]>(() => (
     tiposPrecio
@@ -230,6 +236,11 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
       })
   ), [tiposPrecio]);
   const importFields = useMemo(() => [...SYSTEM_FIELDS, ...marginFields], [marginFields]);
+  const mappedMarginFields = useMemo(
+    () => marginFields.filter((field) => Boolean(mappings[field.id]?.csvHeader)),
+    [marginFields, mappings]
+  );
+  const isMarginImport = mappedMarginFields.length > 0;
 
   useEffect(() => {
     setMappings((previous) => {
@@ -421,7 +432,13 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
               body: JSON.stringify({
                 items: chunk,
                 mappings,
-                fileName: file.name
+                fileName: file.name,
+                options: isMarginImport
+                  ? {
+                      onlyExisting: onlyUpdateExisting,
+                      blockKitCodes: true,
+                    }
+                  : undefined,
               }),
             });
 
@@ -604,6 +621,30 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
       });
     }
 
+    if (isMarginImport) {
+      const disabledMargins = mappedMarginFields.filter((field) => mappings[field.id]?.updateExisting === false);
+      if (disabledMargins.length > 0) {
+        issues.push({
+          type: "error",
+          message: `Activa \"Actualiza\" para aplicar los margenes: ${disabledMargins.map((field) => field.label).join(", ")}.`,
+        });
+      }
+
+      if (!onlyUpdateExisting) {
+        issues.push({
+          type: "warning",
+          message: "Esta importacion puede crear items nuevos. Para una lista de margenes, deja activado \"Solo items existentes\".",
+        });
+      }
+
+      if (isReplaceMode) {
+        issues.push({
+          type: "error",
+          message: "No combines una actualizacion de margenes con \"Reemplazar lista del proveedor\".",
+        });
+      }
+    }
+
     const combinedSupplierColumnFields = ["proveedor", "codigo_proveedor", "precio_lista_proveedor"].filter((fieldId) => {
       const header = mappings[fieldId]?.csvHeader;
       return header && normalizeHeader(header).includes("proveedores y precios lista");
@@ -624,7 +665,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     }
 
     return issues;
-  }, [importFields, mappings, missingRequiredFields]);
+  }, [importFields, isMarginImport, isReplaceMode, mappedMarginFields, mappings, missingRequiredFields, onlyUpdateExisting]);
 
   const blockingImportIssues = useMemo(
     () => importValidationIssues.filter((issue) => issue.type === "error"),
@@ -833,6 +874,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
                       <p className="text-[11px] font-bold text-red-200">{error.label}</p>
                       <span className="shrink-0 text-xs font-black text-red-300">{error.count}</span>
                     </div>
+                    <p className="mt-1 line-clamp-2 text-[10px] font-medium text-red-200/70" title={error.detail}>{error.detail}</p>
                     {error.codes.length > 0 && (
                       <p className="mt-1 truncate font-mono text-[10px] text-red-200/50">Items: {error.codes.join(", ")}</p>
                     )}
@@ -958,6 +1000,31 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
                 </label>
               </div>
             </div>
+
+            {isMarginImport && (
+              <div className={`rounded-xl border p-4 transition-all ${onlyUpdateExisting ? 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-200' : 'border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200'}`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest">Actualizacion segura de margenes</p>
+                    <p className="mt-1 text-[11px] font-medium opacity-75">
+                      {onlyUpdateExisting
+                        ? "Solo actualiza items existentes. Los codigos que pertenezcan a kits se omiten."
+                        : "Tambien puede crear items nuevos. Los codigos de kits se siguen omitiendo."}
+                    </p>
+                  </div>
+                  <label className="relative inline-flex cursor-pointer items-center" title="Solo actualizar items existentes">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={onlyUpdateExisting}
+                      onChange={() => setOnlyUpdateExisting((value) => !value)}
+                    />
+                    <div className="h-6 w-11 rounded-full bg-slate-200 peer-checked:bg-violet-500 peer-focus:outline-none dark:bg-slate-800 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white" />
+                  </label>
+                </div>
+                <p className="mt-3 text-[10px] font-black uppercase tracking-widest opacity-70">Margenes: {mappedMarginFields.map((field) => field.label).join(", ")}</p>
+              </div>
+            )}
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/40">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Lectura rápida</p>
