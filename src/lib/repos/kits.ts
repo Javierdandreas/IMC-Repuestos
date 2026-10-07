@@ -120,6 +120,9 @@ export async function getKitById(id: number): Promise<Kit | null> {
       p.id AS id_producto,
       p.cod_unico,
       p.descripcion,
+      p.id_pieza,
+      pieza.codigo_pieza,
+      pieza.descripcion AS pieza_descripcion,
       kd.cantidad,
       p.stock AS stock_actual,
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'PRECIO COSTO' LIMIT 1)), 0) AS precio_costo,
@@ -128,6 +131,7 @@ export async function getKitById(id: number): Promise<Kit | null> {
       COALESCE((SELECT precio FROM public.producto_precio WHERE id_producto = p.id AND id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})), 0) AS precio_mecanico
     FROM public.kit_detalle kd
     JOIN public.productos p ON kd.id_producto = p.id
+    LEFT JOIN public.pieza pieza ON pieza.id = p.id_pieza
     WHERE kd.id_kit = $1
   `, [id]);
 

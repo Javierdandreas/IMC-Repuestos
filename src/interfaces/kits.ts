@@ -2,6 +2,9 @@ export type KitComponente = {
   id_producto: number;
   cod_unico: string;
   descripcion: string;
+  id_pieza?: number | null;
+  codigo_pieza?: string | null;
+  pieza_descripcion?: string | null;
   cantidad: number;
   stock_actual: number;
   precio_costo: number;
