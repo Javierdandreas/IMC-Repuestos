@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { HiCheck, HiCloudUpload, HiDownload, HiExclamation, HiPlay, HiSave, HiTable } from "react-icons/hi";
+import { HiCheck, HiChevronLeft, HiChevronRight, HiCloudUpload, HiDownload, HiExclamation, HiPlay, HiSave, HiTable } from "react-icons/hi";
 import useSWR, { mutate } from "swr";
 
 import { ProveedorImportHistory } from "./ProveedorImportHistory";
@@ -42,6 +42,7 @@ type StockColorRule = {
 };
 
 const STOCK_COLOR_ROW = "__COLOR_FILA_EXCEL__";
+const PREVIEW_PAGE_SIZE = 50;
 
 async function requestImportJson(url: string, init: RequestInit) {
   const response = await fetch(url, init);
@@ -180,7 +181,8 @@ function buildMappedRows(
   rows: any[],
   mappings: Record<string, MappingConfig>,
   nombreProveedor: string,
-  stockColorRules: StockColorRule[]
+  stockColorRules: StockColorRule[],
+  previewLimit = 6,
 ) {
   const supplierHeader = mappings.proveedor?.csvHeader;
   const codeHeader = mappings.codigo_proveedor?.csvHeader;
@@ -250,7 +252,7 @@ function buildMappedRows(
         : null,
     });
 
-    if (preview.length < 6) {
+    if (preview.length < previewLimit) {
       preview.push({
         row: Number(row?.__rowNumber) || index + 2,
         proveedor,
@@ -280,6 +282,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [rawRows, setRawRows] = useState<any[]>([]);
   const [isExcelFile, setIsExcelFile] = useState(false);
+  const [previewPage, setPreviewPage] = useState(1);
   const [stockColorRules, setStockColorRules] = useState<StockColorRule[]>([]);
   const [savingStockColorRules, setSavingStockColorRules] = useState(false);
   const [excelSheets, setExcelSheets] = useState<string[]>([]);
@@ -303,6 +306,14 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     () => buildMappedRows(rawRows, mappings, nombre_proveedor, stockColorRules),
     [rawRows, mappings, nombre_proveedor, stockColorRules]
   );
+  const previewTotalPages = Math.max(1, Math.ceil(rawRows.length / PREVIEW_PAGE_SIZE));
+  const mappedPreviewPage = useMemo(() => buildMappedRows(
+    rawRows.slice((previewPage - 1) * PREVIEW_PAGE_SIZE, previewPage * PREVIEW_PAGE_SIZE),
+    mappings,
+    nombre_proveedor,
+    stockColorRules,
+    PREVIEW_PAGE_SIZE,
+  ).preview, [rawRows, previewPage, mappings, nombre_proveedor, stockColorRules]);
   const canImport = Boolean(mappings.codigo_proveedor.csvHeader && mappings.precio_lista.csvHeader && mappedData.items.length > 0);
 
   useEffect(() => {
@@ -324,6 +335,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const applyHeadersAndRows = (headers: string[], rows: any[], fromExcel: boolean) => {
     setCsvHeaders(headers);
     setRawRows(rows);
+    setPreviewPage(1);
     setIsExcelFile(fromExcel);
     const detectedColors = fromExcel
       ? Array.from(new Set(rows.map((row) => String(row?.__rowColor ?? "").trim())))
@@ -436,6 +448,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   };
 
   const updateMapping = (fieldId: string, header: string) => {
+    setPreviewPage(1);
     setMappings((prev) => ({
       ...prev,
       [fieldId]: { ...prev[fieldId], csvHeader: header },
@@ -612,7 +625,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
   const renderPreview = () => (
     <div className="overflow-hidden rounded-xl border border-slate-800">
-      <div className="grid grid-cols-[60px_minmax(130px,1fr)_minmax(110px,0.8fr)_110px_110px_130px] gap-3 bg-slate-950/60 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+      <div className="grid grid-cols-[44px_minmax(86px,1fr)_minmax(82px,0.9fr)_88px_90px_90px] gap-2 bg-slate-950/60 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
         <span>Fila</span>
         <span>Proveedor</span>
         <span>Codigo</span>
@@ -620,12 +633,12 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         <span>Stock</span>
         <span>Estado</span>
       </div>
-      {mappedData.preview.length === 0 ? (
+      {mappedPreviewPage.length === 0 ? (
         <div className="px-3 py-3 text-xs font-bold text-slate-500">Selecciona columnas para ver una vista previa.</div>
       ) : (
-        <div className="divide-y divide-slate-800">
-          {mappedData.preview.map((row) => (
-            <div key={row.row} className="grid grid-cols-[60px_minmax(130px,1fr)_minmax(110px,0.8fr)_110px_110px_130px] items-center gap-3 px-3 py-2 text-xs">
+        <div className="max-h-[420px] divide-y divide-slate-800 overflow-y-auto">
+          {mappedPreviewPage.map((row) => (
+            <div key={row.row} className="grid grid-cols-[44px_minmax(86px,1fr)_minmax(82px,0.9fr)_88px_90px_90px] items-center gap-2 px-3 py-2 text-xs">
               <span className="font-mono font-bold text-slate-500">{row.row}</span>
               <span className="truncate font-bold text-slate-300">{row.proveedor || "-"}</span>
               <span className="truncate font-black text-white">{row.codigo || "-"}</span>
@@ -636,6 +649,38 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
               </span>
             </div>
           ))}
+        </div>
+      )}
+      {mappedData.items.length > 0 && (
+        <div className="flex items-center justify-between gap-3 border-t border-slate-800 bg-slate-950/40 px-3 py-2.5">
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+            Filas {((previewPage - 1) * PREVIEW_PAGE_SIZE) + 1}-{Math.min(previewPage * PREVIEW_PAGE_SIZE, mappedData.items.length)} de {mappedData.items.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPreviewPage((page) => Math.max(1, page - 1))}
+              disabled={previewPage <= 1}
+              title="Pagina anterior"
+              aria-label="Pagina anterior"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 text-slate-300 transition hover:border-blue-500 hover:text-blue-300 disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              <HiChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="min-w-20 text-center text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Pag. {previewPage} de {previewTotalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPreviewPage((page) => Math.min(previewTotalPages, page + 1))}
+              disabled={previewPage >= previewTotalPages}
+              title="Pagina siguiente"
+              aria-label="Pagina siguiente"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 text-slate-300 transition hover:border-blue-500 hover:text-blue-300 disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              <HiChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>

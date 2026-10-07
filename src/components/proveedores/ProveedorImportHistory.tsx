@@ -220,8 +220,8 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
         title="Aplicar lista importada"
         width="w-[min(90vw,520px)]"
       >
-        <div className="space-y-5">
-          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4">
+        <div className="space-y-6 p-5">
+          <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-5">
             <div className="flex items-start gap-3">
               <HiLightningBolt className="mt-0.5 h-5 w-5 shrink-0 text-blue-400" />
               <div>
@@ -234,13 +234,13 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
           </div>
 
           {confirmImport && (
-            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs font-bold text-slate-300">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs font-bold text-slate-300">
               <div className="truncate">{confirmImport.nombre_archivo}</div>
               <div className="mt-1 text-[10px] uppercase tracking-widest text-slate-500">{confirmImport.total_items} filas importadas</div>
             </div>
           )}
 
-          <div className="flex gap-3 border-t border-slate-800 pt-4">
+          <div className="flex gap-3 border-t border-slate-800 pt-5">
             <button
               type="button"
               onClick={() => setConfirmImport(null)}
@@ -263,11 +263,11 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
         open={!!detailImport}
         onClose={() => setDetailImport(null)}
         title="Resumen de importacion"
-        width="w-[min(94vw,1240px)]"
+        width="w-[min(98vw,1440px)]"
         hideHeaderBorder
       >
         {detailImport && (
-          <div className="space-y-6 px-3 pb-3 md:px-5 md:pb-5">
+          <div className="space-y-6 px-4 pb-4 md:px-6 md:pb-6">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(130px,0.75fr)_minmax(170px,0.9fr)_minmax(190px,1fr)_minmax(160px,0.85fr)_minmax(280px,1.4fr)]">
               <SummaryBox label="Filas" value={detailImport.total_items} tone="neutral" />
               <SummaryBox label="Actualizadas" value={detailImport.actualizados || 0} tone="success" />
@@ -287,8 +287,8 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
             </div>
 
             <div>
-              <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/30">
-                <div className="grid grid-cols-[60px_minmax(140px,1fr)_minmax(115px,0.8fr)_105px_120px_135px_minmax(230px,1.4fr)_115px_115px] gap-3 bg-slate-950 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/30">
+                <div className="grid min-w-[1040px] grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_minmax(170px,1.6fr)_96px_96px] gap-2 bg-slate-950 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
                   <span>Fila</span>
                   <span>Proveedor</span>
                   <span>Codigo prov.</span>
@@ -299,7 +299,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                   <span>Anterior</span>
                   <span>Aplicado</span>
                 </div>
-                <div className="max-h-[430px] divide-y divide-slate-800 overflow-y-auto">
+                <div className="max-h-[430px] min-w-[1040px] divide-y divide-slate-800 overflow-y-auto">
                   {isLoadingDetail ? (
                     <div className="px-5 py-8 text-center text-xs font-bold text-slate-500">Cargando detalle...</div>
                   ) : detailItems.length === 0 ? (
@@ -308,7 +308,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                     detailItems.map((row) => (
                       <div
                         key={row.id}
-                        className="grid grid-cols-[60px_minmax(140px,1fr)_minmax(115px,0.8fr)_105px_120px_135px_minmax(230px,1.4fr)_115px_115px] items-center gap-3 px-5 py-4 text-xs transition hover:bg-slate-900/40"
+                        className="grid grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_minmax(170px,1.6fr)_96px_96px] items-center gap-2 px-3 py-4 text-xs transition hover:bg-slate-900/40"
                       >
                         <span className="font-mono font-bold text-slate-500">{row.fila || "-"}</span>
                         <span className="truncate font-bold text-slate-300">{row.proveedor_archivo || "-"}</span>
