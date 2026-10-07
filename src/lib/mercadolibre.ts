@@ -217,13 +217,15 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
   if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
   const safePage = Math.max(1, page);
   const { rows } = await query(
-    `SELECT publication.id, publication.item_id, publication.id_producto, publication.tipo_vinculo, publication.seller_sku,
+    `SELECT publication.id, publication.item_id, publication.id_producto, publication.id_kit, publication.tipo_vinculo, publication.seller_sku,
       publication.titulo, publication.estado, publication.categoria_id, publication.tipo_publicacion, publication.precio,
       publication.precio_original, publication.moneda, publication.cantidad_disponible, publication.cantidad_vendida,
       publication.thumbnail_url, publication.permalink, publication.variaciones, publication.sincronizada_at,
-      product.cod_unico AS codigo_producto, product.descripcion AS producto
+      product.cod_unico AS codigo_producto, product.descripcion AS producto,
+      kit.codigo_kit AS codigo_kit, kit.nombre AS kit
      FROM public.mercadolibre_publicacion publication
      LEFT JOIN public.productos product ON product.id = publication.id_producto
+     LEFT JOIN public.kits kit ON kit.id = publication.id_kit
      WHERE publication.id_cuenta = $1
      ORDER BY publication.sincronizada_at DESC, publication.item_id ASC
      LIMIT $2 OFFSET $3`,
@@ -232,7 +234,9 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
   return {
     data: rows.map((row) => ({
       id: Number(row.id), itemId: String(row.item_id), idProducto: row.id_producto === null ? null : Number(row.id_producto),
+      idKit: row.id_kit === null ? null : Number(row.id_kit),
       codigoProducto: row.codigo_producto ? String(row.codigo_producto) : null, producto: row.producto ? String(row.producto) : null,
+      codigoKit: row.codigo_kit ? String(row.codigo_kit) : null, kit: row.kit ? String(row.kit) : null,
       tipoVinculo: row.tipo_vinculo, sellerSku: row.seller_sku ? String(row.seller_sku) : null, titulo: String(row.titulo),
       estado: String(row.estado), categoriaId: row.categoria_id ? String(row.categoria_id) : null,
       tipoPublicacion: row.tipo_publicacion ? String(row.tipo_publicacion) : null,
@@ -245,6 +249,24 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
     totalCount,
     totalPages: Math.ceil(totalCount / limit),
   };
+}
+
+export async function getMercadoLibreVinculos(tipo: "ITEM" | "KIT", id: number) {
+  const column = tipo === "KIT" ? "id_kit" : "id_producto";
+  const { rows } = await query<{ item_id: string; titulo: string; estado: string; permalink: string | null; seller_sku: string | null }>(
+    `SELECT item_id, titulo, estado, permalink, seller_sku
+     FROM public.mercadolibre_publicacion
+     WHERE ${column} = $1
+     ORDER BY estado = 'active' DESC, titulo ASC`,
+    [id]
+  );
+  return rows.map((row) => ({
+    itemId: String(row.item_id),
+    titulo: String(row.titulo),
+    estado: String(row.estado),
+    permalink: row.permalink ? String(row.permalink) : null,
+    sellerSku: row.seller_sku ? String(row.seller_sku) : null,
+  }));
 }
 
 async function accessTokenForCuenta(idCuenta: number, forceRefresh = false) {
@@ -352,6 +374,16 @@ async function productIdsByCode(codes: string[]) {
   return new Map(rows.map((row) => [normalizeCode(row.cod_unico), Number(row.id)]));
 }
 
+async function kitIdsByCode(codes: string[]) {
+  if (!codes.length) return new Map<string, number>();
+  const { rows } = await query<{ id: number; codigo_kit: string }>(
+    `SELECT id, codigo_kit FROM public.kits
+     WHERE UPPER(TRIM(codigo_kit)) = ANY($1::text[]) AND COALESCE(activo, TRUE) = TRUE`,
+    [codes]
+  );
+  return new Map(rows.map((row) => [normalizeCode(row.codigo_kit), Number(row.id)]));
+}
+
 export async function sincronizarMercadoLibre(idCuenta: number): Promise<MercadoLibreSyncResult> {
   const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
   await query(
@@ -367,27 +399,33 @@ export async function sincronizarMercadoLibre(idCuenta: number): Promise<Mercado
     const ids = await getAllItemIds(idCuenta, sellerId, accessToken);
     const { items, errors } = await getItemDetails(ids, idCuenta, accessToken);
     const publications = items.map(mapPublicacion);
-    const products = await productIdsByCode(publications.map((item) => normalizeCode(item.sellerSku)).filter(Boolean));
+    const codes = publications.map((item) => normalizeCode(item.sellerSku)).filter(Boolean);
+    const [products, kits] = await Promise.all([productIdsByCode(codes), kitIdsByCode(codes)]);
     let linked = 0;
 
     for (const item of publications) {
-      const productId = item.sellerSku ? products.get(normalizeCode(item.sellerSku)) || null : null;
-      if (productId) linked += 1;
+      const code = normalizeCode(item.sellerSku);
+      const candidateProductId = code ? products.get(code) || null : null;
+      const candidateKitId = code ? kits.get(code) || null : null;
+      const productId = candidateProductId && !candidateKitId ? candidateProductId : null;
+      const kitId = candidateKitId && !candidateProductId ? candidateKitId : null;
+      if (productId || kitId) linked += 1;
       await query(
         `INSERT INTO public.mercadolibre_publicacion (
-          id_cuenta, item_id, id_producto, tipo_vinculo, seller_sku, titulo, estado, categoria_id, tipo_publicacion,
+          id_cuenta, item_id, id_producto, id_kit, tipo_vinculo, seller_sku, titulo, estado, categoria_id, tipo_publicacion,
           precio, precio_original, moneda, cantidad_disponible, cantidad_vendida, thumbnail_url, permalink, variaciones, datos,
           ultima_vez_vista_at, sincronizada_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, NOW(), NOW(), NOW())
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, NOW(), NOW(), NOW())
         ON CONFLICT (id_cuenta, item_id) DO UPDATE SET
           id_producto = CASE WHEN mercadolibre_publicacion.tipo_vinculo = 'MANUAL' THEN mercadolibre_publicacion.id_producto ELSE EXCLUDED.id_producto END,
+          id_kit = CASE WHEN mercadolibre_publicacion.tipo_vinculo = 'MANUAL' THEN mercadolibre_publicacion.id_kit ELSE EXCLUDED.id_kit END,
           tipo_vinculo = CASE WHEN mercadolibre_publicacion.tipo_vinculo = 'MANUAL' THEN 'MANUAL' ELSE EXCLUDED.tipo_vinculo END,
           seller_sku = EXCLUDED.seller_sku, titulo = EXCLUDED.titulo, estado = EXCLUDED.estado, categoria_id = EXCLUDED.categoria_id,
           tipo_publicacion = EXCLUDED.tipo_publicacion, precio = EXCLUDED.precio, precio_original = EXCLUDED.precio_original,
           moneda = EXCLUDED.moneda, cantidad_disponible = EXCLUDED.cantidad_disponible, cantidad_vendida = EXCLUDED.cantidad_vendida,
           thumbnail_url = EXCLUDED.thumbnail_url, permalink = EXCLUDED.permalink, variaciones = EXCLUDED.variaciones,
           datos = EXCLUDED.datos, ultima_vez_vista_at = NOW(), sincronizada_at = NOW(), updated_at = NOW()`,
-        [idCuenta, item.itemId, productId, productId ? "CODIGO_EXACTO" : "SIN_VINCULO", item.sellerSku, item.titulo, item.estado,
+        [idCuenta, item.itemId, productId, kitId, productId || kitId ? "CODIGO_EXACTO" : "SIN_VINCULO", item.sellerSku, item.titulo, item.estado,
           item.categoriaId, item.tipoPublicacion, item.precio, item.precioOriginal, item.moneda, item.cantidadDisponible,
           item.cantidadVendida, item.thumbnailUrl, item.permalink, JSON.stringify(item.variaciones), JSON.stringify(item)]
       );

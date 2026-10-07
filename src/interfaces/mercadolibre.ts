@@ -29,8 +29,11 @@ export type MercadoLibrePublicacion = {
 export type MercadoLibrePublicacionListado = MercadoLibrePublicacion & {
   id: number;
   idProducto: number | null;
+  idKit: number | null;
   codigoProducto: string | null;
   producto: string | null;
+  codigoKit: string | null;
+  kit: string | null;
   tipoVinculo: "SIN_VINCULO" | "CODIGO_EXACTO" | "MANUAL";
   sincronizadaAt: string;
 };

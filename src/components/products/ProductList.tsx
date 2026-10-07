@@ -7,7 +7,7 @@ import { PencilButton } from "@/components/ui/PencilButton";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiAdjustments, HiInformationCircle } from "react-icons/hi";
+import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiAdjustments, HiInformationCircle, HiClipboardCopy, HiExternalLink } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
@@ -28,7 +28,7 @@ interface Props {
 
 const TOOLTIP_WIDTH = 420;
 const TOOLTIP_MARGIN = 16;
-type TooltipContent = "locations" | "details" | "activity";
+type TooltipContent = "locations" | "details" | "activity" | "mercadolibre";
 type ProductActivity = {
   id: number;
   tipo: "ALTA" | "EDICION" | "STOCK" | "COSTO" | "PRECIO";
@@ -266,6 +266,15 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     }, 100);
   };
 
+  const copyMercadoLibreLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link de Mercado Libre copiado");
+    } catch {
+      toast.error("No se pudo copiar el link");
+    }
+  };
+
   const clearFilters = () => {
     setSearchGeneral("");
     setSearchSpecific("");
@@ -493,6 +502,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 <col className="w-[190px]" />
                 <col className="w-[52px]" />
                 <col className="w-[52px]" />
+                <col className="w-[42px]" />
                 <col className="w-[64px]" />
                 <col className="w-[100px]" />
                 <col className="w-[100px]" />
@@ -519,6 +529,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Descripción</th>
                   <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Foto</th>
                   <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Med.</th>
+                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">ML</th>
                   <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Marca</th>
                   <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Rubro</th>
                   <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Proveedores</th>
@@ -633,6 +644,18 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         </div>
                       )}
                     </td>
+                    <td className="px-1 py-3 text-center">
+                      {product.publicaciones_ml && product.publicaciones_ml.length > 0 ? (
+                        <span
+                          onMouseEnter={(event) => handleTooltipEnter(product, "mercadolibre", event)}
+                          onMouseLeave={handleTooltipLeave}
+                          className="inline-flex h-7 w-7 cursor-help items-center justify-center rounded-full border border-yellow-300 bg-yellow-300 text-[9px] font-black text-blue-700 shadow-sm transition hover:scale-105 hover:bg-yellow-200"
+                          title="Publicaciones activas en Mercado Libre"
+                        >
+                          ML
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="truncate px-2 py-3 text-[10px] text-slate-600 dark:text-slate-300" title={product.marca ?? ""}>{product.marca ?? "-"}</td>
                     <td className="px-2 py-3">
                       <div className="flex flex-col gap-0.5">
@@ -695,7 +718,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 ))}
                 {products.length === 0 && (
                   <tr>
-                    <td colSpan={14} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
+                    <td colSpan={15} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-500">
                       No hay items que coincidan con los filtros.
                     </td>
                   </tr>
@@ -863,7 +886,34 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             }}
           >
             <div className="space-y-3">
-              {tooltipContent === "activity" ? (
+              {tooltipContent === "mercadolibre" ? (
+                <>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mercado Libre</p>
+                    <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_unico}</p>
+                  </div>
+                  <div className="space-y-2">
+                    {hoveredProduct.publicaciones_ml?.map((publication) => (
+                      <div key={publication.item_id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-700/50">
+                        <p className="line-clamp-2 text-xs font-black text-slate-800 dark:text-slate-100">{publication.titulo}</p>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <span className="font-mono text-[10px] font-bold text-slate-400">{publication.item_id}</span>
+                          {publication.permalink ? (
+                            <div className="flex items-center gap-1">
+                              <button type="button" onClick={() => void copyMercadoLibreLink(publication.permalink as string)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-white hover:text-blue-600 dark:hover:bg-slate-600" title="Copiar link">
+                                <HiClipboardCopy className="h-4 w-4" />
+                              </button>
+                              <a href={publication.permalink} target="_blank" rel="noreferrer" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-white hover:text-blue-600 dark:hover:bg-slate-600" title="Abrir publicación">
+                                <HiExternalLink className="h-4 w-4" />
+                              </a>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : tooltipContent === "activity" ? (
                 <>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Actividad del item</p>

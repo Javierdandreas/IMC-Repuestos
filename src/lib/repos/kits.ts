@@ -43,6 +43,8 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
       c.descripcion AS categoria,
       k.id_subcategoria,
       s.descripcion AS subcategoria,
+      k.id_marca,
+      marca_kit.descripcion AS marca,
       k.activo,
       k.created_at,
       COUNT(kd.id_producto)::int AS cantidad_componentes,
@@ -55,6 +57,7 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
     FROM public.kits k
     LEFT JOIN public.categoria c ON k.id_categoria = c.id
     LEFT JOIN public.subcategoria s ON k.id_subcategoria = s.id
+    LEFT JOIN public.marcas marca_kit ON marca_kit.id = k.id_marca
     LEFT JOIN public.kit_detalle kd ON k.id = kd.id_kit
     LEFT JOIN public.productos p ON kd.id_producto = p.id
     LEFT JOIN public.marcas m ON m.id = p.id_marca
@@ -88,7 +91,7 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
       ) precio
     ) precios_kit ON true
     ${searchClause}
-    GROUP BY k.id, c.descripcion, s.descripcion, precios_kit.precios
+    GROUP BY k.id, c.descripcion, s.descripcion, marca_kit.descripcion, precios_kit.precios
   `;
 
   return await paginateQuery<KitListado>("log_importaciones", baseQuery, page, limit, params);
@@ -99,10 +102,11 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
  */
 export async function getKitById(id: number): Promise<Kit | null> {
   const kitRes = await query(`
-    SELECT k.*, c.descripcion as categoria, s.descripcion as subcategoria
+    SELECT k.*, c.descripcion as categoria, s.descripcion as subcategoria, marca.descripcion as marca
     FROM public.kits k
     LEFT JOIN public.categoria c ON k.id_categoria = c.id
     LEFT JOIN public.subcategoria s ON k.id_subcategoria = s.id
+    LEFT JOIN public.marcas marca ON k.id_marca = marca.id
     WHERE k.id = $1
   `, [id]);
 
@@ -158,10 +162,10 @@ export async function createKit(payload: Kit): Promise<Kit> {
   return await withTransaction(async (client) => {
     // 1. Insertar Kit
     const kitRes = await client.query(`
-      INSERT INTO public.kits (nombre, descripcion, codigo_kit, id_subcategoria, imagen_url, activo)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO public.kits (nombre, descripcion, codigo_kit, id_categoria, id_subcategoria, id_marca, imagen_url, activo)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_subcategoria, payload.imagen_url || null, payload.activo]);
+    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo]);
 
     const newKit = kitRes.rows[0];
 
@@ -188,10 +192,10 @@ export async function updateKit(id: number, payload: Kit): Promise<Kit> {
     // 1. Actualizar Kit
     const kitRes = await client.query(`
       UPDATE public.kits 
-      SET nombre = $1, descripcion = $2, codigo_kit = $3, id_subcategoria = $4, imagen_url = $5, activo = $6
-      WHERE id = $7
+      SET nombre = $1, descripcion = $2, codigo_kit = $3, id_categoria = $4, id_subcategoria = $5, id_marca = $6, imagen_url = $7, activo = $8
+      WHERE id = $9
       RETURNING *
-    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_subcategoria, payload.imagen_url || null, payload.activo, id]);
+    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo, id]);
 
     if (kitRes.rowCount === 0) throw new Error("Kit no encontrado");
 

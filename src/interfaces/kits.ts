@@ -18,6 +18,7 @@ export type Kit = {
   imagen_url?: string | null;
   id_categoria: number;
   id_subcategoria?: number | null;
+  id_marca?: number | null;
   activo: boolean;
   componentes: KitComponente[];
   precio_totales?: {
@@ -37,6 +38,8 @@ export type KitListado = {
   id_categoria: number;
   categoria: string;
   id_subcategoria?: number | null;
+  id_marca?: number | null;
+  marca?: string | null;
   subcategoria?: string | null;
   activo: boolean;
   cantidad_componentes: number;

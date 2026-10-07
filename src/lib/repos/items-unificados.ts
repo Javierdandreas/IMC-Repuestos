@@ -24,6 +24,7 @@ export type ItemListadoUnificado = ProductoListado & {
   tipo: "ITEM" | "KIT";
   parent_kit_id?: number | null;
   componentes_kit?: ComponenteKitPreview[];
+  publicaciones_ml?: Array<{ item_id: string; titulo: string; permalink: string | null; estado: string }>;
 };
 
 type CatalogoBaseRow = {
@@ -143,10 +144,18 @@ export async function getItemsUnificadosListado(
 
   const productIds = catalogResult.rows.filter((row) => row.tipo === "ITEM").map((row) => row.id);
   const kitIds = catalogResult.rows.filter((row) => row.tipo === "KIT").map((row) => row.id);
-  const [productResult, kitResult, kitComponents] = await Promise.all([
+  const [productResult, kitResult, kitComponents, meliPublicaciones] = await Promise.all([
     productIds.length ? getProductosListado(1, productIds.length, { ids: productIds }) : Promise.resolve({ data: [] as ProductoListado[] }),
     kitIds.length ? getKitsListado(1, kitIds.length, undefined, kitIds) : Promise.resolve({ data: [] as Awaited<ReturnType<typeof getKitsListado>>["data"] }),
     kitIds.length ? getComponentesParaKitsListado(kitIds) : Promise.resolve([]),
+    (productIds.length || kitIds.length) ? query<{ id_producto: number | null; id_kit: number | null; item_id: string; titulo: string; permalink: string | null; estado: string }>(
+      `SELECT id_producto, id_kit, item_id, titulo, permalink, estado
+       FROM public.mercadolibre_publicacion
+       WHERE estado = 'active'
+         AND (id_producto = ANY($1::int[]) OR id_kit = ANY($2::int[]))
+       ORDER BY titulo ASC`,
+      [productIds, kitIds]
+    ) : Promise.resolve({ rows: [] as Array<{ id_producto: number | null; id_kit: number | null; item_id: string; titulo: string; permalink: string | null; estado: string }> }),
   ]);
 
   const productsById = new Map(productResult.data.map((product) => [product.id, product]));
@@ -162,11 +171,23 @@ export async function getItemsUnificadosListado(
     });
     componentsByKit.set(component.id_kit, current);
   });
+  const publicacionesPorItem = new Map<string, ItemListadoUnificado["publicaciones_ml"]>();
+  meliPublicaciones.rows.forEach((publication) => {
+    const key = publication.id_producto ? `ITEM-${publication.id_producto}` : `KIT-${publication.id_kit}`;
+    const current = publicacionesPorItem.get(key) || [];
+    current.push({
+      item_id: String(publication.item_id),
+      titulo: String(publication.titulo),
+      permalink: publication.permalink ? String(publication.permalink) : null,
+      estado: String(publication.estado),
+    });
+    publicacionesPorItem.set(key, current);
+  });
 
   const data = catalogResult.rows.flatMap((row): ItemListadoUnificado[] => {
     if (row.tipo === "ITEM") {
       const product = productsById.get(row.id);
-      return product ? [{ ...product, tipo: "ITEM", parent_kit_id: row.parent_kit_id }] : [];
+      return product ? [{ ...product, tipo: "ITEM", parent_kit_id: row.parent_kit_id, publicaciones_ml: publicacionesPorItem.get(`ITEM-${row.id}`) || [] }] : [];
     }
 
     const kit = kitsById.get(row.id);
@@ -185,6 +206,7 @@ export async function getItemsUnificadosListado(
        subcategoria: kit.subcategoria,
        precios: kit.precios ?? [],
        componentes_kit: componentsByKit.get(kit.id) || [],
+       publicaciones_ml: publicacionesPorItem.get(`KIT-${kit.id}`) || [],
     }];
   });
 
