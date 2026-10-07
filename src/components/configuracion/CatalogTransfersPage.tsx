@@ -11,6 +11,7 @@ import {
   HiCube,
   HiCurrencyDollar,
   HiRefresh,
+  HiShoppingBag,
   HiTable,
   HiTruck,
   HiViewList,
@@ -150,6 +151,7 @@ export function CatalogTransfersPage({ canManage }: Props) {
         </div>}
 
         {activeTab === "INTEGRACIONES" && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <ActionButton icon={HiShoppingBag} title="Mercado Libre" detail="Conectar, importar y sincronizar publicaciones" onClick={() => router.push("/configuracion/mercadolibre")} disabled={!canManage} />
           <ActionButton icon={HiRefresh} title="Catalogo externo" detail="Consultar, revisar e importar productos y kits" onClick={() => router.push("/configuracion/catalogo-externo")} disabled={!canManage} />
           <ActionButton icon={HiTable} title="GESU" detail="Importar productos y grupos desde el archivo de origen" onClick={() => router.push("/productos/importar/gesu")} disabled={!canManage} />
         </div>}

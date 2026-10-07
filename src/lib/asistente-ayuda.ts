@@ -25,6 +25,10 @@ const PAGE_CONTEXTS: Array<{ match: (pathname: string) => boolean; context: Help
     context: { title: "Catalogo externo", capabilities: "consultar la base externa o la API, revisar productos y kits nuevos, clasificar productos y validar componentes antes de importarlos" },
   },
   {
+    match: (pathname) => pathname.startsWith("/configuracion/mercadolibre"),
+    context: { title: "Mercado Libre", capabilities: "conectar una cuenta vendedora, importar publicaciones existentes y revisar las coincidencias por codigo con IMC" },
+  },
+  {
     match: (pathname) => pathname.startsWith("/listados/precios-modificados"),
     context: { title: "Costos modificados", capabilities: "revisar cambios de costo, aprobar o rechazar pendientes y exportar cambios aprobados" },
   },
@@ -64,6 +68,7 @@ Navegacion y funciones conocidas:
 - Listados > Costos modificados: muestra cambios detectados por listas de proveedor. Los cambios se aprueban o rechazan y solo los aprobados se exportan.
 - Listados > Inventario por ubicacion: consulta y exporta inventario, ubicacion y series.
 - Listados > Movimientos de stock: consulta y exporta compras, ventas, ajustes y movimientos de series. Se puede filtrar por fecha, ubicacion y tipo de movimiento.
+- Configuracion > Datos > Integraciones > Mercado Libre: conecta una cuenta vendedora e importa publicaciones existentes. La sincronizacion inicial solo lee informacion de Mercado Libre y propone vinculos cuando el SKU coincide exactamente con un Codigo Unico de IMC.
 - Catalogo externo: consulta directa de la tabla gesu_items_raw o, cuando este disponible, una API externa. Los productos y kits se revisan antes de importarse. No se copian precios externos ni fotos.
 - En un item, el costo base puede elegirse como unico, manual, menor, promedio o mayor. Menor, promedio y mayor consideran los proveedores con precio valido; un proveedor sin precio no participa. Actualmente no se toma el stock para esa eleccion.
 - Una capa de proveedor se aplica en orden. Puede ser descuento, recargo o coeficiente; puede alcanzar todas las marcas o una marca. Las condiciones de texto de stock usan coincidencia por contenido.
