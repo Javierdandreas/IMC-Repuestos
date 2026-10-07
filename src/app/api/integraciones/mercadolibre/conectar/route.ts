@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
@@ -15,8 +15,10 @@ export async function GET(request: NextRequest) {
   try {
     await requireApiWriteSession(request);
     const state = randomBytes(32).toString("base64url");
-    const response = NextResponse.redirect(getMercadoLibreAuthorizationUrl(state));
-    response.cookies.set(STATE_COOKIE, state, {
+    const codeVerifier = randomBytes(64).toString("base64url");
+    const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+    const response = NextResponse.redirect(getMercadoLibreAuthorizationUrl(state, codeChallenge));
+    response.cookies.set(STATE_COOKIE, Buffer.from(JSON.stringify({ state, codeVerifier })).toString("base64url"), {
       httpOnly: true,
       maxAge: 600,
       path: "/",

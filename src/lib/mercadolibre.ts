@@ -119,17 +119,19 @@ function mapCuenta(row: Record<string, unknown>): MercadoLibreCuentaEstado {
   };
 }
 
-export function getMercadoLibreAuthorizationUrl(state: string) {
+export function getMercadoLibreAuthorizationUrl(state: string, codeChallenge: string) {
   const config = getConfig();
   const url = new URL(AUTH_BASE_URL);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", config.clientId);
   url.searchParams.set("redirect_uri", config.redirectUri);
   url.searchParams.set("state", state);
+  url.searchParams.set("code_challenge", codeChallenge);
+  url.searchParams.set("code_challenge_method", "S256");
   return url.toString();
 }
 
-async function getTokenFromCode(code: string): Promise<TokenResponse> {
+async function getTokenFromCode(code: string, codeVerifier: string): Promise<TokenResponse> {
   const config = getConfig();
   const form = new URLSearchParams({
     grant_type: "authorization_code",
@@ -137,6 +139,7 @@ async function getTokenFromCode(code: string): Promise<TokenResponse> {
     client_secret: config.clientSecret,
     code,
     redirect_uri: config.redirectUri,
+    code_verifier: codeVerifier,
   });
   const response = await fetch(`${API_BASE_URL}/oauth/token`, {
     method: "POST",
@@ -176,8 +179,8 @@ async function getMeliUser(accessToken: string, sellerId: number) {
   return { nickname: user.nickname?.trim() || null, siteId: user.site_id?.trim() || "MLA" };
 }
 
-export async function conectarMercadoLibre(code: string) {
-  const token = await getTokenFromCode(code);
+export async function conectarMercadoLibre(code: string, codeVerifier: string) {
+  const token = await getTokenFromCode(code, codeVerifier);
   const [config, user] = await Promise.all([Promise.resolve(getConfig()), getMeliUser(token.access_token, token.user_id)]);
   const expiresAt = new Date(Date.now() + Math.max(1, Number(token.expires_in)) * 1000);
   await query(
