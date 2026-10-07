@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { ExternalLink, Link2, RefreshCw, ShieldCheck, Unlink } from "lucide-react";
 import { toast } from "sonner";
 
+import { Modal } from "@/components/ui/Modal";
+
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibrePublicacionListado,
@@ -13,6 +15,7 @@ import type {
 } from "@/interfaces/mercadolibre";
 
 type Props = { canManage: boolean };
+type VinculoCandidato = { tipo: "ITEM" | "KIT"; id: number; codigo: string; descripcion: string };
 
 function money(value: number | null, currency: string | null) {
   if (value === null) return "-";
@@ -39,6 +42,10 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkingPublication, setLinkingPublication] = useState<MercadoLibrePublicacionListado | null>(null);
+  const [linkSearch, setLinkSearch] = useState("");
+  const [linkCandidates, setLinkCandidates] = useState<VinculoCandidato[]>([]);
+  const [savingLink, setSavingLink] = useState(false);
 
   const loadPublications = useCallback(async (accountId: number, currentPage = 1) => {
     const response = await fetch(`/api/integraciones/mercadolibre/publicaciones?idCuenta=${accountId}&page=${currentPage}`, { cache: "no-store" });
@@ -74,6 +81,23 @@ export function MercadoLibrePage({ canManage }: Props) {
     if (searchParams.get("meli") === "error") toast.error(searchParams.get("mensaje") || "No se pudo conectar Mercado Libre.");
   }, [searchParams]);
 
+  useEffect(() => {
+    if (!linkingPublication || linkSearch.trim().length < 2) {
+      setLinkCandidates([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/integraciones/mercadolibre/buscar-vinculo?q=${encodeURIComponent(linkSearch)}`, { signal: controller.signal });
+        setLinkCandidates(response.ok ? await response.json() : []);
+      } catch (requestError) {
+        if (!(requestError instanceof DOMException && requestError.name === "AbortError")) setLinkCandidates([]);
+      }
+    }, 250);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [linkSearch, linkingPublication]);
+
   const selectAccount = async (accountId: number) => {
     setSelectedAccountId(accountId);
     setPage(1);
@@ -103,6 +127,33 @@ export function MercadoLibrePage({ canManage }: Props) {
     if (!selectedAccountId || nextPage < 1 || nextPage > publicaciones.totalPages) return;
     setPage(nextPage);
     try { await loadPublications(selectedAccountId, nextPage); } catch (requestError) { toast.error(requestError instanceof Error ? requestError.message : "No se pudieron cargar las publicaciones."); }
+  };
+
+  const openLinkModal = (publication: MercadoLibrePublicacionListado) => {
+    setLinkingPublication(publication);
+    setLinkSearch(publication.sellerSku || "");
+    setLinkCandidates([]);
+  };
+
+  const saveLink = async (target: VinculoCandidato | null) => {
+    if (!linkingPublication) return;
+    try {
+      setSavingLink(true);
+      const response = await fetch(`/api/integraciones/mercadolibre/publicaciones/${linkingPublication.id}/vinculo`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: target ? { tipo: target.tipo, id: target.id } : null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "No se pudo guardar el vínculo.");
+      toast.success(target ? `Publicación vinculada al ${target.tipo === "KIT" ? "kit" : "item"}.` : "Vínculo manual eliminado.");
+      setLinkingPublication(null);
+      if (selectedAccountId) await loadPublications(selectedAccountId, page);
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "No se pudo guardar el vínculo.");
+    } finally {
+      setSavingLink(false);
+    }
   };
 
   return (
@@ -143,10 +194,13 @@ export function MercadoLibrePage({ canManage }: Props) {
         {selectedAccountId && <section className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 dark:border-slate-800"><div><h2 className="text-sm font-black text-slate-900 dark:text-white">Publicaciones sincronizadas</h2><p className="mt-1 text-xs font-medium text-slate-500">{publicaciones.totalCount.toLocaleString("es-AR")} publicaciones importadas.</p></div></div>
           <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:bg-slate-900"><tr><th className="px-3 py-3">Publicación</th><th className="px-3 py-3">SKU ML</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3">Precio</th><th className="px-3 py-3 text-right">Stock ML</th><th className="px-3 py-3">Vínculo IMC</th><th className="px-3 py-3"></th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {publicaciones.data.length === 0 ? <tr><td colSpan={7} className="px-4 py-12 text-center font-bold text-slate-400">{syncing ? "Leyendo publicaciones..." : "Todavía no se importaron publicaciones."}</td></tr> : publicaciones.data.map((item) => <tr key={item.id}><td className="px-3 py-3"><div className="max-w-md truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{item.itemId}</div></td><td className="px-3 py-3 font-mono font-bold">{item.sellerSku || "-"}</td><td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black uppercase text-slate-700 dark:bg-slate-800 dark:text-slate-200">{item.estado}</span></td><td className="px-3 py-3 font-mono font-black">{money(item.precio, item.moneda)}</td><td className="px-3 py-3 text-right font-mono font-black">{item.cantidadDisponible ?? "-"}</td><td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${linkBadge(item.tipoVinculo)}`}>{item.tipoVinculo === "CODIGO_EXACTO" ? "Código exacto" : item.tipoVinculo === "MANUAL" ? "Manual" : "Sin vínculo"}</span>{item.codigoProducto && <div className="mt-1 font-mono text-[10px] text-slate-500">{item.codigoProducto}</div>}</td><td className="px-3 py-3 text-right">{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" title="Abrir publicación" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"><ExternalLink className="h-4 w-4" /></a>}</td></tr>)}</tbody></table></div>
+            {publicaciones.data.length === 0 ? <tr><td colSpan={7} className="px-4 py-12 text-center font-bold text-slate-400">{syncing ? "Leyendo publicaciones..." : "Todavía no se importaron publicaciones."}</td></tr> : publicaciones.data.map((item) => <tr key={item.id}><td className="px-3 py-3"><div className="max-w-md truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{item.itemId}</div></td><td className="px-3 py-3 font-mono font-bold">{item.sellerSku || "-"}</td><td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black uppercase text-slate-700 dark:bg-slate-800 dark:text-slate-200">{item.estado}</span></td><td className="px-3 py-3 font-mono font-black">{money(item.precio, item.moneda)}</td><td className="px-3 py-3 text-right font-mono font-black">{item.cantidadDisponible ?? "-"}</td><td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${linkBadge(item.tipoVinculo)}`}>{item.tipoVinculo === "CODIGO_EXACTO" ? "Código exacto" : item.tipoVinculo === "MANUAL" ? "Manual" : "Sin vínculo"}</span>{(item.codigoProducto || item.codigoKit) && <div className="mt-1 font-mono text-[10px] text-slate-500">{item.codigoProducto || item.codigoKit} {item.codigoKit ? "(KIT)" : ""}</div>}</td><td className="px-3 py-3 text-right"><div className="flex justify-end gap-1">{canManage && <button type="button" onClick={() => openLinkModal(item)} title="Vincular manualmente" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-500/10 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-300"><Link2 className="h-4 w-4" /></button>}{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" title="Abrir publicación" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"><ExternalLink className="h-4 w-4" /></a>}</div></td></tr>)}</tbody></table></div>
           {publicaciones.totalPages > 1 && <div className="flex items-center justify-center gap-3 border-t border-slate-200 p-4 dark:border-slate-800"><button type="button" onClick={() => void changePage(page - 1)} disabled={page <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Página {page} de {publicaciones.totalPages}</span><button type="button" onClick={() => void changePage(page + 1)} disabled={page >= publicaciones.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
         </section>}
       </div>
+      <Modal title="Vincular publicación" open={Boolean(linkingPublication)} onClose={() => !savingLink && setLinkingPublication(null)} width="w-[min(96vw,760px)]">
+        {linkingPublication && <div className="space-y-4 p-5"><div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900"><p className="text-sm font-black text-slate-900 dark:text-white">{linkingPublication.titulo}</p><p className="mt-1 font-mono text-xs text-slate-500">{linkingPublication.itemId} {linkingPublication.sellerSku ? `- SKU ${linkingPublication.sellerSku}` : ""}</p></div><div><label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">Buscar item o kit</label><input autoFocus value={linkSearch} onChange={(event) => setLinkSearch(event.target.value)} placeholder="Código o descripción" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm font-bold outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950" /></div><div className="max-h-80 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">{linkSearch.trim().length < 2 ? <p className="p-5 text-center text-sm font-bold text-slate-400">Escribí al menos dos caracteres.</p> : linkCandidates.length ? linkCandidates.map((candidate) => <button key={`${candidate.tipo}-${candidate.id}`} type="button" disabled={savingLink} onClick={() => void saveLink(candidate)} className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:hover:bg-slate-900"><span className="min-w-0"><span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">{candidate.tipo}</span><b className="font-mono text-blue-600">{candidate.codigo}</b><span className="ml-2 text-sm font-bold text-slate-700 dark:text-slate-200">{candidate.descripcion}</span></span><Link2 className="h-4 w-4 shrink-0 text-blue-600" /></button>) : <p className="p-5 text-center text-sm font-bold text-slate-400">No hay coincidencias.</p>}</div>{linkingPublication.tipoVinculo === "MANUAL" && <button type="button" disabled={savingLink} onClick={() => void saveLink(null)} className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-red-600 hover:text-red-700 disabled:opacity-50"><Unlink className="h-4 w-4" />Quitar vínculo manual</button>}</div>}
+      </Modal>
     </main>
   );
 }

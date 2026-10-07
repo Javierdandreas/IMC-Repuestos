@@ -269,6 +269,67 @@ export async function getMercadoLibreVinculos(tipo: "ITEM" | "KIT", id: number) 
   }));
 }
 
+export type MercadoLibreVinculoCandidato = {
+  tipo: "ITEM" | "KIT";
+  id: number;
+  codigo: string;
+  descripcion: string;
+};
+
+export async function buscarCandidatosVinculoMercadoLibre(search: string): Promise<MercadoLibreVinculoCandidato[]> {
+  const term = `%${search.trim()}%`;
+  if (search.trim().length < 2) return [];
+  const { rows } = await query<MercadoLibreVinculoCandidato>(
+    `SELECT tipo, id, codigo, descripcion
+     FROM (
+       SELECT 'ITEM'::text AS tipo, id, cod_unico AS codigo, descripcion, 0 AS prioridad
+       FROM public.productos
+       WHERE COALESCE(oculto_por_kit, FALSE) = FALSE
+         AND (cod_unico ILIKE $1 OR descripcion ILIKE $1)
+       UNION ALL
+       SELECT 'KIT'::text AS tipo, id, codigo_kit AS codigo, nombre AS descripcion, 1 AS prioridad
+       FROM public.kits
+       WHERE COALESCE(activo, TRUE) = TRUE
+         AND (codigo_kit ILIKE $1 OR nombre ILIKE $1)
+     ) candidatos
+     ORDER BY prioridad, codigo
+     LIMIT 30`,
+    [term]
+  );
+  return rows.map((row) => ({ ...row, id: Number(row.id), tipo: row.tipo as "ITEM" | "KIT" }));
+}
+
+export async function guardarVinculoManualMercadoLibre(
+  idPublicacion: number,
+  target: { tipo: "ITEM" | "KIT"; id: number } | null
+) {
+  return withTransaction(async (db) => {
+    const publication = await db.query<{ id: number }>("SELECT id FROM public.mercadolibre_publicacion WHERE id = $1 FOR UPDATE", [idPublicacion]);
+    if (!publication.rowCount) throw new AppError("La publicación no existe.", 404);
+
+    if (!target) {
+      await db.query(
+        `UPDATE public.mercadolibre_publicacion
+         SET id_producto = NULL, id_kit = NULL, tipo_vinculo = 'SIN_VINCULO', updated_at = NOW()
+         WHERE id = $1`,
+        [idPublicacion]
+      );
+      return;
+    }
+
+    const table = target.tipo === "KIT" ? "kits" : "productos";
+    const exists = await db.query(`SELECT id FROM public.${table} WHERE id = $1`, [target.id]);
+    if (!exists.rowCount) throw new AppError(`${target.tipo === "KIT" ? "El kit" : "El item"} seleccionado ya no existe.`, 404);
+
+    await db.query(
+      `UPDATE public.mercadolibre_publicacion
+       SET id_producto = $2, id_kit = $3, tipo_vinculo = 'MANUAL', updated_at = NOW()
+       WHERE id = $1`,
+      [idPublicacion, target.tipo === "ITEM" ? target.id : null, target.tipo === "KIT" ? target.id : null]
+    );
+  });
+}
+
 async function accessTokenForCuenta(idCuenta: number, forceRefresh = false) {
   const config = getConfig();
   return withTransaction(async (db) => {
