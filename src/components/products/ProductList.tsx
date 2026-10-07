@@ -7,7 +7,7 @@ import { PencilButton } from "@/components/ui/PencilButton";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { TrashButton } from "@/components/ui/TrashButton";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiAdjustments, HiInformationCircle, HiClipboardCopy, HiExternalLink } from "react-icons/hi";
+import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiAdjustments, HiInformationCircle, HiExternalLink, HiLink } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
@@ -649,10 +649,10 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         <span
                           onMouseEnter={(event) => handleTooltipEnter(product, "mercadolibre", event)}
                           onMouseLeave={handleTooltipLeave}
-                          className="inline-flex h-7 w-7 cursor-help items-center justify-center rounded-full border border-yellow-300 bg-yellow-300 text-[9px] font-black text-blue-700 shadow-sm transition hover:scale-105 hover:bg-yellow-200"
+                          className="inline-flex h-7 w-9 cursor-help items-center justify-center transition hover:scale-105"
                           title="Publicaciones activas en Mercado Libre"
                         >
-                          ML
+                          <Image src="/mercadolibre-logo.png" alt="Mercado Libre" width={36} height={25} className="h-auto w-9" />
                         </span>
                       ) : null}
                     </td>
@@ -888,26 +888,22 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             <div className="space-y-3">
               {tooltipContent === "mercadolibre" ? (
                 <>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mercado Libre</p>
-                    <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_unico}</p>
-                  </div>
                   <div className="space-y-2">
                     {hoveredProduct.publicaciones_ml?.map((publication) => (
                       <div key={publication.item_id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-700/50">
-                        <p className="line-clamp-2 text-xs font-black text-slate-800 dark:text-slate-100">{publication.titulo}</p>
-                        <div className="mt-2 flex items-center justify-between gap-2">
-                          <span className="font-mono text-[10px] font-bold text-slate-400">{publication.item_id}</span>
-                          {publication.permalink ? (
-                            <div className="flex items-center gap-1">
-                              <button type="button" onClick={() => void copyMercadoLibreLink(publication.permalink as string)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-white hover:text-blue-600 dark:hover:bg-slate-600" title="Copiar link">
-                                <HiClipboardCopy className="h-4 w-4" />
-                              </button>
-                              <a href={publication.permalink} target="_blank" rel="noreferrer" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-white hover:text-blue-600 dark:hover:bg-slate-600" title="Abrir publicación">
-                                <HiExternalLink className="h-4 w-4" />
-                              </a>
-                            </div>
-                          ) : null}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="line-clamp-2 text-xs font-black text-slate-800 dark:text-slate-100">{publication.titulo}</p>
+                            <span className="mt-1 block font-mono text-[10px] font-bold text-slate-400">{publication.item_id}</span>
+                          </div>
+                          {publication.permalink ? <div className="flex shrink-0 items-center gap-1">
+                            <button type="button" onClick={() => void copyMercadoLibreLink(publication.permalink as string)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-white hover:text-blue-600 dark:hover:bg-slate-600" title="Copiar link">
+                              <HiLink className="h-4 w-4" />
+                            </button>
+                            <a href={publication.permalink} target="_blank" rel="noreferrer" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-white hover:text-blue-600 dark:hover:bg-slate-600" title="Abrir publicación">
+                              <HiExternalLink className="h-4 w-4" />
+                            </a>
+                          </div> : null}
                         </div>
                       </div>
                     ))}
