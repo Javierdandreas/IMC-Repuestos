@@ -1,8 +1,6 @@
 import { Activity, Barcode, Boxes, Clock3, MapPin, PackageSearch } from "lucide-react";
 import { Pagination } from "@/components/ui/Pagination";
-import { ImportSeriesInventoryButton } from "@/components/ubicaciones/ImportSeriesInventoryButton";
 import { InventoryAutoFilters } from "@/components/ubicaciones/InventoryAutoFilters";
-import { InventoryExportButton } from "@/components/ubicaciones/InventoryExportButton";
 import { InventorySeriesQuickEdit } from "@/components/ubicaciones/InventorySeriesQuickEdit";
 import { getUbicaciones } from "@/lib/repos/catalogos";
 import { getInventarioUbicaciones } from "@/lib/repos/ubicaciones-inventario";
@@ -77,13 +75,6 @@ export default async function InventarioUbicacionesPage({ searchParams }: Props)
     }),
   ]);
 
-  const exportParams = new URLSearchParams();
-  if (search) exportParams.set("search", search);
-  if (idUbicacion) exportParams.set("id_ubicacion", idUbicacion);
-  if (estado) exportParams.set("estado", estado);
-  if (tipo) exportParams.set("tipo", tipo);
-  if (canal) exportParams.set("canal", canal);
-
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-8 md:px-8">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -98,10 +89,6 @@ export default async function InventarioUbicacionesPage({ searchParams }: Props)
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <ImportSeriesInventoryButton />
-          <InventoryExportButton exportParams={exportParams.toString()} />
-        </div>
       </div>
 
       <InventoryAutoFilters
