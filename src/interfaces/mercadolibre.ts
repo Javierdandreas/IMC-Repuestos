@@ -44,9 +44,51 @@ export type MercadoLibrePublicacionesResult = {
   totalPages: number;
 };
 
+export type MercadoLibreVentaListado = {
+  id: number;
+  ventaId: string;
+  fecha: string | null;
+  estado: string;
+  comprador: string | null;
+  total: number | null;
+  moneda: string | null;
+  envio: string | null;
+  retiroEnPersona: boolean;
+  items: Array<{ itemId: string | null; titulo: string; cantidad: number; sku: string | null }>;
+  sincronizadaAt: string;
+};
+
+export type MercadoLibreVentasResult = {
+  data: MercadoLibreVentaListado[];
+  totalCount: number;
+  totalPages: number;
+};
+
+export type MercadoLibrePreguntaListado = {
+  id: number;
+  preguntaId: string;
+  itemId: string | null;
+  titulo: string | null;
+  comprador: string | null;
+  texto: string;
+  estado: string;
+  fecha: string | null;
+  respuesta: string | null;
+  respondidaAt: string | null;
+  sincronizadaAt: string;
+};
+
+export type MercadoLibrePreguntasResult = {
+  data: MercadoLibrePreguntaListado[];
+  totalCount: number;
+  totalPages: number;
+};
+
 export type MercadoLibreSyncResult = {
   total: number;
   vinculadasPorCodigo: number;
   sinVinculo: number;
   errores: string[];
+  ventas?: number;
+  preguntas?: number;
 };

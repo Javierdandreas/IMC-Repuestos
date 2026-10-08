@@ -6,7 +6,11 @@ import type {
   MercadoLibreCuentaEstado,
   MercadoLibrePublicacion,
   MercadoLibrePublicacionesResult,
+  MercadoLibrePreguntaListado,
+  MercadoLibrePreguntasResult,
   MercadoLibreSyncResult,
+  MercadoLibreVentaListado,
+  MercadoLibreVentasResult,
 } from "@/interfaces/mercadolibre";
 
 const API_BASE_URL = "https://api.mercadolibre.com";
@@ -251,6 +255,56 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
   };
 }
 
+export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 50): Promise<MercadoLibreVentasResult> {
+  const totalResult = await query<{ total_count: number }>("SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_venta WHERE id_cuenta = $1", [idCuenta]);
+  const totalCount = Number(totalResult.rows[0]?.total_count || 0);
+  if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
+  const safePage = Math.max(1, page);
+  const { rows } = await query(
+    `SELECT id, venta_id, fecha, estado, comprador, total, moneda, envio, retiro_en_persona, items, sincronizada_at
+     FROM public.mercadolibre_venta WHERE id_cuenta = $1
+     ORDER BY fecha DESC NULLS LAST, id DESC LIMIT $2 OFFSET $3`,
+    [idCuenta, limit, (safePage - 1) * limit],
+  );
+  return {
+    data: rows.map((row): MercadoLibreVentaListado => ({
+      id: Number(row.id), ventaId: String(row.venta_id), fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
+      estado: String(row.estado), comprador: row.comprador ? String(row.comprador) : null,
+      total: row.total === null ? null : Number(row.total), moneda: row.moneda ? String(row.moneda) : null,
+      envio: row.envio ? String(row.envio) : null, retiroEnPersona: Boolean(row.retiro_en_persona),
+      items: Array.isArray(row.items) ? row.items.map((item: Record<string, unknown>) => ({ itemId: item.itemId ? String(item.itemId) : null, titulo: String(item.titulo || "Sin titulo"), cantidad: Number(item.cantidad || 0), sku: item.sku ? String(item.sku) : null })) : [],
+      sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
+    })),
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+  };
+}
+
+export async function getMercadoLibrePreguntas(idCuenta: number, page = 1, limit = 50): Promise<MercadoLibrePreguntasResult> {
+  const totalResult = await query<{ total_count: number }>("SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_pregunta WHERE id_cuenta = $1", [idCuenta]);
+  const totalCount = Number(totalResult.rows[0]?.total_count || 0);
+  if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
+  const safePage = Math.max(1, page);
+  const { rows } = await query(
+    `SELECT id, pregunta_id, item_id, titulo, comprador, texto, estado, fecha, respuesta, respondida_at, sincronizada_at
+     FROM public.mercadolibre_pregunta WHERE id_cuenta = $1
+     ORDER BY fecha DESC NULLS LAST, id DESC LIMIT $2 OFFSET $3`,
+    [idCuenta, limit, (safePage - 1) * limit],
+  );
+  return {
+    data: rows.map((row): MercadoLibrePreguntaListado => ({
+      id: Number(row.id), preguntaId: String(row.pregunta_id), itemId: row.item_id ? String(row.item_id) : null,
+      titulo: row.titulo ? String(row.titulo) : null, comprador: row.comprador ? String(row.comprador) : null,
+      texto: String(row.texto), estado: String(row.estado), fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
+      respuesta: row.respuesta ? String(row.respuesta) : null,
+      respondidaAt: row.respondida_at ? new Date(String(row.respondida_at)).toISOString() : null,
+      sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
+    })),
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+  };
+}
+
 export async function getMercadoLibreVinculos(tipo: "ITEM" | "KIT", id: number) {
   const column = tipo === "KIT" ? "id_kit" : "id_producto";
   const { rows } = await query<{ id: number; item_id: string; titulo: string; estado: string; permalink: string | null; seller_sku: string | null }>(
@@ -433,6 +487,91 @@ async function getItemDetails(itemIds: string[], idCuenta: number, accessToken: 
   return { items, errors };
 }
 
+type MeliOrder = {
+  id?: number | string;
+  date_created?: string;
+  status?: string;
+  total_amount?: number;
+  currency_id?: string;
+  buyer?: { nickname?: string | null };
+  shipping?: { id?: number | string; logistic_type?: string | null; shipping_option?: { name?: string | null }; pickup_id?: string | null };
+  order_items?: Array<{ item?: { id?: string; title?: string; seller_sku?: string | null }; quantity?: number }>;
+};
+
+type MeliQuestion = {
+  id?: number | string;
+  item_id?: string;
+  text?: string;
+  status?: string;
+  date_created?: string;
+  from?: { nickname?: string | null };
+  answer?: { text?: string | null; date_created?: string | null } | null;
+};
+
+async function getPagedMeliResults<T>(path: string, idCuenta: number, accessToken: string, maxResults = 1000) {
+  const result: T[] = [];
+  for (let offset = 0; offset < maxResults; offset += 100) {
+    const separator = path.includes("?") ? "&" : "?";
+    const payload = await meliGet(`${path}${separator}limit=100&offset=${offset}`, idCuenta, accessToken) as { results?: T[]; paging?: { total?: number } };
+    const page = Array.isArray(payload.results) ? payload.results : [];
+    result.push(...page);
+    const total = Number(payload.paging?.total);
+    if (page.length < 100 || (Number.isFinite(total) && total > 0 && result.length >= total)) break;
+  }
+  return result.slice(0, maxResults);
+}
+
+async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
+  const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&sort=date_desc`, idCuenta, accessToken);
+  for (const venta of ventas) {
+    if (!venta.id) continue;
+    const items = (venta.order_items || []).map((linea) => ({
+      itemId: linea.item?.id ? String(linea.item.id) : null,
+      titulo: linea.item?.title || "Sin titulo",
+      cantidad: Number(linea.quantity || 0),
+      sku: linea.item?.seller_sku || null,
+    }));
+    const shipping = venta.shipping;
+    const envio = shipping?.shipping_option?.name || shipping?.logistic_type || (shipping?.id ? "Con envio" : null);
+    await query(
+      `INSERT INTO public.mercadolibre_venta (
+        id_cuenta, venta_id, fecha, estado, comprador, total, moneda, envio, retiro_en_persona, items, datos, sincronizada_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, NOW(), NOW())
+      ON CONFLICT (id_cuenta, venta_id) DO UPDATE SET
+        fecha = EXCLUDED.fecha, estado = EXCLUDED.estado, comprador = EXCLUDED.comprador, total = EXCLUDED.total,
+        moneda = EXCLUDED.moneda, envio = EXCLUDED.envio, retiro_en_persona = EXCLUDED.retiro_en_persona,
+        items = EXCLUDED.items, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
+      [idCuenta, String(venta.id), venta.date_created || null, venta.status || "unknown", venta.buyer?.nickname || null,
+        Number.isFinite(Number(venta.total_amount)) ? Number(venta.total_amount) : null, venta.currency_id || null,
+        envio, Boolean(shipping?.pickup_id), JSON.stringify(items), JSON.stringify(venta)],
+    );
+  }
+  return ventas.length;
+}
+
+async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
+  const preguntas = await getPagedMeliResults<MeliQuestion>(`/questions/search?seller_id=${sellerId}`, idCuenta, accessToken);
+  for (const pregunta of preguntas) {
+    if (!pregunta.id || !pregunta.text) continue;
+    await query(
+      `INSERT INTO public.mercadolibre_pregunta (
+        id_cuenta, pregunta_id, item_id, titulo, comprador, texto, estado, fecha, respuesta, respondida_at, datos, sincronizada_at, updated_at
+      ) VALUES (
+        $1, $2, $3,
+        (SELECT titulo FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = $3 LIMIT 1),
+        $4, $5, $6, $7, $8, $9, $10::jsonb, NOW(), NOW()
+      ) ON CONFLICT (id_cuenta, pregunta_id) DO UPDATE SET
+        item_id = EXCLUDED.item_id, titulo = COALESCE(EXCLUDED.titulo, mercadolibre_pregunta.titulo), comprador = EXCLUDED.comprador,
+        texto = EXCLUDED.texto, estado = EXCLUDED.estado, fecha = EXCLUDED.fecha, respuesta = EXCLUDED.respuesta,
+        respondida_at = EXCLUDED.respondida_at, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
+      [idCuenta, String(pregunta.id), pregunta.item_id || null, pregunta.from?.nickname || null, pregunta.text,
+        pregunta.status || "UNANSWERED", pregunta.date_created || null, pregunta.answer?.text || null,
+        pregunta.answer?.date_created || null, JSON.stringify(pregunta)],
+    );
+  }
+  return preguntas.length;
+}
+
 async function productIdsByCode(codes: string[]) {
   if (!codes.length) return new Map<string, number>();
   const { rows } = await query<{ id: number; cod_unico: string }>(
@@ -500,7 +639,19 @@ export async function sincronizarMercadoLibre(idCuenta: number): Promise<Mercado
       );
     }
 
-    const result = { total: publications.length, vinculadasPorCodigo: linked, sinVinculo: publications.length - linked, errores: errors };
+    let ventas = 0;
+    let preguntas = 0;
+    try {
+      ventas = await sincronizarVentasMercadoLibre(idCuenta, sellerId, accessToken);
+    } catch (error) {
+      if (errors.length < 50) errors.push(`No se pudieron leer las ventas: ${error instanceof Error ? error.message : "error desconocido"}`);
+    }
+    try {
+      preguntas = await sincronizarPreguntasMercadoLibre(idCuenta, sellerId, accessToken);
+    } catch (error) {
+      if (errors.length < 50) errors.push(`No se pudieron leer las preguntas: ${error instanceof Error ? error.message : "error desconocido"}`);
+    }
+    const result = { total: publications.length, vinculadasPorCodigo: linked, sinVinculo: publications.length - linked, errores: errors, ventas, preguntas };
     await query(
       `UPDATE public.mercadolibre_sincronizacion
        SET estado = 'OK', total_publicaciones = $2, vinculadas_por_codigo = $3, sin_vinculo = $4, errores = $5::jsonb,
