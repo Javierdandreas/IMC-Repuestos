@@ -1182,7 +1182,7 @@ export async function resolverCambiosCostoReferencia(
   accion: AccionResolucionCambioCosto,
   usuarioId: number,
 ) {
-  const changeIds = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  const changeIds = [...new Set(ids.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
   if (changeIds.length === 0) throw new AppError("Selecciona al menos un cambio pendiente.", 400);
   if (accion !== "APROBAR" && accion !== "RECHAZAR") throw new AppError("Accion invalida.", 400);
   if (!Number.isInteger(usuarioId) || usuarioId <= 0) throw new AppError("Usuario invalido.", 401);
@@ -1303,7 +1303,17 @@ export async function resolverTodosLosCambiosCostoFiltrados(
     page: 1,
     limit: 100000,
   });
-  const ids = pending.data.map((row) => row.id);
+  const ids = pending.data.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
+  if (ids.length === 0) {
+    return {
+      requestedCount: 0,
+      resolvedCount: 0,
+      skippedCount: 0,
+      recalculatedCostCount: 0,
+      replacedCount: 0,
+      remainingCount: 0,
+    };
+  }
   const batchSize = 100;
   let resolvedCount = 0;
   let skippedCount = 0;
