@@ -508,6 +508,13 @@ type MeliQuestion = {
   answer?: { text?: string | null; date_created?: string | null } | null;
 };
 
+type MeliWebhookEventRow = {
+  id: number;
+  id_cuenta: number;
+  topic: string;
+  recurso: string;
+};
+
 async function getPagedMeliResults<T>(path: string, idCuenta: number, accessToken: string, maxResults = 1000) {
   const result: T[] = [];
   for (let offset = 0; offset < maxResults; offset += 100) {
@@ -549,6 +556,49 @@ async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number,
   return ventas.length;
 }
 
+async function guardarVentaMercadoLibre(idCuenta: number, venta: MeliOrder) {
+  if (!venta.id) return;
+  const items = (venta.order_items || []).map((linea) => ({
+    itemId: linea.item?.id ? String(linea.item.id) : null,
+    titulo: linea.item?.title || "Sin titulo",
+    cantidad: Number(linea.quantity || 0),
+    sku: linea.item?.seller_sku || null,
+  }));
+  const shipping = venta.shipping;
+  const envio = shipping?.shipping_option?.name || shipping?.logistic_type || (shipping?.id ? "Con envio" : null);
+  await query(
+    `INSERT INTO public.mercadolibre_venta (
+      id_cuenta, venta_id, fecha, estado, comprador, total, moneda, envio, retiro_en_persona, items, datos, sincronizada_at, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, NOW(), NOW())
+    ON CONFLICT (id_cuenta, venta_id) DO UPDATE SET
+      fecha = EXCLUDED.fecha, estado = EXCLUDED.estado, comprador = EXCLUDED.comprador, total = EXCLUDED.total,
+      moneda = EXCLUDED.moneda, envio = EXCLUDED.envio, retiro_en_persona = EXCLUDED.retiro_en_persona,
+      items = EXCLUDED.items, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
+    [idCuenta, String(venta.id), venta.date_created || null, venta.status || "unknown", venta.buyer?.nickname || null,
+      Number.isFinite(Number(venta.total_amount)) ? Number(venta.total_amount) : null, venta.currency_id || null,
+      envio, Boolean(shipping?.pickup_id), JSON.stringify(items), JSON.stringify(venta)],
+  );
+}
+
+async function guardarPreguntaMercadoLibre(idCuenta: number, pregunta: MeliQuestion) {
+  if (!pregunta.id || !pregunta.text) return;
+  await query(
+    `INSERT INTO public.mercadolibre_pregunta (
+      id_cuenta, pregunta_id, item_id, titulo, comprador, texto, estado, fecha, respuesta, respondida_at, datos, sincronizada_at, updated_at
+    ) VALUES (
+      $1, $2, $3,
+      (SELECT titulo FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = $3 LIMIT 1),
+      $4, $5, $6, $7, $8, $9, $10::jsonb, NOW(), NOW()
+    ) ON CONFLICT (id_cuenta, pregunta_id) DO UPDATE SET
+      item_id = EXCLUDED.item_id, titulo = COALESCE(EXCLUDED.titulo, mercadolibre_pregunta.titulo), comprador = EXCLUDED.comprador,
+      texto = EXCLUDED.texto, estado = EXCLUDED.estado, fecha = EXCLUDED.fecha, respuesta = EXCLUDED.respuesta,
+      respondida_at = EXCLUDED.respondida_at, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
+    [idCuenta, String(pregunta.id), pregunta.item_id || null, pregunta.from?.nickname || null, pregunta.text,
+      pregunta.status || "UNANSWERED", pregunta.date_created || null, pregunta.answer?.text || null,
+      pregunta.answer?.date_created || null, JSON.stringify(pregunta)],
+  );
+}
+
 async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
   const preguntas = await getPagedMeliResults<MeliQuestion>(`/questions/search?seller_id=${sellerId}`, idCuenta, accessToken);
   for (const pregunta of preguntas) {
@@ -570,6 +620,131 @@ async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: numb
     );
   }
   return preguntas.length;
+}
+
+async function guardarPublicacionDesdeWebhook(idCuenta: number, item: MeliItem) {
+  if (!item.id) return;
+  const publication = mapPublicacion(item);
+  const code = normalizeCode(publication.sellerSku);
+  const [products, kits] = await Promise.all([
+    productIdsByCode(code ? [code] : []),
+    kitIdsByCode(code ? [code] : []),
+  ]);
+  const candidateProductId = code ? products.get(code) || null : null;
+  const candidateKitId = code ? kits.get(code) || null : null;
+  const productId = candidateProductId && !candidateKitId ? candidateProductId : null;
+  const kitId = candidateKitId && !candidateProductId ? candidateKitId : null;
+  await query(
+    `INSERT INTO public.mercadolibre_publicacion (
+      id_cuenta, item_id, id_producto, id_kit, tipo_vinculo, seller_sku, titulo, estado, categoria_id, tipo_publicacion,
+      precio, precio_original, moneda, cantidad_disponible, cantidad_vendida, thumbnail_url, permalink, variaciones, datos,
+      ultima_vez_vista_at, sincronizada_at, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, NOW(), NOW(), NOW())
+    ON CONFLICT (id_cuenta, item_id) DO UPDATE SET
+      id_producto = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.id_producto ELSE EXCLUDED.id_producto END,
+      id_kit = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.id_kit ELSE EXCLUDED.id_kit END,
+      tipo_vinculo = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.tipo_vinculo ELSE EXCLUDED.tipo_vinculo END,
+      seller_sku = EXCLUDED.seller_sku, titulo = EXCLUDED.titulo, estado = EXCLUDED.estado, categoria_id = EXCLUDED.categoria_id,
+      tipo_publicacion = EXCLUDED.tipo_publicacion, precio = EXCLUDED.precio, precio_original = EXCLUDED.precio_original,
+      moneda = EXCLUDED.moneda, cantidad_disponible = EXCLUDED.cantidad_disponible, cantidad_vendida = EXCLUDED.cantidad_vendida,
+      thumbnail_url = EXCLUDED.thumbnail_url, permalink = EXCLUDED.permalink, variaciones = EXCLUDED.variaciones,
+      datos = EXCLUDED.datos, ultima_vez_vista_at = NOW(), sincronizada_at = NOW(), updated_at = NOW()`,
+    [idCuenta, publication.itemId, productId, kitId, productId || kitId ? "CODIGO_EXACTO" : "SIN_VINCULO", publication.sellerSku,
+      publication.titulo, publication.estado, publication.categoriaId, publication.tipoPublicacion, publication.precio,
+      publication.precioOriginal, publication.moneda, publication.cantidadDisponible, publication.cantidadVendida,
+      publication.thumbnailUrl, publication.permalink, JSON.stringify(publication.variaciones), JSON.stringify(publication)],
+  );
+}
+
+function recursoPermitido(topic: string, recurso: string) {
+  if (topic === "orders_v2") return /^\/orders\/\d+$/.test(recurso);
+  if (topic === "questions") return /^\/questions\/\d+$/.test(recurso);
+  if (topic === "items") return /^\/items\/ML[A-Z]+\d+$/i.test(recurso);
+  return false;
+}
+
+async function procesarEventoMercadoLibreReclamado(row: MeliWebhookEventRow) {
+  const { accessToken } = await accessTokenForCuenta(row.id_cuenta);
+  if (!recursoPermitido(row.topic, row.recurso)) {
+    await query(
+      "UPDATE public.mercadolibre_webhook_evento SET estado = 'IGNORADO', procesado_at = NOW(), ultimo_error = NULL WHERE id = $1",
+      [row.id],
+    );
+    return;
+  }
+  const resource = await meliGet(row.recurso, row.id_cuenta, accessToken);
+  if (row.topic === "orders_v2") await guardarVentaMercadoLibre(row.id_cuenta, resource as MeliOrder);
+  if (row.topic === "questions") await guardarPreguntaMercadoLibre(row.id_cuenta, resource as MeliQuestion);
+  if (row.topic === "items") await guardarPublicacionDesdeWebhook(row.id_cuenta, resource as MeliItem);
+  await query(
+    "UPDATE public.mercadolibre_webhook_evento SET estado = 'PROCESADO', procesado_at = NOW(), ultimo_error = NULL WHERE id = $1",
+    [row.id],
+  );
+}
+
+export async function procesarEventoMercadoLibre(idEvento: number) {
+  const claimed = await query<MeliWebhookEventRow>(
+    `UPDATE public.mercadolibre_webhook_evento
+     SET estado = 'PROCESANDO', intentos = intentos + 1
+     WHERE id = $1 AND estado = 'PENDIENTE' AND proximo_intento_at <= NOW()
+     RETURNING id, id_cuenta, topic, recurso`,
+    [idEvento],
+  );
+  const row = claimed.rows[0];
+  if (!row) return false;
+  try {
+    await procesarEventoMercadoLibreReclamado(row);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Error desconocido al procesar el evento.";
+    await query(
+      `UPDATE public.mercadolibre_webhook_evento
+       SET estado = CASE WHEN intentos >= 5 THEN 'ERROR' ELSE 'PENDIENTE' END,
+           proximo_intento_at = NOW() + (LEAST(intentos, 5) * INTERVAL '5 minutes'),
+           ultimo_error = $2
+       WHERE id = $1`,
+      [row.id, message.slice(0, 1_000)],
+    );
+    throw error;
+  }
+}
+
+export async function procesarEventosMercadoLibrePendientes(limit = 25) {
+  const claimed = await query<MeliWebhookEventRow>(
+    `WITH pendientes AS (
+       SELECT id FROM public.mercadolibre_webhook_evento
+       WHERE estado = 'PENDIENTE' AND proximo_intento_at <= NOW()
+       ORDER BY recibido_at ASC
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED
+     )
+     UPDATE public.mercadolibre_webhook_evento evento
+     SET estado = 'PROCESANDO', intentos = evento.intentos + 1
+     FROM pendientes
+     WHERE evento.id = pendientes.id
+     RETURNING evento.id, evento.id_cuenta, evento.topic, evento.recurso`,
+    [Math.max(1, Math.min(limit, 100))],
+  );
+  let procesados = 0;
+  let errores = 0;
+  for (const row of claimed.rows) {
+    try {
+      await procesarEventoMercadoLibreReclamado(row);
+      procesados += 1;
+    } catch (error) {
+      errores += 1;
+      const message = error instanceof Error ? error.message : "Error desconocido al procesar el evento.";
+      await query(
+        `UPDATE public.mercadolibre_webhook_evento
+         SET estado = CASE WHEN intentos >= 5 THEN 'ERROR' ELSE 'PENDIENTE' END,
+             proximo_intento_at = NOW() + (LEAST(intentos, 5) * INTERVAL '5 minutes'),
+             ultimo_error = $2
+         WHERE id = $1`,
+        [row.id, message.slice(0, 1_000)],
+      );
+    }
+  }
+  return { reclamados: claimed.rows.length, procesados, errores };
 }
 
 async function productIdsByCode(codes: string[]) {

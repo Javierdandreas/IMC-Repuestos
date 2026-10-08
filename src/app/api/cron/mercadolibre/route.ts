@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getMercadoLibreCuentas, sincronizarMercadoLibre } from "@/lib/mercadolibre";
+import { getMercadoLibreCuentas, procesarEventosMercadoLibrePendientes, sincronizarMercadoLibre } from "@/lib/mercadolibre";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const eventos = await procesarEventosMercadoLibrePendientes(100);
     const cuentas = await getMercadoLibreCuentas();
     const resultados: Array<{ idCuenta: number; ok: boolean; total?: number; error?: string }> = [];
 
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest) {
     const failed = resultados.filter((resultado) => !resultado.ok);
     return NextResponse.json({
       ok: failed.length === 0,
+      eventos,
       cuentas: resultados,
       sincronizadas: resultados.filter((resultado) => resultado.ok).length,
       errores: failed.length,
