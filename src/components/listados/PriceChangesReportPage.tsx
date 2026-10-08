@@ -39,7 +39,8 @@ type Row = {
   resuelto_at: string | null;
 };
 
-type Response = { data: Row[]; page: number; totalPages: number; totalCount: number };
+type ExportSummary = { id: number; created_at: string; cantidad: number; proveedores: number; importaciones: number };
+type Response = { data: Row[]; page: number; totalPages: number; totalCount: number; recentExports: ExportSummary[] };
 
 const fetcher = async (url: string) => {
   const response = await fetch(url, { cache: "no-store" });
@@ -97,6 +98,7 @@ export function PriceChangesReportPage() {
   const [pageSize, setPageSize] = useState(50);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isResolving, setIsResolving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [confirmingAll, setConfirmingAll] = useState(false);
 
   const params = new URLSearchParams({ page: String(page), limit: String(pageSize), estado: status });
@@ -201,6 +203,34 @@ export function PriceChangesReportPage() {
     }
   }
 
+  async function exportApproved() {
+    setIsExporting(true);
+    try {
+      const response = await fetch(exportEndpoint, { cache: "no-store" });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || "No se pudieron exportar los cambios aprobados.");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "costos_modificados.xlsx";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`${Number(response.headers.get("X-Costos-Exportados") || 0).toLocaleString("es-AR")} cambio(s) exportado(s). El listado activo fue reiniciado.`);
+      await mutate();
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "No se pudieron exportar los cambios aprobados.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <main className="min-h-[calc(100dvh-4rem)] bg-white p-4 dark:bg-black md:p-6">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
@@ -209,10 +239,21 @@ export function PriceChangesReportPage() {
             <h1 className="text-2xl font-black text-slate-900 dark:text-white">Costos modificados</h1>
             <p className="mt-1 text-sm font-medium text-slate-500">El costo elegido se aplica solo tras la aprobacion correspondiente.</p>
           </div>
-          <a href={exportEndpoint} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-black uppercase tracking-wide text-white transition hover:bg-blue-700">
+          <button type="button" onClick={() => void exportApproved()} disabled={isExporting} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-black uppercase tracking-wide text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
             <HiDownload className="h-4 w-4" /> Exportar aprobados
-          </a>
+          </button>
         </header>
+
+        {data?.recentExports.length ? (
+          <section className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs dark:border-slate-800 dark:bg-slate-950">
+            <span className="font-black uppercase tracking-wide text-slate-500">Ultimas exportaciones</span>
+            {data.recentExports.map((item) => (
+              <span key={item.id} className="font-semibold text-slate-600 dark:text-slate-300">
+                {formatDate(item.created_at)}: {item.cantidad.toLocaleString("es-AR")} cambios, {item.proveedores} proveedor(es), {item.importaciones} importacion(es)
+              </span>
+            ))}
+          </section>
+        ) : null}
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
           <div className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40">

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx-js-style";
-import { requireApiReadSession } from "@/lib/api-auth";
-import { jsonError } from "@/lib/api-errors";
-import { getPreciosModificadosProveedor } from "@/lib/repos/proveedor-importaciones";
+import { requireApiWriteSession } from "@/lib/api-auth";
+import { AppError, jsonError } from "@/lib/api-errors";
+import { getPreciosModificadosProveedor, registrarExportacionCambiosCosto } from "@/lib/repos/proveedor-importaciones";
 
 function positiveInteger(value: string | null) {
   const parsed = Number(value);
@@ -27,18 +27,20 @@ const headerStyle = {
 
 export async function GET(request: NextRequest) {
   try {
-    await requireApiReadSession(request);
+    const session = await requireApiWriteSession(request);
     const { searchParams } = new URL(request.url);
-    const result = await getPreciosModificadosProveedor({
+    const filters = {
       idProveedor: positiveInteger(searchParams.get("proveedor")),
       idImportacion: positiveInteger(searchParams.get("importacion")),
-      estado: "APROBADOS",
+      estado: "APROBADOS" as const,
       codigo: searchParams.get("codigo") || undefined,
       fechaDesde: dateFilter(searchParams.get("fecha_desde")),
       fechaHasta: dateFilter(searchParams.get("fecha_hasta")),
       origen: origin(searchParams.get("origen")),
       limit: 100000,
-    });
+    };
+    const result = await getPreciosModificadosProveedor(filters);
+    if (!result.data.length) throw new AppError("No hay cambios aprobados para exportar.", 400);
     const rows = result.data.map((item) => ({
       Fecha: new Date(item.fecha_importacion).toLocaleString("es-AR"),
       Proveedor: item.proveedor,
@@ -89,11 +91,13 @@ export async function GET(request: NextRequest) {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Costos modificados");
     const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    const exported = await registrarExportacionCambiosCosto(result.data.map((item) => Number(item.id)), session.usuarioId, filters);
     const date = new Date().toISOString().slice(0, 10);
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="costos_modificados_${date}.xlsx"`,
+        "X-Costos-Exportados": String(exported.exportedCount),
       },
     });
   } catch (error: unknown) {

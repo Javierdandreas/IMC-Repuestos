@@ -1041,6 +1041,14 @@ export type PreciosModificadosFilters = {
   limit?: number;
 };
 
+export type ResumenExportacionCosto = {
+  id: number;
+  created_at: string;
+  cantidad: number;
+  proveedores: number;
+  importaciones: number;
+};
+
 function normalizarEnteroPositivo(value: number | undefined) {
   return Number.isInteger(value) && Number(value) > 0 ? Number(value) : undefined;
 }
@@ -1163,6 +1171,64 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
     totalPages,
     totalCount,
   };
+}
+
+export async function getResumenExportacionesCosto(limit = 5): Promise<ResumenExportacionCosto[]> {
+  const safeLimit = Math.max(1, Math.min(10, Math.floor(limit)));
+  const result = await query<ResumenExportacionCosto>(
+    `SELECT id, created_at, cantidad, proveedores, importaciones
+     FROM public.proveedor_importacion_exportacion_costo
+     ORDER BY created_at DESC
+     LIMIT $1`,
+    [safeLimit],
+  );
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    created_at: row.created_at,
+    cantidad: Number(row.cantidad),
+    proveedores: Number(row.proveedores),
+    importaciones: Number(row.importaciones),
+  }));
+}
+
+export async function registrarExportacionCambiosCosto(
+  ids: number[],
+  usuarioId: number,
+  filters: Omit<PreciosModificadosFilters, "page" | "limit" | "estado">,
+) {
+  const changeIds = [...new Set(ids.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  if (!changeIds.length) throw new AppError("No hay cambios aprobados para exportar.", 400);
+  if (!Number.isInteger(usuarioId) || usuarioId <= 0) throw new AppError("Usuario invalido.", 401);
+
+  return withTransaction(async (client) => {
+    const deleted = await client.query<{ id: number; id_proveedor: number | null; id_importacion: number | null }>(
+      `DELETE FROM public.proveedor_importacion_cambio_costo
+       WHERE id = ANY($1::bigint[])
+         AND estado_aprobacion IN ('APROBADO_AUTOMATICO', 'APROBADO_MANUAL')
+       RETURNING id, id_proveedor, id_importacion`,
+      [changeIds],
+    );
+    if (!deleted.rowCount) throw new AppError("Los cambios aprobados ya no estan disponibles para exportar.", 409);
+
+    const proveedores = new Set(deleted.rows.map((row) => Number(row.id_proveedor)).filter((id) => Number.isInteger(id) && id > 0)).size;
+    const importaciones = new Set(deleted.rows.map((row) => Number(row.id_importacion)).filter((id) => Number.isInteger(id) && id > 0)).size;
+    const summary = await client.query<ResumenExportacionCosto>(
+      `INSERT INTO public.proveedor_importacion_exportacion_costo (usuario_id, cantidad, proveedores, importaciones, filtros)
+       VALUES ($1, $2, $3, $4, $5::jsonb)
+       RETURNING id, created_at, cantidad, proveedores, importaciones`,
+      [usuarioId, deleted.rowCount, proveedores, importaciones, JSON.stringify(filters)],
+    );
+    return {
+      exportedCount: deleted.rowCount,
+      summary: {
+        id: Number(summary.rows[0].id),
+        created_at: summary.rows[0].created_at,
+        cantidad: Number(summary.rows[0].cantidad),
+        proveedores: Number(summary.rows[0].proveedores),
+        importaciones: Number(summary.rows[0].importaciones),
+      },
+    };
+  });
 }
 
 export type AccionResolucionCambioCosto = "APROBAR" | "RECHAZAR";
