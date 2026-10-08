@@ -1,10 +1,5 @@
-import { MercadoLibrePage } from "@/components/configuracion/MercadoLibrePage";
-import { getServerInternalUser } from "@/lib/auth";
-import { canManageContent } from "@/lib/permissions";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function ConfiguracionMercadoLibrePage() {
-  const session = await getServerInternalUser();
-  return <MercadoLibrePage canManage={canManageContent(session?.rol)} />;
+export default function ConfiguracionMercadoLibrePage() {
+  redirect("/operaciones/mercadolibre");
 }

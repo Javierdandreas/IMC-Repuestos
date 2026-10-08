@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
-  HiChevronDown,
   HiOutlineCog,
   HiOutlineCube,
   HiOutlineLibrary,
@@ -28,6 +27,7 @@ interface NavLink {
 
 interface NavGroup {
   label: string;
+  href: string;
   icon: React.ElementType;
   links: NavLink[];
 }
@@ -41,41 +41,53 @@ interface UserProfile {
 const navGroups: NavGroup[] = [
   {
     label: "Operaciones",
+    href: "/operaciones?tipo=VENTA",
     icon: HiOutlineShoppingCart,
     links: [
-      { href: "/operaciones?tipo=COMPRA", label: "Compras" },
       { href: "/operaciones?tipo=VENTA", label: "Ventas" },
+      { href: "/operaciones?tipo=COMPRA", label: "Compras" },
       { href: "/operaciones?tipo=AJUSTE", label: "Ajustes de stock" },
+      { href: "/operaciones/mercadolibre", label: "Mercado Libre" },
       { href: "https://imc-cerebro.vercel.app/", label: "Presupuestos", external: true },
     ],
   },
   {
     label: "Items",
+    href: "/",
     icon: HiOutlineCube,
     links: [
-      { href: "/", label: "Items" },
+      { href: "/", label: "Listado general" },
+      { href: "/productos/nuevo", label: "Nuevo item" },
       { href: "/piezas", label: "Items asociados" },
+      { href: "/kits", label: "Kits" },
+      { href: "/productos/importar", label: "Importar items" },
+      { href: "/productos/exportar", label: "Exportar catalogo" },
     ],
   },
   {
     label: "Contactos",
+    href: "/proveedores",
     icon: HiOutlineUsers,
     links: [
       { href: "/proveedores", label: "Proveedores" },
+      { href: "/proveedores/nuevo", label: "Nuevo proveedor" },
+      { href: "/proveedores/importar", label: "Importar proveedores" },
       { label: "Clientes", disabled: true },
     ],
   },
   {
     label: "Listados",
+    href: "/listados/movimientos-stock",
     icon: HiOutlineLibrary,
     links: [
+      { href: "/listados/movimientos-stock", label: "Movimientos de stock" },
       { href: "/listados/precios-modificados", label: "Costos modificados" },
       { href: "/ubicaciones/inventario", label: "Inventario por ubicacion" },
-      { href: "/listados/movimientos-stock", label: "Movimientos de stock" },
     ],
   },
   {
     label: "Configuracion",
+    href: "/configuracion/datos",
     icon: HiOutlineCog,
     links: [
       { href: "/configuracion/datos", label: "Datos" },
@@ -84,7 +96,6 @@ const navGroups: NavGroup[] = [
       { href: "/marcas", label: "Marcas" },
       { href: "/categorias", label: "Categorias" },
       { href: "/ubicaciones", label: "Ubicaciones" },
-      { href: "/ubicaciones/inventario", label: "Inventario por ubicacion" },
     ],
   },
 ];
@@ -94,7 +105,6 @@ export const Sidebar = () => {
   const searchParams = useSearchParams();
   const { theme } = useTheme();
   const navRef = useRef<HTMLElement>(null);
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile>({
@@ -106,25 +116,32 @@ export const Sidebar = () => {
   const itemsHref = (() => {
     const returnTo = searchParams.get("returnTo");
     if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) return returnTo;
-
     const params = searchParams.toString();
     return pathname === "/" && params ? `/?${params}` : "/";
   })();
 
-  const isGroupActive = useCallback(
-    (group: NavGroup) => {
-      if (group.label === "Items") return pathname === "/" || pathname.startsWith("/productos") || pathname.startsWith("/piezas") || pathname.startsWith("/kits");
-      if (group.label === "Operaciones") return pathname.startsWith("/operaciones");
-      if (group.label === "Contactos") return pathname.startsWith("/proveedores") || pathname.startsWith("/clientes");
-      if (group.label === "Configuracion") {
-        return ["/configuracion", "/importaciones", "/marcas", "/categorias", "/ubicaciones"].some((route) => pathname.startsWith(route))
-          && pathname !== "/ubicaciones/inventario";
-      }
-      if (group.label === "Listados") return pathname.startsWith("/listados") || pathname === "/ubicaciones/inventario";
-      return false;
-    },
-    [pathname],
-  );
+  const isGroupActive = (group: NavGroup) => {
+    if (group.label === "Items") return pathname === "/" || pathname.startsWith("/productos") || pathname.startsWith("/piezas") || pathname.startsWith("/kits");
+    if (group.label === "Operaciones") return pathname.startsWith("/operaciones") || pathname === "/configuracion/mercadolibre";
+    if (group.label === "Contactos") return pathname.startsWith("/proveedores") || pathname.startsWith("/clientes");
+    if (group.label === "Configuracion") {
+      return ["/configuracion", "/importaciones", "/marcas", "/categorias", "/ubicaciones"].some((route) => pathname.startsWith(route))
+        && pathname !== "/configuracion/mercadolibre"
+        && pathname !== "/ubicaciones/inventario";
+    }
+    if (group.label === "Listados") return pathname.startsWith("/listados") || pathname === "/ubicaciones/inventario";
+    return false;
+  };
+
+  const activeGroup = navGroups.find(isGroupActive) ?? null;
+
+  const isLinkActive = (href?: string) => {
+    if (!href || href.startsWith("http")) return false;
+    const [linkPath, query = ""] = href.split("?");
+    if (pathname !== linkPath) return false;
+    if (!query) return true;
+    return Array.from(new URLSearchParams(query).entries()).every(([key, value]) => searchParams.get(key) === value);
+  };
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -144,25 +161,23 @@ export const Sidebar = () => {
       setUserProfile({ nombre, rol: authData.rol || "Administrador", initials });
     };
 
-    fetchUserProfile();
+    void fetchUserProfile();
   }, []);
 
   useEffect(() => {
     const closeMenus = (event: MouseEvent) => {
-      if (navRef.current && !navRef.current.contains(event.target as Node)) {
-        setOpenMenu(null);
-        setUserMenuOpen(false);
-      }
+      if (navRef.current && !navRef.current.contains(event.target as Node)) setUserMenuOpen(false);
     };
-
     document.addEventListener("mousedown", closeMenus);
     return () => document.removeEventListener("mousedown", closeMenus);
   }, []);
 
-  const closeNavigation = () => {
-    setOpenMenu(null);
+  useEffect(() => {
     setMobileOpen(false);
-  };
+    setUserMenuOpen(false);
+  }, [pathname, searchParams]);
+
+  const navHref = (href: string) => href === "/" ? itemsHref : href;
 
   return (
     <header ref={navRef} className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-black/95">
@@ -174,37 +189,12 @@ export const Sidebar = () => {
         <div className="hidden h-full items-center gap-1 md:flex">
           {navGroups.map((group) => {
             const Icon = group.icon;
-            const isOpen = openMenu === group.label;
             const active = isGroupActive(group);
-
             return (
-              <div key={group.label} className="relative h-full">
-                <button
-                  type="button"
-                  onClick={() => setOpenMenu(isOpen ? null : group.label)}
-                  className={`flex h-full items-center gap-2 border-b-2 px-3 text-sm font-bold transition-colors ${active || isOpen ? "border-blue-600 text-slate-950 dark:text-white" : "border-transparent text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"}`}
-                  aria-expanded={isOpen}
-                >
-                  <Icon className="h-5 w-5" />
-                  <span>{group.label}</span>
-                  <HiChevronDown className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                </button>
-
-                {isOpen && (
-                  <div className="absolute left-0 top-[calc(100%-1px)] min-w-56 overflow-hidden border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-800 dark:bg-slate-950">
-                    {group.links.map((link) => {
-                      const itemClass = "flex w-full items-center px-4 py-2.5 text-left text-sm font-semibold transition-colors";
-                      if (link.disabled) {
-                        return <span key={link.label} className={`${itemClass} cursor-not-allowed text-slate-400 dark:text-slate-600`} title="Proximamente">{link.label}<span className="ml-auto text-[10px] font-bold uppercase">Proximamente</span></span>;
-                      }
-                      if (link.external && link.href) {
-                        return <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" className={`${itemClass} text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white`}>{link.label}</a>;
-                      }
-                      return <Link key={link.label} href={link.href === "/" ? itemsHref : link.href || "#"} onClick={closeNavigation} className={`${itemClass} text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white`}>{link.label}</Link>;
-                    })}
-                  </div>
-                )}
-              </div>
+              <Link key={group.label} href={navHref(group.href)} className={`flex h-full items-center gap-2 border-b-2 px-3 text-sm font-bold transition-colors ${active ? "border-blue-600 text-slate-950 dark:text-white" : "border-transparent text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"}`}>
+                <Icon className="h-5 w-5" />
+                <span>{group.label}</span>
+              </Link>
             );
           })}
         </div>
@@ -215,14 +205,8 @@ export const Sidebar = () => {
             <button type="button" onClick={() => setUserMenuOpen((open) => !open)} className="flex items-center gap-2 border border-slate-200 px-2 py-1.5 text-left transition-colors hover:bg-slate-100 dark:border-slate-800 dark:hover:bg-slate-900" aria-expanded={userMenuOpen}>
               <span className="flex h-8 w-8 items-center justify-center bg-slate-950 text-xs font-black text-white dark:bg-white dark:text-slate-950">{userProfile.initials}</span>
               <span className="max-w-32 truncate text-xs font-bold text-slate-900 dark:text-white">{userProfile.nombre}</span>
-              <HiChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
             </button>
-            {userMenuOpen && (
-              <div className="absolute right-0 top-full mt-2 w-56 border border-slate-200 bg-white p-1 shadow-xl dark:border-slate-800 dark:bg-slate-950">
-                <div className="border-b border-slate-100 px-3 py-2 dark:border-slate-800"><p className="truncate text-sm font-bold text-slate-950 dark:text-white">{userProfile.nombre}</p><p className="text-xs text-slate-500">{userProfile.rol}</p></div>
-                <LogoutButton className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" />
-              </div>
-            )}
+            {userMenuOpen && <div className="absolute right-0 top-full mt-2 w-56 border border-slate-200 bg-white p-1 shadow-xl dark:border-slate-800 dark:bg-slate-950"><div className="border-b border-slate-100 px-3 py-2 dark:border-slate-800"><p className="truncate text-sm font-bold text-slate-950 dark:text-white">{userProfile.nombre}</p><p className="text-xs text-slate-500">{userProfile.rol}</p></div><LogoutButton className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" /></div>}
           </div>
         </div>
 
@@ -234,25 +218,27 @@ export const Sidebar = () => {
         </div>
       </nav>
 
+      {activeGroup && (
+        <nav className="border-t border-slate-100 bg-slate-50 dark:border-slate-900 dark:bg-slate-950/80" aria-label={`Opciones de ${activeGroup.label}`}>
+          <div className="mx-auto flex max-w-[1600px] items-center gap-1 overflow-x-auto px-4 py-2 md:px-6">
+            {activeGroup.links.map((link) => {
+              const className = `whitespace-nowrap rounded-md px-3 py-2 text-xs font-bold transition-colors ${isLinkActive(link.href) ? "bg-white text-blue-600 shadow-sm dark:bg-slate-900 dark:text-blue-300" : "text-slate-500 hover:bg-white hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white"}`;
+              if (link.disabled) return <span key={link.label} className="whitespace-nowrap px-3 py-2 text-xs font-bold text-slate-400 dark:text-slate-600" title="Proximamente">{link.label}</span>;
+              if (link.external && link.href) return <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" className={className}>{link.label}</a>;
+              return <Link key={link.label} href={navHref(link.href || "/")} className={className}>{link.label}</Link>;
+            })}
+          </div>
+        </nav>
+      )}
+
       {mobileOpen && (
         <div className="border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-black md:hidden">
-          {navGroups.map((group) => {
-            const Icon = group.icon;
-            return (
-              <div key={group.label} className="border-b border-slate-100 py-2 last:border-0 dark:border-slate-900">
-                <div className="flex items-center gap-2 px-2 py-2 text-sm font-bold text-slate-950 dark:text-white"><Icon className="h-5 w-5" />{group.label}</div>
-                <div className="ml-7 space-y-1">
-                  {group.links.map((link) => link.disabled ? (
-                    <span key={link.label} className="block px-2 py-2 text-sm text-slate-400">{link.label} (Proximamente)</span>
-                  ) : link.external && link.href ? (
-                    <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" className="block px-2 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300">{link.label}</a>
-                  ) : (
-                    <Link key={link.label} href={link.href === "/" ? itemsHref : link.href || "#"} onClick={closeNavigation} className="block px-2 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300">{link.label}</Link>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+          <div className="grid grid-cols-2 gap-2">
+            {navGroups.map((group) => {
+              const Icon = group.icon;
+              return <Link key={group.label} href={navHref(group.href)} className={`flex items-center gap-2 border px-3 py-3 text-sm font-bold ${isGroupActive(group) ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300" : "border-slate-200 text-slate-600 dark:border-slate-800 dark:text-slate-300"}`}><Icon className="h-5 w-5" />{group.label}</Link>;
+            })}
+          </div>
           <div className="mt-3 flex items-center justify-between border-t border-slate-100 px-2 pt-3 dark:border-slate-900"><div><p className="text-sm font-bold text-slate-950 dark:text-white">{userProfile.nombre}</p><p className="text-xs text-slate-500">{userProfile.rol}</p></div><LogoutButton className="w-auto text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" /></div>
         </div>
       )}
