@@ -4,10 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { PencilButton } from "@/components/ui/PencilButton";
-import { CopyButton } from "@/components/ui/CopyButton";
-import { TrashButton } from "@/components/ui/TrashButton";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiAdjustments, HiInformationCircle, HiExternalLink, HiLink } from "react-icons/hi";
+import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiAdjustments, HiInformationCircle, HiExternalLink, HiLink, HiDotsVertical, HiTrash } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
@@ -73,6 +71,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [activeTab, setActiveTab] = useState<TabId>("principal");
   const [deletingProduct, setDeletingProduct] = useState<ItemListadoUnificado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [openOptionsKey, setOpenOptionsKey] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [activityState, setActivityState] = useState<{ key: string; activities: ProductActivity[]; loading: boolean }>({
     key: "",
@@ -498,7 +497,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 <col className="w-[35px]" />
                 <col className="w-[36px]" />
                 <col className="w-[38px]" />
-                <col className="w-[100px]" />
+                <col className="w-[125px]" />
                 <col className="w-[190px]" />
                 <col className="w-[52px]" />
                 <col className="w-[52px]" />
@@ -509,7 +508,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 <col className="w-[115px]" />
                 <col className="w-[115px]" />
                 <col className="w-[42px]" />
-                <col className="w-[105px]" />
+                <col className="w-[80px]" />
               </colgroup>
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>
@@ -572,8 +571,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </td>
                     <td className="px-1 py-3 text-center">
                       <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[11px] font-black ${product.tipo === "KIT"
-                        ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300"
-                        : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
+                        ? "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300"
+                        : "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
                         }`} title={product.tipo === "KIT" ? "Kit" : "Item"}>
                         {product.tipo === "KIT" ? "K" : "I"}
                       </span>
@@ -585,13 +584,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     >
                       <div className="flex flex-col">
                         <span className="truncate font-mono text-[12px] font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
-                        <span className="mt-0.5 truncate text-[10px] font-bold tracking-wide text-slate-500 dark:text-slate-400">
-                          {product.tipo === "KIT"
-                            ? "KIT"
-                            : product.parent_kit_codigo
-                              ? `COMPONENTE DE ${product.parent_kit_codigo}`
-                              : product.codigo_pieza}
-                        </span>
+                        {product.tipo !== "KIT" && (
+                          <span className="mt-0.5 truncate text-[10px] font-bold tracking-wide text-slate-500 dark:text-slate-400">
+                            {product.parent_kit_codigo ? `COMPONENTE DE ${product.parent_kit_codigo}` : product.codigo_pieza}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td
@@ -678,41 +675,53 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </td>
                     <td className="px-1 py-3 text-center text-[10px] font-bold text-slate-700 dark:text-slate-300">{product.stock}</td>
                     <td className="whitespace-nowrap px-1 py-3">
-                      <div className="flex items-center justify-center gap-1">
+                      <div className="relative flex items-center justify-center gap-1">
                         {canManage ? (
-                          product.tipo === "KIT" ? (
-                            <>
-                              <PencilButton
-                                label={`Editar kit ${product.descripcion}`}
-                                onClick={() => navigateToKitForm(`/kits/editar/${product.id}`)}
-                              />
-                              <CopyButton
-                                label={`Duplicar kit ${product.descripcion}`}
-                                onClick={() => navigateToKitForm(`/kits/duplicar/${product.id}`)}
-                              />
-                              <TrashButton
-                                label={`Borrar kit ${product.descripcion}`}
-                                onClick={() => setDeletingProduct(product)}
-                                disabled={isDeleting && deletingProduct?.id === product.id && deletingProduct?.tipo === "KIT"}
-                              />
-                            </>
-                          ) : (
-                            <>
+                          <>
                             <PencilButton
-                              label={`Editar item ${product.descripcion}`}
-                              onClick={() => navigateToProductForm(`/productos/edit/${product.id}`)}
+                              label={`Editar ${product.tipo === "KIT" ? "kit" : "item"} ${product.descripcion}`}
+                              onClick={() => product.tipo === "KIT"
+                                ? navigateToKitForm(`/kits/editar/${product.id}`)
+                                : navigateToProductForm(`/productos/edit/${product.id}`)}
                             />
-                            <CopyButton
-                              label={`Duplicar item ${product.descripcion}`}
-                              onClick={() => navigateToProductForm(`/productos/duplicar/${product.id}`)}
-                            />
-                            <TrashButton
-                              label={`Borrar item ${product.descripcion}`}
-                              onClick={() => setDeletingProduct(product)}
-                              disabled={isDeleting && deletingProduct?.id === product.id && deletingProduct?.tipo === "ITEM"}
-                            />
-                            </>
-                          )
+                            <button
+                              type="button"
+                              title="Mas opciones"
+                              aria-label={`Mas opciones para ${product.descripcion}`}
+                              aria-expanded={openOptionsKey === `${product.tipo}-${product.id}`}
+                              onClick={() => setOpenOptionsKey((current) => current === `${product.tipo}-${product.id}` ? null : `${product.tipo}-${product.id}`)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-300 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                            >
+                              <HiDotsVertical className="h-5 w-5" />
+                            </button>
+                            {openOptionsKey === `${product.tipo}-${product.id}` && (
+                              <div className="absolute right-1 top-full z-30 mt-1 w-36 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenOptionsKey(null);
+                                    product.tipo === "KIT"
+                                      ? navigateToKitForm(`/kits/duplicar/${product.id}`)
+                                      : navigateToProductForm(`/productos/duplicar/${product.id}`);
+                                  }}
+                                  className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-slate-600 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"
+                                >
+                                  <HiCollection className="h-4 w-4" /> Duplicar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenOptionsKey(null);
+                                    setDeletingProduct(product);
+                                  }}
+                                  disabled={isDeleting && deletingProduct?.id === product.id && deletingProduct?.tipo === product.tipo}
+                                  className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-500/10"
+                                >
+                                  <HiTrash className="h-4 w-4" /> Borrar
+                                </button>
+                              </div>
+                            )}
+                          </>
                         ) : (
                           <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>
                         )}
