@@ -614,11 +614,16 @@ async function guardarPreguntaMercadoLibre(idCuenta: number, pregunta: MeliQuest
 }
 
 async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
-  const preguntas = await getPagedMeliResults<MeliQuestion>(
-    `/questions/search?seller_id=${sellerId}&sort_fields=date_created&sort_types=DESC&api_version=4`,
-    idCuenta,
-    accessToken,
-  );
+  const basePath = `/questions/search?seller_id=${sellerId}&sort_fields=date_created&sort_types=DESC&api_version=4`;
+  const [pendientes, historial] = await Promise.all([
+    getPagedMeliResults<MeliQuestion>(`${basePath}&status=UNANSWERED`, idCuenta, accessToken),
+    getPagedMeliResults<MeliQuestion>(basePath, idCuenta, accessToken),
+  ]);
+  const preguntas = Array.from(new Map(
+    [...pendientes, ...historial]
+      .filter((pregunta) => pregunta.id)
+      .map((pregunta) => [String(pregunta.id), pregunta]),
+  ).values());
   for (const pregunta of preguntas) {
     if (!pregunta.id || !pregunta.text) continue;
     await query(
