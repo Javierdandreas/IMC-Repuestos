@@ -14,6 +14,30 @@ const suggestions = [
   "Como exporto precios de mostrador?",
 ];
 
+function AssistantResponse({ content }: { content: string }) {
+  return (
+    <div className="space-y-2">
+      {content.split(/\r?\n/).map((line, index) => {
+        const text = line.trim();
+        if (!text) return <div key={`space-${index}`} className="h-1" aria-hidden="true" />;
+
+        const bullet = text.match(/^[-*]\s+(.+)/);
+        const numbered = text.match(/^(\d+)[.)]\s+(.+)/);
+        if (bullet || numbered) {
+          return (
+            <div key={`item-${index}`} className="flex gap-2">
+              <span className="shrink-0 font-black text-blue-600 dark:text-blue-400">{numbered ? `${numbered[1]}.` : "-"}</span>
+              <span>{bullet?.[1] ?? numbered?.[2]}</span>
+            </div>
+          );
+        }
+
+        return <p key={`paragraph-${index}`}>{text}</p>;
+      })}
+    </div>
+  );
+}
+
 export function HelpAssistant() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -41,7 +65,8 @@ export function HelpAssistant() {
       const response = await fetch("/api/asistente", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, pathname, history: messages.slice(-6) }),
+        // Cada consulta es independiente: el historial solo se conserva visualmente.
+        body: JSON.stringify({ message: trimmed, pathname }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "No se pudo consultar al asistente.");
@@ -83,7 +108,7 @@ export function HelpAssistant() {
             <div className="space-y-3">
               {messages.map((item, index) => (
                 <div key={`${item.role}-${index}`} className={`max-w-[90%] px-3 py-2 text-sm leading-5 ${item.role === "user" ? "ml-auto bg-blue-600 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"}`}>
-                  {item.content}
+                  {item.role === "assistant" ? <AssistantResponse content={item.content} /> : <p className="whitespace-pre-wrap">{item.content}</p>}
                 </div>
               ))}
               {sending && <div className="w-fit border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500 dark:border-slate-800 dark:bg-slate-900">Consultando...</div>}
