@@ -280,15 +280,29 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
   };
 }
 
-export async function getMercadoLibrePreguntas(idCuenta: number, page = 1, limit = 50): Promise<MercadoLibrePreguntasResult> {
-  const totalResult = await query<{ total_count: number }>("SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_pregunta WHERE id_cuenta = $1", [idCuenta]);
+export type MercadoLibrePreguntaEstadoFiltro = "TODAS" | "POR_RESPONDER" | "RESPONDIDAS";
+export type MercadoLibrePreguntaOrden = "DESC" | "ASC";
+
+export async function getMercadoLibrePreguntas(
+  idCuenta: number,
+  page = 1,
+  limit = 50,
+  estadoFiltro: MercadoLibrePreguntaEstadoFiltro = "TODAS",
+  orden: MercadoLibrePreguntaOrden = "DESC",
+): Promise<MercadoLibrePreguntasResult> {
+  const where = estadoFiltro === "POR_RESPONDER" ? "AND estado = 'UNANSWERED'" : estadoFiltro === "RESPONDIDAS" ? "AND estado = 'ANSWERED'" : "";
+  const direction = orden === "ASC" ? "ASC" : "DESC";
+  const totalResult = await query<{ total_count: number }>(
+    `SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_pregunta WHERE id_cuenta = $1 ${where}`,
+    [idCuenta],
+  );
   const totalCount = Number(totalResult.rows[0]?.total_count || 0);
   if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
   const safePage = Math.max(1, page);
   const { rows } = await query(
     `SELECT id, pregunta_id, item_id, titulo, comprador, texto, estado, fecha, respuesta, respondida_at, sincronizada_at
-     FROM public.mercadolibre_pregunta WHERE id_cuenta = $1
-     ORDER BY fecha DESC NULLS LAST, id DESC LIMIT $2 OFFSET $3`,
+     FROM public.mercadolibre_pregunta WHERE id_cuenta = $1 ${where}
+     ORDER BY fecha ${direction} NULLS LAST, id ${direction} LIMIT $2 OFFSET $3`,
     [idCuenta, limit, (safePage - 1) * limit],
   );
   return {
