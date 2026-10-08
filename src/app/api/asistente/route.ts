@@ -45,10 +45,21 @@ export async function POST(request: NextRequest) {
       model: process.env.OPENAI_HELP_MODEL?.trim() || "gpt-5-mini",
       instructions: `${IMC_HELP_KNOWLEDGE}\n\nContexto actual:\n- Pantalla: ${page.title}\n- En esta pantalla se puede: ${page.capabilities}\n- Rol del usuario: ${session.rol ?? "sin rol"}`,
       input: conversation,
-      max_output_tokens: 450,
+      reasoning: { effort: "minimal" },
+      max_output_tokens: 700,
     });
     const answer = response.output_text.trim();
-    if (!answer) throw new AppError("El asistente no pudo generar una respuesta. Intenta nuevamente.", 502);
+    if (!answer) {
+      console.warn("[ASISTENTE] Respuesta sin texto", {
+        responseId: response.id,
+        status: response.status,
+        incompleteReason: response.incomplete_details?.reason,
+      });
+      const message = response.incomplete_details?.reason === "max_output_tokens"
+        ? "El asistente no alcanzo a terminar la respuesta. Intenta nuevamente."
+        : "El asistente no recibio texto para responder. Intenta nuevamente.";
+      throw new AppError(message, 502);
+    }
     return NextResponse.json({ answer });
   } catch (error: unknown) {
     return jsonError(error, "No se pudo consultar al asistente.");
