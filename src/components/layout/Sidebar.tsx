@@ -57,11 +57,7 @@ const navGroups: NavGroup[] = [
     icon: HiOutlineCube,
     links: [
       { href: "/", label: "Listado general" },
-      { href: "/productos/nuevo", label: "Nuevo item" },
       { href: "/piezas", label: "Items asociados" },
-      { href: "/kits", label: "Kits" },
-      { href: "/productos/importar", label: "Importar items" },
-      { href: "/productos/exportar", label: "Exportar catalogo" },
     ],
   },
   {
@@ -70,8 +66,6 @@ const navGroups: NavGroup[] = [
     icon: HiOutlineUsers,
     links: [
       { href: "/proveedores", label: "Proveedores" },
-      { href: "/proveedores/nuevo", label: "Nuevo proveedor" },
-      { href: "/proveedores/importar", label: "Importar proveedores" },
       { label: "Clientes", disabled: true },
     ],
   },
