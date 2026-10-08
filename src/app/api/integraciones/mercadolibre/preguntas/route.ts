@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page")) || 1);
     const estado = request.nextUrl.searchParams.get("estado");
     const orden = request.nextUrl.searchParams.get("orden");
-    const estadoFiltro: MercadoLibrePreguntaEstadoFiltro = estado === "POR_RESPONDER" || estado === "RESPONDIDAS" ? estado : "TODAS";
+    const estadoFiltro: MercadoLibrePreguntaEstadoFiltro = estado === "RESPONDIDAS" ? "RESPONDIDAS" : "POR_RESPONDER";
     const ordenFecha: MercadoLibrePreguntaOrden = orden === "ASC" ? "ASC" : "DESC";
     return NextResponse.json(await getMercadoLibrePreguntas(idCuenta, page, 50, estadoFiltro, ordenFecha), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

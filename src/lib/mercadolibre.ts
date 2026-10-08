@@ -280,17 +280,17 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
   };
 }
 
-export type MercadoLibrePreguntaEstadoFiltro = "TODAS" | "POR_RESPONDER" | "RESPONDIDAS";
+export type MercadoLibrePreguntaEstadoFiltro = "POR_RESPONDER" | "RESPONDIDAS";
 export type MercadoLibrePreguntaOrden = "DESC" | "ASC";
 
 export async function getMercadoLibrePreguntas(
   idCuenta: number,
   page = 1,
   limit = 50,
-  estadoFiltro: MercadoLibrePreguntaEstadoFiltro = "TODAS",
+  estadoFiltro: MercadoLibrePreguntaEstadoFiltro = "POR_RESPONDER",
   orden: MercadoLibrePreguntaOrden = "DESC",
 ): Promise<MercadoLibrePreguntasResult> {
-  const where = estadoFiltro === "POR_RESPONDER" ? "AND estado = 'UNANSWERED'" : estadoFiltro === "RESPONDIDAS" ? "AND estado = 'ANSWERED'" : "";
+  const where = estadoFiltro === "POR_RESPONDER" ? "AND estado = 'UNANSWERED'" : "AND estado = 'ANSWERED'";
   const direction = orden === "ASC" ? "ASC" : "DESC";
   const totalResult = await query<{ total_count: number }>(
     `SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_pregunta WHERE id_cuenta = $1 ${where}`,
@@ -614,7 +614,11 @@ async function guardarPreguntaMercadoLibre(idCuenta: number, pregunta: MeliQuest
 }
 
 async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
-  const preguntas = await getPagedMeliResults<MeliQuestion>(`/questions/search?seller_id=${sellerId}&api_version=4`, idCuenta, accessToken);
+  const preguntas = await getPagedMeliResults<MeliQuestion>(
+    `/questions/search?seller_id=${sellerId}&sort_fields=date_created&sort_types=DESC&api_version=4`,
+    idCuenta,
+    accessToken,
+  );
   for (const pregunta of preguntas) {
     if (!pregunta.id || !pregunta.text) continue;
     await query(
