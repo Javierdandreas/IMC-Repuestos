@@ -215,16 +215,16 @@ export function PriceChangesReportPage() {
         </header>
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
-            <div className="flex flex-1 flex-wrap items-end gap-3">
-              <label className="w-full sm:w-72">
+          <div className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40">
+            <div className="grid gap-3 px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1.4fr)_minmax(170px,1fr)_minmax(180px,1.1fr)_130px_130px_170px]">
+              <label className="min-w-0">
                 <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Proveedor</span>
                 <select value={providerId} onChange={(event) => { setProviderId(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
                   <option value="">Todos los proveedores</option>
                   {proveedores.map((provider) => <option key={provider.id} value={provider.id}>{provider.descripcion}</option>)}
                 </select>
               </label>
-              <label className="w-full sm:w-52">
+              <label className="min-w-0">
                 <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Estado</span>
                 <select value={status} onChange={(event) => { setStatus(event.target.value as ApprovalStatus); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
                   <option value="PENDIENTE">Pendientes de revision</option>
@@ -234,26 +234,26 @@ export function PriceChangesReportPage() {
                   <option value="TODOS">Todos</option>
                 </select>
               </label>
-              <label className="w-full sm:w-56">
+              <label className="min-w-0">
                 <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Codigo</span>
                 <span className="relative block"><HiSearch className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" /><input value={code} onChange={(event) => { setCode(event.target.value); setPage(1); }} placeholder="Item o proveedor" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" /></span>
               </label>
-              <label className="w-full sm:w-40">
+              <label className="min-w-0">
                 <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Desde</span>
                 <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
               </label>
-              <label className="w-full sm:w-40">
+              <label className="min-w-0">
                 <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Hasta</span>
                 <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
               </label>
-              <label className="w-full sm:w-48">
+              <label className="min-w-0">
                 <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Origen</span>
                 <select value={origin} onChange={(event) => { setOrigin(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
                   <option value="">Todos los origenes</option><option value="IMPORTACION">Lista de proveedor</option><option value="CARGA_MANUAL_PROVEEDOR">Carga manual</option><option value="CRITERIO_MASIVO">Criterio masivo</option><option value="REGLAS_PROVEEDOR">Capas de costo</option><option value="DESCUENTOS_PROVEEDOR">Descuentos</option><option value="EDICION_ITEM">Edicion de item</option>
                 </select>
               </label>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 px-4 py-2.5 dark:border-slate-800">
               {canManage && selectedIds.length > 0 && (
                 <>
                   <button type="button" onClick={() => void resolveChanges(selectedIds, "RECHAZAR")} disabled={isResolving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-500/30 px-3 text-[10px] font-black uppercase tracking-wide text-red-600 transition hover:bg-red-500/10 disabled:opacity-50 dark:text-red-300">
