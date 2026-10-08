@@ -1218,6 +1218,15 @@ export async function registrarExportacionCambiosCosto(
        RETURNING id, created_at, cantidad, proveedores, importaciones`,
       [usuarioId, deleted.rowCount, proveedores, importaciones, JSON.stringify(filters)],
     );
+    await client.query(
+      `DELETE FROM public.proveedor_importacion_exportacion_costo
+       WHERE id NOT IN (
+         SELECT id
+         FROM public.proveedor_importacion_exportacion_costo
+         ORDER BY created_at DESC, id DESC
+         LIMIT 20
+       )`,
+    );
     return {
       exportedCount: deleted.rowCount,
       summary: {
