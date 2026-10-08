@@ -500,17 +500,16 @@ function stageRows(
 
 async function saveSnapshot(syncRunId: string, importedAt: string | null, sourceRows: number, staged: ReturnType<typeof stageRows>) {
   return withTransaction(async (db) => {
-    // Evita que una consulta manual y el cron reemplacen la misma revision al mismo tiempo.
+    // Solo se conserva la revision activa. Las clasificaciones y componentes manuales viven en tablas separadas.
     await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`${ORIGIN}:snapshot`]);
+    await db.query("DELETE FROM public.catalogo_externo_sincronizacion WHERE origen = $1", [ORIGIN]);
     const header = await db.query<{ id: number }>(
       `INSERT INTO public.catalogo_externo_sincronizacion (origen, sync_run_id, fecha_origen, consultado_at, total_registros, ignorados, errores, error_count)
        VALUES ($1, $2, $3, NOW(), $4, $5::jsonb, $6::jsonb, $7)
-       ON CONFLICT (origen, sync_run_id) DO UPDATE SET fecha_origen = EXCLUDED.fecha_origen, consultado_at = NOW(), total_registros = EXCLUDED.total_registros, ignorados = EXCLUDED.ignorados, errores = EXCLUDED.errores, error_count = EXCLUDED.error_count
        RETURNING id`,
       [ORIGIN, syncRunId, importedAt, sourceRows, JSON.stringify(staged.ignored), JSON.stringify(staged.errors), staged.errorCount]
     );
     const snapshotId = Number(header.rows[0].id);
-    await db.query("DELETE FROM public.catalogo_externo_item WHERE id_sincronizacion = $1", [snapshotId]);
 
     for (let offset = 0; offset < staged.items.length; offset += PAGE_SIZE) {
       const batch = staged.items.slice(offset, offset + PAGE_SIZE);
@@ -615,6 +614,15 @@ async function stageCatalogRows(rows: RawRow[], syncRunId: string, importedAt: s
 export async function refreshExternalCatalogPreview(source: ExternalCatalogSource = "API") {
   const externalSource = await fetchSource(source);
   return stageCatalogRows(externalSource.rows, externalSource.syncRunId, externalSource.importedAt);
+}
+
+export async function discardExternalCatalogSnapshot(snapshotId: number) {
+  const result = await query<{ id: number }>(
+    "DELETE FROM public.catalogo_externo_sincronizacion WHERE id = $1 AND origen = $2 RETURNING id",
+    [snapshotId, ORIGIN]
+  );
+  if (!result.rowCount) throw new AppError("La consulta externa ya no esta disponible.", 404);
+  return { snapshotId: Number(result.rows[0].id) };
 }
 
 export async function getExternalCatalogProducts(snapshotId: number, page: number, limit: number, search?: string, status?: Status): Promise<CatalogProductsPage> {

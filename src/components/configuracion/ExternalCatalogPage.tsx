@@ -215,6 +215,8 @@ export function ExternalCatalogPage({ canManage }: Props) {
   const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([]);
   const [confirmingGroupImport, setConfirmingGroupImport] = useState(false);
   const [importingGroups, setImportingGroups] = useState(false);
+  const [confirmingFinish, setConfirmingFinish] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [editingComponents, setEditingComponents] = useState<Component[]>([]);
   const [savingComponents, setSavingComponents] = useState(false);
@@ -488,6 +490,27 @@ export function ExternalCatalogPage({ canManage }: Props) {
     }
   };
 
+  const finishReview = async () => {
+    if (!preview) return;
+    try {
+      setFinishing(true);
+      const response = await fetch(`/api/catalogo-externo/sesion?snapshot=${preview.snapshotId}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "No se pudo finalizar la consulta externa.");
+      setPreview(null);
+      setProductsPage(null);
+      setGroupsPage(null);
+      setSelectedIds([]);
+      setSelectedGroupIds([]);
+      setConfirmingFinish(false);
+      toast.success("Consulta finalizada. La proxima revision volvera a consultar el catalogo externo.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo finalizar la consulta externa.");
+    } finally {
+      setFinishing(false);
+    }
+  };
+
   return (
     <main className="min-h-[calc(100dvh-4rem)] bg-white p-4 dark:bg-black md:p-6">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-5">
@@ -550,7 +573,17 @@ export function ExternalCatalogPage({ canManage }: Props) {
                   <p className="text-[11px] font-medium text-slate-500">{formatDate(preview.importedAt)} · {preview.sourceRows.toLocaleString("es-AR")} registros leidos</p>
                 </div>
               </div>
-              <span className="rounded-full bg-blue-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-blue-600 dark:text-blue-300">Revision previa</span>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-blue-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-blue-600 dark:text-blue-300">Revision previa</span>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingFinish(true)}
+                  disabled={!canManage || finishing}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-500/35 px-3 text-[10px] font-black uppercase tracking-wide text-red-600 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-300"
+                >
+                  <HiTrash className="h-4 w-4" /> Finalizar consulta
+                </button>
+              </div>
             </section>
 
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -869,6 +902,21 @@ export function ExternalCatalogPage({ canManage }: Props) {
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={() => setConfirmingImport(false)} disabled={importing} className="h-10 rounded-lg border border-slate-200 px-4 text-xs font-black uppercase tracking-wide text-slate-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300">Cancelar</button>
             <button type="button" onClick={importSelected} disabled={importing} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-black uppercase tracking-wide text-white disabled:opacity-50"><HiUpload className="h-4 w-4" /> Importar</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal title="Finalizar consulta externa" open={confirmingFinish} onClose={finishing ? () => {} : () => setConfirmingFinish(false)} width="max-w-lg">
+        <div className="space-y-4 p-6">
+          <p className="text-sm font-medium leading-6 text-slate-600 dark:text-slate-300">
+            Se eliminaran todos los resultados de esta consulta, tanto los ya importados como los que decidiste no importar.
+          </p>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs font-semibold leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+            Las clasificaciones y los componentes de kits que guardaste se conservaran para la proxima consulta.
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={() => setConfirmingFinish(false)} disabled={finishing} className="h-10 rounded-lg border border-slate-200 px-4 text-xs font-black uppercase tracking-wide text-slate-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300">Cancelar</button>
+            <button type="button" onClick={finishReview} disabled={finishing} className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-600 px-4 text-xs font-black uppercase tracking-wide text-white disabled:opacity-50"><HiTrash className="h-4 w-4" /> Finalizar y borrar</button>
           </div>
         </div>
       </Modal>
