@@ -23,6 +23,7 @@ export type ComponenteKitPreview = {
 export type ItemListadoUnificado = ProductoListado & {
   tipo: "ITEM" | "KIT";
   parent_kit_id?: number | null;
+  parent_kit_codigo?: string | null;
   componentes_kit?: ComponenteKitPreview[];
   publicaciones_ml?: Array<{ item_id: string; titulo: string; permalink: string | null; estado: string }>;
 };
@@ -31,6 +32,7 @@ type CatalogoBaseRow = {
   tipo: "ITEM" | "KIT";
   id: number;
   parent_kit_id: number | null;
+  parent_kit_codigo: string | null;
 };
 
 const addParam = (params: unknown[], value: unknown) => {
@@ -46,6 +48,7 @@ export async function getItemsUnificadosListado(
   const params: unknown[] = [];
   const productConditions = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
   const kitConditions: string[] = [];
+  const includeKitComponents = Boolean(filters.search?.trim() || filters.searchSpecific?.trim());
 
   if (filters.search?.trim()) {
     params.push(parametroBusquedaItems(filters.search));
@@ -91,6 +94,7 @@ export async function getItemsUnificadosListado(
     WITH kit_base AS (
       SELECT
         k.id,
+        k.codigo_kit AS parent_kit_codigo,
         ROW_NUMBER() OVER (ORDER BY k.created_at DESC NULLS LAST, k.id DESC)::bigint AS sort_order
       FROM public.kits k
       WHERE ${kitWhere}
@@ -100,6 +104,7 @@ export async function getItemsUnificadosListado(
         p.id,
         ROW_NUMBER() OVER (ORDER BY p.id DESC)::bigint AS sort_order,
         NULL::int AS parent_kit_id,
+        NULL::text AS parent_kit_codigo,
         0 AS row_position
       FROM public.productos p
       WHERE ${productConditions.join(" AND ")}
@@ -111,8 +116,24 @@ export async function getItemsUnificadosListado(
         k.id,
         k.sort_order,
         k.id AS parent_kit_id,
+        k.parent_kit_codigo,
         0 AS row_position
       FROM kit_base k
+
+      ${includeKitComponents ? `
+      UNION ALL
+
+      SELECT
+        'ITEM'::text AS tipo,
+        componente.id,
+        k.sort_order,
+        k.id AS parent_kit_id,
+        k.parent_kit_codigo,
+        1 AS row_position
+      FROM kit_base k
+      JOIN public.kit_detalle detalle ON detalle.id_kit = k.id
+      JOIN public.productos componente ON componente.id = detalle.id_producto
+      ` : ""}
 
     ), deduplicated AS (
       SELECT DISTINCT ON (tipo, id)
@@ -120,11 +141,12 @@ export async function getItemsUnificadosListado(
         id,
         sort_order,
         parent_kit_id,
+        parent_kit_codigo,
         row_position
       FROM catalog_raw
-      ORDER BY tipo, id, row_position DESC
+      ORDER BY tipo, id, row_position DESC, sort_order ASC
     )
-    SELECT tipo, id, parent_kit_id
+    SELECT tipo, id, parent_kit_id, parent_kit_codigo
     FROM deduplicated
     ORDER BY sort_order ASC NULLS LAST, row_position ASC, CASE WHEN tipo = 'KIT' THEN 0 ELSE 1 END, id DESC
   `;
@@ -187,7 +209,13 @@ export async function getItemsUnificadosListado(
   const data = catalogResult.rows.flatMap((row): ItemListadoUnificado[] => {
     if (row.tipo === "ITEM") {
       const product = productsById.get(row.id);
-      return product ? [{ ...product, tipo: "ITEM", parent_kit_id: row.parent_kit_id, publicaciones_ml: publicacionesPorItem.get(`ITEM-${row.id}`) || [] }] : [];
+      return product ? [{
+        ...product,
+        tipo: "ITEM",
+        parent_kit_id: row.parent_kit_id,
+        parent_kit_codigo: row.parent_kit_codigo,
+        publicaciones_ml: publicacionesPorItem.get(`ITEM-${row.id}`) || [],
+      }] : [];
     }
 
     const kit = kitsById.get(row.id);

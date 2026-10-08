@@ -586,7 +586,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       <div className="flex flex-col">
                         <span className="truncate font-mono text-[12px] font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
                         <span className="mt-0.5 truncate text-[10px] font-bold tracking-wide text-slate-500 dark:text-slate-400">
-                          {product.tipo === "KIT" ? "KIT" : product.codigo_pieza}
+                          {product.tipo === "KIT"
+                            ? "KIT"
+                            : product.parent_kit_codigo
+                              ? `COMPONENTE DE ${product.parent_kit_codigo}`
+                              : product.codigo_pieza}
                         </span>
                       </div>
                     </td>
