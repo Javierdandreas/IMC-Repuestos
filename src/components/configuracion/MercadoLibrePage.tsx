@@ -90,6 +90,13 @@ export function MercadoLibrePage({ canManage }: Props) {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
+    if (!selectedAccountId || tab === "SINCRONIZACION") return;
+    const interval = window.setInterval(() => {
+      void loadTab(selectedAccountId, tab, pages[tab]).catch(() => undefined);
+    }, 15_000);
+    return () => window.clearInterval(interval);
+  }, [loadTab, pages, selectedAccountId, tab]);
+  useEffect(() => {
     if (searchParams.get("meli") === "conectado") toast.success("Cuenta de Mercado Libre conectada.");
     if (searchParams.get("meli") === "error") toast.error(searchParams.get("mensaje") || "No se pudo conectar Mercado Libre.");
   }, [searchParams]);
