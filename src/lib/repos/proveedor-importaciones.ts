@@ -1027,11 +1027,16 @@ export type PrecioModificadoProveedor = {
 };
 
 export type FiltroEstadoAprobacionCambioCosto = "TODOS" | "PENDIENTE" | "APROBADOS" | "RECHAZADO" | "REEMPLAZADO";
+export type FiltroOrigenCambioCosto = PrecioModificadoProveedor["origen"];
 
-type PreciosModificadosFilters = {
+export type PreciosModificadosFilters = {
   idProveedor?: number;
   idImportacion?: number;
   estado?: FiltroEstadoAprobacionCambioCosto;
+  codigo?: string;
+  fechaDesde?: string;
+  fechaHasta?: string;
+  origen?: FiltroOrigenCambioCosto;
   page?: number;
   limit?: number;
 };
@@ -1046,10 +1051,24 @@ function normalizarFiltroEstadoAprobacion(value: FiltroEstadoAprobacionCambioCos
     : "TODOS";
 }
 
+function normalizarFechaFiltro(value: string | undefined) {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+}
+
+function normalizarOrigenCambioCosto(value: FiltroOrigenCambioCosto | undefined) {
+  return ["IMPORTACION", "CARGA_MANUAL_PROVEEDOR", "CRITERIO_MASIVO", "REGLAS_PROVEEDOR", "DESCUENTOS_PROVEEDOR", "EDICION_ITEM"].includes(value ?? "")
+    ? value
+    : undefined;
+}
+
 export async function getPreciosModificadosProveedor(filters: PreciosModificadosFilters = {}) {
   const idProveedor = normalizarEnteroPositivo(filters.idProveedor);
   const idImportacion = normalizarEnteroPositivo(filters.idImportacion);
   const estado = normalizarFiltroEstadoAprobacion(filters.estado);
+  const codigo = String(filters.codigo ?? "").trim().slice(0, 100);
+  const fechaDesde = normalizarFechaFiltro(filters.fechaDesde);
+  const fechaHasta = normalizarFechaFiltro(filters.fechaHasta);
+  const origen = normalizarOrigenCambioCosto(filters.origen);
   const page = Math.max(1, Math.floor(filters.page ?? 1));
   const limit = Math.max(10, Math.min(100000, Math.floor(filters.limit ?? 50)));
   const params: unknown[] = [];
@@ -1064,6 +1083,22 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
   if (idImportacion) {
     params.push(idImportacion);
     where.push(`pi.id = $${params.length}`);
+  }
+  if (codigo) {
+    params.push(`%${codigo}%`);
+    where.push(`(COALESCE(cambio.codigo_item, '') ILIKE $${params.length} OR COALESCE(cambio.codigo_proveedor, '') ILIKE $${params.length})`);
+  }
+  if (fechaDesde) {
+    params.push(fechaDesde);
+    where.push(`COALESCE(pi.updated_at, cambio.created_at) >= $${params.length}::date`);
+  }
+  if (fechaHasta) {
+    params.push(fechaHasta);
+    where.push(`COALESCE(pi.updated_at, cambio.created_at) < ($${params.length}::date + INTERVAL '1 day')`);
+  }
+  if (origen) {
+    params.push(origen);
+    where.push(`cambio.origen = $${params.length}`);
   }
   if (estado === "PENDIENTE") {
     where.push("cambio.estado_aprobacion = 'PENDIENTE'");
@@ -1255,6 +1290,42 @@ export async function resolverCambiosCostoReferencia(
       replacedCount: staleIds.length,
     };
   });
+}
+
+export async function resolverTodosLosCambiosCostoFiltrados(
+  filters: PreciosModificadosFilters,
+  accion: AccionResolucionCambioCosto,
+  usuarioId: number,
+) {
+  const pending = await getPreciosModificadosProveedor({
+    ...filters,
+    estado: "PENDIENTE",
+    page: 1,
+    limit: 100000,
+  });
+  const ids = pending.data.map((row) => row.id);
+  const batchSize = 100;
+  let resolvedCount = 0;
+  let skippedCount = 0;
+  let recalculatedCostCount = 0;
+  let replacedCount = 0;
+
+  for (let index = 0; index < ids.length; index += batchSize) {
+    const result = await resolverCambiosCostoReferencia(ids.slice(index, index + batchSize), accion, usuarioId);
+    resolvedCount += Number(result.resolvedCount || 0);
+    skippedCount += Number(result.skippedCount || 0);
+    recalculatedCostCount += Number(result.recalculatedCostCount || 0);
+    replacedCount += Number(result.replacedCount || 0);
+  }
+
+  return {
+    requestedCount: ids.length,
+    resolvedCount,
+    skippedCount,
+    recalculatedCostCount,
+    replacedCount,
+    remainingCount: Math.max(0, pending.totalCount - ids.length),
+  };
 }
 
 export async function getProveedorDiscounts(id_proveedor: number) {

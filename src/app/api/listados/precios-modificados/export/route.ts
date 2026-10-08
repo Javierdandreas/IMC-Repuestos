@@ -9,6 +9,16 @@ function positiveInteger(value: string | null) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function dateFilter(value: string | null) {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+}
+
+function origin(value: string | null) {
+  return ["IMPORTACION", "CARGA_MANUAL_PROVEEDOR", "CRITERIO_MASIVO", "REGLAS_PROVEEDOR", "DESCUENTOS_PROVEEDOR", "EDICION_ITEM"].includes(value ?? "")
+    ? value as "IMPORTACION" | "CARGA_MANUAL_PROVEEDOR" | "CRITERIO_MASIVO" | "REGLAS_PROVEEDOR" | "DESCUENTOS_PROVEEDOR" | "EDICION_ITEM"
+    : undefined;
+}
+
 const headerStyle = {
   fill: { fgColor: { rgb: "1D4ED8" } },
   font: { bold: true, color: { rgb: "FFFFFF" } },
@@ -23,6 +33,10 @@ export async function GET(request: NextRequest) {
       idProveedor: positiveInteger(searchParams.get("proveedor")),
       idImportacion: positiveInteger(searchParams.get("importacion")),
       estado: "APROBADOS",
+      codigo: searchParams.get("codigo") || undefined,
+      fechaDesde: dateFilter(searchParams.get("fecha_desde")),
+      fechaHasta: dateFilter(searchParams.get("fecha_hasta")),
+      origen: origin(searchParams.get("origen")),
       limit: 100000,
     });
     const rows = result.data.map((item) => ({

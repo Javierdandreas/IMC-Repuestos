@@ -8,11 +8,13 @@ import {
   HiChevronRight,
   HiDownload,
   HiRefresh,
+  HiSearch,
   HiX,
 } from "react-icons/hi";
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
 import { useUser } from "@/context/UserContext";
+import { Modal } from "@/components/ui/Modal";
 
 type ApprovalStatus = "TODOS" | "PENDIENTE" | "APROBADOS" | "RECHAZADO" | "REEMPLAZADO";
 
@@ -87,16 +89,30 @@ export function PriceChangesReportPage() {
   const { canManage } = useUser();
   const [providerId, setProviderId] = useState("");
   const [status, setStatus] = useState<ApprovalStatus>("PENDIENTE");
+  const [code, setCode] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [origin, setOrigin] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isResolving, setIsResolving] = useState(false);
+  const [confirmingAll, setConfirmingAll] = useState(false);
 
-  const params = new URLSearchParams({ page: String(page), limit: "50", estado: status });
+  const params = new URLSearchParams({ page: String(page), limit: String(pageSize), estado: status });
   if (providerId) params.set("proveedor", providerId);
+  if (code.trim()) params.set("codigo", code.trim());
+  if (dateFrom) params.set("fecha_desde", dateFrom);
+  if (dateTo) params.set("fecha_hasta", dateTo);
+  if (origin) params.set("origen", origin);
   const endpoint = `/api/listados/precios-modificados?${params.toString()}`;
-  const exportEndpoint = providerId
-    ? `/api/listados/precios-modificados/export?proveedor=${providerId}`
-    : "/api/listados/precios-modificados/export";
+  const exportParams = new URLSearchParams();
+  if (providerId) exportParams.set("proveedor", providerId);
+  if (code.trim()) exportParams.set("codigo", code.trim());
+  if (dateFrom) exportParams.set("fecha_desde", dateFrom);
+  if (dateTo) exportParams.set("fecha_hasta", dateTo);
+  if (origin) exportParams.set("origen", origin);
+  const exportEndpoint = `/api/listados/precios-modificados/export${exportParams.size ? `?${exportParams.toString()}` : ""}`;
   const { data, error, isLoading, mutate } = useSWR<Response>(endpoint, fetcher);
   const selectableIds = useMemo(
     () => data?.data.filter((row) => row.estado_aprobacion === "PENDIENTE").map((row) => row.id) ?? [],
@@ -106,7 +122,7 @@ export function PriceChangesReportPage() {
 
   useEffect(() => {
     setSelectedIds([]);
-  }, [page, providerId, status]);
+  }, [code, dateFrom, dateTo, origin, page, pageSize, providerId, status]);
 
   function toggleSelected(id: number) {
     setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
@@ -151,6 +167,40 @@ export function PriceChangesReportPage() {
     }
   }
 
+  async function resolveAllFiltered() {
+    setIsResolving(true);
+    try {
+      const response = await fetch("/api/listados/precios-modificados/resolver", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accion: "APROBAR",
+          todosFiltrados: true,
+          filters: {
+            proveedor: providerId || undefined,
+            codigo: code.trim() || undefined,
+            fechaDesde: dateFrom || undefined,
+            fechaHasta: dateTo || undefined,
+            origen: origin || undefined,
+          },
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudieron aprobar los cambios filtrados.");
+      if (Number(result.replacedCount || 0) > 0) {
+        toast.info(`${result.replacedCount} cambio(s) ya no coincidían con el costo actual y quedaron reemplazados.`);
+      }
+      toast.success(`${Number(result.resolvedCount || 0)} cambio(s) aprobado(s) y aplicado(s).`);
+      setConfirmingAll(false);
+      setSelectedIds([]);
+      await mutate();
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "No se pudieron aprobar los cambios filtrados.");
+    } finally {
+      setIsResolving(false);
+    }
+  }
+
   return (
     <main className="min-h-[calc(100dvh-4rem)] bg-white p-4 dark:bg-black md:p-6">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
@@ -184,6 +234,24 @@ export function PriceChangesReportPage() {
                   <option value="TODOS">Todos</option>
                 </select>
               </label>
+              <label className="w-full sm:w-56">
+                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Codigo</span>
+                <span className="relative block"><HiSearch className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" /><input value={code} onChange={(event) => { setCode(event.target.value); setPage(1); }} placeholder="Item o proveedor" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" /></span>
+              </label>
+              <label className="w-full sm:w-40">
+                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Desde</span>
+                <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
+              </label>
+              <label className="w-full sm:w-40">
+                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Hasta</span>
+                <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
+              </label>
+              <label className="w-full sm:w-48">
+                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Origen</span>
+                <select value={origin} onChange={(event) => { setOrigin(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                  <option value="">Todos los origenes</option><option value="IMPORTACION">Lista de proveedor</option><option value="CARGA_MANUAL_PROVEEDOR">Carga manual</option><option value="CRITERIO_MASIVO">Criterio masivo</option><option value="REGLAS_PROVEEDOR">Capas de costo</option><option value="DESCUENTOS_PROVEEDOR">Descuentos</option><option value="EDICION_ITEM">Edicion de item</option>
+                </select>
+              </label>
             </div>
             <div className="flex items-center gap-2">
               {canManage && selectedIds.length > 0 && (
@@ -195,6 +263,11 @@ export function PriceChangesReportPage() {
                     <HiCheck className="h-4 w-4" /> Aprobar ({selectedIds.length})
                   </button>
                 </>
+              )}
+              {canManage && status === "PENDIENTE" && Number(data?.totalCount || 0) > 0 && (
+                <button type="button" onClick={() => setConfirmingAll(true)} disabled={isResolving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-600/30 px-3 text-[10px] font-black uppercase tracking-wide text-emerald-700 transition hover:bg-emerald-500/10 disabled:opacity-50 dark:text-emerald-300">
+                  <HiCheck className="h-4 w-4" /> Aprobar todos ({data?.totalCount.toLocaleString("es-AR")})
+                </button>
               )}
               <button type="button" onClick={() => void mutate()} title="Actualizar listado" aria-label="Actualizar listado" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-white hover:text-blue-600 dark:border-slate-700 dark:hover:bg-slate-950 dark:hover:text-blue-300">
                 <HiRefresh className="h-4 w-4" />
@@ -243,7 +316,7 @@ export function PriceChangesReportPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-            <p className="text-xs font-semibold text-slate-500">{(data?.totalCount ?? 0).toLocaleString("es-AR")} cambios de costo</p>
+            <div className="flex items-center gap-3"><p className="text-xs font-semibold text-slate-500">{(data?.totalCount ?? 0).toLocaleString("es-AR")} cambios de costo</p><label className="flex items-center gap-2 text-xs font-semibold text-slate-500">Por pagina<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"><option value={50}>50</option><option value={100}>100</option><option value={250}>250</option></select></label></div>
             <div className="flex items-center gap-2">
               <button type="button" title="Pagina anterior" aria-label="Pagina anterior" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || isLoading} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"><HiChevronLeft className="h-4 w-4" /></button>
               <span className="min-w-24 text-center text-xs font-bold text-slate-500">Pag. {data?.page ?? 1} de {data?.totalPages ?? 1}</span>
@@ -252,6 +325,12 @@ export function PriceChangesReportPage() {
           </div>
         </section>
       </div>
+      <Modal title="Aprobar todos los costos filtrados" open={confirmingAll} onClose={() => setConfirmingAll(false)} width="max-w-md">
+        <div className="space-y-4 p-5">
+          <p className="text-sm text-slate-600 dark:text-slate-300">Se aprobaran y aplicaran {Number(data?.totalCount || 0).toLocaleString("es-AR")} cambios pendientes que coinciden con los filtros actuales. Se procesan en lotes para mantener el listado disponible.</p>
+          <div className="flex justify-end gap-3"><button type="button" onClick={() => setConfirmingAll(false)} className="h-10 rounded-lg border border-slate-300 px-4 text-xs font-bold text-slate-700 dark:border-slate-700 dark:text-slate-200">Cancelar</button><button type="button" disabled={isResolving} onClick={() => void resolveAllFiltered()} className="h-10 rounded-lg bg-emerald-600 px-4 text-xs font-black text-white disabled:opacity-50">Aprobar todos</button></div>
+        </div>
+      </Modal>
     </main>
   );
 }
