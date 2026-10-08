@@ -31,7 +31,7 @@ function signatureParts(value: string | null) {
 }
 
 function validSignature(notification: MeliNotification, request: NextRequest) {
-  const secret = process.env.MELI_WEBHOOK_SECRET?.trim();
+  const secret = process.env.MELI_WEBHOOK_SECRET?.trim() || process.env.MELI_CLIENT_SECRET?.trim();
   const parsed = signatureParts(request.headers.get("x-signature"));
   const requestId = request.headers.get("x-request-id");
   const resourceId = String(notification.data?.id ?? notification.id ?? notification.resource ?? "").split("/").filter(Boolean).pop();
