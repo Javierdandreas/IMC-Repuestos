@@ -519,8 +519,8 @@ async function getPagedMeliResults<T>(path: string, idCuenta: number, accessToke
   const result: T[] = [];
   for (let offset = 0; offset < maxResults; offset += 100) {
     const separator = path.includes("?") ? "&" : "?";
-    const payload = await meliGet(`${path}${separator}limit=100&offset=${offset}`, idCuenta, accessToken) as { results?: T[]; paging?: { total?: number } };
-    const page = Array.isArray(payload.results) ? payload.results : [];
+    const payload = await meliGet(`${path}${separator}limit=100&offset=${offset}`, idCuenta, accessToken) as { results?: T[]; questions?: T[]; paging?: { total?: number } };
+    const page = Array.isArray(payload.results) ? payload.results : Array.isArray(payload.questions) ? payload.questions : [];
     result.push(...page);
     const total = Number(payload.paging?.total);
     if (page.length < 100 || (Number.isFinite(total) && total > 0 && result.length >= total)) break;
@@ -600,7 +600,7 @@ async function guardarPreguntaMercadoLibre(idCuenta: number, pregunta: MeliQuest
 }
 
 async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
-  const preguntas = await getPagedMeliResults<MeliQuestion>(`/questions/search?seller_id=${sellerId}`, idCuenta, accessToken);
+  const preguntas = await getPagedMeliResults<MeliQuestion>(`/questions/search?seller_id=${sellerId}&api_version=4`, idCuenta, accessToken);
   for (const pregunta of preguntas) {
     if (!pregunta.id || !pregunta.text) continue;
     await query(
