@@ -5,17 +5,18 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { PencilButton } from "@/components/ui/PencilButton";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiCheckCircle, HiAdjustments, HiInformationCircle, HiExternalLink, HiLink, HiDotsVertical, HiTrash } from "react-icons/hi";
+import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiAdjustments, HiInformationCircle, HiExternalLink, HiLink, HiDotsVertical, HiTrash, HiX } from "react-icons/hi";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
-import { ProductForm, PRODUCT_TABS, TabId } from "@/components/products/ProductForm";
+import { ProductForm, TabId } from "@/components/products/ProductForm";
 import { toast } from "sonner";
 import { useMetadata } from "@/context/MetadataContext";
 import { useAppError } from "@/context/AppErrorContext";
 import { ProductoListado, Subcategoria, TipoPrecio } from "@/interfaces/productos";
 import { BulkLabelPrinter } from "@/components/products/BulkLabelPrinter";
 import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
+import { MassEditItemsModal } from "@/components/products/MassEditItemsModal";
 
 interface Props {
   products: ItemListadoUnificado[];
@@ -58,12 +59,14 @@ function formatMoney(value: number | null) {
 }
 
 export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
-  const { categorias, subcategorias, marcas, proveedores, tiposPrecio } = useMetadata();
+  const { categorias, subcategorias, marcas, proveedores, ubicaciones, tiposPrecio } = useMetadata();
   const { showError } = useAppError();
   const { canManage } = usePermissions();
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const [openCreateMenu, setOpenCreateMenu] = useState(false);
+  const [openMassEdit, setOpenMassEdit] = useState(false);
   const [openNew, setOpenNew] = useState(false);
   const [openCreateChoice, setOpenCreateChoice] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductoListado | null>(null);
@@ -119,6 +122,10 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const selectedLabelProducts = useMemo(
     () => products.filter((product) => product.tipo === "ITEM" && selectedIds.has(`ITEM-${product.id}`)),
     [products, selectedIds]
+  );
+  const selectedProducts = useMemo(
+    () => products.filter((product) => selectedIds.has(`${product.tipo}-${product.id}`)),
+    [products, selectedIds],
   );
 
   const toggleSelect = (product: ItemListadoUnificado) => {
@@ -312,38 +319,16 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     router.push(`?${params.toString()}`);
   };
 
-  // Modal Header Tabs Wrapper
-  const formTabs = (
-    <div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800/50">
-      {PRODUCT_TABS.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = activeTab === tab.id;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-bold uppercase tracking-wider transition-all duration-200 ${isActive
-                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
-                : "text-slate-500 hover:bg-white/50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-slate-300"
-              }`}
-          >
-            <Icon className={`h-4 w-4 ${isActive ? "text-blue-500" : "text-slate-400"}`} />
-            {tab.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+  const formTabs = null;
 
   return (
     <>
-      <div className="flex min-h-screen flex-col bg-slate-50 p-4 transition-colors duration-200 dark:bg-slate-950 md:p-6">
-        <div className="w-full space-y-4">
+      <div className="flex min-h-screen flex-col bg-slate-50 p-3 transition-colors duration-200 dark:bg-slate-950 md:p-4">
+        <div className="w-full space-y-3">
           {/* Encabezado y Filtros */}
-          <section className="flex flex-col gap-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/45">
-            <div className="flex flex-col items-center justify-between gap-4 md:flex-row pb-4 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/45">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <div className="hidden">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-lg">
                   <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
@@ -356,23 +341,33 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
 
               {canManage && (
-                <div className="flex items-center gap-2">
+                <div className="relative flex items-center gap-2">
                   <button
-                    onClick={() => setOpenCreateChoice(true)}
-                    className="inline-flex h-12 items-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-700 hover:shadow-blue-500/40 active:scale-95"
+                    type="button"
+                    onClick={() => setOpenCreateMenu((current) => !current)}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white transition hover:bg-blue-700"
                   >
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
+                    <HiPlusCircle className="h-4 w-4" />
                     Nuevo
                   </button>
+                  {openCreateMenu && (
+                    <div className="absolute left-0 top-full z-40 mt-1 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                      <button type="button" onClick={() => { setOpenCreateMenu(false); navigateToProductForm("/productos/nuevo"); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-bold text-slate-700 transition hover:bg-sky-50 hover:text-sky-700 dark:text-slate-200 dark:hover:bg-sky-500/10"><span className="flex h-5 w-5 items-center justify-center rounded bg-sky-100 text-[10px] text-sky-700 dark:bg-sky-500/20 dark:text-sky-300">I</span> Producto / item</button>
+                      <button type="button" onClick={() => { setOpenCreateMenu(false); navigateToKitForm("/kits/nuevo"); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-bold text-slate-700 transition hover:bg-orange-50 hover:text-orange-700 dark:text-slate-200 dark:hover:bg-orange-500/10"><span className="flex h-5 w-5 items-center justify-center rounded bg-orange-100 text-[10px] text-orange-700 dark:bg-orange-500/20 dark:text-orange-300">K</span> Grupo / kit</button>
+                    </div>
+                  )}
                 </div>
               )}
+              {canManage && <button type="button" disabled={selectedProducts.length === 0} onClick={() => setOpenMassEdit(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiAdjustments className="h-4 w-4" /> Cambio masivo{selectedProducts.length > 0 ? ` (${selectedProducts.length})` : ""}</button>}
+              {canManage && <button type="button" disabled={selectedLabelProducts.length === 0} onClick={() => setOpenLabelPrinter(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiPrinter className="h-4 w-4" /> Etiquetas{selectedLabelProducts.length > 0 ? ` (${selectedLabelProducts.length})` : ""}</button>}
+              <button type="button" disabled title="Proximamente" className="inline-flex h-9 items-center rounded-lg border border-slate-200 px-3 text-xs font-black text-slate-400 disabled:cursor-not-allowed dark:border-slate-800 dark:text-slate-600">Actualizar Mercado Libre</button>
+              {selectedProducts.length > 0 && <button type="button" onClick={() => setSelectedIds(new Set())} title="Deseleccionar" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"><HiX className="h-4 w-4" /></button>}
+              <span className="ml-auto text-xs font-medium text-slate-400 dark:text-slate-500">Resultados: <strong className="text-slate-900 dark:text-white">{totalCount}</strong></span>
             </div>
 
-            <div className="grid grid-cols-12 items-end gap-2 px-1">
+            <div className="flex flex-wrap items-center gap-2 [&_label]:sr-only">
               {/* Buscador General */}
-              <div className="col-span-3 flex flex-col gap-1.5">
+              <div className="min-w-[230px] flex-1">
                 <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Buscador General</label>
                 <div className="relative">
                   <input
@@ -389,7 +384,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
 
               {/* Buscador Específico */}
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="w-36">
                 <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Buscador Específico</label>
                 <input
                   type="text"
@@ -401,7 +396,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
 
               {/* Categoría */}
-              <div className="col-span-1 flex flex-col gap-1.5">
+              <div className="w-32">
                 <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Categoría</label>
                 <select
                   value={categoria}
@@ -419,7 +414,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
 
               {/* Subcategoría */}
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="w-40">
                 <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Subcategoría</label>
                 <select
                   value={subcategoria}
@@ -435,7 +430,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
 
               {/* Marca */}
-              <div className="col-span-1 flex flex-col gap-1.5">
+              <div className="w-28">
                 <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Marca</label>
                 <select
                   value={marca}
@@ -450,7 +445,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
 
               {/* Proveedor */}
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="w-40">
                 <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Proveedor</label>
                 <select
                   value={proveedor}
@@ -464,7 +459,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 </select>
               </div>
 
-              <div className="col-span-1 flex min-w-0 flex-col gap-1.5">
+              <div className="w-36">
                 <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Lista venta</label>
                 <select
                   value={tipoVentaSeleccionado?.id ?? ""}
@@ -477,7 +472,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
             </div>
 
-            <div className="flex items-center justify-between mt-1">
+            <div className="hidden">
               <div className="text-xs font-medium text-slate-400 dark:text-slate-500">
                 Resultados: <span className="text-slate-900 dark:text-white font-bold">{totalCount}</span>
               </div>
@@ -741,7 +736,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
             {/* Barra de Acciones Masivas */}
             <AnimatePresence>
-              {selectedIds.size > 0 && (
+              {false && selectedIds.size > 0 && (
                 <motion.div
                   initial={{ y: 100, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
@@ -783,6 +778,21 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               products={selectedLabelProducts as ProductoListado[]}
               onSuccess={() => {
                 router.refresh(); // Actualizar datos de la tabla
+              }}
+            />
+
+            <MassEditItemsModal
+              open={openMassEdit}
+              onClose={() => setOpenMassEdit(false)}
+              items={selectedProducts}
+              categorias={categorias}
+              subcategorias={subcategorias}
+              marcas={marcas}
+              proveedores={proveedores}
+              ubicaciones={ubicaciones}
+              onSuccess={() => {
+                setSelectedIds(new Set());
+                router.refresh();
               }}
             />
 
