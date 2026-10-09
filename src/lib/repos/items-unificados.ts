@@ -184,7 +184,7 @@ export async function getItemsUnificadosListado(
          NULLIF(datos->>'fechaActualizacionMl', '') AS fecha_actualizacion_ml,
          sincronizada_at
        FROM public.mercadolibre_publicacion
-       WHERE estado = 'active'
+       WHERE estado IN ('active', 'paused')
          AND (id_producto = ANY($1::int[]) OR id_kit = ANY($2::int[]))
        ORDER BY titulo ASC`,
       [productIds, kitIds]

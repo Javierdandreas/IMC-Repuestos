@@ -655,16 +655,17 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       )}
                     </td>
                     <td className="px-1 py-3 text-center">
-                      {product.publicaciones_ml && product.publicaciones_ml.length > 0 ? (
-                        <span
+                      {product.publicaciones_ml && product.publicaciones_ml.length > 0 ? (() => {
+                        const hasActivePublication = product.publicaciones_ml.some((publication) => publication.estado === "active");
+                        return <span
                           onMouseEnter={(event) => handleTooltipEnter(product, "mercadolibre", event)}
                           onMouseLeave={handleTooltipLeave}
                           className="inline-flex h-7 w-9 cursor-help items-center justify-center transition hover:scale-105"
-                          title="Publicaciones activas en Mercado Libre"
+                          title={hasActivePublication ? "Publicaciones activas en Mercado Libre" : "Publicaciones pausadas en Mercado Libre"}
                         >
-                          <Image src="/mercadolibre-logo.png" alt="Mercado Libre" width={36} height={25} className="h-auto w-9" />
-                        </span>
-                      ) : null}
+                          <Image src="/mercadolibre-logo.png" alt="Mercado Libre" width={36} height={25} className={`h-auto w-9 ${hasActivePublication ? "" : "opacity-60 grayscale"}`} />
+                        </span>;
+                      })() : null}
                     </td>
                     <td className="truncate px-2 py-3 text-[10px] text-slate-600 dark:text-slate-300" title={product.marca ?? ""}>{product.marca ?? "-"}</td>
                     <td className="px-2 py-3">
@@ -940,6 +941,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                             <p className="line-clamp-2 text-xs font-black text-slate-800 dark:text-slate-100">{publication.titulo}</p>
                             <span className="mt-1 block font-mono text-[10px] font-bold text-slate-400">{publication.item_id}</span>
                             <div className="mt-2 grid grid-cols-1 gap-1 text-[10px] leading-4 text-slate-500 dark:text-slate-300">
+                              <span><b>Estado en ML:</b> {publication.estado === "active" ? "Activa" : publication.estado === "paused" ? "Pausada" : publication.estado}</span>
                               <span><b>Creada en ML:</b> {formatDateTime(publication.fecha_creacion_ml)}</span>
                               <span><b>Ultima edicion en ML:</b> {formatDateTime(publication.fecha_actualizacion_ml)}</span>
                               <span><b>Sincronizada en IMC:</b> {formatDateTime(publication.sincronizada_at)}</span>
