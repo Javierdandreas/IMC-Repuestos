@@ -69,13 +69,27 @@ export type MercadoLibrePreguntaListado = {
   preguntaId: string;
   itemId: string | null;
   titulo: string | null;
+  thumbnailUrl: string | null;
+  sellerSku: string | null;
+  precio: number | null;
+  moneda: string | null;
+  cantidadDisponible: number | null;
   comprador: string | null;
+  compradorId: string | null;
   texto: string;
   estado: string;
   fecha: string | null;
   respuesta: string | null;
   respondidaAt: string | null;
   sincronizadaAt: string;
+  anteriores: Array<{
+    preguntaId: string;
+    texto: string;
+    fecha: string | null;
+    respuesta: string | null;
+    respondidaAt: string | null;
+    estado: string;
+  }>;
 };
 
 export type MercadoLibrePreguntasResult = {

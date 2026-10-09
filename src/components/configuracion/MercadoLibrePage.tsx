@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ExternalLink, Link2, MessageCircle, RefreshCw, Send, Settings2, ShieldCheck, ShoppingCart, Unlink } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Link2, MessageCircle, Package, RefreshCw, Send, Settings2, ShieldCheck, ShoppingCart, Unlink } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
@@ -251,18 +251,33 @@ function PreguntasTable({ preguntas, loading, canManage, answeringQuestionId, on
   answeringQuestionId: string | null;
   onAnswer: (preguntaId: string, texto: string) => Promise<void>;
 }) {
-  return <TableShell hasRows={preguntas.length > 0} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}><table className="w-full min-w-[1080px] text-left text-xs"><thead><tr><th>Fecha</th><th>Cliente</th><th>Publicacion</th><th>Pregunta</th><th>Respuesta</th><th>Estado</th></tr></thead><tbody>{preguntas.map((pregunta) => <tr key={pregunta.id}><td><div className="font-bold">{date(pregunta.fecha, "-")}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{pregunta.preguntaId}</div></td><td className="font-bold text-slate-800 dark:text-white">{pregunta.comprador || "-"}</td><td><div className="max-w-[220px] truncate font-semibold text-slate-800 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "-"}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{pregunta.itemId}</div></td><td className="max-w-sm whitespace-normal font-medium text-slate-700 dark:text-slate-200">{pregunta.texto}</td><td className="min-w-72 max-w-sm"><PreguntaAnswerEditor pregunta={pregunta} canManage={canManage} sending={answeringQuestionId === pregunta.preguntaId} onAnswer={onAnswer} /></td><td><StateBadge value={pregunta.estado} /></td></tr>)}</tbody></table></TableShell>;
+  if (!preguntas.length) return <TableShell hasRows={false} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}>{null}</TableShell>;
+  return <section className="space-y-3">{preguntas.map((pregunta) => <PreguntaCard key={pregunta.id} pregunta={pregunta} canManage={canManage} sending={answeringQuestionId === pregunta.preguntaId} onAnswer={onAnswer} />)}</section>;
 }
 
-function PreguntaAnswerEditor({ pregunta, canManage, sending, onAnswer }: {
+function PreguntaCard({ pregunta, canManage, sending, onAnswer }: {
   pregunta: MercadoLibrePreguntasResult["data"][number];
   canManage: boolean;
   sending: boolean;
   onAnswer: (preguntaId: string, texto: string) => Promise<void>;
 }) {
   const [texto, setTexto] = useState("");
-  if (pregunta.estado !== "UNANSWERED") return <div className="whitespace-normal text-slate-600 dark:text-slate-300">{pregunta.respuesta || "-"}</div>;
-  return <div className="space-y-2"><textarea value={texto} onChange={(event) => setTexto(event.target.value)} maxLength={2000} disabled={!canManage || sending} placeholder="Escribi la respuesta" className="min-h-20 w-full resize-y rounded-md border border-slate-300 bg-white p-2 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-medium text-slate-400">{texto.length}/2000</span><button type="button" disabled={!canManage || sending || !texto.trim()} onClick={() => void onAnswer(pregunta.preguntaId, texto).then(() => setTexto(""))} className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-2 text-[10px] font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-3.5 w-3.5" />{sending ? "Enviando" : "Responder"}</button></div></div>;
+  const [showPrevious, setShowPrevious] = useState(false);
+  const respond = async () => { await onAnswer(pregunta.preguntaId, texto); setTexto(""); };
+  return <article className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+    <header className="grid gap-3 p-4 sm:grid-cols-[3rem_minmax(0,1fr)_auto_auto] sm:items-center">
+      <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">{pregunta.thumbnailUrl ? <img src={pregunta.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <Package className="h-5 w-5 text-slate-400" />}</div>
+      <div className="min-w-0"><p className="font-mono text-[10px] font-bold uppercase text-slate-500">{pregunta.sellerSku ? `SKU ${pregunta.sellerSku}` : pregunta.itemId || "Publicacion"}</p><p className="truncate text-sm font-black text-slate-900 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "Sin titulo"}</p></div>
+      <div className="text-sm font-black text-slate-800 dark:text-white">{money(pregunta.precio, pregunta.moneda)}</div>
+      <div className="text-sm font-bold text-slate-500">{pregunta.cantidadDisponible === null ? "" : `${pregunta.cantidadDisponible} unidades`}</div>
+    </header>
+    <div className="border-t border-slate-200 px-4 py-4 dark:border-slate-800">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500"><span className="font-bold text-slate-800 dark:text-white">{pregunta.comprador || "Cliente"}</span><span>{date(pregunta.fecha, "-")}</span><StateBadge value={pregunta.estado} /></div>
+      <p className="mt-2 text-sm font-bold text-slate-900 dark:text-white">{pregunta.texto}</p>
+      {pregunta.estado === "UNANSWERED" ? <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><div><textarea value={texto} onChange={(event) => setTexto(event.target.value)} maxLength={2000} disabled={!canManage || sending} placeholder="Escribi la respuesta" className="min-h-24 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /><span className="mt-1 block text-right text-[10px] font-medium text-slate-400">{texto.length}/2000</span></div><button type="button" disabled={!canManage || sending || !texto.trim()} onClick={() => void respond()} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-4 w-4" />{sending ? "Enviando" : "Responder"}</button></div> : <div className="mt-3 border-l-2 border-blue-500 pl-3 text-sm text-slate-600 dark:text-slate-300">{pregunta.respuesta || "Sin respuesta disponible"}</div>}
+      {pregunta.anteriores.length > 0 && <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800"><button type="button" onClick={() => setShowPrevious((value) => !value)} className="inline-flex items-center gap-2 text-xs font-black text-blue-600 hover:text-blue-500 dark:text-blue-300">{showPrevious ? "Ocultar preguntas anteriores" : `Ver preguntas anteriores (${pregunta.anteriores.length})`}{showPrevious ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>{showPrevious && <ol className="mt-3 space-y-3">{pregunta.anteriores.map((anterior) => <li key={anterior.preguntaId} className="border-l-2 border-slate-200 pl-3 text-sm dark:border-slate-700"><div className="flex flex-wrap gap-x-2 text-xs text-slate-500"><span>{date(anterior.fecha, "-")}</span><StateBadge value={anterior.estado} /></div><p className="mt-1 font-semibold text-slate-800 dark:text-slate-100">{anterior.texto}</p>{anterior.respuesta && <p className="mt-1 text-slate-500 dark:text-slate-300">{anterior.respuesta}</p>}</li>)}</ol>}</div>}
+    </div>
+  </article>;
 }
 
 function SyncPanel({ account, onSync, syncing, canManage }: { account: MercadoLibreCuentaEstado | null; onSync: () => void; syncing: boolean; canManage: boolean }) {

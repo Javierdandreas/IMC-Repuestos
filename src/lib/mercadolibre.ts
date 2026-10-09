@@ -300,19 +300,54 @@ export async function getMercadoLibrePreguntas(
   if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
   const safePage = Math.max(1, page);
   const { rows } = await query(
-    `SELECT id, pregunta_id, item_id, titulo, comprador, texto, estado, fecha, respuesta, respondida_at, sincronizada_at
-     FROM public.mercadolibre_pregunta WHERE id_cuenta = $1 ${where}
-     ORDER BY fecha ${direction} NULLS LAST, id ${direction} LIMIT $2 OFFSET $3`,
+    `SELECT question.id, question.pregunta_id, question.item_id, question.titulo, question.comprador, question.comprador_id,
+       question.texto, question.estado, question.fecha, question.respuesta, question.respondida_at, question.sincronizada_at,
+       publication.thumbnail_url, publication.seller_sku, publication.precio, publication.moneda, publication.cantidad_disponible
+     FROM public.mercadolibre_pregunta question
+     LEFT JOIN public.mercadolibre_publicacion publication
+       ON publication.id_cuenta = question.id_cuenta AND publication.item_id = question.item_id
+     WHERE question.id_cuenta = $1 ${where}
+     ORDER BY question.fecha ${direction} NULLS LAST, question.id ${direction} LIMIT $2 OFFSET $3`,
     [idCuenta, limit, (safePage - 1) * limit],
   );
+  const preguntaIds = rows.map((row) => String(row.pregunta_id));
+  const { rows: historyRows } = preguntaIds.length ? await query(
+    `SELECT history.pregunta_id, history.item_id, history.comprador_id, history.texto, history.estado, history.fecha, history.respuesta, history.respondida_at
+     FROM public.mercadolibre_pregunta history
+     JOIN (
+       SELECT DISTINCT item_id, comprador_id
+       FROM public.mercadolibre_pregunta
+       WHERE id_cuenta = $1 AND pregunta_id = ANY($2::text[]) AND comprador_id IS NOT NULL
+     ) selected ON selected.item_id IS NOT DISTINCT FROM history.item_id AND selected.comprador_id = history.comprador_id
+     WHERE history.id_cuenta = $1 AND NOT (history.pregunta_id = ANY($2::text[]))
+     ORDER BY history.fecha DESC NULLS LAST, history.id DESC`,
+    [idCuenta, preguntaIds],
+  ) : { rows: [] as Array<Record<string, unknown>> };
+  const previousByBuyerAndItem = new Map<string, Array<Record<string, unknown>>>();
+  for (const history of historyRows) {
+    const key = `${String(history.item_id || "")}|${String(history.comprador_id || "")}`;
+    const values = previousByBuyerAndItem.get(key) || [];
+    values.push(history);
+    previousByBuyerAndItem.set(key, values);
+  }
   return {
     data: rows.map((row): MercadoLibrePreguntaListado => ({
       id: Number(row.id), preguntaId: String(row.pregunta_id), itemId: row.item_id ? String(row.item_id) : null,
       titulo: row.titulo ? String(row.titulo) : null, comprador: row.comprador ? String(row.comprador) : null,
+      thumbnailUrl: row.thumbnail_url ? String(row.thumbnail_url) : null, sellerSku: row.seller_sku ? String(row.seller_sku) : null,
+      precio: row.precio === null ? null : Number(row.precio), moneda: row.moneda ? String(row.moneda) : null,
+      cantidadDisponible: row.cantidad_disponible === null ? null : Number(row.cantidad_disponible),
+      compradorId: row.comprador_id === null ? null : String(row.comprador_id),
       texto: String(row.texto), estado: String(row.estado), fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
       respuesta: row.respuesta ? String(row.respuesta) : null,
       respondidaAt: row.respondida_at ? new Date(String(row.respondida_at)).toISOString() : null,
       sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
+      anteriores: (previousByBuyerAndItem.get(`${String(row.item_id || "")}|${String(row.comprador_id || "")}`) || []).map((history) => ({
+        preguntaId: String(history.pregunta_id), texto: String(history.texto), estado: String(history.estado),
+        fecha: history.fecha ? new Date(String(history.fecha)).toISOString() : null,
+        respuesta: history.respuesta ? String(history.respuesta) : null,
+        respondidaAt: history.respondida_at ? new Date(String(history.respondida_at)).toISOString() : null,
+      })),
     })),
     totalCount,
     totalPages: Math.ceil(totalCount / limit),
@@ -538,7 +573,7 @@ type MeliQuestion = {
   text?: string;
   status?: string;
   date_created?: string;
-  from?: { nickname?: string | null };
+  from?: { id?: number | string | null; nickname?: string | null };
   answer?: { text?: string | null; date_created?: string | null } | null;
 };
 
@@ -618,16 +653,17 @@ async function guardarPreguntaMercadoLibre(idCuenta: number, pregunta: MeliQuest
   if (!pregunta.id || !pregunta.text) return;
   await query(
     `INSERT INTO public.mercadolibre_pregunta (
-      id_cuenta, pregunta_id, item_id, titulo, comprador, texto, estado, fecha, respuesta, respondida_at, datos, sincronizada_at, updated_at
+      id_cuenta, pregunta_id, item_id, titulo, comprador, comprador_id, texto, estado, fecha, respuesta, respondida_at, datos, sincronizada_at, updated_at
     ) VALUES (
       $1, $2, $3,
       (SELECT titulo FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = $3 LIMIT 1),
-      $4, $5, $6, $7, $8, $9, $10::jsonb, NOW(), NOW()
+      $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW(), NOW()
     ) ON CONFLICT (id_cuenta, pregunta_id) DO UPDATE SET
-      item_id = EXCLUDED.item_id, titulo = COALESCE(EXCLUDED.titulo, mercadolibre_pregunta.titulo), comprador = EXCLUDED.comprador,
+      item_id = EXCLUDED.item_id, titulo = COALESCE(EXCLUDED.titulo, mercadolibre_pregunta.titulo), comprador = EXCLUDED.comprador, comprador_id = EXCLUDED.comprador_id,
       texto = EXCLUDED.texto, estado = EXCLUDED.estado, fecha = EXCLUDED.fecha, respuesta = EXCLUDED.respuesta,
       respondida_at = EXCLUDED.respondida_at, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
-    [idCuenta, String(pregunta.id), pregunta.item_id || null, pregunta.from?.nickname || null, pregunta.text,
+    [idCuenta, String(pregunta.id), pregunta.item_id || null, pregunta.from?.nickname || null,
+      pregunta.from?.id === null || pregunta.from?.id === undefined ? null : String(pregunta.from.id), pregunta.text,
       pregunta.status || "UNANSWERED", pregunta.date_created || null, pregunta.answer?.text || null,
       pregunta.answer?.date_created || null, JSON.stringify(pregunta)],
   );
@@ -648,16 +684,17 @@ async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: numb
     if (!pregunta.id || !pregunta.text) continue;
     await query(
       `INSERT INTO public.mercadolibre_pregunta (
-        id_cuenta, pregunta_id, item_id, titulo, comprador, texto, estado, fecha, respuesta, respondida_at, datos, sincronizada_at, updated_at
+        id_cuenta, pregunta_id, item_id, titulo, comprador, comprador_id, texto, estado, fecha, respuesta, respondida_at, datos, sincronizada_at, updated_at
       ) VALUES (
         $1, $2, $3,
         (SELECT titulo FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = $3 LIMIT 1),
-        $4, $5, $6, $7, $8, $9, $10::jsonb, NOW(), NOW()
+        $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW(), NOW()
       ) ON CONFLICT (id_cuenta, pregunta_id) DO UPDATE SET
-        item_id = EXCLUDED.item_id, titulo = COALESCE(EXCLUDED.titulo, mercadolibre_pregunta.titulo), comprador = EXCLUDED.comprador,
+        item_id = EXCLUDED.item_id, titulo = COALESCE(EXCLUDED.titulo, mercadolibre_pregunta.titulo), comprador = EXCLUDED.comprador, comprador_id = EXCLUDED.comprador_id,
         texto = EXCLUDED.texto, estado = EXCLUDED.estado, fecha = EXCLUDED.fecha, respuesta = EXCLUDED.respuesta,
         respondida_at = EXCLUDED.respondida_at, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
-      [idCuenta, String(pregunta.id), pregunta.item_id || null, pregunta.from?.nickname || null, pregunta.text,
+      [idCuenta, String(pregunta.id), pregunta.item_id || null, pregunta.from?.nickname || null,
+        pregunta.from?.id === null || pregunta.from?.id === undefined ? null : String(pregunta.from.id), pregunta.text,
         pregunta.status || "UNANSWERED", pregunta.date_created || null, pregunta.answer?.text || null,
         pregunta.answer?.date_created || null, JSON.stringify(pregunta)],
     );
