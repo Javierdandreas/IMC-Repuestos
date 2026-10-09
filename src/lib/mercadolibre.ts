@@ -332,10 +332,10 @@ export async function getMercadoLibrePreguntas(
   estadoFiltro: MercadoLibrePreguntaEstadoFiltro = "POR_RESPONDER",
   orden: MercadoLibrePreguntaOrden = "DESC",
 ): Promise<MercadoLibrePreguntasResult> {
-  const where = estadoFiltro === "POR_RESPONDER" ? "AND estado = 'UNANSWERED'" : "AND estado = 'ANSWERED'";
+  const where = estadoFiltro === "POR_RESPONDER" ? "AND question.estado = 'UNANSWERED'" : "AND question.estado = 'ANSWERED'";
   const direction = orden === "ASC" ? "ASC" : "DESC";
   const totalResult = await query<{ total_count: number }>(
-    `SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_pregunta WHERE id_cuenta = $1 ${where}`,
+    `SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_pregunta question WHERE question.id_cuenta = $1 ${where}`,
     [idCuenta],
   );
   const totalCount = Number(totalResult.rows[0]?.total_count || 0);
