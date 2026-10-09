@@ -4,6 +4,7 @@ import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
 import type {
   MercadoLibreCuentaEstado,
+  MercadoLibreCostoEstimado,
   MercadoLibrePublicacion,
   MercadoLibrePublicacionesResult,
   MercadoLibrePreguntaListado,
@@ -60,6 +61,13 @@ type MeliItem = {
   seller_custom_field?: string | null;
   attributes?: Array<{ id?: string; value_name?: string | null }>;
   variations?: Array<Record<string, unknown>>;
+  condition?: string;
+  shipping?: {
+    mode?: string;
+    logistic_type?: string;
+    free_shipping?: boolean;
+    dimensions?: string | null;
+  };
 };
 
 function requiredEnv(name: string) {
@@ -227,6 +235,7 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
       publication.titulo, publication.estado, publication.categoria_id, publication.tipo_publicacion, publication.precio,
       publication.precio_original, publication.moneda, publication.cantidad_disponible, publication.cantidad_vendida,
       publication.thumbnail_url, publication.permalink, publication.variaciones, publication.sincronizada_at,
+      publication.costo_estimado, publication.costo_estimado_at,
       NULLIF(publication.datos->>'fechaCreacionMl', '') AS fecha_creacion_ml,
       NULLIF(publication.datos->>'fechaActualizacionMl', '') AS fecha_actualizacion_ml,
       product.cod_unico AS codigo_producto, product.descripcion AS producto,
@@ -255,6 +264,10 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
       fechaCreacionMl: row.fecha_creacion_ml ? new Date(String(row.fecha_creacion_ml)).toISOString() : null,
       fechaActualizacionMl: row.fecha_actualizacion_ml ? new Date(String(row.fecha_actualizacion_ml)).toISOString() : null,
       sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
+      costoEstimado: row.costo_estimado && typeof row.costo_estimado === "object" ? {
+        ...(row.costo_estimado as MercadoLibreCostoEstimado),
+        consultadoAt: row.costo_estimado_at ? new Date(String(row.costo_estimado_at)).toISOString() : String((row.costo_estimado as MercadoLibreCostoEstimado).consultadoAt || ""),
+      } : null,
     })),
     totalCount,
     totalPages: Math.ceil(totalCount / limit),
@@ -519,6 +532,108 @@ async function meliPost(path: string, idCuenta: number, token: string, body: Rec
     throw new AppError(`Mercado Libre no pudo completar la respuesta (${response.status}).${message}`, response.status === 403 ? 403 : 502);
   }
   return response.json() as Promise<unknown>;
+}
+
+function toFiniteNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function shippingWeight(dimensions: string | null | undefined) {
+  const value = String(dimensions || "").split(",").at(-1)?.trim() || "";
+  return /^\d+(?:[.,]\d+)?$/.test(value) ? value.replace(",", ".") : null;
+}
+
+function shippingEstimate(payload: unknown) {
+  if (!payload || typeof payload !== "object") return null;
+  const source = payload as { coverage?: { all_country?: { list_cost?: unknown } }; list_cost?: unknown };
+  return toFiniteNumber(source.coverage?.all_country?.list_cost ?? source.list_cost);
+}
+
+export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, itemId: string): Promise<MercadoLibreCostoEstimado> {
+  const publicacion = await query<{
+    item_id: string; precio: number | null; moneda: string | null; categoria_id: string | null; tipo_publicacion: string | null;
+  }>(
+    `SELECT item_id, precio, moneda, categoria_id, tipo_publicacion
+     FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = $2 LIMIT 1`,
+    [idCuenta, itemId],
+  );
+  const stored = publicacion.rows[0];
+  if (!stored) throw new AppError("La publicacion no pertenece a esta cuenta de Mercado Libre.", 404);
+
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  const account = await query<{ site_id: string }>("SELECT site_id FROM public.mercadolibre_cuenta WHERE id = $1", [idCuenta]);
+  const siteId = String(account.rows[0]?.site_id || "MLA");
+  const item = await meliGet(`/items/${encodeURIComponent(itemId)}`, idCuenta, accessToken) as MeliItem;
+  const precio = toFiniteNumber(item.price) ?? toFiniteNumber(stored.precio);
+  const moneda = String(item.currency_id || stored.moneda || "ARS");
+  const categoriaId = item.category_id || stored.categoria_id || null;
+  const tipoPublicacion = item.listing_type_id || stored.tipo_publicacion || null;
+  if (precio === null || precio <= 0 || !tipoPublicacion) {
+    throw new AppError("La publicacion no tiene precio o tipo de publicacion suficientes para calcular sus costos.", 422);
+  }
+
+  const pricingParams = new URLSearchParams({
+    price: String(precio),
+    currency_id: moneda,
+    listing_type_id: tipoPublicacion,
+  });
+  if (categoriaId) pricingParams.set("category_id", categoriaId);
+  if (item.shipping?.logistic_type) pricingParams.set("logistic_type", item.shipping.logistic_type);
+  if (item.shipping?.mode) pricingParams.set("shipping_mode", item.shipping.mode);
+  const weight = shippingWeight(item.shipping?.dimensions);
+  if (weight) pricingParams.set("billable_weight", weight);
+
+  const pricingPayload = await meliGet(`/sites/${siteId}/listing_prices?${pricingParams.toString()}`, idCuenta, accessToken);
+  const pricing = (Array.isArray(pricingPayload) ? pricingPayload[0] : pricingPayload) as {
+    sale_fee_amount?: unknown;
+    sale_fee_details?: { percentage_fee?: unknown; fixed_fee?: unknown; financing_add_on_fee?: unknown };
+  } | undefined;
+  if (!pricing) throw new AppError("Mercado Libre no devolvio un calculo de costos para esta publicacion.", 502);
+
+  const advertencias: string[] = [];
+  let envioEstimado: number | null = null;
+  if (item.shipping?.dimensions && item.shipping?.mode && item.shipping?.logistic_type) {
+    try {
+      const shippingParams = new URLSearchParams({
+        dimensions: item.shipping.dimensions,
+        verbose: "true",
+        item_price: String(precio),
+        listing_type_id: tipoPublicacion,
+        mode: item.shipping.mode,
+        condition: item.condition || "new",
+        logistic_type: item.shipping.logistic_type,
+        free_shipping: String(Boolean(item.shipping.free_shipping)),
+      });
+      const shippingPayload = await meliGet(`/users/${sellerId}/shipping_options/free?${shippingParams.toString()}`, idCuenta, accessToken);
+      envioEstimado = shippingEstimate(shippingPayload);
+      if (envioEstimado === null) advertencias.push("Mercado Libre no devolvio un costo estimado de envio.");
+    } catch {
+      advertencias.push("No se pudo estimar el envio con los datos actuales de la publicacion.");
+    }
+  } else {
+    advertencias.push("Faltan dimensiones o datos logisticos para estimar el envio.");
+  }
+
+  const comisionTotal = toFiniteNumber(pricing.sale_fee_amount);
+  const cargoFijo = toFiniteNumber(pricing.sale_fee_details?.fixed_fee);
+  const cargoFinanciacion = toFiniteNumber(pricing.sale_fee_details?.financing_add_on_fee);
+  const porcentajeComision = toFiniteNumber(pricing.sale_fee_details?.percentage_fee);
+  const costoMlTotal = comisionTotal === null ? null : comisionTotal + (envioEstimado || 0);
+  const consultadoAt = new Date().toISOString();
+  const result: MercadoLibreCostoEstimado = {
+    itemId, precio, moneda, tipoPublicacion, categoriaId, comisionTotal, porcentajeComision, cargoFijo,
+    cargoFinanciacion, envioEstimado, costoMlTotal,
+    netoEstimado: costoMlTotal === null ? null : precio - costoMlTotal,
+    advertencias, consultadoAt,
+  };
+  await query(
+    `UPDATE public.mercadolibre_publicacion
+     SET costo_estimado = $3::jsonb, costo_estimado_at = NOW(), updated_at = NOW()
+     WHERE id_cuenta = $1 AND item_id = $2`,
+    [idCuenta, itemId, JSON.stringify(result)],
+  );
+  return result;
 }
 
 async function getAllItemIds(idCuenta: number, sellerId: number, accessToken: string) {

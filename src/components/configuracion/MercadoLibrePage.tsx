@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronUp, ExternalLink, Link2, MessageCircle, Package, RefreshCw, Send, Settings2, ShieldCheck, ShoppingCart, Unlink } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleDollarSign, ExternalLink, Link2, MessageCircle, Package, RefreshCw, Send, Settings2, ShieldCheck, ShoppingCart, Unlink } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
   MercadoLibreCuentaEstado,
+  MercadoLibreCostoEstimado,
   MercadoLibrePreguntasResult,
   MercadoLibrePublicacionesResult,
   MercadoLibreSyncResult,
@@ -14,13 +15,14 @@ import type {
 } from "@/interfaces/mercadolibre";
 
 type Props = { canManage: boolean };
-type Tab = "VENTAS" | "PUBLICACIONES" | "PREGUNTAS" | "SINCRONIZACION";
+type Tab = "VENTAS" | "PUBLICACIONES" | "COSTOS" | "PREGUNTAS" | "SINCRONIZACION";
 type QuestionStatus = "POR_RESPONDER" | "RESPONDIDAS";
 type DateOrder = "DESC" | "ASC";
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof ShoppingCart }> = [
   { id: "VENTAS", label: "Ventas", icon: ShoppingCart },
   { id: "PUBLICACIONES", label: "Publicaciones", icon: ExternalLink },
+  { id: "COSTOS", label: "Costos ML", icon: CircleDollarSign },
   { id: "PREGUNTAS", label: "Preguntas", icon: MessageCircle },
   { id: "SINCRONIZACION", label: "Sincronizacion", icon: Settings2 },
 ];
@@ -55,7 +57,7 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [ventas, setVentas] = useState<MercadoLibreVentasResult>({ data: [], totalCount: 0, totalPages: 0 });
   const [publicaciones, setPublicaciones] = useState<MercadoLibrePublicacionesResult>({ data: [], totalCount: 0, totalPages: 0 });
   const [preguntas, setPreguntas] = useState<MercadoLibrePreguntasResult>({ data: [], totalCount: 0, totalPages: 0 });
-  const [pages, setPages] = useState<Record<Tab, number>>({ VENTAS: 1, PUBLICACIONES: 1, PREGUNTAS: 1, SINCRONIZACION: 1 });
+  const [pages, setPages] = useState<Record<Tab, number>>({ VENTAS: 1, PUBLICACIONES: 1, COSTOS: 1, PREGUNTAS: 1, SINCRONIZACION: 1 });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +67,7 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [salesSyncError, setSalesSyncError] = useState<string | null>(null);
   const [questionSyncError, setQuestionSyncError] = useState<string | null>(null);
   const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
+  const [calculatingCostItemId, setCalculatingCostItemId] = useState<string | null>(null);
   const salesRefreshInFlight = useRef(false);
 
   const loadTab = useCallback(async (accountId: number, nextTab: Tab, page = 1) => {
@@ -79,7 +82,7 @@ export function MercadoLibrePage({ canManage }: Props) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.message || "No se pudo cargar la informacion de Mercado Libre.");
     if (nextTab === "VENTAS") setVentas(data);
-    if (nextTab === "PUBLICACIONES") setPublicaciones(data);
+    if (nextTab === "PUBLICACIONES" || nextTab === "COSTOS") setPublicaciones(data);
     if (nextTab === "PREGUNTAS") setPreguntas(data);
   }, [questionOrder, questionStatus]);
 
@@ -230,6 +233,23 @@ export function MercadoLibrePage({ canManage }: Props) {
     } finally { setAnsweringQuestionId(null); }
   };
 
+  const calculateCost = async (itemId: string) => {
+    if (!selectedAccountId) return;
+    try {
+      setCalculatingCostItemId(itemId);
+      const response = await fetch("/api/integraciones/mercadolibre/costos", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idCuenta: selectedAccountId, itemId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo calcular el costo de la publicacion.");
+      setPublicaciones((current) => ({ ...current, data: current.data.map((item) => item.itemId === itemId ? { ...item, costoEstimado: result as MercadoLibreCostoEstimado } : item) }));
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "No se pudo calcular el costo de la publicacion.");
+    } finally {
+      setCalculatingCostItemId(null);
+    }
+  };
+
   const visibleVentas = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return ventas.data;
@@ -258,11 +278,12 @@ export function MercadoLibrePage({ canManage }: Props) {
     {cuentas.length > 0 && <>
       <section className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950"><label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cuenta</label><select value={selectedAccountId || ""} onChange={(event) => void selectAccount(Number(event.target.value))} className="h-9 min-w-56 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white">{cuentas.map((cuenta) => <option key={cuenta.id} value={cuenta.id}>{cuenta.nickname || `Vendedor ${cuenta.sellerId}`} · {cuenta.siteId}</option>)}</select>{activeAccount && <span className="text-xs text-slate-500">Ultima sincronizacion: <strong className="text-slate-700 dark:text-slate-200">{date(activeAccount.ultimaSincronizacionAt)}</strong></span>}</section>
       <nav className="flex overflow-x-auto border-b border-slate-200 dark:border-slate-800" aria-label="Secciones de Mercado Libre">{TABS.map((item) => { const Icon = item.icon; const active = tab === item.id; return <button key={item.id} type="button" onClick={() => void changeTab(item.id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-xs font-black uppercase tracking-wide transition ${active ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}><Icon className="h-4 w-4" />{item.label}</button>; })}</nav>
-      {tab !== "SINCRONIZACION" && <div className="flex flex-wrap items-center gap-2">{tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select></>}<div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} registros</span></div>}
+      {tab !== "SINCRONIZACION" && <div className="flex flex-wrap items-center gap-2">{tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select></>}<div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} registros</span></div>}
       {tab === "VENTAS" && salesSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{salesSyncError}</p>}
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}
       {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} />}
+      {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} onCalculate={calculateCost} />}
       {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} />}
       {tab === "SINCRONIZACION" && <SyncPanel account={activeAccount} onSync={() => void sync()} syncing={syncing} canManage={canManage} />}
       {tab !== "SINCRONIZACION" && activeResult.totalPages > 1 && <div className="flex items-center justify-center gap-3"><button type="button" onClick={() => void changePage(pages[tab] - 1)} disabled={pages[tab] <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Pagina {pages[tab]} de {activeResult.totalPages}</span><button type="button" onClick={() => void changePage(pages[tab] + 1)} disabled={pages[tab] >= activeResult.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
@@ -285,6 +306,37 @@ function PublicacionesTable({ publicaciones, loading }: { publicaciones: Mercado
         <td><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${publicationLinkBadge(item.tipoVinculo)}`}>{publicationLinkLabel(item.tipoVinculo)}</span>{(item.codigoProducto || item.codigoKit) && <div className="mt-1 font-mono text-[10px] text-slate-500">{item.codigoProducto || item.codigoKit}</div>}</td>
         <td className="text-right">{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" title="Abrir publicacion" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"><ExternalLink className="h-4 w-4" /></a>}</td>
       </tr>)}</tbody>
+    </table>
+  </TableShell>;
+}
+
+function CostosTable({ publicaciones, loading, calculatingItemId, onCalculate }: {
+  publicaciones: MercadoLibrePublicacionesResult["data"];
+  loading: boolean;
+  calculatingItemId: string | null;
+  onCalculate: (itemId: string) => void;
+}) {
+  return <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}>
+    <table className="w-full min-w-[1340px] text-left text-xs">
+      <thead><tr><th>Publicacion</th><th>SKU</th><th className="text-right">Precio</th><th>Tipo</th><th className="text-right">Comision</th><th className="text-right">Fijo</th><th className="text-right">Cuotas</th><th className="text-right">Envio est.</th><th className="text-right">Costo ML</th><th className="text-right">Neto est.</th><th>Consulta</th><th /></tr></thead>
+      <tbody>{publicaciones.map((item) => {
+        const costo = item.costoEstimado;
+        const calculating = calculatingItemId === item.itemId;
+        return <tr key={item.id}>
+          <td><div className="max-w-xs truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{item.itemId}</div>{costo?.advertencias?.[0] && <div className="mt-1 max-w-xs truncate text-[10px] font-semibold text-amber-600 dark:text-amber-300" title={costo.advertencias.join(" ")}>{costo.advertencias[0]}</div>}</td>
+          <td className="font-mono font-bold">{item.sellerSku || item.codigoProducto || item.codigoKit || "-"}</td>
+          <td className="text-right font-mono font-black">{money(item.precio, item.moneda)}</td>
+          <td className="font-bold text-slate-600 dark:text-slate-300">{item.tipoPublicacion || "-"}</td>
+          <td className="text-right font-mono">{money(costo?.comisionTotal ?? null, item.moneda)}</td>
+          <td className="text-right font-mono">{money(costo?.cargoFijo ?? null, item.moneda)}</td>
+          <td className="text-right font-mono">{money(costo?.cargoFinanciacion ?? null, item.moneda)}</td>
+          <td className="text-right font-mono">{money(costo?.envioEstimado ?? null, item.moneda)}</td>
+          <td className="text-right font-mono font-black text-red-600 dark:text-red-300">{money(costo?.costoMlTotal ?? null, item.moneda)}</td>
+          <td className="text-right font-mono font-black text-emerald-600 dark:text-emerald-300">{money(costo?.netoEstimado ?? null, item.moneda)}</td>
+          <td className="whitespace-nowrap text-[10px] font-semibold text-slate-500">{costo?.consultadoAt ? date(costo.consultadoAt, "-") : "Sin calcular"}</td>
+          <td className="text-right"><button type="button" onClick={() => onCalculate(item.itemId)} disabled={calculating} title="Actualizar costo estimado" aria-label={`Actualizar costo estimado de ${item.titulo}`} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 transition hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300"><RefreshCw className={`h-4 w-4 ${calculating ? "animate-spin" : ""}`} /></button></td>
+        </tr>;
+      })}</tbody>
     </table>
   </TableShell>;
 }

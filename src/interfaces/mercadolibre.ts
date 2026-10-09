@@ -28,6 +28,23 @@ export type MercadoLibrePublicacion = {
   fechaActualizacionMl: string | null;
 };
 
+export type MercadoLibreCostoEstimado = {
+  itemId: string;
+  precio: number;
+  moneda: string;
+  tipoPublicacion: string | null;
+  categoriaId: string | null;
+  comisionTotal: number | null;
+  porcentajeComision: number | null;
+  cargoFijo: number | null;
+  cargoFinanciacion: number | null;
+  envioEstimado: number | null;
+  costoMlTotal: number | null;
+  netoEstimado: number | null;
+  advertencias: string[];
+  consultadoAt: string;
+};
+
 export type MercadoLibrePublicacionListado = MercadoLibrePublicacion & {
   id: number;
   idProducto: number | null;
@@ -38,6 +55,7 @@ export type MercadoLibrePublicacionListado = MercadoLibrePublicacion & {
   kit: string | null;
   tipoVinculo: "SIN_VINCULO" | "CODIGO_EXACTO" | "MANUAL" | "EXCLUIDO_MANUAL";
   sincronizadaAt: string;
+  costoEstimado: MercadoLibreCostoEstimado | null;
 };
 
 export type MercadoLibrePublicacionesResult = {
