@@ -21,6 +21,7 @@ export type ProductoInput = {
   descripcion: string;
   cod_barra?: string | null;
   stock?: number;
+  stock_minimo?: number;
   id_pieza?: number | null;
   id_subcategoria: number;
   id_marca?: number | null;
@@ -61,6 +62,7 @@ function sanitizeProductoInput(input: ProductoInput) {
     descripcion: sanitizeRequiredString(input.descripcion),
     cod_barra: sanitizeNullableString(input.cod_barra),
     stock: sanitizeStock(input.stock),
+    stock_minimo: Math.max(0, Math.floor(sanitizeStock(input.stock_minimo))),
     id_pieza: input.id_pieza || null,
     id_subcategoria: input.id_subcategoria,
     id_marca: input.id_marca || null,
@@ -247,6 +249,7 @@ export async function getProductosListado(
       p.descripcion,
       p.cod_barra,
       p.stock,
+      COALESCE(p.stock_minimo, 0)::int AS stock_minimo,
       p.imagen_url,
       pi.id AS id_pieza,
       pi.codigo_pieza,
@@ -355,6 +358,7 @@ export async function getProductosListado(
       p.descripcion,
       p.cod_barra,
       p.stock,
+      p.stock_minimo,
       pi.codigo_pieza,
       pi.descripcion,
       pi.id,
@@ -794,6 +798,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       p.descripcion,
       COALESCE(p.cod_barra, '') AS cod_barra,
       p.stock,
+      COALESCE(p.stock_minimo, 0)::int AS stock_minimo,
       p.id_pieza,
       p.id_subcategoria,
       p.id_marca,
@@ -838,6 +843,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       p.descripcion,
       p.cod_barra,
       p.stock,
+      p.stock_minimo,
       p.id_pieza,
       p.id_subcategoria,
       p.id_marca,
@@ -971,6 +977,7 @@ export async function createProducto(input: ProductoInput) {
           descripcion,
           cod_barra,
           stock,
+          stock_minimo,
           id_pieza,
           id_subcategoria,
           id_marca,
@@ -980,7 +987,7 @@ export async function createProducto(input: ProductoInput) {
           criterio_costo,
           palabra_clave
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING id
       `,
       [
@@ -988,6 +995,7 @@ export async function createProducto(input: ProductoInput) {
         payload.descripcion,
         payload.cod_barra,
         payload.stock,
+        payload.stock_minimo,
         payload.id_pieza,
         payload.id_subcategoria,
         payload.id_marca,
@@ -1035,15 +1043,16 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
           descripcion = $2,
           cod_barra = $3,
           stock = $4,
-          id_pieza = $5,
-          id_subcategoria = $6,
-          id_marca = $7,
-          id_ubicacion = $8,
-          imagen_url = $9,
-          usa_numero_serie = $10,
-          criterio_costo = $11,
-          palabra_clave = $12
-        WHERE id = $13
+          stock_minimo = $5,
+          id_pieza = $6,
+          id_subcategoria = $7,
+          id_marca = $8,
+          id_ubicacion = $9,
+          imagen_url = $10,
+          usa_numero_serie = $11,
+          criterio_costo = $12,
+          palabra_clave = $13
+        WHERE id = $14
         RETURNING *, (xmax = 0) AS is_new
       `,
       [
@@ -1051,6 +1060,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
         payload.descripcion,
         payload.cod_barra,
         payload.stock,
+        payload.stock_minimo,
         payload.id_pieza,
         payload.id_subcategoria,
         payload.id_marca,

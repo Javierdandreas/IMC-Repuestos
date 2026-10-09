@@ -8,6 +8,7 @@ export type CampoCambioMasivo =
   | "MARCA"
   | "PROVEEDOR"
   | "UBICACION"
+  | "STOCK_MINIMO"
   | "OBSERVACION"
   | "PALABRAS_CLAVE";
 
@@ -19,6 +20,7 @@ export type CambioMasivoItemsInput = {
   idMarca?: number;
   idProveedor?: number;
   idUbicacion?: number;
+  stockMinimo?: number;
   texto?: string;
   usuarioId?: number | null;
 };
@@ -137,6 +139,23 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
         "Ubicacion actualizada masivamente",
         "Ubicacion actualizada desde el listado general",
       );
+    }
+
+    if (input.campo === "STOCK_MINIMO") {
+      if (!Number.isInteger(input.stockMinimo) || Number(input.stockMinimo) < 0) {
+        throw new AppError("Ingresa un stock minimo valido", 400);
+      }
+      const stockMinimo = Number(input.stockMinimo);
+      await actualizarProductos(
+        "UPDATE public.productos SET stock_minimo = $1 WHERE id = ANY($2::int[]) RETURNING id, cod_unico",
+        [stockMinimo, itemIds],
+        "Stock minimo actualizado masivamente",
+        `Stock minimo establecido en ${stockMinimo} desde el listado general`,
+      );
+      if (kitIds.length > 0) {
+        const result = await client.query("UPDATE public.kits SET stock_minimo = $1 WHERE id = ANY($2::int[])", [stockMinimo, kitIds]);
+        kitsActualizados = result.rowCount || 0;
+      }
     }
 
     if (input.campo === "OBSERVACION") {

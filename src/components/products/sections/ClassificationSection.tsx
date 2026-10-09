@@ -7,6 +7,7 @@ import { QuickAddType } from "../QuickAddModal";
 
 type ClassificationSectionProps = {
   stock: number;
+  stock_minimo: number;
   id_marca: number | null;
   id_categoria: number | null;
   id_subcategoria: number | null;
@@ -24,6 +25,7 @@ type ClassificationSectionProps = {
 
 export function ClassificationSection({
   stock,
+  stock_minimo,
   id_marca,
   id_categoria,
   id_subcategoria,
@@ -74,7 +76,7 @@ export function ClassificationSection({
         <h2 className="text-lg font-bold text-slate-900 dark:text-white">Clasificación</h2>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[120px_1fr] xl:gap-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[120px_150px_1fr] xl:gap-6">
         <div>
           <label className="mb-2 flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Stock <HiOutlineLockClosed className="h-3 w-3 text-slate-400" />
@@ -92,6 +94,25 @@ export function ClassificationSection({
           </div>
           <p className="mt-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-tight leading-tight">
             Gestión exclusiva desde <span className="text-blue-500 dark:text-blue-400">Ajustes de Stock</span>
+          </p>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Stock minimo
+          </label>
+          <input
+            type="number"
+            name="stock_minimo"
+            min="0"
+            step="1"
+            value={stock_minimo}
+            onChange={onChange}
+            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-black text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            required
+          />
+          <p className="mt-1.5 text-[10px] font-bold uppercase tracking-tight leading-tight text-slate-400">
+            Alerta visual en el listado
           </p>
         </div>
 

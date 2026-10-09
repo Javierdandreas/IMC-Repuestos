@@ -9,12 +9,13 @@ const schema = z.object({
     id: z.number().int().positive(),
     tipo: z.enum(["ITEM", "KIT"]),
   })).min(1).max(500),
-  campo: z.enum(["CLASIFICACION", "MARCA", "PROVEEDOR", "UBICACION", "OBSERVACION", "PALABRAS_CLAVE"]),
+  campo: z.enum(["CLASIFICACION", "MARCA", "PROVEEDOR", "UBICACION", "STOCK_MINIMO", "OBSERVACION", "PALABRAS_CLAVE"]),
   idCategoria: z.number().int().positive().optional(),
   idSubcategoria: z.number().int().positive().optional(),
   idMarca: z.number().int().positive().optional(),
   idProveedor: z.number().int().positive().optional(),
   idUbicacion: z.number().int().positive().optional(),
+  stockMinimo: z.number().int().nonnegative().optional(),
   texto: z.string().max(5000).optional(),
 });
 

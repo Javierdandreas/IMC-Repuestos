@@ -47,6 +47,7 @@ export const productoPayloadSchema = z.object({
   descripcion: uppercaseNonEmptyStringSchema,
   cod_barra: barcodeSchema,
   stock: z.number().nonnegative().optional().default(0),
+  stock_minimo: z.number().int().nonnegative().optional().default(0),
   id_pieza: nullableIdSchema.optional(),
   id_subcategoria: idSchema,
   id_marca: nullableIdSchema.optional(),

@@ -64,6 +64,14 @@ function formatDateTime(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? "Sin dato" : date.toLocaleString("es-AR");
 }
 
+function getStockStatus(stockValue: number, stockMinimoValue: number) {
+  const stock = Number(stockValue) || 0;
+  const stockMinimo = Math.max(0, Number(stockMinimoValue) || 0);
+  if (stock <= 0) return { label: "Sin stock", className: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300" };
+  if (stockMinimo > 0 && stock < stockMinimo) return { label: "Bajo minimo", className: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300" };
+  return { label: "Disponible", className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-300" };
+}
+
 export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
   const { categorias, subcategorias, marcas, proveedores, ubicaciones, tiposPrecio } = useMetadata();
   const { showError } = useAppError();
@@ -674,7 +682,15 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     <td className="px-2 py-3 text-right text-[10px] font-black tabular-nums text-blue-600 dark:text-blue-300" title={tipoVentaSeleccionado?.descripcion ?? "Precio de venta"}>
                       {formatMoney(obtenerPrecioListado(product, tipoVentaSeleccionado))}
                     </td>
-                    <td className="px-1 py-3 text-center text-[10px] font-bold text-slate-700 dark:text-slate-300">{product.stock}</td>
+                    <td className="px-1 py-3 text-center">
+                      {(() => {
+                        const status = getStockStatus(product.stock, product.stock_minimo);
+                        return <div className={`mx-auto flex w-[58px] flex-col rounded-md border px-1 py-1 text-center ${status.className}`} title={`${status.label}. Stock actual: ${product.stock}. Stock minimo: ${product.stock_minimo}.`}>
+                          <span className="text-[12px] font-black leading-none tabular-nums">{product.stock}</span>
+                          <span className="mt-0.5 text-[8px] font-bold uppercase leading-none">Min. {product.stock_minimo}</span>
+                        </div>;
+                      })()}
+                    </td>
                     <td className="whitespace-nowrap px-1 py-3">
                       <div className="relative flex items-center justify-center gap-1">
                         {canManage ? (

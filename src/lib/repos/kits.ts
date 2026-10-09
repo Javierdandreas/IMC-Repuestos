@@ -46,6 +46,7 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
       k.id_marca,
       marca_kit.descripcion AS marca,
       k.activo,
+      COALESCE(k.stock_minimo, 0)::int AS stock_minimo,
       k.created_at,
       COUNT(kd.id_producto)::int AS cantidad_componentes,
        COALESCE(SUM(pml.precio * kd.cantidad), 0) AS precio_ml_total,
@@ -163,13 +164,14 @@ export async function getKitById(id: number): Promise<Kit | null> {
  */
 export async function createKit(payload: Kit): Promise<Kit> {
   validarCantidadesKit(payload);
+  const stockMinimo = Math.max(0, Math.floor(Number(payload.stock_minimo) || 0));
   return await withTransaction(async (client) => {
     // 1. Insertar Kit
     const kitRes = await client.query(`
-      INSERT INTO public.kits (nombre, descripcion, codigo_kit, id_categoria, id_subcategoria, id_marca, imagen_url, activo)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO public.kits (nombre, descripcion, codigo_kit, id_categoria, id_subcategoria, id_marca, imagen_url, activo, stock_minimo)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
-    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo]);
+    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo, stockMinimo]);
 
     const newKit = kitRes.rows[0];
 
@@ -192,14 +194,15 @@ export async function createKit(payload: Kit): Promise<Kit> {
  */
 export async function updateKit(id: number, payload: Kit): Promise<Kit> {
   validarCantidadesKit(payload);
+  const stockMinimo = Math.max(0, Math.floor(Number(payload.stock_minimo) || 0));
   return await withTransaction(async (client) => {
     // 1. Actualizar Kit
     const kitRes = await client.query(`
       UPDATE public.kits 
-      SET nombre = $1, descripcion = $2, codigo_kit = $3, id_categoria = $4, id_subcategoria = $5, id_marca = $6, imagen_url = $7, activo = $8
-      WHERE id = $9
+      SET nombre = $1, descripcion = $2, codigo_kit = $3, id_categoria = $4, id_subcategoria = $5, id_marca = $6, imagen_url = $7, activo = $8, stock_minimo = $9
+      WHERE id = $10
       RETURNING *
-    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo, id]);
+    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo, stockMinimo, id]);
 
     if (kitRes.rowCount === 0) throw new Error("Kit no encontrado");
 

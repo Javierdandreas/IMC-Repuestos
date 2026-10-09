@@ -242,6 +242,7 @@ export async function getItemsUnificadosListado(
       descripcion: kit.nombre,
       cod_barra: "",
       stock: Number(kit.stock_kit),
+      stock_minimo: Number(kit.stock_minimo ?? 0),
        imagen_url: kit.imagen_url || null,
        marca: kit.marcas_componentes || null,
        categoria: kit.categoria,

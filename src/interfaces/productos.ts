@@ -70,6 +70,7 @@ export type Producto = {
   descripcion: string;
   cod_barra: string;
   stock: number;
+  stock_minimo: number;
   id_pieza?: number | null;
   id_categoria: number | null;
   id_subcategoria: number | null;
@@ -95,6 +96,7 @@ export type ProductoListado = {
   descripcion: string;
   cod_barra: string;
   stock: number;
+  stock_minimo: number;
   codigo_pieza?: string | null;
   pieza_descripcion?: string | null;
   marca?: string | null;

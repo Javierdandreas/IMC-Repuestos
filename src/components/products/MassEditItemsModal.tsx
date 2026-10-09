@@ -7,7 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAppError } from "@/context/AppErrorContext";
 import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
 
-type Campo = "CLASIFICACION" | "MARCA" | "PROVEEDOR" | "UBICACION" | "OBSERVACION" | "PALABRAS_CLAVE";
+type Campo = "CLASIFICACION" | "MARCA" | "PROVEEDOR" | "UBICACION" | "STOCK_MINIMO" | "OBSERVACION" | "PALABRAS_CLAVE";
 
 type Props = {
   open: boolean;
@@ -26,6 +26,7 @@ const CAMPOS: Array<{ value: Campo; label: string; aplica: string }> = [
   { value: "MARCA", label: "Marca", aplica: "Items y kits" },
   { value: "PROVEEDOR", label: "Proveedor", aplica: "Solo items" },
   { value: "UBICACION", label: "Ubicacion", aplica: "Solo items" },
+  { value: "STOCK_MINIMO", label: "Stock minimo", aplica: "Items y kits" },
   { value: "OBSERVACION", label: "Observacion", aplica: "Items y kits" },
   { value: "PALABRAS_CLAVE", label: "Palabras clave", aplica: "Solo items" },
 ];
@@ -47,6 +48,7 @@ export function MassEditItemsModal({
   const [idSubcategoria, setIdSubcategoria] = useState("");
   const [valor, setValor] = useState("");
   const [texto, setTexto] = useState("");
+  const [stockMinimo, setStockMinimo] = useState("0");
   const [saving, setSaving] = useState(false);
 
   const totalItems = items.filter((item) => item.tipo === "ITEM").length;
@@ -64,6 +66,7 @@ export function MassEditItemsModal({
     setIdSubcategoria("");
     setValor("");
     setTexto("");
+    setStockMinimo("0");
   }, [open]);
 
   const labelCampo = CAMPOS.find((item) => item.value === campo)?.label.toLowerCase() || "cambio";
@@ -75,6 +78,10 @@ export function MassEditItemsModal({
     }
     if (["MARCA", "PROVEEDOR", "UBICACION"].includes(campo) && !valor) {
       toast.error("Selecciona un valor");
+      return;
+    }
+    if (campo === "STOCK_MINIMO" && (!/^\d+$/.test(stockMinimo) || Number(stockMinimo) < 0)) {
+      toast.error("Ingresa un stock minimo valido");
       return;
     }
     if (!window.confirm(`Se aplicara ${labelCampo} a ${items.length} seleccionados.${soloItems && totalKits > 0 ? ` ${totalKits} kit(s) no se modificaran.` : ""}\n\nContinuar?`)) return;
@@ -92,6 +99,7 @@ export function MassEditItemsModal({
           idMarca: campo === "MARCA" ? Number(valor) : undefined,
           idProveedor: campo === "PROVEEDOR" ? Number(valor) : undefined,
           idUbicacion: campo === "UBICACION" ? Number(valor) : undefined,
+          stockMinimo: campo === "STOCK_MINIMO" ? Number(stockMinimo) : undefined,
           texto: ["OBSERVACION", "PALABRAS_CLAVE"].includes(campo) ? texto : undefined,
         }),
       });
@@ -133,6 +141,7 @@ export function MassEditItemsModal({
         {campo === "MARCA" && <Selector label="Marca" value={valor} onChange={setValor} options={marcas} />}
         {campo === "PROVEEDOR" && <Selector label="Proveedor" value={valor} onChange={setValor} options={proveedores} />}
         {campo === "UBICACION" && <Selector label="Ubicacion" value={valor} onChange={setValor} options={ubicaciones} />}
+        {campo === "STOCK_MINIMO" && <label className="flex flex-col gap-1.5"><span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Stock minimo</span><input type="number" min="0" step="1" value={stockMinimo} onChange={(event) => setStockMinimo(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /></label>}
         {["OBSERVACION", "PALABRAS_CLAVE"].includes(campo) && (
           <label className="flex flex-col gap-1.5"><span className="text-[11px] font-black uppercase tracking-wide text-slate-500">{campo === "OBSERVACION" ? "Observacion" : "Palabras clave"}</span><textarea value={texto} onChange={(event) => setTexto(event.target.value)} rows={4} className="resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /></label>
         )}

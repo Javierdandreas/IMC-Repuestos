@@ -70,6 +70,7 @@ const initialState: Producto = {
   descripcion: "",
   cod_barra: "",
   stock: 0,
+  stock_minimo: 0,
   id_pieza: null,
   id_categoria: null,
   id_subcategoria: null,
@@ -290,7 +291,7 @@ export function ProductForm({
     const normalizedValue =
       name === "cod_barra"
         ? value.replace(/\D/g, "")
-        : name === "stock"
+        : name === "stock" || name === "stock_minimo"
           ? value
           : name.startsWith("id_")
             ? value
@@ -299,7 +300,7 @@ export function ProductForm({
     setProduct((prev) => ({
       ...prev,
       [name]:
-        name === "stock"
+        name === "stock" || name === "stock_minimo"
           ? Number(normalizedValue)
           : name.startsWith("id_")
             ? normalizedValue === ""
@@ -450,6 +451,7 @@ export function ProductForm({
       descripcion: source.descripcion,
       cod_barra: source.cod_barra?.replace(/\D/g, "") || null,
       stock: source.stock,
+      stock_minimo: source.stock_minimo,
       id_pieza: source.id_pieza ?? null,
       id_subcategoria: source.id_subcategoria ?? null,
       id_marca: source.id_marca ?? null,
@@ -741,6 +743,7 @@ export function ProductForm({
 
               <ClassificationSection
                 stock={product.stock}
+                  stock_minimo={product.stock_minimo}
                 id_marca={product.id_marca}
                 id_categoria={product.id_categoria}
                 id_subcategoria={product.id_subcategoria}
