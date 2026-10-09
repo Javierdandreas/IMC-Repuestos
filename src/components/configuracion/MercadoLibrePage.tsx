@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronUp, CircleDollarSign, ExternalLink, Link2, MessageCircle, Package, RefreshCw, Send, Settings2, ShieldCheck, ShoppingCart, Unlink } from "lucide-react";
 import { toast } from "sonner";
@@ -62,6 +62,7 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search.trim());
   const [questionStatus, setQuestionStatus] = useState<QuestionStatus>("POR_RESPONDER");
   const [questionOrder, setQuestionOrder] = useState<DateOrder>("DESC");
   const [salesSyncError, setSalesSyncError] = useState<string | null>(null);
@@ -70,7 +71,7 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [calculatingCostItemId, setCalculatingCostItemId] = useState<string | null>(null);
   const salesRefreshInFlight = useRef(false);
 
-  const loadTab = useCallback(async (accountId: number, nextTab: Tab, page = 1) => {
+  const loadTab = useCallback(async (accountId: number, nextTab: Tab, page = 1, publicationSearch = "") => {
     if (nextTab === "SINCRONIZACION") return;
     const path = nextTab === "VENTAS" ? "ventas" : nextTab === "PREGUNTAS" ? "preguntas" : "publicaciones";
     const params = new URLSearchParams({ idCuenta: String(accountId), page: String(page) });
@@ -78,6 +79,7 @@ export function MercadoLibrePage({ canManage }: Props) {
       params.set("estado", questionStatus);
       params.set("orden", questionOrder);
     }
+    if ((nextTab === "PUBLICACIONES" || nextTab === "COSTOS") && publicationSearch) params.set("q", publicationSearch);
     const response = await fetch(`/api/integraciones/mercadolibre/${path}?${params.toString()}`, { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.message || "No se pudo cargar la informacion de Mercado Libre.");
@@ -96,13 +98,16 @@ export function MercadoLibrePage({ canManage }: Props) {
       setCuentas(nextAccounts);
       const accountId = nextAccounts.some((account) => account.id === selectedAccountId) ? selectedAccountId : nextAccounts[0]?.id ?? null;
       setSelectedAccountId(accountId);
-      if (accountId) await loadTab(accountId, tab, pages[tab]);
+      const isPublicationSearch = tab === "PUBLICACIONES" || tab === "COSTOS";
+      const page = isPublicationSearch && deferredSearch ? 1 : pages[tab];
+      if (isPublicationSearch && deferredSearch && pages[tab] !== 1) setPages((current) => ({ ...current, [tab]: 1 }));
+      if (accountId) await loadTab(accountId, tab, page, isPublicationSearch ? deferredSearch : "");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo cargar Mercado Libre.");
     } finally {
       setLoading(false);
     }
-  }, [loadTab, pages, selectedAccountId, tab]);
+  }, [deferredSearch, loadTab, pages, selectedAccountId, tab]);
 
   const refreshQuestionInbox = useCallback(async (accountId: number) => {
     const response = await fetch("/api/integraciones/mercadolibre/preguntas/sincronizar", {
@@ -132,10 +137,10 @@ export function MercadoLibrePage({ canManage }: Props) {
   useEffect(() => {
     if (!selectedAccountId || tab === "SINCRONIZACION" || tab === "PREGUNTAS" || tab === "VENTAS") return;
     const interval = window.setInterval(() => {
-      void loadTab(selectedAccountId, tab, pages[tab]).catch(() => undefined);
+      void loadTab(selectedAccountId, tab, pages[tab], deferredSearch).catch(() => undefined);
     }, 15_000);
     return () => window.clearInterval(interval);
-  }, [loadTab, pages, selectedAccountId, tab]);
+  }, [deferredSearch, loadTab, pages, selectedAccountId, tab]);
   useEffect(() => {
     if (!selectedAccountId || tab !== "VENTAS") return;
     const update = async () => {
@@ -193,7 +198,7 @@ export function MercadoLibrePage({ canManage }: Props) {
     const totalPages = tab === "VENTAS" ? ventas.totalPages : tab === "PREGUNTAS" ? preguntas.totalPages : publicaciones.totalPages;
     if (nextPage > totalPages) return;
     setPages((current) => ({ ...current, [tab]: nextPage }));
-    try { await loadTab(selectedAccountId, tab, nextPage); }
+    try { await loadTab(selectedAccountId, tab, nextPage, tab === "PUBLICACIONES" || tab === "COSTOS" ? deferredSearch : ""); }
     catch (requestError) { toast.error(requestError instanceof Error ? requestError.message : "No se pudo cambiar de pagina."); }
   };
 

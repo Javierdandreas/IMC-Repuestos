@@ -222,10 +222,31 @@ export async function getMercadoLibreCuentas(): Promise<MercadoLibreCuentaEstado
   return rows.map(mapCuenta);
 }
 
-export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, limit = 50): Promise<MercadoLibrePublicacionesResult> {
+export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, limit = 50, search = ""): Promise<MercadoLibrePublicacionesResult> {
+  const term = search.trim();
+  const filters = ["publication.id_cuenta = $1"];
+  const params: Array<string | number> = [idCuenta];
+  if (term) {
+    params.push(`%${term}%`);
+    const parameter = `$${params.length}`;
+    filters.push(`(
+      publication.item_id ILIKE ${parameter}
+      OR COALESCE(publication.seller_sku, '') ILIKE ${parameter}
+      OR publication.titulo ILIKE ${parameter}
+      OR COALESCE(product.cod_unico, '') ILIKE ${parameter}
+      OR COALESCE(product.descripcion, '') ILIKE ${parameter}
+      OR COALESCE(kit.codigo_kit, '') ILIKE ${parameter}
+      OR COALESCE(kit.nombre, '') ILIKE ${parameter}
+    )`);
+  }
+  const where = filters.join(" AND ");
   const totalResult = await query<{ total_count: number }>(
-    "SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_publicacion WHERE id_cuenta = $1",
-    [idCuenta]
+    `SELECT COUNT(*)::int AS total_count
+     FROM public.mercadolibre_publicacion publication
+     LEFT JOIN public.productos product ON product.id = publication.id_producto
+     LEFT JOIN public.kits kit ON kit.id = publication.id_kit
+     WHERE ${where}`,
+    params,
   );
   const totalCount = Number(totalResult.rows[0]?.total_count || 0);
   if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
@@ -243,10 +264,10 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
      FROM public.mercadolibre_publicacion publication
      LEFT JOIN public.productos product ON product.id = publication.id_producto
      LEFT JOIN public.kits kit ON kit.id = publication.id_kit
-     WHERE publication.id_cuenta = $1
+     WHERE ${where}
      ORDER BY publication.sincronizada_at DESC, publication.item_id ASC
-     LIMIT $2 OFFSET $3`,
-    [idCuenta, limit, (safePage - 1) * limit]
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, (safePage - 1) * limit]
   );
   return {
     data: rows.map((row) => ({
