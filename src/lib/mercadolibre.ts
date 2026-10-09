@@ -491,7 +491,10 @@ async function meliGet(path: string, idCuenta: number, token: string) {
     const renewed = await accessTokenForCuenta(idCuenta, true);
     response = await request(renewed.accessToken);
   }
-  if (!response.ok) throw new AppError(`Mercado Libre no pudo devolver publicaciones (${response.status}).`, 502);
+  if (!response.ok) {
+    const recurso = path.startsWith("/orders") ? "ventas" : path.startsWith("/questions") ? "preguntas" : path.startsWith("/items") || path.startsWith("/users/") ? "publicaciones" : "datos";
+    throw new AppError(`Mercado Libre rechazo el acceso a ${recurso} (${response.status}).`, response.status === 403 ? 403 : 502);
+  }
   return response.json() as Promise<unknown>;
 }
 

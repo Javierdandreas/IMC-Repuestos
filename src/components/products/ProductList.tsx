@@ -682,12 +682,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     <td className="px-2 py-3 text-right text-[10px] font-black tabular-nums text-blue-600 dark:text-blue-300" title={tipoVentaSeleccionado?.descripcion ?? "Precio de venta"}>
                       {formatMoney(obtenerPrecioListado(product, tipoVentaSeleccionado))}
                     </td>
-                    <td className="px-1 py-3 text-center">
+                    <td className="w-[46px] px-1 py-3 text-center">
                       {(() => {
                         const status = getStockStatus(product.stock, product.stock_minimo);
-                        return <div className={`mx-auto flex w-[58px] flex-col rounded-md border px-1 py-1 text-center ${status.className}`} title={`${status.label}. Stock actual: ${product.stock}. Stock minimo: ${product.stock_minimo}.`}>
+                        return <div className={`mx-auto flex h-8 w-8 items-center justify-center rounded-md border text-center ${status.className}`} title={`${status.label}. Stock actual: ${product.stock}. Stock minimo: ${product.stock_minimo}.`}>
                           <span className="text-[12px] font-black leading-none tabular-nums">{product.stock}</span>
-                          <span className="mt-0.5 text-[8px] font-bold uppercase leading-none">Min. {product.stock_minimo}</span>
                         </div>;
                       })()}
                     </td>
