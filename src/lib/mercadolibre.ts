@@ -545,9 +545,17 @@ function shippingWeight(dimensions: string | null | undefined) {
 }
 
 function shippingEstimate(payload: unknown) {
-  if (!payload || typeof payload !== "object") return null;
-  const source = payload as { coverage?: { all_country?: { list_cost?: unknown } }; list_cost?: unknown };
-  return toFiniteNumber(source.coverage?.all_country?.list_cost ?? source.list_cost);
+  if (!payload || typeof payload !== "object") return { costo: null, pesoFacturable: null };
+  const source = payload as {
+    coverage?: { all_country?: { list_cost?: unknown; billable_weight?: unknown } };
+    list_cost?: unknown;
+    billable_weight?: unknown;
+  };
+  const coverage = source.coverage?.all_country;
+  return {
+    costo: toFiniteNumber(coverage?.list_cost ?? source.list_cost),
+    pesoFacturable: toFiniteNumber(coverage?.billable_weight ?? source.billable_weight),
+  };
 }
 
 export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, itemId: string): Promise<MercadoLibreCostoEstimado> {
@@ -593,26 +601,27 @@ export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, item
 
   const advertencias: string[] = [];
   let envioEstimado: number | null = null;
-  if (item.shipping?.dimensions && item.shipping?.mode && item.shipping?.logistic_type) {
-    try {
-      const shippingParams = new URLSearchParams({
-        dimensions: item.shipping.dimensions,
-        verbose: "true",
-        item_price: String(precio),
-        listing_type_id: tipoPublicacion,
-        mode: item.shipping.mode,
-        condition: item.condition || "new",
-        logistic_type: item.shipping.logistic_type,
-        free_shipping: String(Boolean(item.shipping.free_shipping)),
-      });
-      const shippingPayload = await meliGet(`/users/${sellerId}/shipping_options/free?${shippingParams.toString()}`, idCuenta, accessToken);
-      envioEstimado = shippingEstimate(shippingPayload);
-      if (envioEstimado === null) advertencias.push("Mercado Libre no devolvio un costo estimado de envio.");
-    } catch {
-      advertencias.push("No se pudo estimar el envio con los datos actuales de la publicacion.");
-    }
-  } else {
-    advertencias.push("Faltan dimensiones o datos logisticos para estimar el envio.");
+  let pesoFacturable: number | null = null;
+  try {
+    // Mercado Libre can resolve an active listing's logistics from its item ID.
+    const shippingParams = new URLSearchParams({
+      item_id: item.id,
+      verbose: "true",
+      item_price: String(precio),
+      listing_type_id: tipoPublicacion,
+      condition: item.condition || "new",
+      free_shipping: String(Boolean(item.shipping?.free_shipping)),
+    });
+    if (item.shipping?.dimensions) shippingParams.set("dimensions", item.shipping.dimensions);
+    if (item.shipping?.mode) shippingParams.set("mode", item.shipping.mode);
+    if (item.shipping?.logistic_type) shippingParams.set("logistic_type", item.shipping.logistic_type);
+    const shippingPayload = await meliGet(`/users/${sellerId}/shipping_options/free?${shippingParams.toString()}`, idCuenta, accessToken);
+    const estimate = shippingEstimate(shippingPayload);
+    envioEstimado = estimate.costo;
+    pesoFacturable = estimate.pesoFacturable;
+    if (envioEstimado === null) advertencias.push("Mercado Libre no devolvio un costo estimado de envio.");
+  } catch {
+    advertencias.push("Mercado Libre no pudo estimar el envio de esta publicacion.");
   }
 
   const comisionTotal = toFiniteNumber(pricing.sale_fee_amount);
@@ -623,7 +632,7 @@ export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, item
   const consultadoAt = new Date().toISOString();
   const result: MercadoLibreCostoEstimado = {
     itemId, precio, moneda, tipoPublicacion, categoriaId, comisionTotal, porcentajeComision, cargoFijo,
-    cargoFinanciacion, envioEstimado, costoMlTotal,
+    cargoFinanciacion, envioEstimado, dimensionesEnvio: item.shipping?.dimensions || null, pesoFacturable, costoMlTotal,
     netoEstimado: costoMlTotal === null ? null : precio - costoMlTotal,
     advertencias, consultadoAt,
   };

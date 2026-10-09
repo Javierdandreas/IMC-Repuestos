@@ -330,7 +330,7 @@ function CostosTable({ publicaciones, loading, calculatingItemId, onCalculate }:
           <td className="text-right font-mono">{money(costo?.comisionTotal ?? null, item.moneda)}</td>
           <td className="text-right font-mono">{money(costo?.cargoFijo ?? null, item.moneda)}</td>
           <td className="text-right font-mono">{money(costo?.cargoFinanciacion ?? null, item.moneda)}</td>
-          <td className="text-right font-mono">{money(costo?.envioEstimado ?? null, item.moneda)}</td>
+          <td className="text-right font-mono"><div>{money(costo?.envioEstimado ?? null, item.moneda)}</div>{costo?.pesoFacturable !== null && costo?.pesoFacturable !== undefined && <div className="mt-1 text-[10px] text-slate-500">{costo.pesoFacturable} g fact.</div>}{costo?.dimensionesEnvio && <div className="mt-1 max-w-28 truncate text-[10px] text-slate-500" title={`Dimensiones ML: ${costo.dimensionesEnvio}`}>ML: {costo.dimensionesEnvio}</div>}</td>
           <td className="text-right font-mono font-black text-red-600 dark:text-red-300">{money(costo?.costoMlTotal ?? null, item.moneda)}</td>
           <td className="text-right font-mono font-black text-emerald-600 dark:text-emerald-300">{money(costo?.netoEstimado ?? null, item.moneda)}</td>
           <td className="whitespace-nowrap text-[10px] font-semibold text-slate-500">{costo?.consultadoAt ? date(costo.consultadoAt, "-") : "Sin calcular"}</td>

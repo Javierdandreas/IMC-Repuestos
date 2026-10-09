@@ -39,6 +39,8 @@ export type MercadoLibreCostoEstimado = {
   cargoFijo: number | null;
   cargoFinanciacion: number | null;
   envioEstimado: number | null;
+  dimensionesEnvio: string | null;
+  pesoFacturable: number | null;
   costoMlTotal: number | null;
   netoEstimado: number | null;
   advertencias: string[];
