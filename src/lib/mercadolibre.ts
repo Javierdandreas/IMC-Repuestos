@@ -446,6 +446,26 @@ async function meliGet(path: string, idCuenta: number, token: string) {
   return response.json() as Promise<unknown>;
 }
 
+async function meliPost(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {
+  const request = async (accessToken: string) => fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  let response = await request(token);
+  if (response.status === 401) {
+    const renewed = await accessTokenForCuenta(idCuenta, true);
+    response = await request(renewed.accessToken);
+  }
+  if (!response.ok) {
+    const details = await response.json().catch(() => null) as { message?: unknown } | null;
+    const message = typeof details?.message === "string" ? ` ${details.message}` : "";
+    throw new AppError(`Mercado Libre no pudo completar la respuesta (${response.status}).${message}`, response.status === 403 ? 403 : 502);
+  }
+  return response.json() as Promise<unknown>;
+}
+
 async function getAllItemIds(idCuenta: number, sellerId: number, accessToken: string) {
   const ids: string[] = [];
   let scrollId: string | null = null;
@@ -643,6 +663,25 @@ async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: numb
     );
   }
   return preguntas.length;
+}
+
+export async function sincronizarPreguntasMercadoLibreAhora(idCuenta: number) {
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  return sincronizarPreguntasMercadoLibre(idCuenta, sellerId, accessToken);
+}
+
+export async function responderPreguntaMercadoLibre(idCuenta: number, preguntaId: string, texto: string) {
+  const answer = texto.trim();
+  if (!answer) throw new AppError("Escribe una respuesta antes de enviarla.", 400);
+  if (answer.length > 2_000) throw new AppError("La respuesta admite hasta 2.000 caracteres.", 400);
+  const existing = await query<{ id: number }>(
+    "SELECT id FROM public.mercadolibre_pregunta WHERE id_cuenta = $1 AND pregunta_id = $2 AND estado = 'UNANSWERED' LIMIT 1",
+    [idCuenta, preguntaId],
+  );
+  if (!existing.rows[0]) throw new AppError("La pregunta ya fue respondida o no pertenece a esta cuenta.", 409);
+  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const response = await meliPost("/answers", idCuenta, accessToken, { question_id: Number(preguntaId), text: answer }) as MeliQuestion;
+  await guardarPreguntaMercadoLibre(idCuenta, response);
 }
 
 async function guardarPublicacionDesdeWebhook(idCuenta: number, item: MeliItem) {

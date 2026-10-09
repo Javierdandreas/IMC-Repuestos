@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ExternalLink, Link2, MessageCircle, RefreshCw, Settings2, ShieldCheck, ShoppingCart, Unlink } from "lucide-react";
+import { ExternalLink, Link2, MessageCircle, RefreshCw, Send, Settings2, ShieldCheck, ShoppingCart, Unlink } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
@@ -62,6 +62,8 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [search, setSearch] = useState("");
   const [questionStatus, setQuestionStatus] = useState<QuestionStatus>("POR_RESPONDER");
   const [questionOrder, setQuestionOrder] = useState<DateOrder>("DESC");
+  const [questionSyncError, setQuestionSyncError] = useState<string | null>(null);
+  const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
 
   const loadTab = useCallback(async (accountId: number, nextTab: Tab, page = 1) => {
     if (nextTab === "SINCRONIZACION") return;
@@ -97,14 +99,38 @@ export function MercadoLibrePage({ canManage }: Props) {
     }
   }, [loadTab, pages, selectedAccountId, tab]);
 
+  const refreshQuestionInbox = useCallback(async (accountId: number) => {
+    const response = await fetch("/api/integraciones/mercadolibre/preguntas/sincronizar", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idCuenta: accountId }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || "No se pudieron consultar las preguntas nuevas.");
+    await loadTab(accountId, "PREGUNTAS", pages.PREGUNTAS);
+  }, [loadTab, pages.PREGUNTAS]);
+
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!selectedAccountId || tab === "SINCRONIZACION") return;
+    if (!selectedAccountId || tab === "SINCRONIZACION" || tab === "PREGUNTAS") return;
     const interval = window.setInterval(() => {
       void loadTab(selectedAccountId, tab, pages[tab]).catch(() => undefined);
     }, 15_000);
     return () => window.clearInterval(interval);
   }, [loadTab, pages, selectedAccountId, tab]);
+  useEffect(() => {
+    if (!selectedAccountId || tab !== "PREGUNTAS") return;
+    const update = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        await refreshQuestionInbox(selectedAccountId);
+        setQuestionSyncError(null);
+      } catch (requestError) {
+        setQuestionSyncError(requestError instanceof Error ? requestError.message : "No se pudieron consultar las preguntas nuevas.");
+      }
+    };
+    void update();
+    const interval = window.setInterval(() => { void update(); }, 20_000);
+    return () => window.clearInterval(interval);
+  }, [refreshQuestionInbox, selectedAccountId, tab]);
   useEffect(() => {
     if (searchParams.get("meli") === "conectado") toast.success("Cuenta de Mercado Libre conectada.");
     if (searchParams.get("meli") === "error") toast.error(searchParams.get("mensaje") || "No se pudo conectar Mercado Libre.");
@@ -113,7 +139,10 @@ export function MercadoLibrePage({ canManage }: Props) {
   const changeTab = async (nextTab: Tab) => {
     setTab(nextTab); setSearch("");
     if (!selectedAccountId) return;
-    try { await loadTab(selectedAccountId, nextTab, pages[nextTab]); }
+    try {
+      if (nextTab === "PREGUNTAS") await refreshQuestionInbox(selectedAccountId);
+      else await loadTab(selectedAccountId, nextTab, pages[nextTab]);
+    }
     catch (requestError) { toast.error(requestError instanceof Error ? requestError.message : "No se pudo cargar la seccion."); }
   };
 
@@ -152,6 +181,22 @@ export function MercadoLibrePage({ canManage }: Props) {
     } finally { setSyncing(false); }
   };
 
+  const answerQuestion = async (preguntaId: string, texto: string) => {
+    if (!selectedAccountId) return;
+    try {
+      setAnsweringQuestionId(preguntaId);
+      const response = await fetch("/api/integraciones/mercadolibre/preguntas/responder", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idCuenta: selectedAccountId, preguntaId, texto }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo responder la pregunta.");
+      toast.success("Respuesta enviada a Mercado Libre.");
+      await refreshQuestionInbox(selectedAccountId);
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "No se pudo responder la pregunta.");
+    } finally { setAnsweringQuestionId(null); }
+  };
+
   const visibleVentas = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return ventas.data;
@@ -181,9 +226,10 @@ export function MercadoLibrePage({ canManage }: Props) {
       <section className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950"><label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cuenta</label><select value={selectedAccountId || ""} onChange={(event) => void selectAccount(Number(event.target.value))} className="h-9 min-w-56 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white">{cuentas.map((cuenta) => <option key={cuenta.id} value={cuenta.id}>{cuenta.nickname || `Vendedor ${cuenta.sellerId}`} · {cuenta.siteId}</option>)}</select>{activeAccount && <span className="text-xs text-slate-500">Ultima sincronizacion: <strong className="text-slate-700 dark:text-slate-200">{date(activeAccount.ultimaSincronizacionAt)}</strong></span>}</section>
       <nav className="flex overflow-x-auto border-b border-slate-200 dark:border-slate-800" aria-label="Secciones de Mercado Libre">{TABS.map((item) => { const Icon = item.icon; const active = tab === item.id; return <button key={item.id} type="button" onClick={() => void changeTab(item.id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-xs font-black uppercase tracking-wide transition ${active ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}><Icon className="h-4 w-4" />{item.label}</button>; })}</nav>
       {tab !== "SINCRONIZACION" && <div className="flex flex-wrap items-center gap-2">{tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select></>}<div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Venta, cliente, item o SKU" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} registros</span></div>}
+      {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}
       {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} />}
-      {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} />}
+      {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} />}
       {tab === "SINCRONIZACION" && <SyncPanel account={activeAccount} onSync={() => void sync()} syncing={syncing} canManage={canManage} />}
       {tab !== "SINCRONIZACION" && activeResult.totalPages > 1 && <div className="flex items-center justify-center gap-3"><button type="button" onClick={() => void changePage(pages[tab] - 1)} disabled={pages[tab] <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Pagina {pages[tab]} de {activeResult.totalPages}</span><button type="button" onClick={() => void changePage(pages[tab] + 1)} disabled={pages[tab] >= activeResult.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
     </>}
@@ -198,8 +244,25 @@ function PublicacionesTable({ publicaciones, loading }: { publicaciones: Mercado
   return <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}><table className="w-full min-w-[1080px] text-left text-xs"><thead><tr><th>Publicacion</th><th>SKU ML</th><th>Estado</th><th>Precio ML</th><th className="text-right">Stock ML</th><th>Vinculo IMC</th><th /></tr></thead><tbody>{publicaciones.map((item) => <tr key={item.id}><td><div className="max-w-md truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{item.itemId}</div></td><td className="font-mono font-bold">{item.sellerSku || "-"}</td><td><StateBadge value={item.estado} /></td><td className="font-mono font-black">{money(item.precio, item.moneda)}</td><td className="text-right font-mono font-black">{item.cantidadDisponible ?? "-"}</td><td><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${publicationLinkBadge(item.tipoVinculo)}`}>{publicationLinkLabel(item.tipoVinculo)}</span>{(item.codigoProducto || item.codigoKit) && <div className="mt-1 font-mono text-[10px] text-slate-500">{item.codigoProducto || item.codigoKit}</div>}</td><td className="text-right">{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" title="Abrir publicacion" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"><ExternalLink className="h-4 w-4" /></a>}</td></tr>)}</tbody></table></TableShell>;
 }
 
-function PreguntasTable({ preguntas, loading }: { preguntas: MercadoLibrePreguntasResult["data"]; loading: boolean }) {
-  return <TableShell hasRows={preguntas.length > 0} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}><table className="w-full min-w-[980px] text-left text-xs"><thead><tr><th>Fecha</th><th>Cliente</th><th>Publicacion</th><th>Pregunta</th><th>Respuesta</th><th>Estado</th></tr></thead><tbody>{preguntas.map((pregunta) => <tr key={pregunta.id}><td><div className="font-bold">{date(pregunta.fecha, "-")}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{pregunta.preguntaId}</div></td><td className="font-bold text-slate-800 dark:text-white">{pregunta.comprador || "-"}</td><td><div className="max-w-[220px] truncate font-semibold text-slate-800 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "-"}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{pregunta.itemId}</div></td><td className="max-w-sm whitespace-normal font-medium text-slate-700 dark:text-slate-200">{pregunta.texto}</td><td className="max-w-sm whitespace-normal text-slate-600 dark:text-slate-300">{pregunta.respuesta || "-"}</td><td><StateBadge value={pregunta.estado} /></td></tr>)}</tbody></table></TableShell>;
+function PreguntasTable({ preguntas, loading, canManage, answeringQuestionId, onAnswer }: {
+  preguntas: MercadoLibrePreguntasResult["data"];
+  loading: boolean;
+  canManage: boolean;
+  answeringQuestionId: string | null;
+  onAnswer: (preguntaId: string, texto: string) => Promise<void>;
+}) {
+  return <TableShell hasRows={preguntas.length > 0} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}><table className="w-full min-w-[1080px] text-left text-xs"><thead><tr><th>Fecha</th><th>Cliente</th><th>Publicacion</th><th>Pregunta</th><th>Respuesta</th><th>Estado</th></tr></thead><tbody>{preguntas.map((pregunta) => <tr key={pregunta.id}><td><div className="font-bold">{date(pregunta.fecha, "-")}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{pregunta.preguntaId}</div></td><td className="font-bold text-slate-800 dark:text-white">{pregunta.comprador || "-"}</td><td><div className="max-w-[220px] truncate font-semibold text-slate-800 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "-"}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{pregunta.itemId}</div></td><td className="max-w-sm whitespace-normal font-medium text-slate-700 dark:text-slate-200">{pregunta.texto}</td><td className="min-w-72 max-w-sm"><PreguntaAnswerEditor pregunta={pregunta} canManage={canManage} sending={answeringQuestionId === pregunta.preguntaId} onAnswer={onAnswer} /></td><td><StateBadge value={pregunta.estado} /></td></tr>)}</tbody></table></TableShell>;
+}
+
+function PreguntaAnswerEditor({ pregunta, canManage, sending, onAnswer }: {
+  pregunta: MercadoLibrePreguntasResult["data"][number];
+  canManage: boolean;
+  sending: boolean;
+  onAnswer: (preguntaId: string, texto: string) => Promise<void>;
+}) {
+  const [texto, setTexto] = useState("");
+  if (pregunta.estado !== "UNANSWERED") return <div className="whitespace-normal text-slate-600 dark:text-slate-300">{pregunta.respuesta || "-"}</div>;
+  return <div className="space-y-2"><textarea value={texto} onChange={(event) => setTexto(event.target.value)} maxLength={2000} disabled={!canManage || sending} placeholder="Escribi la respuesta" className="min-h-20 w-full resize-y rounded-md border border-slate-300 bg-white p-2 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-medium text-slate-400">{texto.length}/2000</span><button type="button" disabled={!canManage || sending || !texto.trim()} onClick={() => void onAnswer(pregunta.preguntaId, texto).then(() => setTexto(""))} className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-2 text-[10px] font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-3.5 w-3.5" />{sending ? "Enviando" : "Responder"}</button></div></div>;
 }
 
 function SyncPanel({ account, onSync, syncing, canManage }: { account: MercadoLibreCuentaEstado | null; onSync: () => void; syncing: boolean; canManage: boolean }) {
