@@ -317,40 +317,39 @@ export function PriceChangesReportPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1400px] text-left text-xs">
+            <table className="w-full min-w-[1120px] table-fixed text-left text-xs">
               <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:bg-slate-900/60">
                 <tr>
-                  {canManage && <th className="w-12 px-4 py-3"><input type="checkbox" aria-label="Seleccionar cambios pendientes de la pagina" checked={allSelected} onChange={toggleAll} disabled={selectableIds.length === 0 || isResolving} className="h-4 w-4 rounded border-slate-300 text-blue-600" /></th>}
-                  <th className="px-4 py-3">Fecha</th><th className="px-3 py-3">Origen</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Item</th><th className="px-3 py-3">Codigo proveedor</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3 text-right">Costo anterior</th><th className="px-3 py-3 text-right">Costo nuevo</th><th className="px-3 py-3 text-right">Diferencia</th><th className="px-3 py-3 text-right">%</th>
-                  {canManage && <th className="px-3 py-3 text-right">Accion</th>}
+                  {canManage && <th className="sticky left-0 z-20 w-10 bg-slate-50 px-3 py-2.5 dark:bg-slate-900"><input type="checkbox" aria-label="Seleccionar cambios pendientes de la pagina" checked={allSelected} onChange={toggleAll} disabled={selectableIds.length === 0 || isResolving} className="h-4 w-4 rounded border-slate-300 text-blue-600" /></th>}
+                  <th className="w-24 px-2 py-2.5">Fecha</th><th className="w-24 px-2 py-2.5">Origen</th><th className="w-28 px-2 py-2.5">Proveedor</th><th className="w-64 px-2 py-2.5">Item</th><th className="w-28 px-2 py-2.5">Cod. proveedor</th><th className="w-24 px-2 py-2.5">Estado</th><th className="w-28 px-2 py-2.5 text-right">Anterior</th><th className="w-28 px-2 py-2.5 text-right">Nuevo</th><th className="w-32 px-2 py-2.5 text-right">Variacion</th>
+                  {canManage && <th className="sticky right-0 z-20 w-20 bg-slate-50 px-2 py-2.5 text-right dark:bg-slate-900">Accion</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                 {isLoading ? (
-                  <tr><td colSpan={canManage ? 12 : 10} className="px-4 py-12 text-center font-bold text-slate-500">Cargando costos modificados...</td></tr>
+                  <tr><td colSpan={canManage ? 11 : 9} className="px-4 py-12 text-center font-bold text-slate-500">Cargando costos modificados...</td></tr>
                 ) : error ? (
-                  <tr><td colSpan={canManage ? 12 : 10} className="px-4 py-12 text-center font-bold text-red-500">{error.message}</td></tr>
+                  <tr><td colSpan={canManage ? 11 : 9} className="px-4 py-12 text-center font-bold text-red-500">{error.message}</td></tr>
                 ) : data?.data.length ? data.data.map((row) => {
                   const isPending = row.estado_aprobacion === "PENDIENTE";
                   const differenceClass = Number(row.diferencia) < 0 ? "text-emerald-600 dark:text-emerald-300" : "text-amber-600 dark:text-amber-300";
                   return (
                     <tr key={row.id} className="text-slate-700 dark:text-slate-300">
-                      {canManage && <td className="px-4 py-3"><input type="checkbox" aria-label={`Seleccionar ${row.codigo_item || row.codigo_proveedor}`} checked={selectedIds.includes(row.id)} onChange={() => toggleSelected(row.id)} disabled={!isPending || isResolving} className="h-4 w-4 rounded border-slate-300 text-blue-600 disabled:opacity-40" /></td>}
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-[10px] font-semibold">{formatDate(row.fecha_importacion)}</td>
-                       <td className="px-3 py-3 font-black text-[10px] uppercase tracking-wide text-slate-500">{originLabel(row.origen)}</td>
-                      <td className="max-w-48 truncate px-3 py-3 font-semibold" title={row.proveedor}>{row.proveedor}</td>
-                      <td className="max-w-sm px-3 py-3"><p className="font-semibold text-slate-900 dark:text-white">{row.descripcion_item || "Item sin descripcion"}</p><p className="mt-1 font-mono text-[10px] text-slate-500">{row.codigo_item || "Sin codigo interno"}</p></td>
-                       <td className="px-3 py-3 font-mono font-semibold">{row.codigo_proveedor || "-"}</td>
-                      <td className="px-3 py-3"><span className={`inline-flex rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-wide ${statusClass(row.estado_aprobacion)}`}>{statusLabel(row.estado_aprobacion)}</span></td>
-                      <td className="px-3 py-3 text-right font-mono font-semibold">{formatMoney(row.costo_anterior)}</td>
-                      <td className="px-3 py-3 text-right font-mono font-black text-slate-900 dark:text-white">{formatMoney(row.costo_nuevo)}</td>
-                      <td className={`px-3 py-3 text-right font-mono font-bold ${differenceClass}`}>{formatMoney(row.diferencia)}</td>
-                      <td className={`px-3 py-3 text-right font-mono font-bold ${differenceClass}`}>{row.diferencia_porcentaje === null ? "-" : `${row.diferencia_porcentaje.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}</td>
-                      {canManage && <td className="px-3 py-3 text-right">{isPending ? <div className="inline-flex gap-1"><button type="button" title="Rechazar cambio" aria-label="Rechazar cambio" onClick={() => void resolveChanges([row.id], "RECHAZAR")} disabled={isResolving} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-500/30 text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-300"><HiX className="h-4 w-4" /></button><button type="button" title="Aprobar y aplicar costo" aria-label="Aprobar y aplicar costo" onClick={() => void resolveChanges([row.id], "APROBAR")} disabled={isResolving} className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"><HiCheck className="h-4 w-4" /></button></div> : <span className="text-[10px] font-bold text-slate-400">-</span>}</td>}
+                      {canManage && <td className="sticky left-0 z-10 bg-white px-3 py-2.5 dark:bg-slate-950"><input type="checkbox" aria-label={`Seleccionar ${row.codigo_item || row.codigo_proveedor}`} checked={selectedIds.includes(row.id)} onChange={() => toggleSelected(row.id)} disabled={!isPending || isResolving} className="h-4 w-4 rounded border-slate-300 text-blue-600 disabled:opacity-40" /></td>}
+                      <td className="px-2 py-2.5 font-mono text-[10px] font-semibold leading-4">{formatDate(row.fecha_importacion)}</td>
+                      <td className="px-2 py-2.5 text-[9px] font-black uppercase leading-4 tracking-wide text-slate-500">{originLabel(row.origen)}</td>
+                      <td className="truncate px-2 py-2.5 font-semibold" title={row.proveedor}>{row.proveedor}</td>
+                      <td className="px-2 py-2.5"><p className="truncate font-semibold text-slate-900 dark:text-white" title={row.descripcion_item || "Item sin descripcion"}>{row.descripcion_item || "Item sin descripcion"}</p><p className="mt-0.5 truncate font-mono text-[10px] text-slate-500" title={row.codigo_item || "Sin codigo interno"}>{row.codigo_item || "Sin codigo interno"}</p></td>
+                      <td className="truncate px-2 py-2.5 font-mono font-semibold" title={row.codigo_proveedor || "-"}>{row.codigo_proveedor || "-"}</td>
+                      <td className="px-2 py-2.5"><span className={`inline-flex rounded-full px-1.5 py-1 text-[8px] font-black uppercase tracking-wide ${statusClass(row.estado_aprobacion)}`}>{statusLabel(row.estado_aprobacion)}</span></td>
+                      <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono font-semibold">{formatMoney(row.costo_anterior)}</td>
+                      <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono font-black text-slate-900 dark:text-white">{formatMoney(row.costo_nuevo)}</td>
+                      <td className={`px-2 py-2.5 text-right font-mono font-bold ${differenceClass}`}><p className="whitespace-nowrap">{formatMoney(row.diferencia)}</p><p className="mt-0.5 text-[10px]">{row.diferencia_porcentaje === null ? "-" : `${row.diferencia_porcentaje.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}</p></td>
+                      {canManage && <td className="sticky right-0 z-10 bg-white px-2 py-2.5 text-right dark:bg-slate-950">{isPending ? <div className="inline-flex gap-1"><button type="button" title="Rechazar cambio" aria-label="Rechazar cambio" onClick={() => void resolveChanges([row.id], "RECHAZAR")} disabled={isResolving} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-500/30 text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-300"><HiX className="h-4 w-4" /></button><button type="button" title="Aprobar y aplicar costo" aria-label="Aprobar y aplicar costo" onClick={() => void resolveChanges([row.id], "APROBAR")} disabled={isResolving} className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"><HiCheck className="h-4 w-4" /></button></div> : <span className="text-[10px] font-bold text-slate-400">-</span>}</td>}
                     </tr>
                   );
                 }) : (
-                  <tr><td colSpan={canManage ? 12 : 10} className="px-4 py-12 text-center font-bold text-slate-500">No hay costos modificados con este filtro.</td></tr>
+                  <tr><td colSpan={canManage ? 11 : 9} className="px-4 py-12 text-center font-bold text-slate-500">No hay costos modificados con este filtro.</td></tr>
                 )}
               </tbody>
             </table>
