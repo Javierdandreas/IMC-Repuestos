@@ -267,7 +267,8 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
   if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
   const safePage = Math.max(1, page);
   const { rows } = await query(
-    `SELECT id, venta_id, fecha, estado, comprador, total, moneda, envio, retiro_en_persona, items, sincronizada_at
+    `SELECT id, venta_id, fecha, estado, comprador, total, moneda, envio, retiro_en_persona,
+            NULLIF(datos #>> '{shipping,id}', '') AS numero_envio, items, sincronizada_at
      FROM public.mercadolibre_venta WHERE id_cuenta = $1
      ORDER BY fecha DESC NULLS LAST, id DESC LIMIT $2 OFFSET $3`,
     [idCuenta, limit, (safePage - 1) * limit],
@@ -278,6 +279,7 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
       estado: String(row.estado), comprador: row.comprador ? String(row.comprador) : null,
       total: row.total === null ? null : Number(row.total), moneda: row.moneda ? String(row.moneda) : null,
       envio: row.envio ? String(row.envio) : null, retiroEnPersona: Boolean(row.retiro_en_persona),
+      numeroEnvio: row.numero_envio ? String(row.numero_envio) : null,
       items: Array.isArray(row.items) ? row.items.map((item: Record<string, unknown>) => ({ itemId: item.itemId ? String(item.itemId) : null, titulo: String(item.titulo || "Sin titulo"), cantidad: Number(item.cantidad || 0), sku: item.sku ? String(item.sku) : null })) : [],
       sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
     })),
@@ -612,7 +614,7 @@ async function getPagedMeliResults<T>(path: string, idCuenta: number, accessToke
 }
 
 async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
-  const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&sort=date_desc`, idCuenta, accessToken);
+  const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&order.status=paid&sort=date_desc`, idCuenta, accessToken);
   for (const venta of ventas) {
     if (!venta.id) continue;
     const items = (venta.order_items || []).map((linea) => ({
@@ -719,6 +721,11 @@ async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: numb
 export async function sincronizarPreguntasMercadoLibreAhora(idCuenta: number) {
   const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
   return sincronizarPreguntasMercadoLibre(idCuenta, sellerId, accessToken);
+}
+
+export async function sincronizarVentasMercadoLibreAhora(idCuenta: number) {
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  return sincronizarVentasMercadoLibre(idCuenta, sellerId, accessToken);
 }
 
 export async function responderPreguntaMercadoLibre(idCuenta: number, preguntaId: string, texto: string) {

@@ -55,6 +55,7 @@ export type MercadoLibreVentaListado = {
   total: number | null;
   moneda: string | null;
   envio: string | null;
+  numeroEnvio: string | null;
   retiroEnPersona: boolean;
   items: Array<{ itemId: string | null; titulo: string; cantidad: number; sku: string | null }>;
   sincronizadaAt: string;

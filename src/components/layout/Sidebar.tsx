@@ -71,11 +71,11 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Listados",
-    href: "/listados/movimientos-stock",
+    href: "/listados/precios-modificados",
     icon: HiOutlineLibrary,
     links: [
-      { href: "/listados/movimientos-stock", label: "Movimientos de stock" },
       { href: "/listados/precios-modificados", label: "Costos modificados" },
+      { href: "/listados/movimientos-stock", label: "Movimientos de stock" },
       { href: "/ubicaciones/inventario", label: "Inventario por ubicacion" },
     ],
   },
