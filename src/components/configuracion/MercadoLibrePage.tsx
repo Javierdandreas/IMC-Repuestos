@@ -241,7 +241,18 @@ function VentasTable({ ventas, loading }: { ventas: MercadoLibreVentasResult["da
 }
 
 function PublicacionesTable({ publicaciones, loading }: { publicaciones: MercadoLibrePublicacionesResult["data"]; loading: boolean }) {
-  return <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}><table className="w-full min-w-[1080px] text-left text-xs"><thead><tr><th>Publicacion</th><th>SKU ML</th><th>Estado</th><th>Precio ML</th><th className="text-right">Stock ML</th><th>Vinculo IMC</th><th /></tr></thead><tbody>{publicaciones.map((item) => <tr key={item.id}><td><div className="max-w-md truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{item.itemId}</div></td><td className="font-mono font-bold">{item.sellerSku || "-"}</td><td><StateBadge value={item.estado} /></td><td className="font-mono font-black">{money(item.precio, item.moneda)}</td><td className="text-right font-mono font-black">{item.cantidadDisponible ?? "-"}</td><td><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${publicationLinkBadge(item.tipoVinculo)}`}>{publicationLinkLabel(item.tipoVinculo)}</span>{(item.codigoProducto || item.codigoKit) && <div className="mt-1 font-mono text-[10px] text-slate-500">{item.codigoProducto || item.codigoKit}</div>}</td><td className="text-right">{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" title="Abrir publicacion" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"><ExternalLink className="h-4 w-4" /></a>}</td></tr>)}</tbody></table></TableShell>;
+  return <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}>
+    <table className="w-full min-w-[1210px] text-left text-xs">
+      <thead><tr><th>Publicacion</th><th>SKU ML</th><th>Estado</th><th>Precio ML</th><th className="text-right">Stock ML</th><th>Fechas</th><th>Vinculo IMC</th><th /></tr></thead>
+      <tbody>{publicaciones.map((item) => <tr key={item.id}>
+        <td><div className="max-w-md truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{item.itemId}</div></td>
+        <td className="font-mono font-bold">{item.sellerSku || "-"}</td><td><StateBadge value={item.estado} /></td><td className="font-mono font-black">{money(item.precio, item.moneda)}</td><td className="text-right font-mono font-black">{item.cantidadDisponible ?? "-"}</td>
+        <td className="whitespace-nowrap text-[10px] leading-5 text-slate-500 dark:text-slate-300"><div><b>Creada:</b> {date(item.fechaCreacionMl, "-")}</div><div><b>Editada:</b> {date(item.fechaActualizacionMl, "-")}</div><div><b>Sync IMC:</b> {date(item.sincronizadaAt, "-")}</div></td>
+        <td><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${publicationLinkBadge(item.tipoVinculo)}`}>{publicationLinkLabel(item.tipoVinculo)}</span>{(item.codigoProducto || item.codigoKit) && <div className="mt-1 font-mono text-[10px] text-slate-500">{item.codigoProducto || item.codigoKit}</div>}</td>
+        <td className="text-right">{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" title="Abrir publicacion" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"><ExternalLink className="h-4 w-4" /></a>}</td>
+      </tr>)}</tbody>
+    </table>
+  </TableShell>;
 }
 
 function PreguntasTable({ preguntas, loading, canManage, answeringQuestionId, onAnswer }: {

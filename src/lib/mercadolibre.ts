@@ -55,6 +55,8 @@ type MeliItem = {
   sold_quantity?: number;
   thumbnail?: string;
   permalink?: string;
+  date_created?: string;
+  last_updated?: string;
   seller_custom_field?: string | null;
   attributes?: Array<{ id?: string; value_name?: string | null }>;
   variations?: Array<Record<string, unknown>>;
@@ -225,6 +227,8 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
       publication.titulo, publication.estado, publication.categoria_id, publication.tipo_publicacion, publication.precio,
       publication.precio_original, publication.moneda, publication.cantidad_disponible, publication.cantidad_vendida,
       publication.thumbnail_url, publication.permalink, publication.variaciones, publication.sincronizada_at,
+      NULLIF(publication.datos->>'fechaCreacionMl', '') AS fecha_creacion_ml,
+      NULLIF(publication.datos->>'fechaActualizacionMl', '') AS fecha_actualizacion_ml,
       product.cod_unico AS codigo_producto, product.descripcion AS producto,
       kit.codigo_kit AS codigo_kit, kit.nombre AS kit
      FROM public.mercadolibre_publicacion publication
@@ -248,6 +252,8 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
       moneda: row.moneda ? String(row.moneda) : null, cantidadDisponible: row.cantidad_disponible === null ? null : Number(row.cantidad_disponible),
       cantidadVendida: row.cantidad_vendida === null ? null : Number(row.cantidad_vendida), thumbnailUrl: row.thumbnail_url ? String(row.thumbnail_url) : null,
       permalink: row.permalink ? String(row.permalink) : null, variaciones: Array.isArray(row.variaciones) ? row.variaciones : [],
+      fechaCreacionMl: row.fecha_creacion_ml ? new Date(String(row.fecha_creacion_ml)).toISOString() : null,
+      fechaActualizacionMl: row.fecha_actualizacion_ml ? new Date(String(row.fecha_actualizacion_ml)).toISOString() : null,
       sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
     })),
     totalCount,
@@ -356,8 +362,11 @@ export async function getMercadoLibrePreguntas(
 
 export async function getMercadoLibreVinculos(tipo: "ITEM" | "KIT", id: number) {
   const column = tipo === "KIT" ? "id_kit" : "id_producto";
-  const { rows } = await query<{ id: number; item_id: string; titulo: string; estado: string; permalink: string | null; seller_sku: string | null }>(
-    `SELECT id, item_id, titulo, estado, permalink, seller_sku
+  const { rows } = await query<{ id: number; item_id: string; titulo: string; estado: string; permalink: string | null; seller_sku: string | null; fecha_creacion_ml: string | null; fecha_actualizacion_ml: string | null; sincronizada_at: string }>(
+    `SELECT id, item_id, titulo, estado, permalink, seller_sku,
+       NULLIF(datos->>'fechaCreacionMl', '') AS fecha_creacion_ml,
+       NULLIF(datos->>'fechaActualizacionMl', '') AS fecha_actualizacion_ml,
+       sincronizada_at
      FROM public.mercadolibre_publicacion
      WHERE ${column} = $1
      ORDER BY estado = 'active' DESC, titulo ASC`,
@@ -370,6 +379,9 @@ export async function getMercadoLibreVinculos(tipo: "ITEM" | "KIT", id: number) 
     estado: String(row.estado),
     permalink: row.permalink ? String(row.permalink) : null,
     sellerSku: row.seller_sku ? String(row.seller_sku) : null,
+    fechaCreacionMl: row.fecha_creacion_ml ? new Date(String(row.fecha_creacion_ml)).toISOString() : null,
+    fechaActualizacionMl: row.fecha_actualizacion_ml ? new Date(String(row.fecha_actualizacion_ml)).toISOString() : null,
+    sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
   }));
 }
 
@@ -536,6 +548,8 @@ function mapPublicacion(item: MeliItem): MercadoLibrePublicacion {
     cantidadDisponible: Number.isFinite(Number(item.available_quantity)) ? Number(item.available_quantity) : null,
     cantidadVendida: Number.isFinite(Number(item.sold_quantity)) ? Number(item.sold_quantity) : null,
     thumbnailUrl: item.thumbnail || null, permalink: item.permalink || null, variaciones: item.variations || [],
+    fechaCreacionMl: item.date_created || null,
+    fechaActualizacionMl: item.last_updated || null,
   };
 }
 

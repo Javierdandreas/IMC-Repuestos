@@ -58,6 +58,12 @@ function formatMoney(value: number | null) {
     : `$ ${value.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "Sin dato";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Sin dato" : date.toLocaleString("es-AR");
+}
+
 export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
   const { categorias, subcategorias, marcas, proveedores, ubicaciones, tiposPrecio } = useMetadata();
   const { showError } = useAppError();
@@ -918,6 +924,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                           <div className="min-w-0">
                             <p className="line-clamp-2 text-xs font-black text-slate-800 dark:text-slate-100">{publication.titulo}</p>
                             <span className="mt-1 block font-mono text-[10px] font-bold text-slate-400">{publication.item_id}</span>
+                            <div className="mt-2 grid grid-cols-1 gap-1 text-[10px] leading-4 text-slate-500 dark:text-slate-300">
+                              <span><b>Creada en ML:</b> {formatDateTime(publication.fecha_creacion_ml)}</span>
+                              <span><b>Ultima edicion en ML:</b> {formatDateTime(publication.fecha_actualizacion_ml)}</span>
+                              <span><b>Sincronizada en IMC:</b> {formatDateTime(publication.sincronizada_at)}</span>
+                            </div>
                           </div>
                           {publication.permalink ? <div className="flex shrink-0 items-center gap-1">
                             <button type="button" onClick={() => void copyMercadoLibreLink(publication.permalink as string)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-white hover:text-blue-600 dark:hover:bg-slate-600" title="Copiar link">

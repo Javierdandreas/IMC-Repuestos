@@ -25,7 +25,15 @@ export type ItemListadoUnificado = ProductoListado & {
   parent_kit_id?: number | null;
   parent_kit_codigo?: string | null;
   componentes_kit?: ComponenteKitPreview[];
-  publicaciones_ml?: Array<{ item_id: string; titulo: string; permalink: string | null; estado: string }>;
+  publicaciones_ml?: Array<{
+    item_id: string;
+    titulo: string;
+    permalink: string | null;
+    estado: string;
+    fecha_creacion_ml: string | null;
+    fecha_actualizacion_ml: string | null;
+    sincronizada_at: string;
+  }>;
 };
 
 type CatalogoBaseRow = {
@@ -170,14 +178,17 @@ export async function getItemsUnificadosListado(
     productIds.length ? getProductosListado(1, productIds.length, { ids: productIds }) : Promise.resolve({ data: [] as ProductoListado[] }),
     kitIds.length ? getKitsListado(1, kitIds.length, undefined, kitIds) : Promise.resolve({ data: [] as Awaited<ReturnType<typeof getKitsListado>>["data"] }),
     kitIds.length ? getComponentesParaKitsListado(kitIds) : Promise.resolve([]),
-    (productIds.length || kitIds.length) ? query<{ id_producto: number | null; id_kit: number | null; item_id: string; titulo: string; permalink: string | null; estado: string }>(
-      `SELECT id_producto, id_kit, item_id, titulo, permalink, estado
+    (productIds.length || kitIds.length) ? query<{ id_producto: number | null; id_kit: number | null; item_id: string; titulo: string; permalink: string | null; estado: string; fecha_creacion_ml: string | null; fecha_actualizacion_ml: string | null; sincronizada_at: string }>(
+      `SELECT id_producto, id_kit, item_id, titulo, permalink, estado,
+         NULLIF(datos->>'fechaCreacionMl', '') AS fecha_creacion_ml,
+         NULLIF(datos->>'fechaActualizacionMl', '') AS fecha_actualizacion_ml,
+         sincronizada_at
        FROM public.mercadolibre_publicacion
        WHERE estado = 'active'
          AND (id_producto = ANY($1::int[]) OR id_kit = ANY($2::int[]))
        ORDER BY titulo ASC`,
       [productIds, kitIds]
-    ) : Promise.resolve({ rows: [] as Array<{ id_producto: number | null; id_kit: number | null; item_id: string; titulo: string; permalink: string | null; estado: string }> }),
+    ) : Promise.resolve({ rows: [] as Array<{ id_producto: number | null; id_kit: number | null; item_id: string; titulo: string; permalink: string | null; estado: string; fecha_creacion_ml: string | null; fecha_actualizacion_ml: string | null; sincronizada_at: string }> }),
   ]);
 
   const productsById = new Map(productResult.data.map((product) => [product.id, product]));
@@ -202,6 +213,9 @@ export async function getItemsUnificadosListado(
       titulo: String(publication.titulo),
       permalink: publication.permalink ? String(publication.permalink) : null,
       estado: String(publication.estado),
+      fecha_creacion_ml: publication.fecha_creacion_ml ? String(publication.fecha_creacion_ml) : null,
+      fecha_actualizacion_ml: publication.fecha_actualizacion_ml ? String(publication.fecha_actualizacion_ml) : null,
+      sincronizada_at: String(publication.sincronizada_at),
     });
     publicacionesPorItem.set(key, current);
   });

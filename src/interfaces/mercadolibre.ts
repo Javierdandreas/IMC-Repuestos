@@ -24,6 +24,8 @@ export type MercadoLibrePublicacion = {
   thumbnailUrl: string | null;
   permalink: string | null;
   variaciones: unknown[];
+  fechaCreacionMl: string | null;
+  fechaActualizacionMl: string | null;
 };
 
 export type MercadoLibrePublicacionListado = MercadoLibrePublicacion & {

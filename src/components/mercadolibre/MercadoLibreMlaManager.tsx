@@ -5,11 +5,24 @@ import { Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 type SourceType = "ITEM" | "KIT";
-type Publication = { id: number; itemId: string };
+type Publication = {
+  id: number;
+  itemId: string;
+  titulo?: string;
+  estado?: string;
+  fechaCreacionMl?: string | null;
+  fechaActualizacionMl?: string | null;
+  sincronizadaAt?: string | null;
+};
 
 const MAX_PUBLICATIONS = 100;
 
 const mlaNumber = (itemId: string) => itemId.replace(/^MLA/i, "");
+const formatDateTime = (value?: string | null) => {
+  if (!value) return "Sin dato";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Sin dato" : date.toLocaleString("es-AR");
+};
 
 export function MercadoLibreMlaManager({ sourceType, sourceId }: { sourceType: SourceType; sourceId?: number | null }) {
   const [linked, setLinked] = useState<Publication[]>([]);
@@ -103,6 +116,11 @@ export function MercadoLibreMlaManager({ sourceType, sourceId }: { sourceType: S
           <label className="whitespace-nowrap text-sm font-medium text-slate-700 dark:text-slate-300">Publicación Mercado Libre {index + 1}: <span className="ml-1 font-mono">#</span></label>
           <input value={mlaNumber(publication.itemId)} readOnly className="h-10 w-full rounded-sm border border-slate-300 bg-slate-50 px-3 font-mono text-sm text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
           <button type="button" disabled={savingId === publication.id} onClick={() => void updateLink(publication.id, false)} className="inline-flex h-10 w-10 items-center justify-center rounded-sm border border-red-200 text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/30" title="Desvincular MLA"><Trash2 className="h-4 w-4" /></button>
+          <div className="col-span-full grid grid-cols-1 gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-[10px] leading-4 text-slate-500 dark:bg-slate-900/60 dark:text-slate-300 sm:ml-[237px] sm:grid-cols-3">
+            <span><b>Creada en ML:</b> {formatDateTime(publication.fechaCreacionMl)}</span>
+            <span><b>Ultima edicion en ML:</b> {formatDateTime(publication.fechaActualizacionMl)}</span>
+            <span><b>Sincronizada en IMC:</b> {formatDateTime(publication.sincronizadaAt)}</span>
+          </div>
         </div>
       ))}
 
