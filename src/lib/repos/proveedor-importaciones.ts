@@ -227,6 +227,40 @@ export async function createImportacion(input: CreateImportacionInput): Promise<
 
 const TAMANO_LOTE_APLICACION = 500;
 
+/**
+ * El detalle de una lista de proveedor solo es necesario hasta aplicar el
+ * lote y resolver sus cambios de costo. El encabezado conserva el resumen.
+ */
+async function limpiarDetalleImportacionesResueltas(client: DbClient, importacionIds?: number[]) {
+  const ids = [...new Set((importacionIds ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  const params: unknown[] = [];
+  const scope = ids.length > 0
+    ? (() => {
+      params.push(ids);
+      return `AND pi.id = ANY($${params.length}::int[])`;
+    })()
+    : "";
+
+  const result = await client.query<{ id_importacion: number }>(
+    `
+      DELETE FROM public.proveedor_importacion_item AS item
+      USING public.proveedor_importacion AS pi
+      WHERE item.id_importacion = pi.id
+        AND pi.estado = 'APLICADA'
+        ${scope}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.proveedor_importacion_cambio_costo AS cambio
+          WHERE cambio.id_importacion = pi.id
+            AND cambio.estado_aprobacion = 'PENDIENTE'
+        )
+      RETURNING item.id_importacion
+    `,
+    params,
+  );
+  return new Set(result.rows.map((row) => Number(row.id_importacion))).size;
+}
+
 async function prepararImportacionParaAplicar(client: DbClient, idImportacion: number) {
   const importacion = await client.query<{ estado: string }>(
     `SELECT estado FROM public.proveedor_importacion WHERE id = $1 FOR UPDATE`,
@@ -742,6 +776,7 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
     const preparada = await prepararImportacionParaAplicar(client, id_importacion);
     if (!preparada) {
       const summary = await resumenAplicacionImportacion(client, id_importacion);
+      await limpiarDetalleImportacionesResueltas(client, [id_importacion]);
       return { ...summary, complete: true };
     }
 
@@ -762,6 +797,7 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
     if (lote.rowCount === 0) {
       await finalizarAplicacionImportacion(client, id_importacion);
       const summary = await resumenAplicacionImportacion(client, id_importacion);
+      await limpiarDetalleImportacionesResueltas(client, [id_importacion]);
       return { ...summary, complete: true };
     }
 
@@ -879,7 +915,10 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
     );
     const summary = await resumenAplicacionImportacion(client, id_importacion);
     const complete = summary.processedCount >= summary.totalProcessable;
-    if (complete) await finalizarAplicacionImportacion(client, id_importacion);
+    if (complete) {
+      await finalizarAplicacionImportacion(client, id_importacion);
+      await limpiarDetalleImportacionesResueltas(client, [id_importacion]);
+    }
     return { ...summary, complete };
   });
 }
@@ -1227,6 +1266,12 @@ export async function registrarExportacionCambiosCosto(
          LIMIT 20
        )`,
     );
+    await limpiarDetalleImportacionesResueltas(
+      client,
+      deleted.rows
+        .map((row) => Number(row.id_importacion))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    );
     return {
       exportedCount: deleted.rowCount,
       summary: {
@@ -1244,6 +1289,7 @@ export type AccionResolucionCambioCosto = "APROBAR" | "RECHAZAR";
 
 type CambioPendienteCosto = {
   id: number;
+  id_importacion: number | null;
   id_producto: number;
   codigo_item: string;
   descripcion_item: string;
@@ -1272,7 +1318,7 @@ export async function resolverCambiosCostoReferencia(
           ORDER BY id
           LIMIT 1
         )
-        SELECT cambio.id, cambio.id_producto, cambio.codigo_item, cambio.descripcion_item,
+        SELECT cambio.id, cambio.id_importacion, cambio.id_producto, cambio.codigo_item, cambio.descripcion_item,
           cambio.costo_anterior::float AS costo_anterior,
           cambio.costo_nuevo::float AS costo_nuevo,
           precio.precio::float AS costo_actual
@@ -1318,6 +1364,12 @@ export async function resolverCambiosCostoReferencia(
     }
 
     if (changes.length === 0) {
+      await limpiarDetalleImportacionesResueltas(
+        client,
+        pending.rows
+          .map((row) => Number(row.id_importacion))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      );
       return {
         resolvedCount: 0,
         skippedCount: changeIds.length,
@@ -1339,6 +1391,13 @@ export async function resolverCambiosCostoReferencia(
           AND estado_aprobacion = 'PENDIENTE'
       `,
       [changes.map((item) => item.id), estado, usuarioId],
+    );
+
+    await limpiarDetalleImportacionesResueltas(
+      client,
+      pending.rows
+        .map((row) => Number(row.id_importacion))
+        .filter((id) => Number.isInteger(id) && id > 0),
     );
 
     for (const change of changes) {
