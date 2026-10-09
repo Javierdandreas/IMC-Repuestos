@@ -493,7 +493,10 @@ async function meliGet(path: string, idCuenta: number, token: string) {
   }
   if (!response.ok) {
     const recurso = path.startsWith("/orders") ? "ventas" : path.startsWith("/questions") ? "preguntas" : path.startsWith("/items") || path.startsWith("/users/") ? "publicaciones" : "datos";
-    throw new AppError(`Mercado Libre rechazo el acceso a ${recurso} (${response.status}).`, response.status === 403 ? 403 : 502);
+    const details = await response.json().catch(() => null) as { message?: unknown; error?: unknown; cause?: Array<{ code?: unknown; message?: unknown }> } | null;
+    const cause = details?.cause?.[0];
+    const detail = typeof cause?.message === "string" ? cause.message : typeof details?.message === "string" ? details.message : typeof details?.error === "string" ? details.error : "";
+    throw new AppError(`Mercado Libre rechazo el acceso a ${recurso} (${response.status})${detail ? `: ${detail}` : "."}`, response.status === 403 ? 403 : 502);
   }
   return response.json() as Promise<unknown>;
 }
@@ -603,21 +606,21 @@ type MeliWebhookEventRow = {
   recurso: string;
 };
 
-async function getPagedMeliResults<T>(path: string, idCuenta: number, accessToken: string, maxResults = 1000) {
+async function getPagedMeliResults<T>(path: string, idCuenta: number, accessToken: string, maxResults = 1000, pageSize = 100) {
   const result: T[] = [];
-  for (let offset = 0; offset < maxResults; offset += 100) {
+  for (let offset = 0; offset < maxResults; offset += pageSize) {
     const separator = path.includes("?") ? "&" : "?";
-    const payload = await meliGet(`${path}${separator}limit=100&offset=${offset}`, idCuenta, accessToken) as { results?: T[]; questions?: T[]; paging?: { total?: number } };
+    const payload = await meliGet(`${path}${separator}limit=${pageSize}&offset=${offset}`, idCuenta, accessToken) as { results?: T[]; questions?: T[]; paging?: { total?: number } };
     const page = Array.isArray(payload.results) ? payload.results : Array.isArray(payload.questions) ? payload.questions : [];
     result.push(...page);
     const total = Number(payload.paging?.total);
-    if (page.length < 100 || (Number.isFinite(total) && total > 0 && result.length >= total)) break;
+    if (page.length < pageSize || (Number.isFinite(total) && total > 0 && result.length >= total)) break;
   }
   return result.slice(0, maxResults);
 }
 
 async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
-  const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&order.status=paid&sort=date_desc`, idCuenta, accessToken);
+  const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&order.status=paid&sort=date_desc`, idCuenta, accessToken, 1000, 50);
   for (const venta of ventas) {
     if (!venta.id) continue;
     const items = (venta.order_items || []).map((linea) => ({
