@@ -69,6 +69,7 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [questionSyncError, setQuestionSyncError] = useState<string | null>(null);
   const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
   const [calculatingCostItemId, setCalculatingCostItemId] = useState<string | null>(null);
+  const [calculatingCostPage, setCalculatingCostPage] = useState(false);
   const salesRefreshInFlight = useRef(false);
 
   const loadTab = useCallback(async (accountId: number, nextTab: Tab, page = 1, publicationSearch = "") => {
@@ -271,6 +272,27 @@ export function MercadoLibrePage({ canManage }: Props) {
     return preguntas.data.filter((pregunta) => [pregunta.preguntaId, pregunta.itemId, pregunta.titulo, pregunta.comprador, pregunta.texto, pregunta.respuesta].some((value) => String(value || "").toLowerCase().includes(term)));
   }, [preguntas.data, search]);
 
+  const calculateCostPage = async () => {
+    if (!selectedAccountId || !visiblePublicaciones.length || calculatingCostPage) return;
+    try {
+      setCalculatingCostPage(true);
+      const response = await fetch("/api/integraciones/mercadolibre/costos", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idCuenta: selectedAccountId, itemIds: visiblePublicaciones.map((item) => item.itemId) }),
+      });
+      const result = await response.json().catch(() => ({})) as { calculados?: MercadoLibreCostoEstimado[]; errores?: Array<{ itemId: string; mensaje: string }>; message?: string };
+      if (!response.ok) throw new Error(result.message || "No se pudieron calcular los costos de esta pagina.");
+      const costos = new Map((result.calculados || []).map((costo) => [costo.itemId, costo]));
+      setPublicaciones((current) => ({ ...current, data: current.data.map((item) => costos.has(item.itemId) ? { ...item, costoEstimado: costos.get(item.itemId)! } : item) }));
+      if (result.errores?.length) toast.warning(`${result.calculados?.length || 0} costos actualizados. ${result.errores.length} publicaciones no pudieron calcularse.`);
+      else toast.success(`${result.calculados?.length || 0} costos actualizados.`);
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "No se pudieron calcular los costos de esta pagina.");
+    } finally {
+      setCalculatingCostPage(false);
+    }
+  };
+
   const activeAccount = cuentas.find((account) => account.id === selectedAccountId) || null;
   const activeResult = tab === "VENTAS" ? ventas : tab === "PREGUNTAS" ? preguntas : publicaciones;
 
@@ -288,7 +310,7 @@ export function MercadoLibrePage({ canManage }: Props) {
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}
       {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} />}
-      {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} onCalculate={calculateCost} />}
+      {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} calculatingPage={calculatingCostPage} onCalculate={calculateCost} onCalculatePage={calculateCostPage} />}
       {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} />}
       {tab === "SINCRONIZACION" && <SyncPanel account={activeAccount} onSync={() => void sync()} syncing={syncing} canManage={canManage} />}
       {tab !== "SINCRONIZACION" && activeResult.totalPages > 1 && <div className="flex items-center justify-center gap-3"><button type="button" onClick={() => void changePage(pages[tab] - 1)} disabled={pages[tab] <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Pagina {pages[tab]} de {activeResult.totalPages}</span><button type="button" onClick={() => void changePage(pages[tab] + 1)} disabled={pages[tab] >= activeResult.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
@@ -315,35 +337,42 @@ function PublicacionesTable({ publicaciones, loading }: { publicaciones: Mercado
   </TableShell>;
 }
 
-function CostosTable({ publicaciones, loading, calculatingItemId, onCalculate }: {
+const GESU_RECARGO_PORCENTAJE = 0.02;
+
+function CostosTable({ publicaciones, loading, calculatingItemId, calculatingPage, onCalculate, onCalculatePage }: {
   publicaciones: MercadoLibrePublicacionesResult["data"];
   loading: boolean;
   calculatingItemId: string | null;
+  calculatingPage: boolean;
   onCalculate: (itemId: string) => void;
+  onCalculatePage: () => void;
 }) {
-  return <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}>
-    <table className="w-full min-w-[1340px] text-left text-xs">
-      <thead><tr><th>Publicacion</th><th>SKU</th><th className="text-right">Precio</th><th>Tipo</th><th className="text-right">Comision</th><th className="text-right">Fijo</th><th className="text-right">Cuotas</th><th className="text-right">Envio est.</th><th className="text-right">Costo ML</th><th className="text-right">Neto est.</th><th>Consulta</th><th /></tr></thead>
+  return <div className="space-y-2">
+    <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+      <p className="text-xs font-semibold text-slate-500">El <b className="text-slate-700 dark:text-slate-200">+2% Gesu</b> es un recargo de precio, no un cargo de Mercado Libre.</p>
+      <button type="button" onClick={onCalculatePage} disabled={!publicaciones.length || calculatingPage} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${calculatingPage ? "animate-spin" : ""}`} />{calculatingPage ? "Actualizando pagina..." : `Actualizar pagina (${publicaciones.length})`}</button>
+    </div>
+    <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}>
+    <table className="w-full min-w-[980px] text-left text-xs">
+      <thead><tr><th>Publicacion</th><th className="text-right">Precio</th><th className="text-right">Comision ML</th><th className="text-right">Envio est.</th><th className="text-right">+2% Gesu</th><th className="text-right">Resultado</th><th /></tr></thead>
       <tbody>{publicaciones.map((item) => {
         const costo = item.costoEstimado;
         const calculating = calculatingItemId === item.itemId;
+        const recargoGesu = item.precio === null ? null : item.precio * GESU_RECARGO_PORCENTAJE;
+        const precioConRecargoGesu = item.precio === null || recargoGesu === null ? null : item.precio + recargoGesu;
         return <tr key={item.id}>
-          <td><div className="max-w-xs truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{item.itemId}</div>{costo?.advertencias?.[0] && <div className="mt-1 max-w-xs truncate text-[10px] font-semibold text-amber-600 dark:text-amber-300" title={costo.advertencias.join(" ")}>{costo.advertencias[0]}</div>}</td>
-          <td className="font-mono font-bold">{item.sellerSku || item.codigoProducto || item.codigoKit || "-"}</td>
+          <td><div className="max-w-[22rem] truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 flex flex-wrap gap-x-2 font-mono text-[10px] text-slate-500"><span>{item.itemId}</span><span>{item.sellerSku || item.codigoProducto || item.codigoKit || "-"}</span><span>{item.tipoPublicacion || "-"}</span></div>{costo?.advertencias?.[0] && <div className="mt-1 max-w-sm truncate text-[10px] font-semibold text-amber-600 dark:text-amber-300" title={costo.advertencias.join(" ")}>{costo.advertencias[0]}</div>}</td>
           <td className="text-right font-mono font-black">{money(item.precio, item.moneda)}</td>
-          <td className="font-bold text-slate-600 dark:text-slate-300">{item.tipoPublicacion || "-"}</td>
-          <td className="text-right font-mono">{money(costo?.comisionTotal ?? null, item.moneda)}</td>
-          <td className="text-right font-mono">{money(costo?.cargoFijo ?? null, item.moneda)}</td>
-          <td className="text-right font-mono">{money(costo?.cargoFinanciacion ?? null, item.moneda)}</td>
+          <td className="text-right font-mono"><div>{money(costo?.comisionTotal ?? null, item.moneda)}</div><div className="mt-1 text-[10px] text-slate-500">Fijo {money(costo?.cargoFijo ?? null, item.moneda)} · Cuotas {money(costo?.cargoFinanciacion ?? null, item.moneda)}</div></td>
           <td className="text-right font-mono"><div>{money(costo?.envioEstimado ?? null, item.moneda)}</div>{costo?.pesoFacturable !== null && costo?.pesoFacturable !== undefined && <div className="mt-1 text-[10px] text-slate-500">{costo.pesoFacturable} g fact.</div>}{costo?.dimensionesEnvio && <div className="mt-1 max-w-28 truncate text-[10px] text-slate-500" title={`Dimensiones ML: ${costo.dimensionesEnvio}`}>ML: {costo.dimensionesEnvio}</div>}</td>
-          <td className="text-right font-mono font-black text-red-600 dark:text-red-300">{money(costo?.costoMlTotal ?? null, item.moneda)}</td>
-          <td className="text-right font-mono font-black text-emerald-600 dark:text-emerald-300">{money(costo?.netoEstimado ?? null, item.moneda)}</td>
-          <td className="whitespace-nowrap text-[10px] font-semibold text-slate-500">{costo?.consultadoAt ? date(costo.consultadoAt, "-") : "Sin calcular"}</td>
+          <td className="text-right font-mono"><div className="font-black text-violet-600 dark:text-violet-300">{money(recargoGesu, item.moneda)}</div><div className="mt-1 whitespace-nowrap text-[10px] text-slate-500">P. Gesu {money(precioConRecargoGesu, item.moneda)}</div></td>
+          <td className="text-right font-mono"><div className="font-black text-red-600 dark:text-red-300">ML {money(costo?.costoMlTotal ?? null, item.moneda)}</div><div className="mt-1 font-black text-emerald-600 dark:text-emerald-300">Neto {money(costo?.netoEstimado ?? null, item.moneda)}</div><div className="mt-1 whitespace-nowrap text-[10px] font-semibold text-slate-500">{costo?.consultadoAt ? date(costo.consultadoAt, "-") : "Sin calcular"}</div></td>
           <td className="text-right"><button type="button" onClick={() => onCalculate(item.itemId)} disabled={calculating} title="Actualizar costo estimado" aria-label={`Actualizar costo estimado de ${item.titulo}`} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 transition hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300"><RefreshCw className={`h-4 w-4 ${calculating ? "animate-spin" : ""}`} /></button></td>
         </tr>;
       })}</tbody>
     </table>
-  </TableShell>;
+    </TableShell>
+  </div>;
 }
 
 function PreguntasTable({ preguntas, loading, canManage, answeringQuestionId, onAnswer }: {

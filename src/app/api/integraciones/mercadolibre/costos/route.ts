@@ -3,20 +3,24 @@ import { z } from "zod";
 
 import { jsonError } from "@/lib/api-errors";
 import { requireApiReadSession } from "@/lib/api-auth";
-import { actualizarCostoEstimadoMercadoLibre } from "@/lib/mercadolibre";
+import { actualizarCostoEstimadoMercadoLibre, actualizarCostosEstimadosMercadoLibreLote } from "@/lib/mercadolibre";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const schema = z.object({
   idCuenta: z.coerce.number().int().positive(),
-  itemId: z.string().trim().regex(/^ML[A-Z]+\d+$/i, "La publicacion de Mercado Libre no es valida."),
-});
+  itemId: z.string().trim().regex(/^ML[A-Z]+\d+$/i, "La publicacion de Mercado Libre no es valida.").optional(),
+  itemIds: z.array(z.string().trim().regex(/^ML[A-Z]+\d+$/i, "La publicacion de Mercado Libre no es valida.")).min(1).max(50).optional(),
+}).refine((payload) => Boolean(payload.itemId) !== Boolean(payload.itemIds), "Indica una publicacion o una pagina de publicaciones.");
 
 export async function POST(request: NextRequest) {
   try {
     await requireApiReadSession(request);
     const payload = schema.parse(await request.json());
+    if (payload.itemIds) return NextResponse.json(await actualizarCostosEstimadosMercadoLibreLote(payload.idCuenta, payload.itemIds), {
+      headers: { "Cache-Control": "no-store" },
+    });
     return NextResponse.json(await actualizarCostoEstimadoMercadoLibre(payload.idCuenta, payload.itemId), {
       headers: { "Cache-Control": "no-store" },
     });

@@ -280,7 +280,7 @@ export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, l
       tipoPublicacion: row.tipo_publicacion ? String(row.tipo_publicacion) : null,
       precio: row.precio === null ? null : Number(row.precio), precioOriginal: row.precio_original === null ? null : Number(row.precio_original),
       moneda: row.moneda ? String(row.moneda) : null, cantidadDisponible: row.cantidad_disponible === null ? null : Number(row.cantidad_disponible),
-      cantidadVendida: row.cantidad_vendida === null ? null : Number(row.cantidad_vendida), thumbnailUrl: row.thumbnail_url ? String(row.thumbnail_url) : null,
+      cantidadVendida: row.cantidad_vendida === null ? null : Number(row.cantidad_vendida), thumbnailUrl: secureThumbnailUrl(row.thumbnail_url ? String(row.thumbnail_url) : null),
       permalink: row.permalink ? String(row.permalink) : null, variaciones: Array.isArray(row.variaciones) ? row.variaciones : [],
       fechaCreacionMl: row.fecha_creacion_ml ? new Date(String(row.fecha_creacion_ml)).toISOString() : null,
       fechaActualizacionMl: row.fecha_actualizacion_ml ? new Date(String(row.fecha_actualizacion_ml)).toISOString() : null,
@@ -376,7 +376,7 @@ export async function getMercadoLibrePreguntas(
     data: rows.map((row): MercadoLibrePreguntaListado => ({
       id: Number(row.id), preguntaId: String(row.pregunta_id), itemId: row.item_id ? String(row.item_id) : null,
       titulo: row.titulo ? String(row.titulo) : null, comprador: row.comprador ? String(row.comprador) : null,
-      thumbnailUrl: row.thumbnail_url ? String(row.thumbnail_url) : null, sellerSku: row.seller_sku ? String(row.seller_sku) : null,
+      thumbnailUrl: secureThumbnailUrl(row.thumbnail_url ? String(row.thumbnail_url) : null), sellerSku: row.seller_sku ? String(row.seller_sku) : null,
       precio: row.precio === null ? null : Number(row.precio), moneda: row.moneda ? String(row.moneda) : null,
       cantidadDisponible: row.cantidad_disponible === null ? null : Number(row.cantidad_disponible),
       compradorId: row.comprador_id === null ? null : String(row.comprador_id),
@@ -560,6 +560,11 @@ function toFiniteNumber(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
+function secureThumbnailUrl(value: string | null | undefined) {
+  const url = String(value || "").trim();
+  return url ? url.replace(/^http:\/\//i, "https://") : null;
+}
+
 function shippingWeight(dimensions: string | null | undefined) {
   const value = String(dimensions || "").split(",").at(-1)?.trim() || "";
   return /^\d+(?:[.,]\d+)?$/.test(value) ? value.replace(",", ".") : null;
@@ -666,6 +671,27 @@ export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, item
   return result;
 }
 
+export async function actualizarCostosEstimadosMercadoLibreLote(idCuenta: number, itemIds: string[]) {
+  const pendientes = Array.from(new Set(itemIds.map((itemId) => itemId.trim()).filter(Boolean))).slice(0, 50);
+  const calculados: MercadoLibreCostoEstimado[] = [];
+  const errores: Array<{ itemId: string; mensaje: string }> = [];
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (nextIndex < pendientes.length) {
+      const itemId = pendientes[nextIndex++];
+      try {
+        calculados.push(await actualizarCostoEstimadoMercadoLibre(idCuenta, itemId));
+      } catch (error) {
+        errores.push({ itemId, mensaje: error instanceof Error ? error.message : "No se pudo calcular el costo." });
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(4, pendientes.length) }, () => worker()));
+  return { calculados, errores };
+}
+
 async function getAllItemIds(idCuenta: number, sellerId: number, accessToken: string) {
   const ids: string[] = [];
   let scrollId: string | null = null;
@@ -700,7 +726,7 @@ function mapPublicacion(item: MeliItem): MercadoLibrePublicacion {
     moneda: item.currency_id || null,
     cantidadDisponible: Number.isFinite(Number(item.available_quantity)) ? Number(item.available_quantity) : null,
     cantidadVendida: Number.isFinite(Number(item.sold_quantity)) ? Number(item.sold_quantity) : null,
-    thumbnailUrl: item.thumbnail || null, permalink: item.permalink || null, variaciones: item.variations || [],
+    thumbnailUrl: secureThumbnailUrl(item.thumbnail), permalink: item.permalink || null, variaciones: item.variations || [],
     fechaCreacionMl: item.date_created || null,
     fechaActualizacionMl: item.last_updated || null,
   };
