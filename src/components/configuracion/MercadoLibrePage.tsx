@@ -394,10 +394,11 @@ function PreguntaCard({ pregunta, canManage, sending, onAnswer }: {
 }) {
   const [texto, setTexto] = useState("");
   const [showPrevious, setShowPrevious] = useState(false);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const respond = async () => { await onAnswer(pregunta.preguntaId, texto); setTexto(""); };
   return <article className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
     <header className="grid gap-3 p-4 sm:grid-cols-[3rem_minmax(0,1fr)_auto_auto] sm:items-center">
-      <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">{pregunta.thumbnailUrl ? <img src={pregunta.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <Package className="h-5 w-5 text-slate-400" />}</div>
+      <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">{pregunta.thumbnailUrl && !thumbnailFailed ? <img src={pregunta.thumbnailUrl} alt="" className="h-full w-full object-contain" onError={() => setThumbnailFailed(true)} /> : <Package className="h-5 w-5 text-slate-400" />}</div>
       <div className="min-w-0"><p className="font-mono text-[10px] font-bold uppercase text-slate-500">{pregunta.sellerSku ? `SKU ${pregunta.sellerSku}` : pregunta.itemId || "Publicacion"}</p><p className="truncate text-sm font-black text-slate-900 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "Sin titulo"}</p></div>
       <div className="text-sm font-black text-slate-800 dark:text-white">{money(pregunta.precio, pregunta.moneda)}</div>
       <div className="text-sm font-bold text-slate-500">{pregunta.cantidadDisponible === null ? "" : `${pregunta.cantidadDisponible} unidades`}</div>

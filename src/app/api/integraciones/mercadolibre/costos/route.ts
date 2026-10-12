@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { jsonError } from "@/lib/api-errors";
+import { AppError, jsonError } from "@/lib/api-errors";
 import { requireApiReadSession } from "@/lib/api-auth";
 import { actualizarCostoEstimadoMercadoLibre, actualizarCostosEstimadosMercadoLibreLote } from "@/lib/mercadolibre";
 
@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
     if (payload.itemIds) return NextResponse.json(await actualizarCostosEstimadosMercadoLibreLote(payload.idCuenta, payload.itemIds), {
       headers: { "Cache-Control": "no-store" },
     });
+    if (!payload.itemId) throw new AppError("Indica una publicacion valida.", 400);
     return NextResponse.json(await actualizarCostoEstimadoMercadoLibre(payload.idCuenta, payload.itemId), {
       headers: { "Cache-Control": "no-store" },
     });
