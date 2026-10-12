@@ -10,7 +10,7 @@ export function condicionBusquedaProducto(
   alias: "p" | "componente" = "p"
 ) {
   const match = (column: string) => exact
-    ? `UPPER(${column}::text) = UPPER($${parameter}::text)`
+    ? `UPPER(TRIM(${column}::text)) = UPPER(TRIM($${parameter}::text))`
     : `${column}::text ILIKE $${parameter}`;
 
   const conditions = [
@@ -79,7 +79,7 @@ export function condicionBusquedaProducto(
 
 export function condicionBusquedaKit(parameter: number, exact = false) {
   const match = (column: string) => exact
-    ? `UPPER(${column}::text) = UPPER($${parameter}::text)`
+    ? `UPPER(TRIM(${column}::text)) = UPPER(TRIM($${parameter}::text))`
     : `${column}::text ILIKE $${parameter}`;
   const conditions = [match("k.codigo_kit")];
 

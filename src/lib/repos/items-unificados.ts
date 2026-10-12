@@ -175,8 +175,8 @@ export async function getItemsUnificadosListado(
   const productIds = catalogResult.rows.filter((row) => row.tipo === "ITEM").map((row) => row.id);
   const kitIds = catalogResult.rows.filter((row) => row.tipo === "KIT").map((row) => row.id);
   const [productResult, kitResult, kitComponents, meliPublicaciones] = await Promise.all([
-    productIds.length ? getProductosListado(1, productIds.length, { ids: productIds }) : Promise.resolve({ data: [] as ProductoListado[] }),
-    kitIds.length ? getKitsListado(1, kitIds.length, undefined, kitIds) : Promise.resolve({ data: [] as Awaited<ReturnType<typeof getKitsListado>>["data"] }),
+    productIds.length ? getProductosListado(1, productIds.length, { ids: productIds, skipCount: true }) : Promise.resolve({ data: [] as ProductoListado[] }),
+    kitIds.length ? getKitsListado(1, kitIds.length, undefined, kitIds, true) : Promise.resolve({ data: [] as Awaited<ReturnType<typeof getKitsListado>>["data"] }),
     kitIds.length ? getComponentesParaKitsListado(kitIds) : Promise.resolve([]),
     (productIds.length || kitIds.length) ? query<{ id_producto: number | null; id_kit: number | null; item_id: string; titulo: string; permalink: string | null; estado: string; fecha_creacion_ml: string | null; fecha_actualizacion_ml: string | null; sincronizada_at: string }>(
       `SELECT id_producto, id_kit, item_id, titulo, permalink, estado,

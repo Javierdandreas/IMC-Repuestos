@@ -199,6 +199,7 @@ export async function getProductosListado(
     marca?: string;
     proveedor?: string;
     ids?: number[];
+    skipCount?: boolean;
   } = {}
 ): Promise<{ data: ProductoListado[]; totalCount: number; totalPages: number }> {
   const params: any[] = [];
@@ -383,7 +384,7 @@ export async function getProductosListado(
     ORDER BY p.id DESC
   `;
 
-  return await paginateQuery<ProductoListado>("productos", sql, page, limit, params);
+  return await paginateQuery<ProductoListado>("productos", sql, page, limit, params, { skipCount: filters.skipCount });
 }
 
 export async function getProductosParaExportar(filters: {

@@ -16,7 +16,7 @@ const TIPO_CUENTA_CORRIENTE_SQL = `
  * Obtiene el listado de kits con paginación.
  * El precio mostrado es la sumatoria del precio de Mercado Libre de sus componentes.
  */
-export async function getKitsListado(page: number = 1, limit: number = 50, search?: string, ids?: number[]) {
+export async function getKitsListado(page: number = 1, limit: number = 50, search?: string, ids?: number[], skipCount = false) {
   const whereClauses: string[] = [];
   const params: any[] = [];
 
@@ -95,7 +95,7 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
     GROUP BY k.id, c.descripcion, s.descripcion, marca_kit.descripcion, precios_kit.precios
   `;
 
-  return await paginateQuery<KitListado>("log_importaciones", baseQuery, page, limit, params);
+  return await paginateQuery<KitListado>("log_importaciones", baseQuery, page, limit, params, { skipCount });
 }
 
 /**

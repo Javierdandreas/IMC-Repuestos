@@ -46,7 +46,8 @@ export async function paginateQuery<T extends QueryResultRow>(
   dataQuery: string,
   page: number = 1,
   limit: number = 50,
-  params: any[] = []
+  params: any[] = [],
+  options: { skipCount?: boolean } = {}
 ): Promise<{ data: T[]; totalCount: number; totalPages: number }> {
   // SEGURIDAD: Validar que la tabla esté en una lista blanca para evitar SQL Injection dinámica
   const ALLOWED_TABLES = [
@@ -74,6 +75,12 @@ export async function paginateQuery<T extends QueryResultRow>(
 
   const limitNum = Math.max(1, limit);
   const offset = Math.max(0, (page - 1) * limitNum);
+
+  if (options.skipCount) {
+    const finalSql = `${dataQuery} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    const { rows } = await query(finalSql, [...params, limitNum, offset]);
+    return { data: rows as T[], totalCount: rows.length, totalPages: rows.length ? 1 : 0 };
+  }
 
   // Consulta el total de registros usando una subconsulta para mayor precisión y seguridad
   const countSql = `SELECT COUNT(*) FROM (${dataQuery}) AS count_subquery`;
