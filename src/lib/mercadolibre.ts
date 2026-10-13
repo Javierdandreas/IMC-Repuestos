@@ -120,6 +120,10 @@ function normalizeCode(value: string | null | undefined) {
   return (value || "").trim().toUpperCase();
 }
 
+function normalizeMatchingCode(value: string | null | undefined) {
+  return normalizeCode(value).replace(/[^A-Z0-9]+/g, "");
+}
+
 function mapCuenta(row: Record<string, unknown>): MercadoLibreCuentaEstado {
   return {
     id: Number(row.id),
@@ -949,7 +953,7 @@ export async function responderPreguntaMercadoLibre(idCuenta: number, preguntaId
 async function guardarPublicacionDesdeWebhook(idCuenta: number, item: MeliItem) {
   if (!item.id) return;
   const publication = mapPublicacion(item);
-  const code = normalizeCode(publication.sellerSku);
+  const code = normalizeMatchingCode(publication.sellerSku);
   const [products, kits] = await Promise.all([
     productIdsByCode(code ? [code] : []),
     kitIdsByCode(code ? [code] : []),
@@ -1073,22 +1077,34 @@ export async function procesarEventosMercadoLibrePendientes(limit = 25) {
 
 async function productIdsByCode(codes: string[]) {
   if (!codes.length) return new Map<string, number>();
-  const { rows } = await query<{ id: number; cod_unico: string }>(
-    `SELECT id, cod_unico FROM public.productos
-     WHERE UPPER(TRIM(cod_unico)) = ANY($1::text[]) AND COALESCE(oculto_por_kit, FALSE) = FALSE`,
-    [codes]
+  const normalizedCodes = Array.from(new Set(codes.map(normalizeMatchingCode).filter(Boolean)));
+  if (!normalizedCodes.length) return new Map<string, number>();
+  const { rows } = await query<{ codigo: string; id: number }>(
+    `SELECT regexp_replace(upper(trim(cod_unico)), '[^A-Z0-9]+', '', 'g') AS codigo, MIN(id)::int AS id
+     FROM public.productos
+     WHERE regexp_replace(upper(trim(cod_unico)), '[^A-Z0-9]+', '', 'g') = ANY($1::text[])
+       AND COALESCE(oculto_por_kit, FALSE) = FALSE
+     GROUP BY regexp_replace(upper(trim(cod_unico)), '[^A-Z0-9]+', '', 'g')
+     HAVING COUNT(*) = 1`,
+    [normalizedCodes]
   );
-  return new Map(rows.map((row) => [normalizeCode(row.cod_unico), Number(row.id)]));
+  return new Map(rows.map((row) => [String(row.codigo), Number(row.id)]));
 }
 
 async function kitIdsByCode(codes: string[]) {
   if (!codes.length) return new Map<string, number>();
-  const { rows } = await query<{ id: number; codigo_kit: string }>(
-    `SELECT id, codigo_kit FROM public.kits
-     WHERE UPPER(TRIM(codigo_kit)) = ANY($1::text[]) AND COALESCE(activo, TRUE) = TRUE`,
-    [codes]
+  const normalizedCodes = Array.from(new Set(codes.map(normalizeMatchingCode).filter(Boolean)));
+  if (!normalizedCodes.length) return new Map<string, number>();
+  const { rows } = await query<{ codigo: string; id: number }>(
+    `SELECT regexp_replace(upper(trim(codigo_kit)), '[^A-Z0-9]+', '', 'g') AS codigo, MIN(id)::int AS id
+     FROM public.kits
+     WHERE regexp_replace(upper(trim(codigo_kit)), '[^A-Z0-9]+', '', 'g') = ANY($1::text[])
+       AND COALESCE(activo, TRUE) = TRUE
+     GROUP BY regexp_replace(upper(trim(codigo_kit)), '[^A-Z0-9]+', '', 'g')
+     HAVING COUNT(*) = 1`,
+    [normalizedCodes]
   );
-  return new Map(rows.map((row) => [normalizeCode(row.codigo_kit), Number(row.id)]));
+  return new Map(rows.map((row) => [String(row.codigo), Number(row.id)]));
 }
 
 export async function sincronizarMercadoLibre(idCuenta: number): Promise<MercadoLibreSyncResult> {
@@ -1106,12 +1122,12 @@ export async function sincronizarMercadoLibre(idCuenta: number): Promise<Mercado
     const ids = await getAllItemIds(idCuenta, sellerId, accessToken);
     const { items, errors } = await getItemDetails(ids, idCuenta, accessToken);
     const publications = items.map(mapPublicacion);
-    const codes = publications.map((item) => normalizeCode(item.sellerSku)).filter(Boolean);
+    const codes = publications.map((item) => normalizeMatchingCode(item.sellerSku)).filter(Boolean);
     const [products, kits] = await Promise.all([productIdsByCode(codes), kitIdsByCode(codes)]);
     let linked = 0;
 
     for (const item of publications) {
-      const code = normalizeCode(item.sellerSku);
+      const code = normalizeMatchingCode(item.sellerSku);
       const candidateProductId = code ? products.get(code) || null : null;
       const candidateKitId = code ? kits.get(code) || null : null;
       const productId = candidateProductId && !candidateKitId ? candidateProductId : null;
