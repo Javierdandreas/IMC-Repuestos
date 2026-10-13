@@ -3,6 +3,17 @@ export function parametroBusquedaItems(value: string, exact = false) {
   return exact ? text : `%${text.replace(/[\\%_]/g, "\\$&")}%`;
 }
 
+export function prefijosCodigosComponentes(value: string) {
+  const tokens = value.trim().toUpperCase().split(/\s+/).filter(Boolean);
+  const isCodePrefix = (token: string) => token.length >= 3
+    && /^[A-Z0-9._/-]+$/.test(token)
+    && /[A-Z]/.test(token)
+    && /\d/.test(token);
+
+  if (tokens.length < 2 || tokens.length > 8 || !tokens.every(isCodePrefix)) return [];
+  return [...new Set(tokens)];
+}
+
 // EXISTS matches related data without filtering the rows used to build aggregates.
 export function condicionBusquedaProducto(
   parameter: number,
@@ -109,4 +120,15 @@ export function condicionBusquedaKit(parameter: number, exact = false) {
   )`);
 
   return `(${conditions.join("\n OR ")})`;
+}
+
+export function condicionBusquedaKitPorComponentes(parameters: number[]) {
+  return `(${parameters.map((parameter) => `EXISTS (
+    SELECT 1
+    FROM public.kit_detalle buscar_detalle
+    JOIN public.productos componente ON componente.id = buscar_detalle.id_producto
+    WHERE buscar_detalle.id_kit = k.id
+      AND COALESCE(componente.oculto_por_kit, FALSE) = FALSE
+      AND ${condicionBusquedaProducto(parameter, false, "componente")}
+  )`).join("\n AND ")})`;
 }

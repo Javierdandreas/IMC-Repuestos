@@ -2,7 +2,7 @@ import type { ProductoListado } from "@/interfaces/productos";
 import { query } from "@/lib/db-utils";
 import { getProductosListado } from "@/lib/repos/productos";
 import { getComponentesParaKitsListado, getKitsListado } from "@/lib/repos/kits";
-import { condicionBusquedaKit, condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
+import { condicionBusquedaKit, condicionBusquedaKitPorComponentes, condicionBusquedaProducto, parametroBusquedaItems, prefijosCodigosComponentes } from "@/lib/busqueda-items";
 
 export type FiltrosItemsUnificados = {
   search?: string;
@@ -56,12 +56,22 @@ export async function getItemsUnificadosListado(
   const params: unknown[] = [];
   const productConditions = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
   const kitConditions: string[] = [];
-  const includeKitComponents = Boolean(filters.search?.trim() || filters.searchSpecific?.trim());
+  const componentCodePrefixes = prefijosCodigosComponentes(filters.search || "");
+  const includeKitComponents = Boolean(filters.search?.trim() || filters.searchSpecific?.trim()) && componentCodePrefixes.length === 0;
 
   if (filters.search?.trim()) {
-    params.push(parametroBusquedaItems(filters.search));
-    productConditions.push(condicionBusquedaProducto(params.length));
-    kitConditions.push(condicionBusquedaKit(params.length));
+    if (componentCodePrefixes.length) {
+      const parameterPositions = componentCodePrefixes.map((prefix) => {
+        params.push(parametroBusquedaItems(prefix));
+        return params.length;
+      });
+      productConditions.push("FALSE");
+      kitConditions.push(condicionBusquedaKitPorComponentes(parameterPositions));
+    } else {
+      params.push(parametroBusquedaItems(filters.search));
+      productConditions.push(condicionBusquedaProducto(params.length));
+      kitConditions.push(condicionBusquedaKit(params.length));
+    }
   }
 
   if (filters.searchSpecific?.trim()) {
