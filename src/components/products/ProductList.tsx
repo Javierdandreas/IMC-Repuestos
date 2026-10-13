@@ -104,6 +104,16 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [marca, setMarca] = useState(searchParams.get("marca") || "");
   const [proveedor, setProveedor] = useState(searchParams.get("proveedor") || "");
 
+  const handleGeneralSearchChange = (value: string) => {
+    setSearchGeneral(value);
+    if (value) setSearchSpecific("");
+  };
+
+  const handleSpecificSearchChange = (value: string) => {
+    setSearchSpecific(value);
+    if (value) setSearchGeneral("");
+  };
+
   const [isZoomed, setIsZoomed] = useState(false);
   const [openLabelPrinter, setOpenLabelPrinter] = useState(false);
   const [idTipoVenta, setIdTipoVenta] = useState<number | null>(null);
@@ -388,7 +398,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     type="text"
                     placeholder="DESCRIPCIÓN, ITEM ASOCIADO, PALABRAS..."
                     value={searchGeneral}
-                    onChange={(e) => setSearchGeneral(e.target.value)}
+                    onChange={(e) => handleGeneralSearchChange(e.target.value)}
                     className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pl-9 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
                   />
                   <svg className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -404,7 +414,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   type="text"
                   placeholder="CÓDIGO EXACTO"
                   value={searchSpecific}
-                  onChange={(e) => setSearchSpecific(e.target.value)}
+                  onChange={(e) => handleSpecificSearchChange(e.target.value)}
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
                 />
               </div>
