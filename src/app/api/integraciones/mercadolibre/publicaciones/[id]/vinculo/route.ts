@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { AppError, jsonError } from "@/lib/api-errors";
 import { requireApiWriteSession } from "@/lib/api-auth";
-import { guardarVinculoManualMercadoLibre } from "@/lib/mercadolibre";
+import { guardarVinculoRevisadoMercadoLibre } from "@/lib/mercadolibre";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -11,11 +11,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!Number.isInteger(idPublicacion) || idPublicacion <= 0) throw new AppError("La publicación no es válida.", 400);
     const body = await request.json();
     const target = body?.target === null ? null : body?.target;
+    const actualizarSku = Boolean(body?.actualizarSku);
     if (target !== null && (!target || (target.tipo !== "ITEM" && target.tipo !== "KIT") || !Number.isInteger(Number(target.id)) || Number(target.id) <= 0)) {
       throw new AppError("El destino del vínculo no es válido.", 400);
     }
-    await guardarVinculoManualMercadoLibre(idPublicacion, target === null ? null : { tipo: target.tipo, id: Number(target.id) });
-    return NextResponse.json({ ok: true });
+    const result = await guardarVinculoRevisadoMercadoLibre(
+      idPublicacion,
+      target === null ? null : { tipo: target.tipo, id: Number(target.id) },
+      target === null ? false : actualizarSku,
+    );
+    return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     return jsonError(error, "No se pudo guardar el vínculo de Mercado Libre.");
   }

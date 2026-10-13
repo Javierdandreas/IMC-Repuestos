@@ -2,7 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronUp, CircleDollarSign, ExternalLink, Link2, MessageCircle, Package, RefreshCw, Send, Settings2, ShieldCheck, ShoppingCart, Unlink } from "lucide-react";
+import { Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, ExternalLink, Link2, LoaderCircle, MessageCircle, Package, RefreshCw, Search, Send, Settings2, ShieldCheck, ShoppingCart, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
@@ -11,6 +11,7 @@ import type {
   MercadoLibreCostoSincronizacion,
   MercadoLibrePreguntasResult,
   MercadoLibrePublicacionesResult,
+  MercadoLibrePublicacionListado,
   MercadoLibreSyncResult,
   MercadoLibreVentasResult,
 } from "@/interfaces/mercadolibre";
@@ -19,6 +20,8 @@ type Props = { canManage: boolean };
 type Tab = "VENTAS" | "PUBLICACIONES" | "COSTOS" | "PREGUNTAS" | "SINCRONIZACION";
 type QuestionStatus = "POR_RESPONDER" | "RESPONDIDAS";
 type DateOrder = "DESC" | "ASC";
+type PublicationLinkFilter = "" | "SIN_VINCULO" | "EXCLUIDO_MANUAL";
+type LinkCandidate = { tipo: "ITEM" | "KIT"; id: number; codigo: string; descripcion: string };
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof ShoppingCart }> = [
   { id: "VENTAS", label: "Ventas", icon: ShoppingCart },
@@ -63,6 +66,7 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [publicationLinkFilter, setPublicationLinkFilter] = useState<PublicationLinkFilter>("");
   const deferredSearch = useDeferredValue(search.trim());
   const [questionStatus, setQuestionStatus] = useState<QuestionStatus>("POR_RESPONDER");
   const [questionOrder, setQuestionOrder] = useState<DateOrder>("DESC");
@@ -87,7 +91,13 @@ export function MercadoLibrePage({ canManage }: Props) {
     } : account));
   }, []);
 
-  const loadTab = useCallback(async (accountId: number, nextTab: Tab, page = 1, publicationSearch = "") => {
+  const loadTab = useCallback(async (
+    accountId: number,
+    nextTab: Tab,
+    page = 1,
+    publicationSearch = "",
+    linkFilter: PublicationLinkFilter = "",
+  ) => {
     if (nextTab === "SINCRONIZACION") return;
     const path = nextTab === "VENTAS" ? "ventas" : nextTab === "PREGUNTAS" ? "preguntas" : "publicaciones";
     const params = new URLSearchParams({ idCuenta: String(accountId), page: String(page) });
@@ -96,6 +106,7 @@ export function MercadoLibrePage({ canManage }: Props) {
       params.set("orden", questionOrder);
     }
     if ((nextTab === "PUBLICACIONES" || nextTab === "COSTOS") && publicationSearch) params.set("q", publicationSearch);
+    if (nextTab === "PUBLICACIONES" && linkFilter) params.set("vinculo", linkFilter);
     const response = await fetch(`/api/integraciones/mercadolibre/${path}?${params.toString()}`, { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.message || "No se pudo cargar la informacion de Mercado Libre.");
@@ -117,13 +128,13 @@ export function MercadoLibrePage({ canManage }: Props) {
       const isPublicationSearch = tab === "PUBLICACIONES" || tab === "COSTOS";
       const page = isPublicationSearch && deferredSearch ? 1 : pages[tab];
       if (isPublicationSearch && deferredSearch && pages[tab] !== 1) setPages((current) => ({ ...current, [tab]: 1 }));
-      if (accountId) await loadTab(accountId, tab, page, isPublicationSearch ? deferredSearch : "");
+      if (accountId) await loadTab(accountId, tab, page, isPublicationSearch ? deferredSearch : "", tab === "PUBLICACIONES" ? publicationLinkFilter : "");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo cargar Mercado Libre.");
     } finally {
       setLoading(false);
     }
-  }, [deferredSearch, loadTab, pages, selectedAccountId, tab]);
+  }, [deferredSearch, loadTab, pages, publicationLinkFilter, selectedAccountId, tab]);
 
   const refreshQuestionInbox = useCallback(async (accountId: number) => {
     if (questionRefreshInFlight.current) return;
@@ -161,10 +172,10 @@ export function MercadoLibrePage({ canManage }: Props) {
   useEffect(() => {
     if (!selectedAccountId || tab === "SINCRONIZACION" || tab === "PREGUNTAS" || tab === "VENTAS") return;
     const interval = window.setInterval(() => {
-      void loadTab(selectedAccountId, tab, pages[tab], deferredSearch).catch(() => undefined);
+      void loadTab(selectedAccountId, tab, pages[tab], deferredSearch, tab === "PUBLICACIONES" ? publicationLinkFilter : "").catch(() => undefined);
     }, 15_000);
     return () => window.clearInterval(interval);
-  }, [deferredSearch, loadTab, pages, selectedAccountId, tab]);
+  }, [deferredSearch, loadTab, pages, publicationLinkFilter, selectedAccountId, tab]);
   useEffect(() => {
     if (!selectedAccountId || tab !== "VENTAS") return;
     const update = async () => {
@@ -206,14 +217,14 @@ export function MercadoLibrePage({ canManage }: Props) {
     try {
       if (nextTab === "PREGUNTAS") await refreshQuestionInbox(selectedAccountId);
       else if (nextTab === "VENTAS") await refreshSalesInbox(selectedAccountId);
-      else await loadTab(selectedAccountId, nextTab, pages[nextTab]);
+      else await loadTab(selectedAccountId, nextTab, pages[nextTab], "", nextTab === "PUBLICACIONES" ? publicationLinkFilter : "");
     }
     catch (requestError) { toast.error(requestError instanceof Error ? requestError.message : "No se pudo cargar la seccion."); }
   };
 
   const selectAccount = async (accountId: number) => {
     setSelectedAccountId(accountId); setSearch("");
-    try { await loadTab(accountId, tab, 1); }
+    try { await loadTab(accountId, tab, 1, "", tab === "PUBLICACIONES" ? publicationLinkFilter : ""); }
     catch (requestError) { toast.error(requestError instanceof Error ? requestError.message : "No se pudo cargar la cuenta."); }
   };
 
@@ -222,7 +233,7 @@ export function MercadoLibrePage({ canManage }: Props) {
     const totalPages = tab === "VENTAS" ? ventas.totalPages : tab === "PREGUNTAS" ? preguntas.totalPages : publicaciones.totalPages;
     if (nextPage > totalPages) return;
     setPages((current) => ({ ...current, [tab]: nextPage }));
-    try { await loadTab(selectedAccountId, tab, nextPage, tab === "PUBLICACIONES" || tab === "COSTOS" ? deferredSearch : ""); }
+    try { await loadTab(selectedAccountId, tab, nextPage, tab === "PUBLICACIONES" || tab === "COSTOS" ? deferredSearch : "", tab === "PUBLICACIONES" ? publicationLinkFilter : ""); }
     catch (requestError) { toast.error(requestError instanceof Error ? requestError.message : "No se pudo cambiar de pagina."); }
   };
 
@@ -230,6 +241,16 @@ export function MercadoLibrePage({ canManage }: Props) {
     setPages((current) => ({ ...current, PREGUNTAS: 1 }));
     if (type === "estado") setQuestionStatus(value as QuestionStatus);
     else setQuestionOrder(value as DateOrder);
+  };
+
+  const changePublicationLinkFilter = (value: PublicationLinkFilter) => {
+    setPublicationLinkFilter(value);
+    setPages((current) => ({ ...current, PUBLICACIONES: 1 }));
+  };
+
+  const refreshPublicaciones = async () => {
+    if (!selectedAccountId) return;
+    await loadTab(selectedAccountId, "PUBLICACIONES", pages.PUBLICACIONES, deferredSearch, publicationLinkFilter);
   };
 
   const sync = async () => {
@@ -373,11 +394,11 @@ export function MercadoLibrePage({ canManage }: Props) {
     {cuentas.length > 0 && <>
       <section className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950"><label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cuenta</label><select value={selectedAccountId || ""} onChange={(event) => void selectAccount(Number(event.target.value))} className="h-9 min-w-56 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white">{cuentas.map((cuenta) => <option key={cuenta.id} value={cuenta.id}>{cuenta.nickname || `Vendedor ${cuenta.sellerId}`} · {cuenta.siteId}</option>)}</select>{activeAccount && <span className="text-xs text-slate-500">Ultima sincronizacion: <strong className="text-slate-700 dark:text-slate-200">{date(activeAccount.ultimaSincronizacionAt)}</strong></span>}</section>
       <nav className="flex overflow-x-auto border-b border-slate-200 dark:border-slate-800" aria-label="Secciones de Mercado Libre">{TABS.map((item) => { const Icon = item.icon; const active = tab === item.id; return <button key={item.id} type="button" onClick={() => void changeTab(item.id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-xs font-black uppercase tracking-wide transition ${active ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}><Icon className="h-4 w-4" />{item.label}</button>; })}</nav>
-      {tab !== "SINCRONIZACION" && <div className="flex flex-wrap items-center gap-2">{tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select></>}<div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} registros</span></div>}
+      {tab !== "SINCRONIZACION" && <div className="flex flex-wrap items-center gap-2">{tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select></>}{tab === "PUBLICACIONES" && <><label className="sr-only" htmlFor="publicaciones-vinculo">Estado de vinculo</label><select id="publicaciones-vinculo" value={publicationLinkFilter} onChange={(event) => changePublicationLinkFilter(event.target.value as PublicationLinkFilter)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="">Todas las publicaciones</option><option value="SIN_VINCULO">Sin vinculo</option><option value="EXCLUIDO_MANUAL">No vincular</option></select></>}<div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} registros</span></div>}
       {tab === "VENTAS" && salesSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{salesSyncError}</p>}
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}
-      {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} />}
+      {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} canManage={canManage} onChanged={refreshPublicaciones} />}
       {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} calculatingPage={calculatingCostPage} costSync={costSync} massSyncing={massCostSyncing} onCalculate={calculateCost} onCalculatePage={calculateCostPage} onUpdateAll={() => void updateAllActiveCosts()} />}
       {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} />}
       {tab === "SINCRONIZACION" && <SyncPanel account={activeAccount} onSync={() => void sync()} syncing={syncing} canManage={canManage} />}
@@ -390,19 +411,97 @@ function VentasTable({ ventas, loading }: { ventas: MercadoLibreVentasResult["da
   return <TableShell hasRows={ventas.length > 0} empty={loading ? "Cargando ventas..." : "No hay ventas sincronizadas."}><table className="w-full min-w-[1040px] text-left text-xs [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[10px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800"><thead><tr><th>Fecha</th><th>Cliente</th><th>Items</th><th>Envio</th><th>Estado</th><th className="text-right">Total</th></tr></thead><tbody>{ventas.map((venta) => <tr key={venta.id}><td><div className="font-bold text-slate-800 dark:text-white">{date(venta.fecha, "-")}</div><div className="mt-1 font-mono text-[10px] text-slate-500">#{venta.ventaId}</div></td><td className="font-bold text-slate-800 dark:text-white">{venta.comprador || "-"}</td><td><div className="max-w-md space-y-1">{venta.items.map((item, index) => <div key={`${venta.id}-${index}`} className="truncate font-semibold text-slate-700 dark:text-slate-200" title={item.titulo}>{item.cantidad}x {item.titulo}{item.sku && <span className="ml-1 font-mono text-slate-400">[{item.sku}]</span>}</div>)}</div></td><td><div>{venta.retiroEnPersona ? "Retira en persona" : venta.envio || "-"}</div>{venta.numeroEnvio && <div className="mt-1 font-mono text-[10px] text-slate-500">#{venta.numeroEnvio}</div>}</td><td><StateBadge value={venta.estado} /></td><td className="text-right font-mono font-black text-slate-800 dark:text-white">{money(venta.total, venta.moneda)}</td></tr>)}</tbody></table></TableShell>;
 }
 
-function PublicacionesTable({ publicaciones, loading }: { publicaciones: MercadoLibrePublicacionesResult["data"]; loading: boolean }) {
-  return <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}>
-    <table className="w-full min-w-[1210px] text-left text-xs">
-      <thead><tr><th>Publicacion</th><th>SKU ML</th><th>Estado</th><th>Precio ML</th><th className="text-right">Stock ML</th><th>Fechas</th><th>Vinculo IMC</th><th /></tr></thead>
-      <tbody>{publicaciones.map((item) => <tr key={item.id}>
-        <td><div className="max-w-md truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{item.itemId}</div></td>
-        <td className="font-mono font-bold">{item.sellerSku || "-"}</td><td><StateBadge value={item.estado} /></td><td className="font-mono font-black">{money(item.precio, item.moneda)}</td><td className="text-right font-mono font-black">{item.cantidadDisponible ?? "-"}</td>
-        <td className="whitespace-nowrap text-[10px] leading-5 text-slate-500 dark:text-slate-300"><div><b>Creada:</b> {date(item.fechaCreacionMl, "-")}</div><div><b>Editada:</b> {date(item.fechaActualizacionMl, "-")}</div><div><b>Sync IMC:</b> {date(item.sincronizadaAt, "-")}</div></td>
-        <td><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${publicationLinkBadge(item.tipoVinculo)}`}>{publicationLinkLabel(item.tipoVinculo)}</span>{(item.codigoProducto || item.codigoKit) && <div className="mt-1 font-mono text-[10px] text-slate-500">{item.codigoProducto || item.codigoKit}</div>}</td>
-        <td className="text-right">{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" title="Abrir publicacion" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"><ExternalLink className="h-4 w-4" /></a>}</td>
-      </tr>)}</tbody>
-    </table>
-  </TableShell>;
+function PublicacionesTable({ publicaciones, loading, canManage, onChanged }: {
+  publicaciones: MercadoLibrePublicacionesResult["data"];
+  loading: boolean;
+  canManage: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const [reviewing, setReviewing] = useState<MercadoLibrePublicacionListado | null>(null);
+
+  return <>
+    <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}>
+      <table className="w-full min-w-[1210px] text-left text-xs">
+        <thead><tr><th>Publicacion</th><th>SKU ML</th><th>Estado</th><th>Precio ML</th><th className="text-right">Stock ML</th><th>Fechas</th><th>Vinculo IMC</th><th /></tr></thead>
+        <tbody>{publicaciones.map((item) => <tr key={item.id}>
+          <td><div className="max-w-md truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{item.itemId}</div></td>
+          <td className="font-mono font-bold">{item.sellerSku || "-"}</td><td><StateBadge value={item.estado} /></td><td className="font-mono font-black">{money(item.precio, item.moneda)}</td><td className="text-right font-mono font-black">{item.cantidadDisponible ?? "-"}</td>
+          <td className="whitespace-nowrap text-[10px] leading-5 text-slate-500 dark:text-slate-300"><div><b>Creada:</b> {date(item.fechaCreacionMl, "-")}</div><div><b>Editada:</b> {date(item.fechaActualizacionMl, "-")}</div><div><b>Sync IMC:</b> {date(item.sincronizadaAt, "-")}</div></td>
+          <td><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${publicationLinkBadge(item.tipoVinculo)}`}>{publicationLinkLabel(item.tipoVinculo)}</span>{(item.codigoProducto || item.codigoKit) && <div className="mt-1 font-mono text-[10px] text-slate-500">{item.codigoProducto || item.codigoKit}</div>}</td>
+          <td className="text-right"><div className="flex justify-end gap-1">{canManage && (item.tipoVinculo === "SIN_VINCULO" || item.tipoVinculo === "EXCLUIDO_MANUAL") && <button type="button" onClick={() => setReviewing(item)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-200 px-2 text-[10px] font-black text-blue-700 transition hover:bg-blue-50 dark:border-blue-900/70 dark:text-blue-300 dark:hover:bg-blue-950/30"><Link2 className="h-3.5 w-3.5" />Revisar</button>}{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" title="Abrir publicacion" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"><ExternalLink className="h-4 w-4" /></a>}</div></td>
+        </tr>)}</tbody>
+      </table>
+    </TableShell>
+    {reviewing && <VinculoReviewDialog publication={reviewing} onClose={() => setReviewing(null)} onChanged={async () => { setReviewing(null); await onChanged(); }} />}
+  </>;
+}
+
+function VinculoReviewDialog({ publication, onClose, onChanged }: {
+  publication: MercadoLibrePublicacionListado;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [search, setSearch] = useState(publication.sellerSku || "");
+  const [candidates, setCandidates] = useState<LinkCandidate[]>([]);
+  const [selected, setSelected] = useState<LinkCandidate | null>(null);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [updateSku, setUpdateSku] = useState(publication.variaciones.length === 0);
+  const hasVariations = publication.variaciones.length > 0;
+
+  useEffect(() => {
+    if (selected || search.trim().length < 2) {
+      setCandidates([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        setLoadingCandidates(true);
+        const response = await fetch(`/api/integraciones/mercadolibre/candidatos-vinculo?q=${encodeURIComponent(search.trim())}`, { signal: controller.signal });
+        setCandidates(response.ok ? await response.json() : []);
+      } catch {
+        if (!controller.signal.aborted) setCandidates([]);
+      } finally {
+        if (!controller.signal.aborted) setLoadingCandidates(false);
+      }
+    }, 250);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [search, selected]);
+
+  const save = async (target: LinkCandidate | null) => {
+    if (!target && !window.confirm("La publicacion quedara marcada como no vincular. Podes revertirlo luego desde esta misma lista.")) return;
+    try {
+      setSaving(true);
+      const response = await fetch(`/api/integraciones/mercadolibre/publicaciones/${publication.id}/vinculo`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: target ? { tipo: target.tipo, id: target.id } : null, actualizarSku: target ? updateSku : false }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo guardar el vinculo.");
+      toast.success(target ? "Vinculo guardado." : "Publicacion marcada como no vincular.");
+      if (target && updateSku && result.skuActualizado) toast.success(`SKU de Mercado Libre actualizado a ${result.sku}.`);
+      if (result.advertenciaSku) toast.warning(result.advertenciaSku);
+      await onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar el vinculo.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="vinculo-review-title">
+    <div className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-950">
+      <header className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-slate-800"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Revision manual</p><h2 id="vinculo-review-title" className="mt-1 text-base font-black text-slate-900 dark:text-white">Vincular publicacion de Mercado Libre</h2></div><button type="button" onClick={onClose} disabled={saving} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800" title="Cerrar"><X className="h-4 w-4" /></button></header>
+      <div className="space-y-4 p-4">
+        <div className="border-b border-slate-200 pb-4 dark:border-slate-800"><p className="font-black text-slate-900 dark:text-white">{publication.titulo}</p><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-slate-500"><span>{publication.itemId}</span><span>SKU actual: {publication.sellerSku || "Sin SKU"}</span><span>{publication.variaciones.length ? `${publication.variaciones.length} variaciones` : "Sin variaciones"}</span></div></div>
+        {selected ? <div className="flex items-center justify-between gap-3 border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/70 dark:bg-blue-950/25"><div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Seleccionado: {selected.tipo === "KIT" ? "Grupo / kit" : "Item"}</p><p className="mt-1 truncate font-mono text-sm font-black text-slate-900 dark:text-white">{selected.codigo}</p><p className="truncate text-xs text-slate-600 dark:text-slate-300">{selected.descripcion}</p></div><button type="button" onClick={() => { setSelected(null); setSearch(""); }} disabled={saving} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-blue-700 hover:bg-blue-100 disabled:opacity-50 dark:text-blue-300 dark:hover:bg-blue-900/40" title="Cambiar seleccionado"><X className="h-4 w-4" /></button></div> : <div><label htmlFor="vinculo-candidato" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Buscar item o grupo</label><div className="relative mt-1"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><input id="vinculo-candidato" autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Codigo o descripcion" className="h-9 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /></div><div className="mt-2 max-h-56 overflow-y-auto border border-slate-200 dark:border-slate-800">{loadingCandidates ? <div className="flex items-center justify-center gap-2 px-3 py-5 text-xs font-semibold text-slate-500"><LoaderCircle className="h-4 w-4 animate-spin" />Buscando...</div> : search.trim().length < 2 ? <p className="px-3 py-5 text-center text-xs font-semibold text-slate-500">Escribi al menos dos caracteres.</p> : candidates.length ? candidates.map((candidate) => <button key={`${candidate.tipo}-${candidate.id}`} type="button" onClick={() => setSelected(candidate)} className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left transition last:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"><span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-black ${candidate.tipo === "KIT" ? "bg-orange-500/15 text-orange-700 dark:text-orange-300" : "bg-blue-500/15 text-blue-700 dark:text-blue-300"}`}>{candidate.tipo === "KIT" ? "K" : "I"}</span><span className="min-w-0"><span className="block font-mono text-xs font-black text-slate-900 dark:text-white">{candidate.codigo}</span><span className="block truncate text-xs text-slate-500 dark:text-slate-300">{candidate.descripcion}</span></span></button>) : <p className="px-3 py-5 text-center text-xs font-semibold text-slate-500">No se encontraron items ni grupos.</p>}</div></div>}
+        <label className="flex items-start gap-3 border-t border-slate-200 pt-4 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-200"><input type="checkbox" checked={updateSku} disabled={hasVariations || saving} onChange={(event) => setUpdateSku(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50" /><span><b>Actualizar SKU en Mercado Libre</b><span className="mt-0.5 block text-xs text-slate-500">Usa el codigo del item o grupo seleccionado como SKU de esta publicacion.</span>{hasVariations && <span className="mt-1 block text-xs font-semibold text-amber-600 dark:text-amber-300">Esta publicacion tiene variaciones; el SKU debe revisarse por variante en Mercado Libre.</span>}</span></label>
+      </div>
+      <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 p-4 dark:border-slate-800"><button type="button" onClick={() => void save(null)} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black text-slate-500 transition hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800"><Ban className="h-4 w-4" />No vincular</button><div className="flex gap-2"><button type="button" onClick={onClose} disabled={saving} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200">Cancelar</button><button type="button" onClick={() => void save(selected)} disabled={!selected || saving} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{saving ? "Guardando" : "Guardar vinculo"}</button></div></footer>
+    </div>
+  </div>;
 }
 
 const GESU_RECARGO_PORCENTAJE = 0.02;

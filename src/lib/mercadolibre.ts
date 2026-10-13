@@ -227,10 +227,20 @@ export async function getMercadoLibreCuentas(): Promise<MercadoLibreCuentaEstado
   return rows.map(mapCuenta);
 }
 
-export async function getMercadoLibrePublicaciones(idCuenta: number, page = 1, limit = 50, search = ""): Promise<MercadoLibrePublicacionesResult> {
+export async function getMercadoLibrePublicaciones(
+  idCuenta: number,
+  page = 1,
+  limit = 50,
+  search = "",
+  tipoVinculo?: "SIN_VINCULO" | "EXCLUIDO_MANUAL",
+): Promise<MercadoLibrePublicacionesResult> {
   const term = search.trim();
   const filters = ["publication.id_cuenta = $1"];
   const params: Array<string | number> = [idCuenta];
+  if (tipoVinculo) {
+    params.push(tipoVinculo);
+    filters.push(`publication.tipo_vinculo = $${params.length}`);
+  }
   if (term) {
     params.push(`%${term}%`);
     const parameter = `$${params.length}`;
@@ -443,6 +453,47 @@ export async function buscarPublicacionesMercadoLibre(search: string) {
   }));
 }
 
+export type MercadoLibreVinculoCandidato = {
+  tipo: "ITEM" | "KIT";
+  id: number;
+  codigo: string;
+  descripcion: string;
+};
+
+export async function buscarCandidatosVinculoMercadoLibre(search: string): Promise<MercadoLibreVinculoCandidato[]> {
+  const normalized = search.trim();
+  if (normalized.length < 2) return [];
+
+  const term = `%${normalized}%`;
+  const { rows } = await query<{ tipo: "ITEM" | "KIT"; id: number; codigo: string; descripcion: string }>(
+    `WITH candidatos AS (
+       SELECT 'ITEM'::text AS tipo, product.id, product.cod_unico::text AS codigo, product.descripcion::text AS descripcion
+       FROM public.productos product
+       WHERE COALESCE(product.oculto_por_kit, FALSE) = FALSE
+         AND (product.cod_unico ILIKE $1 OR product.descripcion ILIKE $1)
+       UNION ALL
+       SELECT 'KIT'::text AS tipo, kit.id, kit.codigo_kit::text AS codigo, COALESCE(kit.nombre, kit.descripcion, kit.codigo_kit)::text AS descripcion
+       FROM public.kits kit
+       WHERE COALESCE(kit.activo, TRUE) = TRUE
+         AND (kit.codigo_kit ILIKE $1 OR kit.nombre ILIKE $1 OR kit.descripcion ILIKE $1)
+     )
+     SELECT tipo, id, codigo, descripcion
+     FROM candidatos
+     ORDER BY
+       CASE WHEN UPPER(codigo) = UPPER($2) THEN 0 ELSE 1 END,
+       CASE WHEN UPPER(codigo) LIKE UPPER($2) || '%' THEN 0 ELSE 1 END,
+       codigo ASC
+     LIMIT 30`,
+    [term, normalized],
+  );
+  return rows.map((row) => ({
+    tipo: row.tipo,
+    id: Number(row.id),
+    codigo: String(row.codigo),
+    descripcion: String(row.descripcion),
+  }));
+}
+
 export async function guardarVinculoManualMercadoLibre(
   idPublicacion: number,
   target: { tipo: "ITEM" | "KIT"; id: number } | null
@@ -492,6 +543,61 @@ export async function guardarVinculoManualMercadoLibre(
       [idPublicacion, target.tipo === "ITEM" ? target.id : null, target.tipo === "KIT" ? target.id : null]
     );
   });
+}
+
+async function actualizarSkuDeVinculoMercadoLibre(
+  idPublicacion: number,
+  target: { tipo: "ITEM" | "KIT"; id: number },
+) {
+  const publicationResult = await query<{ id_cuenta: number; item_id: string; variaciones: unknown }>(
+    `SELECT id_cuenta, item_id, variaciones
+     FROM public.mercadolibre_publicacion
+     WHERE id = $1`,
+    [idPublicacion],
+  );
+  const publication = publicationResult.rows[0];
+  if (!publication) throw new AppError("La publicacion no existe.", 404);
+  if (Array.isArray(publication.variaciones) && publication.variaciones.length > 0) {
+    throw new AppError("La publicacion tiene variaciones. Vinculala sin cambiar el SKU y revisa cada variacion por separado en Mercado Libre.", 422);
+  }
+
+  const targetTable = target.tipo === "KIT" ? "kits" : "productos";
+  const targetCodeColumn = target.tipo === "KIT" ? "codigo_kit" : "cod_unico";
+  const targetResult = await query<{ codigo: string }>(
+    `SELECT ${targetCodeColumn}::text AS codigo FROM public.${targetTable} WHERE id = $1`,
+    [target.id],
+  );
+  const sku = targetResult.rows[0]?.codigo?.trim();
+  if (!sku) throw new AppError(`El ${target.tipo === "KIT" ? "kit" : "item"} seleccionado no tiene un codigo para usar como SKU.`, 422);
+
+  const { accessToken } = await accessTokenForCuenta(Number(publication.id_cuenta));
+  await meliPut(`/items/${encodeURIComponent(String(publication.item_id))}`, Number(publication.id_cuenta), accessToken, { seller_custom_field: sku });
+  await query(
+    `UPDATE public.mercadolibre_publicacion
+     SET seller_sku = $2, sincronizada_at = NOW(), updated_at = NOW()
+     WHERE id = $1`,
+    [idPublicacion, sku],
+  );
+  return sku;
+}
+
+export async function guardarVinculoRevisadoMercadoLibre(
+  idPublicacion: number,
+  target: { tipo: "ITEM" | "KIT"; id: number } | null,
+  actualizarSku = false,
+) {
+  await guardarVinculoManualMercadoLibre(idPublicacion, target);
+  if (!target || !actualizarSku) return { skuActualizado: false, advertenciaSku: null };
+
+  try {
+    const sku = await actualizarSkuDeVinculoMercadoLibre(idPublicacion, target);
+    return { skuActualizado: true, advertenciaSku: null, sku };
+  } catch (error) {
+    return {
+      skuActualizado: false,
+      advertenciaSku: error instanceof Error ? error.message : "El vinculo se guardo, pero no se pudo actualizar el SKU en Mercado Libre.",
+    };
+  }
 }
 
 async function accessTokenForCuenta(idCuenta: number, forceRefresh = false) {
@@ -556,6 +662,26 @@ async function meliPost(path: string, idCuenta: number, token: string, body: Rec
     const details = await response.json().catch(() => null) as { message?: unknown } | null;
     const message = typeof details?.message === "string" ? ` ${details.message}` : "";
     throw new AppError(`Mercado Libre no pudo completar la respuesta (${response.status}).${message}`, response.status === 403 ? 403 : 502);
+  }
+  return response.json() as Promise<unknown>;
+}
+
+async function meliPut(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {
+  const request = async (accessToken: string) => fetch(`${API_BASE_URL}${path}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  let response = await request(token);
+  if (response.status === 401) {
+    const renewed = await accessTokenForCuenta(idCuenta, true);
+    response = await request(renewed.accessToken);
+  }
+  if (!response.ok) {
+    const details = await response.json().catch(() => null) as { message?: unknown; error?: unknown } | null;
+    const detail = typeof details?.message === "string" ? details.message : typeof details?.error === "string" ? details.error : "";
+    throw new AppError(`Mercado Libre no pudo actualizar el SKU (${response.status})${detail ? `: ${detail}` : "."}`, response.status === 403 ? 403 : 502);
   }
   return response.json() as Promise<unknown>;
 }
