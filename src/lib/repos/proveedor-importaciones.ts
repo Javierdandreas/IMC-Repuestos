@@ -175,6 +175,7 @@ export async function finalizarCargaImportacionProveedor(idImportacion: number, 
       [idImportacion, idProveedor],
     );
     if (result.rowCount === 0) throw new Error("No se pudo finalizar la carga de la importacion");
+    await limpiarImportacionesAnterioresProveedor(client, idProveedor, idImportacion);
     return result.rows[0] as { id: number; total_items: number };
   });
 }
@@ -221,11 +222,41 @@ export async function createImportacion(input: CreateImportacionInput): Promise<
       ]
     );
 
+    await limpiarImportacionesAnterioresProveedor(client, id_proveedor, importacion.id);
+
     return importacion;
   });
 }
 
 const TAMANO_LOTE_APLICACION = 500;
+
+/**
+ * Cada nueva lista completa reemplaza las anteriores del mismo proveedor.
+ * Una lista con costos pendientes se conserva hasta terminar su revision.
+ */
+async function limpiarImportacionesAnterioresProveedor(
+  client: DbClient,
+  idProveedor: number,
+  idImportacionActual: number,
+) {
+  await client.query(
+    `
+      DELETE FROM public.proveedor_importacion AS anterior
+      USING public.proveedor_importacion AS actual
+      WHERE actual.id = $2
+        AND anterior.id_proveedor = $1
+        AND anterior.id <> actual.id
+        AND (anterior.created_at, anterior.id) < (actual.created_at, actual.id)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.proveedor_importacion_cambio_costo AS cambio
+          WHERE cambio.id_importacion = anterior.id
+            AND cambio.estado_aprobacion = 'PENDIENTE'
+        )
+    `,
+    [idProveedor, idImportacionActual],
+  );
+}
 
 /**
  * El detalle de una lista de proveedor solo es necesario hasta aplicar el
