@@ -895,14 +895,41 @@ async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: numb
   return preguntas.length;
 }
 
+async function registrarSincronizacionParcialMercadoLibre(idCuenta: number, error?: unknown) {
+  const mensaje = error instanceof Error ? error.message.slice(0, 1_000) : null;
+  await query(
+    `UPDATE public.mercadolibre_cuenta
+     SET ultima_sincronizacion_at = NOW(),
+         ultimo_estado_sincronizacion = $2,
+         ultimo_error_sincronizacion = $3,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [idCuenta, mensaje ? "ERROR" : "OK", mensaje],
+  );
+}
+
 export async function sincronizarPreguntasMercadoLibreAhora(idCuenta: number) {
-  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
-  return sincronizarPreguntasMercadoLibre(idCuenta, sellerId, accessToken);
+  try {
+    const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+    const actualizadas = await sincronizarPreguntasMercadoLibre(idCuenta, sellerId, accessToken);
+    await registrarSincronizacionParcialMercadoLibre(idCuenta);
+    return actualizadas;
+  } catch (error) {
+    await registrarSincronizacionParcialMercadoLibre(idCuenta, error);
+    throw error;
+  }
 }
 
 export async function sincronizarVentasMercadoLibreAhora(idCuenta: number) {
-  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
-  return sincronizarVentasMercadoLibre(idCuenta, sellerId, accessToken);
+  try {
+    const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+    const actualizadas = await sincronizarVentasMercadoLibre(idCuenta, sellerId, accessToken);
+    await registrarSincronizacionParcialMercadoLibre(idCuenta);
+    return actualizadas;
+  } catch (error) {
+    await registrarSincronizacionParcialMercadoLibre(idCuenta, error);
+    throw error;
+  }
 }
 
 export async function responderPreguntaMercadoLibre(idCuenta: number, preguntaId: string, texto: string) {

@@ -71,6 +71,17 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [calculatingCostItemId, setCalculatingCostItemId] = useState<string | null>(null);
   const [calculatingCostPage, setCalculatingCostPage] = useState(false);
   const salesRefreshInFlight = useRef(false);
+  const questionRefreshInFlight = useRef(false);
+
+  const markAccountSynced = useCallback((accountId: number) => {
+    const syncedAt = new Date().toISOString();
+    setCuentas((current) => current.map((account) => account.id === accountId ? {
+      ...account,
+      ultimaSincronizacionAt: syncedAt,
+      ultimoEstadoSincronizacion: "OK",
+      ultimoErrorSincronizacion: null,
+    } : account));
+  }, []);
 
   const loadTab = useCallback(async (accountId: number, nextTab: Tab, page = 1, publicationSearch = "") => {
     if (nextTab === "SINCRONIZACION") return;
@@ -111,13 +122,20 @@ export function MercadoLibrePage({ canManage }: Props) {
   }, [deferredSearch, loadTab, pages, selectedAccountId, tab]);
 
   const refreshQuestionInbox = useCallback(async (accountId: number) => {
-    const response = await fetch("/api/integraciones/mercadolibre/preguntas/sincronizar", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idCuenta: accountId }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || "No se pudieron consultar las preguntas nuevas.");
-    await loadTab(accountId, "PREGUNTAS", pages.PREGUNTAS);
-  }, [loadTab, pages.PREGUNTAS]);
+    if (questionRefreshInFlight.current) return;
+    questionRefreshInFlight.current = true;
+    try {
+      const response = await fetch("/api/integraciones/mercadolibre/preguntas/sincronizar", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idCuenta: accountId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "No se pudieron consultar las preguntas nuevas.");
+      markAccountSynced(accountId);
+      await loadTab(accountId, "PREGUNTAS", pages.PREGUNTAS);
+    } finally {
+      questionRefreshInFlight.current = false;
+    }
+  }, [loadTab, markAccountSynced, pages.PREGUNTAS]);
 
   const refreshSalesInbox = useCallback(async (accountId: number) => {
     if (salesRefreshInFlight.current) return;
@@ -128,11 +146,12 @@ export function MercadoLibrePage({ canManage }: Props) {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "No se pudieron consultar las ventas nuevas.");
+      markAccountSynced(accountId);
       await loadTab(accountId, "VENTAS", pages.VENTAS);
     } finally {
       salesRefreshInFlight.current = false;
     }
-  }, [loadTab, pages.VENTAS]);
+  }, [loadTab, markAccountSynced, pages.VENTAS]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
