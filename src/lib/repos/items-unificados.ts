@@ -48,6 +48,84 @@ const addParam = (params: unknown[], value: unknown) => {
   return `$${params.length}`;
 };
 
+function catalogoBusquedaGeneralRapida() {
+  return `
+    WITH matching_products AS (
+      SELECT p.id FROM public.productos p
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+        AND (p.cod_unico::text ILIKE $1 OR p.cod_barra::text ILIKE $1 OR p.descripcion::text ILIKE $1 OR p.palabra_clave::text ILIKE $1)
+      UNION
+      SELECT p.id FROM public.productos p JOIN public.pieza pi ON pi.id = p.id_pieza
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+        AND (pi.codigo_pieza::text ILIKE $1 OR pi.descripcion::text ILIKE $1 OR pi.medida::text ILIKE $1)
+      UNION
+      SELECT p.id FROM public.productos p JOIN public.producto_proveedor pp ON pp.id_producto = p.id
+      LEFT JOIN public.proveedores prv ON prv.id = pp.id_proveedor
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+        AND (pp.codigo_proveedor::text ILIKE $1 OR prv.descripcion::text ILIKE $1)
+      UNION
+      SELECT p.id FROM public.productos p JOIN public.pieza_codigo_referencia pcr ON pcr.id_pieza = p.id_pieza
+      JOIN public.codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+        AND (cr.codigo::text ILIKE $1 OR pcr.observacion::text ILIKE $1)
+      UNION
+      SELECT p.id FROM public.productos p JOIN public.producto_serie ps ON ps.id_producto = p.id
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND ps.numero_serie::text ILIKE $1
+      UNION
+      SELECT p.id FROM public.productos p JOIN public.marcas m ON m.id = p.id_marca
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND m.descripcion::text ILIKE $1
+      UNION
+      SELECT p.id FROM public.productos p JOIN public.subcategoria s ON s.id = p.id_subcategoria
+      LEFT JOIN public.categoria c ON c.id = s.id_categoria
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND (s.descripcion::text ILIKE $1 OR c.descripcion::text ILIKE $1)
+      UNION
+      SELECT p.id FROM public.productos p JOIN public.ubicaciones u ON u.id = p.id_ubicacion
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND u.descripcion::text ILIKE $1
+      UNION
+      SELECT p.id FROM public.productos p JOIN public.producto_stock_ubicacion psu ON psu.id_producto = p.id
+      JOIN public.ubicaciones u ON u.id = psu.id_ubicacion
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND psu.cantidad > 0 AND u.descripcion::text ILIKE $1
+      UNION
+      SELECT p.id FROM public.productos p JOIN public.producto_serie ps ON ps.id_producto = p.id
+      JOIN public.ubicaciones u ON u.id = ps.id_ubicacion
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND u.descripcion::text ILIKE $1
+    ), matching_kits AS (
+      SELECT k.id, k.codigo_kit AS parent_kit_codigo, k.created_at FROM public.kits k
+      WHERE k.codigo_kit::text ILIKE $1 OR k.nombre::text ILIKE $1 OR k.descripcion::text ILIKE $1
+      UNION
+      SELECT k.id, k.codigo_kit, k.created_at FROM public.kits k
+      LEFT JOIN public.subcategoria s ON s.id = k.id_subcategoria
+      LEFT JOIN public.categoria c_direct ON c_direct.id = k.id_categoria
+      LEFT JOIN public.categoria c_sub ON c_sub.id = s.id_categoria
+      WHERE s.descripcion::text ILIKE $1 OR c_direct.descripcion::text ILIKE $1 OR c_sub.descripcion::text ILIKE $1
+      UNION
+      SELECT k.id, k.codigo_kit, k.created_at FROM public.kits k
+      JOIN public.kit_detalle kd ON kd.id_kit = k.id
+      JOIN matching_products mp ON mp.id = kd.id_producto
+    ), catalog_raw AS (
+      SELECT 'ITEM'::text AS tipo, p.id, ROW_NUMBER() OVER (ORDER BY p.id DESC)::bigint AS sort_order,
+        NULL::int AS parent_kit_id, NULL::text AS parent_kit_codigo, 0 AS row_position
+      FROM matching_products mp JOIN public.productos p ON p.id = mp.id
+      UNION ALL
+      SELECT 'KIT'::text, k.id, ROW_NUMBER() OVER (ORDER BY k.created_at DESC NULLS LAST, k.id DESC)::bigint,
+        k.id, k.parent_kit_codigo, 0
+      FROM matching_kits k
+      UNION ALL
+      SELECT 'ITEM'::text, componente.id, ROW_NUMBER() OVER (ORDER BY k.created_at DESC NULLS LAST, k.id DESC)::bigint,
+        k.id, k.parent_kit_codigo, 1
+      FROM matching_kits k
+      JOIN public.kit_detalle detalle ON detalle.id_kit = k.id
+      JOIN public.productos componente ON componente.id = detalle.id_producto
+    ), deduplicated AS (
+      SELECT DISTINCT ON (tipo, id) tipo, id, sort_order, parent_kit_id, parent_kit_codigo, row_position
+      FROM catalog_raw
+      ORDER BY tipo, id, row_position DESC, sort_order ASC
+    )
+    SELECT tipo, id, parent_kit_id, parent_kit_codigo FROM deduplicated
+    ORDER BY sort_order ASC NULLS LAST, row_position ASC, CASE WHEN tipo = 'KIT' THEN 0 ELSE 1 END, id DESC
+  `;
+}
+
 export async function getItemsUnificadosListado(
   page: number = 1,
   limit: number = 50,
@@ -57,9 +135,16 @@ export async function getItemsUnificadosListado(
   const productConditions = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
   const kitConditions: string[] = [];
   const componentCodePrefixes = prefijosCodigosComponentes(filters.search || "");
+  const useCandidateSearch = Boolean(filters.search?.trim())
+    && componentCodePrefixes.length === 0
+    && !filters.searchSpecific?.trim()
+    && !filters.categoria
+    && !filters.subcategoria
+    && !filters.marca
+    && !filters.proveedor;
   const includeKitComponents = Boolean(filters.search?.trim() || filters.searchSpecific?.trim()) && componentCodePrefixes.length === 0;
 
-  if (filters.search?.trim()) {
+  if (filters.search?.trim() && !useCandidateSearch) {
     if (componentCodePrefixes.length) {
       const parameterPositions = componentCodePrefixes.map((prefix) => {
         params.push(parametroBusquedaItems(prefix));
@@ -73,6 +158,8 @@ export async function getItemsUnificadosListado(
       kitConditions.push(condicionBusquedaKit(params.length));
     }
   }
+
+  if (useCandidateSearch) params.push(parametroBusquedaItems(filters.search!));
 
   if (filters.searchSpecific?.trim()) {
     params.push(parametroBusquedaItems(filters.searchSpecific, true));
@@ -108,7 +195,7 @@ export async function getItemsUnificadosListado(
   }
 
   const kitWhere = kitConditions.length ? kitConditions.join(" AND ") : "TRUE";
-  const baseSql = `
+  const baseSql = useCandidateSearch ? catalogoBusquedaGeneralRapida() : `
     WITH kit_base AS (
       SELECT
         k.id,
