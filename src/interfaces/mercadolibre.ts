@@ -47,6 +47,20 @@ export type MercadoLibreCostoEstimado = {
   consultadoAt: string;
 };
 
+export type MercadoLibreCostoSincronizacion = {
+  id: number;
+  idCuenta: number;
+  estado: "EN_PROCESO" | "COMPLETADA";
+  incluyePausadas: boolean;
+  total: number;
+  procesadas: number;
+  calculadas: number;
+  fallidas: number;
+  errores: Array<{ itemId: string; mensaje: string }>;
+  iniciadaAt: string;
+  finalizadaAt: string | null;
+};
+
 export type MercadoLibrePublicacionListado = MercadoLibrePublicacion & {
   id: number;
   idProducto: number | null;

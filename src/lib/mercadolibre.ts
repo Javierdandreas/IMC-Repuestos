@@ -5,6 +5,7 @@ import { query, withTransaction } from "@/lib/db-utils";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
+  MercadoLibreCostoSincronizacion,
   MercadoLibrePublicacion,
   MercadoLibrePublicacionesResult,
   MercadoLibrePreguntaListado,
@@ -694,6 +695,118 @@ export async function actualizarCostosEstimadosMercadoLibreLote(idCuenta: number
 
   await Promise.all(Array.from({ length: Math.min(4, pendientes.length) }, () => worker()));
   return { calculados, errores };
+}
+
+type CostoSincronizacionRow = {
+  id: number;
+  id_cuenta: number;
+  estado: "EN_PROCESO" | "COMPLETADA";
+  incluye_pausadas: boolean;
+  total: number;
+  procesadas: number;
+  calculadas: number;
+  fallidas: number;
+  ultimo_publicacion_id: number | null;
+  errores: unknown;
+  iniciada_at: string;
+  finalizada_at: string | null;
+};
+
+const COSTOS_MASIVOS_LOTE = 20;
+const COSTOS_MASIVOS_ERRORES_MAXIMOS = 100;
+
+function mapCostoSincronizacion(row: CostoSincronizacionRow): MercadoLibreCostoSincronizacion {
+  const errores = Array.isArray(row.errores) ? row.errores : [];
+  return {
+    id: Number(row.id), idCuenta: Number(row.id_cuenta), estado: row.estado,
+    incluyePausadas: Boolean(row.incluye_pausadas), total: Number(row.total), procesadas: Number(row.procesadas),
+    calculadas: Number(row.calculadas), fallidas: Number(row.fallidas),
+    errores: errores.slice(0, COSTOS_MASIVOS_ERRORES_MAXIMOS).flatMap((error) => {
+      if (!error || typeof error !== "object") return [];
+      const value = error as { itemId?: unknown; mensaje?: unknown };
+      return typeof value.itemId === "string" && typeof value.mensaje === "string" ? [{ itemId: value.itemId, mensaje: value.mensaje }] : [];
+    }),
+    iniciadaAt: new Date(row.iniciada_at).toISOString(),
+    finalizadaAt: row.finalizada_at ? new Date(row.finalizada_at).toISOString() : null,
+  };
+}
+
+export async function getCostoSincronizacionMercadoLibre(idCuenta: number) {
+  const result = await query<CostoSincronizacionRow>(
+    `SELECT * FROM public.mercadolibre_costo_sincronizacion
+     WHERE id_cuenta = $1 ORDER BY iniciada_at DESC LIMIT 1`,
+    [idCuenta],
+  );
+  return result.rows[0] ? mapCostoSincronizacion(result.rows[0]) : null;
+}
+
+export async function iniciarCostoSincronizacionMercadoLibre(idCuenta: number, incluirPausadas = false) {
+  return withTransaction(async (db) => {
+    const existing = await db.query<CostoSincronizacionRow>(
+      `SELECT * FROM public.mercadolibre_costo_sincronizacion
+       WHERE id_cuenta = $1 AND estado = 'EN_PROCESO' AND incluye_pausadas = $2
+       ORDER BY iniciada_at DESC LIMIT 1 FOR UPDATE`,
+      [idCuenta, incluirPausadas],
+    );
+    if (existing.rows[0]) return mapCostoSincronizacion(existing.rows[0]);
+
+    const total = await db.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM public.mercadolibre_publicacion
+       WHERE id_cuenta = $1 AND ($2::boolean OR estado = 'active')`,
+      [idCuenta, incluirPausadas],
+    );
+    const created = await db.query<CostoSincronizacionRow>(
+      `INSERT INTO public.mercadolibre_costo_sincronizacion (id_cuenta, incluye_pausadas, total, estado)
+       VALUES ($1, $2, $3, 'EN_PROCESO') RETURNING *`,
+      [idCuenta, incluirPausadas, Number(total.rows[0]?.total || 0)],
+    );
+    return mapCostoSincronizacion(created.rows[0]);
+  });
+}
+
+export async function procesarCostoSincronizacionMercadoLibre(idCuenta: number) {
+  const current = await query<CostoSincronizacionRow>(
+    `SELECT * FROM public.mercadolibre_costo_sincronizacion
+     WHERE id_cuenta = $1 AND estado = 'EN_PROCESO' ORDER BY iniciada_at DESC LIMIT 1`,
+    [idCuenta],
+  );
+  const job = current.rows[0];
+  if (!job) return getCostoSincronizacionMercadoLibre(idCuenta);
+
+  const publications = await query<{ id: number; item_id: string }>(
+    `SELECT id, item_id FROM public.mercadolibre_publicacion
+     WHERE id_cuenta = $1
+       AND ($2::boolean OR estado = 'active')
+       AND id > COALESCE($3::bigint, 0)
+     ORDER BY id ASC LIMIT $4`,
+    [idCuenta, job.incluye_pausadas, job.ultimo_publicacion_id, COSTOS_MASIVOS_LOTE],
+  );
+  if (!publications.rows.length) {
+    const completed = await query<CostoSincronizacionRow>(
+      `UPDATE public.mercadolibre_costo_sincronizacion
+       SET estado = 'COMPLETADA', finalizada_at = NOW(), updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [job.id],
+    );
+    return mapCostoSincronizacion(completed.rows[0]);
+  }
+
+  const resultado = await actualizarCostosEstimadosMercadoLibreLote(idCuenta, publications.rows.map((row) => row.item_id));
+  const erroresPrevios = Array.isArray(job.errores) ? job.errores : [];
+  const errores = [...erroresPrevios, ...resultado.errores].slice(-COSTOS_MASIVOS_ERRORES_MAXIMOS);
+  const procesadas = Number(job.procesadas) + publications.rows.length;
+  const updated = await query<CostoSincronizacionRow>(
+    `UPDATE public.mercadolibre_costo_sincronizacion
+     SET procesadas = $2, calculadas = calculadas + $3, fallidas = fallidas + $4,
+         ultimo_publicacion_id = $5, errores = $6::jsonb,
+         estado = CASE WHEN $2 >= total THEN 'COMPLETADA' ELSE 'EN_PROCESO' END,
+         finalizada_at = CASE WHEN $2 >= total THEN NOW() ELSE NULL END,
+         updated_at = NOW()
+     WHERE id = $1 RETURNING *`,
+    [job.id, procesadas, resultado.calculados.length, resultado.errores.length,
+      publications.rows.at(-1)?.id || null, JSON.stringify(errores)],
+  );
+  return mapCostoSincronizacion(updated.rows[0]);
 }
 
 async function getAllItemIds(idCuenta: number, sellerId: number, accessToken: string) {

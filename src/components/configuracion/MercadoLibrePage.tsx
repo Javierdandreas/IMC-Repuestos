@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
+  MercadoLibreCostoSincronizacion,
   MercadoLibrePreguntasResult,
   MercadoLibrePublicacionesResult,
   MercadoLibreSyncResult,
@@ -70,8 +71,11 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
   const [calculatingCostItemId, setCalculatingCostItemId] = useState<string | null>(null);
   const [calculatingCostPage, setCalculatingCostPage] = useState(false);
+  const [costSync, setCostSync] = useState<MercadoLibreCostoSincronizacion | null>(null);
+  const [massCostSyncing, setMassCostSyncing] = useState(false);
   const salesRefreshInFlight = useRef(false);
   const questionRefreshInFlight = useRef(false);
+  const massCostSyncInFlight = useRef(false);
 
   const markAccountSynced = useCallback((accountId: number) => {
     const syncedAt = new Date().toISOString();
@@ -312,6 +316,51 @@ export function MercadoLibrePage({ canManage }: Props) {
     }
   };
 
+  const loadCostSync = useCallback(async (accountId: number) => {
+    const response = await fetch(`/api/integraciones/mercadolibre/costos/masivo?idCuenta=${accountId}`, { cache: "no-store" });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.message || "No se pudo consultar el avance de Costos ML.");
+    setCostSync(result as MercadoLibreCostoSincronizacion | null);
+  }, []);
+
+  const updateAllActiveCosts = useCallback(async () => {
+    if (!selectedAccountId || massCostSyncInFlight.current) return;
+    massCostSyncInFlight.current = true;
+    setMassCostSyncing(true);
+    try {
+      const start = await fetch("/api/integraciones/mercadolibre/costos/masivo", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idCuenta: selectedAccountId }),
+      });
+      let current = await start.json().catch(() => null) as MercadoLibreCostoSincronizacion | null;
+      if (!start.ok || !current) throw new Error((current as unknown as { message?: string } | null)?.message || "No se pudo iniciar Costos ML.");
+      setCostSync(current);
+
+      while (current.estado === "EN_PROCESO") {
+        const response = await fetch("/api/integraciones/mercadolibre/costos/masivo", {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idCuenta: selectedAccountId }),
+        });
+        const next = await response.json().catch(() => null) as MercadoLibreCostoSincronizacion | null;
+        if (!response.ok || !next) throw new Error((next as unknown as { message?: string } | null)?.message || "No se pudo procesar Costos ML.");
+        current = next;
+        setCostSync(current);
+        if (current.procesadas % 100 === 0 || current.estado === "COMPLETADA") {
+          await loadTab(selectedAccountId, "COSTOS", pages.COSTOS, deferredSearch);
+        }
+      }
+      toast.success(`${current.calculadas.toLocaleString("es-AR")} costos activos actualizados.`);
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "No se pudo actualizar Costos ML.");
+    } finally {
+      massCostSyncInFlight.current = false;
+      setMassCostSyncing(false);
+    }
+  }, [deferredSearch, loadTab, pages.COSTOS, selectedAccountId]);
+
+  useEffect(() => {
+    if (!selectedAccountId || tab !== "COSTOS") return;
+    void loadCostSync(selectedAccountId).catch(() => setCostSync(null));
+  }, [loadCostSync, selectedAccountId, tab]);
+
   const activeAccount = cuentas.find((account) => account.id === selectedAccountId) || null;
   const activeResult = tab === "VENTAS" ? ventas : tab === "PREGUNTAS" ? preguntas : publicaciones;
 
@@ -329,7 +378,7 @@ export function MercadoLibrePage({ canManage }: Props) {
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}
       {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} />}
-      {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} calculatingPage={calculatingCostPage} onCalculate={calculateCost} onCalculatePage={calculateCostPage} />}
+      {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} calculatingPage={calculatingCostPage} costSync={costSync} massSyncing={massCostSyncing} onCalculate={calculateCost} onCalculatePage={calculateCostPage} onUpdateAll={() => void updateAllActiveCosts()} />}
       {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} />}
       {tab === "SINCRONIZACION" && <SyncPanel account={activeAccount} onSync={() => void sync()} syncing={syncing} canManage={canManage} />}
       {tab !== "SINCRONIZACION" && activeResult.totalPages > 1 && <div className="flex items-center justify-center gap-3"><button type="button" onClick={() => void changePage(pages[tab] - 1)} disabled={pages[tab] <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Pagina {pages[tab]} de {activeResult.totalPages}</span><button type="button" onClick={() => void changePage(pages[tab] + 1)} disabled={pages[tab] >= activeResult.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
@@ -358,21 +407,26 @@ function PublicacionesTable({ publicaciones, loading }: { publicaciones: Mercado
 
 const GESU_RECARGO_PORCENTAJE = 0.02;
 
-function CostosTable({ publicaciones, loading, calculatingItemId, calculatingPage, onCalculate, onCalculatePage }: {
+function CostosTable({ publicaciones, loading, calculatingItemId, calculatingPage, costSync, massSyncing, onCalculate, onCalculatePage, onUpdateAll }: {
   publicaciones: MercadoLibrePublicacionesResult["data"];
   loading: boolean;
   calculatingItemId: string | null;
   calculatingPage: boolean;
+  costSync: MercadoLibreCostoSincronizacion | null;
+  massSyncing: boolean;
   onCalculate: (itemId: string) => void;
   onCalculatePage: () => void;
+  onUpdateAll: () => void;
 }) {
+  const progress = costSync?.total ? Math.min(100, Math.round((costSync.procesadas / costSync.total) * 100)) : 0;
   return <div className="space-y-2">
     <div className="flex flex-wrap items-center justify-between gap-3 px-1">
       <p className="text-xs font-semibold text-slate-500">El <b className="text-slate-700 dark:text-slate-200">+2% Gesu</b> es un recargo de precio, no un cargo de Mercado Libre.</p>
-      <button type="button" onClick={onCalculatePage} disabled={!publicaciones.length || calculatingPage} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${calculatingPage ? "animate-spin" : ""}`} />{calculatingPage ? "Actualizando pagina..." : `Actualizar pagina (${publicaciones.length})`}</button>
+      <div className="flex flex-wrap gap-2"><button type="button" onClick={onCalculatePage} disabled={!publicaciones.length || calculatingPage || massSyncing} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"><RefreshCw className={`h-4 w-4 ${calculatingPage ? "animate-spin" : ""}`} />Pagina ({publicaciones.length})</button><button type="button" onClick={onUpdateAll} disabled={massSyncing} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${massSyncing ? "animate-spin" : ""}`} />{massSyncing ? "Actualizando activas..." : costSync?.estado === "EN_PROCESO" ? "Continuar activas" : "Actualizar activas"}</button></div>
     </div>
+    {costSync && <div className="border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-950"><div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1"><span className="font-bold text-slate-700 dark:text-slate-200">{costSync.estado === "COMPLETADA" ? "Ultima actualizacion completada" : "Actualizacion pendiente"}</span><span className="font-mono text-slate-500">{costSync.procesadas.toLocaleString("es-AR")} / {costSync.total.toLocaleString("es-AR")} · {costSync.calculadas.toLocaleString("es-AR")} calculadas · {costSync.fallidas.toLocaleString("es-AR")} con error</span></div><div className="mt-2 h-1.5 overflow-hidden bg-slate-100 dark:bg-slate-800"><div className="h-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} /></div></div>}
     <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}>
-    <table className="w-full min-w-[980px] text-left text-xs">
+    <table className="w-full table-fixed text-left text-xs">
       <thead><tr><th>Publicacion</th><th className="text-right">Precio</th><th className="text-right">Comision ML</th><th className="text-right">Envio est.</th><th className="text-right">+2% Gesu</th><th className="text-right">Resultado</th><th /></tr></thead>
       <tbody>{publicaciones.map((item) => {
         const costo = item.costoEstimado;
