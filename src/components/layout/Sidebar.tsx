@@ -86,6 +86,7 @@ const navGroups: NavGroup[] = [
     links: [
       { href: "/configuracion/datos", label: "Datos" },
       { href: "/configuracion/precios", label: "Listas de precio" },
+      { href: "/configuracion/multimoneda", label: "Multimoneda" },
       { href: "/importaciones", label: "Importaciones" },
       { href: "/marcas", label: "Marcas" },
       { href: "/categorias", label: "Categorias" },

@@ -12,6 +12,7 @@ import { ProveedorImportSection } from "@/components/proveedores/ProveedorImport
 import { ProveedorLocationFields } from "@/components/proveedores/ProveedorLocationFields";
 import { ProveedorCostLayers } from "@/components/proveedores/ProveedorCostLayers";
 import { ProveedorStockColorRules } from "@/components/proveedores/ProveedorStockColorRules";
+import { ProveedorCurrencySettings } from "@/components/proveedores/ProveedorCurrencySettings";
 import type { CatalogoItem } from "@/interfaces/productos";
 
 type Props = {
@@ -33,7 +34,7 @@ const COMPROBANTE_OPTIONS = [
   { value: "FACTURA_B", label: "Factura B" },
 ];
 
-type ProveedorTab = "datos" | "lista-precios";
+type ProveedorTab = "datos" | "lista-precios" | "moneda";
 
 export function ProveedorEditPage({ proveedor }: Props) {
   const router = useRouter();
@@ -148,6 +149,13 @@ export function ProveedorEditPage({ proveedor }: Props) {
             >
               Lista de precios
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("moneda")}
+              className={`border-b-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest transition ${activeTab === "moneda" ? "border-blue-500 text-white" : "border-transparent text-slate-500 hover:text-slate-300"}`}
+            >
+              Moneda
+            </button>
           </nav>
         ) : null}
 
@@ -211,6 +219,10 @@ export function ProveedorEditPage({ proveedor }: Props) {
               <ProveedorStockColorRules id_proveedor={proveedor.id} />
             </div>
           </div>
+        ) : null}
+
+        {proveedor && activeTab === "moneda" ? (
+          <div className="mt-4"><ProveedorCurrencySettings id_proveedor={proveedor.id} /></div>
         ) : null}
 
         {activeTab === "datos" ? <>
