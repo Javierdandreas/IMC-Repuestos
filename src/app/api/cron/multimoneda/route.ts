@@ -1,20 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { query } from "@/lib/db-utils";
 import { sincronizarCotizacionesAutomaticas } from "@/lib/multimoneda";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+export const runtime = "nodejs";
 
 async function isAuthorized(request: NextRequest) {
   const providedSecret = request.headers.get("x-imc-multimoneda-cron");
   if (!providedSecret) return false;
 
-  const result = await query<{ decrypted_secret: string }>(
-    "SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = $1",
-    ["imc_multimoneda_cron_secret"]
+  const result = await query<{ cron_multimoneda_secret_hash: string | null }>(
+    "SELECT cron_multimoneda_secret_hash FROM public.multimoneda_configuracion WHERE id = 1"
   );
-  const secret = result.rows[0]?.decrypted_secret;
-  return Boolean(secret) && providedSecret === secret;
+  const expectedHash = result.rows[0]?.cron_multimoneda_secret_hash;
+  if (!expectedHash || !/^[a-f0-9]{64}$/i.test(expectedHash)) return false;
+
+  const actualHash = createHash("sha256").update(providedSecret).digest("hex");
+  return actualHash === expectedHash.toLowerCase();
 }
 
 export async function GET(request: NextRequest) {
