@@ -120,18 +120,6 @@ function catalogoBusquedaGeneralRapida() {
         k.parent_kit_codigo,
         ROW_NUMBER() OVER (ORDER BY k.created_at DESC NULLS LAST, k.id DESC)::bigint AS sort_order
       FROM direct_matching_kits k
-    ), component_matching_kits AS (
-      SELECT k.id, k.codigo_kit, k.created_at FROM public.kits k
-      JOIN public.kit_detalle kd ON kd.id_kit = k.id
-      JOIN matching_products mp ON mp.id = kd.id_producto
-      WHERE NOT EXISTS (SELECT 1 FROM direct_kits dk WHERE dk.id = k.id)
-      GROUP BY k.id, k.codigo_kit, k.created_at
-    ), component_kits AS (
-      SELECT
-        k.id,
-        k.codigo_kit AS parent_kit_codigo,
-        ROW_NUMBER() OVER (ORDER BY k.created_at DESC NULLS LAST, k.id DESC)::bigint AS sort_order
-      FROM component_matching_kits k
     ), catalog_raw AS (
       SELECT
         'KIT'::text AS tipo,
@@ -148,21 +136,6 @@ function catalogoBusquedaGeneralRapida() {
 
       SELECT
         'ITEM'::text,
-        componente.id,
-        CONCAT('KIT-', k.id, '-ITEM-', componente.id),
-        k.id,
-        k.parent_kit_codigo,
-        0,
-        k.sort_order,
-        componente.id::bigint
-      FROM direct_kits k
-      JOIN public.kit_detalle detalle ON detalle.id_kit = k.id
-      JOIN public.productos componente ON componente.id = detalle.id_producto
-
-      UNION ALL
-
-      SELECT
-        'ITEM'::text,
         p.id,
         CONCAT('ITEM-', p.id),
         NULL::int,
@@ -172,19 +145,6 @@ function catalogoBusquedaGeneralRapida() {
         0
       FROM matching_products mp
       JOIN public.productos p ON p.id = mp.id
-
-      UNION ALL
-
-      SELECT
-        'KIT'::text,
-        k.id,
-        CONCAT('RELATED-KIT-', k.id),
-        k.id,
-        k.parent_kit_codigo,
-        2,
-        k.sort_order,
-        0
-      FROM component_kits k
     )
     SELECT tipo, id, lista_key, parent_kit_id, parent_kit_codigo
     FROM catalog_raw
@@ -208,7 +168,9 @@ export async function getItemsUnificadosListado(
     && !filters.subcategoria
     && !filters.marca
     && !filters.proveedor;
-  const includeKitComponents = Boolean(filters.search?.trim() || filters.searchSpecific?.trim()) && componentCodePrefixes.length === 0;
+  const includeKitComponents = Boolean(filters.searchSpecific?.trim())
+    && !filters.search?.trim()
+    && componentCodePrefixes.length === 0;
 
   if (filters.search?.trim() && !useCandidateSearch) {
     if (componentCodePrefixes.length) {

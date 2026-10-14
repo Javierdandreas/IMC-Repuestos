@@ -91,7 +91,7 @@ export function condicionBusquedaProducto(
   return `(${conditions.join("\n OR ")})`;
 }
 
-export function condicionBusquedaKit(parameter: number, exact = false) {
+export function condicionBusquedaKit(parameter: number, exact = false, includeComponentMatches = false) {
   const match = (column: string) => exact
     ? `UPPER(TRIM(${column}::text)) = UPPER(TRIM($${parameter}::text))`
     : `${column}::text ILIKE $${parameter}`;
@@ -114,13 +114,15 @@ export function condicionBusquedaKit(parameter: number, exact = false) {
     );
   }
 
-  conditions.push(`EXISTS (
-    SELECT 1 FROM public.kit_detalle buscar_detalle
-    JOIN public.productos componente ON componente.id = buscar_detalle.id_producto
-    WHERE buscar_detalle.id_kit = k.id
-      AND COALESCE(componente.oculto_por_kit, FALSE) = FALSE
-      AND ${condicionBusquedaProducto(parameter, exact, "componente")}
-  )`);
+  if (includeComponentMatches) {
+    conditions.push(`EXISTS (
+      SELECT 1 FROM public.kit_detalle buscar_detalle
+      JOIN public.productos componente ON componente.id = buscar_detalle.id_producto
+      WHERE buscar_detalle.id_kit = k.id
+        AND COALESCE(componente.oculto_por_kit, FALSE) = FALSE
+        AND ${condicionBusquedaProducto(parameter, exact, "componente")}
+    )`);
+  }
 
   return `(${conditions.join("\n OR ")})`;
 }
