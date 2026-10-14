@@ -22,6 +22,7 @@ export type ComponenteKitPreview = {
 
 export type ItemListadoUnificado = ProductoListado & {
   tipo: "ITEM" | "KIT";
+  lista_key?: string;
   parent_kit_id?: number | null;
   parent_kit_codigo?: string | null;
   componentes_kit?: ComponenteKitPreview[];
@@ -39,6 +40,7 @@ export type ItemListadoUnificado = ProductoListado & {
 type CatalogoBaseRow = {
   tipo: "ITEM" | "KIT";
   id: number;
+  lista_key: string;
   parent_kit_id: number | null;
   parent_kit_codigo: string | null;
 };
@@ -50,7 +52,7 @@ const addParam = (params: unknown[], value: unknown) => {
 
 function catalogoBusquedaGeneralRapida() {
   return `
-    WITH matching_products AS (
+    WITH direct_matching_products AS (
       SELECT p.id FROM public.productos p
       WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
         AND (p.cod_unico::text ILIKE $1 OR p.cod_barra::text ILIKE $1 OR p.descripcion::text ILIKE $1 OR p.palabra_clave::text ILIKE $1)
@@ -89,7 +91,21 @@ function catalogoBusquedaGeneralRapida() {
       SELECT p.id FROM public.productos p JOIN public.producto_serie ps ON ps.id_producto = p.id
       JOIN public.ubicaciones u ON u.id = ps.id_ubicacion
       WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND u.descripcion::text ILIKE $1
-    ), matching_kits AS (
+    ), matching_products AS (
+      SELECT id, MIN(match_order) AS match_order
+      FROM (
+        SELECT id, 0 AS match_order FROM direct_matching_products
+        UNION ALL
+        SELECT equivalente.id, 1 AS match_order
+        FROM direct_matching_products directo
+        JOIN public.productos producto_directo ON producto_directo.id = directo.id
+        JOIN public.productos equivalente
+          ON equivalente.id_pieza = producto_directo.id_pieza
+        WHERE producto_directo.id_pieza IS NOT NULL
+          AND COALESCE(equivalente.oculto_por_kit, FALSE) = FALSE
+      ) productos_relacionados
+      GROUP BY id
+    ), direct_matching_kits AS (
       SELECT k.id, k.codigo_kit AS parent_kit_codigo, k.created_at FROM public.kits k
       WHERE k.codigo_kit::text ILIKE $1 OR k.nombre::text ILIKE $1 OR k.descripcion::text ILIKE $1
       UNION
@@ -98,31 +114,81 @@ function catalogoBusquedaGeneralRapida() {
       LEFT JOIN public.categoria c_direct ON c_direct.id = k.id_categoria
       LEFT JOIN public.categoria c_sub ON c_sub.id = s.id_categoria
       WHERE s.descripcion::text ILIKE $1 OR c_direct.descripcion::text ILIKE $1 OR c_sub.descripcion::text ILIKE $1
-      UNION
+    ), direct_kits AS (
+      SELECT
+        k.id,
+        k.parent_kit_codigo,
+        ROW_NUMBER() OVER (ORDER BY k.created_at DESC NULLS LAST, k.id DESC)::bigint AS sort_order
+      FROM direct_matching_kits k
+    ), component_matching_kits AS (
       SELECT k.id, k.codigo_kit, k.created_at FROM public.kits k
       JOIN public.kit_detalle kd ON kd.id_kit = k.id
       JOIN matching_products mp ON mp.id = kd.id_producto
+      WHERE NOT EXISTS (SELECT 1 FROM direct_kits dk WHERE dk.id = k.id)
+      GROUP BY k.id, k.codigo_kit, k.created_at
+    ), component_kits AS (
+      SELECT
+        k.id,
+        k.codigo_kit AS parent_kit_codigo,
+        ROW_NUMBER() OVER (ORDER BY k.created_at DESC NULLS LAST, k.id DESC)::bigint AS sort_order
+      FROM component_matching_kits k
     ), catalog_raw AS (
-      SELECT 'ITEM'::text AS tipo, p.id, ROW_NUMBER() OVER (ORDER BY p.id DESC)::bigint AS sort_order,
-        NULL::int AS parent_kit_id, NULL::text AS parent_kit_codigo, 0 AS row_position
-      FROM matching_products mp JOIN public.productos p ON p.id = mp.id
+      SELECT
+        'KIT'::text AS tipo,
+        k.id,
+        CONCAT('KIT-', k.id) AS lista_key,
+        k.id AS parent_kit_id,
+        k.parent_kit_codigo,
+        0 AS group_order,
+        k.sort_order,
+        0 AS row_position
+      FROM direct_kits k
+
       UNION ALL
-      SELECT 'KIT'::text, k.id, ROW_NUMBER() OVER (ORDER BY k.created_at DESC NULLS LAST, k.id DESC)::bigint,
-        k.id, k.parent_kit_codigo, 0
-      FROM matching_kits k
-      UNION ALL
-      SELECT 'ITEM'::text, componente.id, ROW_NUMBER() OVER (ORDER BY k.created_at DESC NULLS LAST, k.id DESC)::bigint,
-        k.id, k.parent_kit_codigo, 1
-      FROM matching_kits k
+
+      SELECT
+        'ITEM'::text,
+        componente.id,
+        CONCAT('KIT-', k.id, '-ITEM-', componente.id),
+        k.id,
+        k.parent_kit_codigo,
+        0,
+        k.sort_order,
+        componente.id::bigint
+      FROM direct_kits k
       JOIN public.kit_detalle detalle ON detalle.id_kit = k.id
       JOIN public.productos componente ON componente.id = detalle.id_producto
-    ), deduplicated AS (
-      SELECT DISTINCT ON (tipo, id) tipo, id, sort_order, parent_kit_id, parent_kit_codigo, row_position
-      FROM catalog_raw
-      ORDER BY tipo, id, row_position DESC, sort_order ASC
+
+      UNION ALL
+
+      SELECT
+        'ITEM'::text,
+        p.id,
+        CONCAT('ITEM-', p.id),
+        NULL::int,
+        NULL::text,
+        1,
+        mp.match_order::bigint,
+        0
+      FROM matching_products mp
+      JOIN public.productos p ON p.id = mp.id
+
+      UNION ALL
+
+      SELECT
+        'KIT'::text,
+        k.id,
+        CONCAT('RELATED-KIT-', k.id),
+        k.id,
+        k.parent_kit_codigo,
+        2,
+        k.sort_order,
+        0
+      FROM component_kits k
     )
-    SELECT tipo, id, parent_kit_id, parent_kit_codigo FROM deduplicated
-    ORDER BY sort_order ASC NULLS LAST, row_position ASC, CASE WHEN tipo = 'KIT' THEN 0 ELSE 1 END, id DESC
+    SELECT tipo, id, lista_key, parent_kit_id, parent_kit_codigo
+    FROM catalog_raw
+    ORDER BY group_order ASC, sort_order ASC, row_position ASC, id DESC
   `;
 }
 
@@ -251,7 +317,7 @@ export async function getItemsUnificadosListado(
       FROM catalog_raw
       ORDER BY tipo, id, row_position DESC, sort_order ASC
     )
-    SELECT tipo, id, parent_kit_id, parent_kit_codigo
+    SELECT tipo, id, CONCAT(tipo, '-', id) AS lista_key, parent_kit_id, parent_kit_codigo
     FROM deduplicated
     ORDER BY sort_order ASC NULLS LAST, row_position ASC, CASE WHEN tipo = 'KIT' THEN 0 ELSE 1 END, id DESC
   `;
@@ -323,6 +389,7 @@ export async function getItemsUnificadosListado(
       return product ? [{
         ...product,
         tipo: "ITEM",
+        lista_key: row.lista_key,
         parent_kit_id: row.parent_kit_id,
         parent_kit_codigo: row.parent_kit_codigo,
         publicaciones_ml: publicacionesPorItem.get(`ITEM-${row.id}`) || [],
@@ -335,6 +402,7 @@ export async function getItemsUnificadosListado(
     return [{
       id: kit.id,
       tipo: "KIT",
+       lista_key: row.lista_key,
       cod_unico: kit.codigo_kit,
       descripcion: kit.nombre,
       cod_barra: "",

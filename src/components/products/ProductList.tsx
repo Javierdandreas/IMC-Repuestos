@@ -561,7 +561,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {products.map((product) => (
                   <tr
-                    key={`${product.tipo}-${product.id}`}
+                    key={product.lista_key ?? `${product.tipo}-${product.id}`}
                     className={`group transition-all ${selectedIds.has(`${product.tipo}-${product.id}`)
                         ? 'bg-blue-50/50 dark:bg-blue-900/10'
                         : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/30'
@@ -1053,6 +1053,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Codigo de barras</p>
                       <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_barra}</p>
+                    </div>
+                  )}
+
+                  {hoveredProduct.palabra_clave && (
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Palabras clave</p>
+                      <p className="mt-1 whitespace-pre-wrap text-xs font-medium text-slate-700 dark:text-slate-200">{hoveredProduct.palabra_clave}</p>
                     </div>
                   )}
 

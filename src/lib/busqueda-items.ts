@@ -23,6 +23,9 @@ export function condicionBusquedaProducto(
   const match = (column: string) => exact
     ? `UPPER(TRIM(${column}::text)) = UPPER(TRIM($${parameter}::text))`
     : `${column}::text ILIKE $${parameter}`;
+  const matchPalabraClave = exact
+    ? `REGEXP_REPLACE(UPPER(COALESCE(${alias}.palabra_clave::text, '')), '\\s+', '', 'g') LIKE '%' || UPPER(TRIM($${parameter}::text)) || '%'`
+    : match(`${alias}.palabra_clave`);
 
   const conditions = [
     match(`${alias}.cod_unico`),
@@ -51,12 +54,12 @@ export function condicionBusquedaProducto(
       SELECT 1 FROM public.producto_serie buscar_serie
       WHERE buscar_serie.id_producto = ${alias}.id AND ${match("buscar_serie.numero_serie")}
     )`,
+    matchPalabraClave,
   ];
 
   if (!exact) {
     conditions.push(
       match(`${alias}.descripcion`),
-      match(`${alias}.palabra_clave`),
       `EXISTS (
         SELECT 1 FROM public.marcas buscar_marca
         WHERE buscar_marca.id = ${alias}.id_marca AND ${match("buscar_marca.descripcion")}
