@@ -1,22 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
+import { query } from "@/lib/db-utils";
 import { sincronizarCotizacionesAutomaticas } from "@/lib/multimoneda";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function isAuthorized(request: NextRequest) {
-  const secret = process.env.MULTIMONEDA_CRON_SECRET;
-  return Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
+async function isAuthorized(request: NextRequest) {
+  const authorization = request.headers.get("authorization");
+  if (!authorization) return false;
+
+  const result = await query<{ decrypted_secret: string }>(
+    "SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = $1",
+    ["imc_multimoneda_cron_secret"]
+  );
+  const secret = result.rows[0]?.decrypted_secret;
+  return Boolean(secret) && authorization === `Bearer ${secret}`;
 }
 
 export async function GET(request: NextRequest) {
-  if (!process.env.MULTIMONEDA_CRON_SECRET) {
-    console.error("[MULTIMONEDA CRON] Falta configurar MULTIMONEDA_CRON_SECRET.");
-    return NextResponse.json({ message: "Cron no configurado." }, { status: 503 });
-  }
-  if (!isAuthorized(request)) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-
   try {
+    if (!(await isAuthorized(request))) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
     return NextResponse.json({ ok: true, ...(await sincronizarCotizacionesAutomaticas()) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[MULTIMONEDA CRON] Error al actualizar cotizaciones:", error);
