@@ -245,13 +245,25 @@ export function PriceChangesReportPage() {
         </header>
 
         {data?.recentExports.length ? (
-          <section className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs dark:border-slate-800 dark:bg-slate-950">
-            <span className="font-black uppercase tracking-wide text-slate-500">Ultimas exportaciones</span>
-            {data.recentExports.map((item) => (
-              <span key={item.id} className="font-semibold text-slate-600 dark:text-slate-300">
-                {formatDate(item.created_at)}: {item.cantidad.toLocaleString("es-AR")} cambios, {item.proveedores} proveedor(es), {item.importaciones} importacion(es)
-              </span>
-            ))}
+          <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-xs font-black uppercase tracking-wide text-slate-500">Ultimas exportaciones</span>
+              <span className="text-[10px] font-bold text-slate-400">{data.recentExports.length} recientes</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+              {data.recentExports.map((item) => (
+                <article key={item.id} className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/60">
+                  <p className="truncate text-[11px] font-black text-slate-800 dark:text-slate-100">{formatDate(item.created_at)}</p>
+                  <div className="mt-2 flex items-center gap-2 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                    <span>{item.cantidad.toLocaleString("es-AR")} cambios</span>
+                    <span className="text-slate-300 dark:text-slate-700">|</span>
+                    <span>{item.proveedores} prov.</span>
+                    <span className="text-slate-300 dark:text-slate-700">|</span>
+                    <span>{item.importaciones} imp.</span>
+                  </div>
+                </article>
+              ))}
+            </div>
           </section>
         ) : null}
 

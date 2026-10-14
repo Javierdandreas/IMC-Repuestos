@@ -201,7 +201,6 @@ export function ExternalCatalogPage({ canManage }: Props) {
   const { categorias, subcategorias } = useMetadata();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingSource, setLoadingSource] = useState<"API" | "SUPABASE">("SUPABASE");
   const [productsPage, setProductsPage] = useState<ProductsPage | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productSearch, setProductSearch] = useState("");
@@ -268,7 +267,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
     }
   };
 
-  const loadPreview = async (source: "API" | "SUPABASE" = "SUPABASE") => {
+  const loadPreview = async () => {
     if (!canManage) {
       toast.error("Solo administradores pueden consultar el catalogo externo.");
       return;
@@ -276,8 +275,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
 
     try {
       setLoading(true);
-      setLoadingSource(source);
-      const response = await fetch(`/api/catalogo-externo/resumen?source=${source}`, { cache: "no-store" });
+      const response = await fetch("/api/catalogo-externo/resumen", { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "No se pudo consultar el catalogo externo.");
       const nextPreview = data as Preview;
@@ -535,7 +533,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
       setSelectedIds([]);
       setSelectedGroupIds([]);
       setConfirmingFinish(false);
-      toast.success("Consulta finalizada. La proxima revision volvera a consultar el catalogo externo.");
+      toast.success("Consulta finalizada. La proxima revision consultara la base externa.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo finalizar la consulta externa.");
     } finally {
@@ -562,21 +560,12 @@ export function ExternalCatalogPage({ canManage }: Props) {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => loadPreview("SUPABASE")}
+              onClick={() => void loadPreview()}
               disabled={loading || !canManage}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-blue-500/40 px-4 text-xs font-black uppercase tracking-wide text-blue-600 transition hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-300"
             >
-              <HiRefresh className={`h-4 w-4 ${loading && loadingSource === "SUPABASE" ? "animate-spin" : ""}`} />
+              <HiRefresh className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Consultar base externa
-            </button>
-            <button
-              type="button"
-              onClick={() => loadPreview("API")}
-              disabled={loading || !canManage}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-xs font-black uppercase tracking-wide text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <HiRefresh className={`h-4 w-4 ${loading && loadingSource === "API" ? "animate-spin" : ""}`} />
-              Consultar API
             </button>
           </div>
         </header>
@@ -587,7 +576,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
             <p className="mt-4 text-sm font-black text-slate-900 dark:text-white">Catalogo listo para consultar</p>
             <button
               type="button"
-              onClick={() => loadPreview("SUPABASE")}
+              onClick={() => void loadPreview()}
               disabled={loading || !canManage}
               className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500/40 px-4 text-xs font-black uppercase tracking-wide text-blue-600 transition hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-300"
             >
@@ -1036,8 +1025,8 @@ export function ExternalCatalogPage({ canManage }: Props) {
 
       <TransferProgressModal
         open={loading || importing || importingGroups}
-        title={importingGroups ? "Importando kits externos" : importing ? "Importando productos externos" : loadingSource === "SUPABASE" ? "Consultando base externa" : "Consultando catalogo externo"}
-        description={importingGroups ? "Creando los kits y vinculando sus componentes." : importing ? "Creando los items seleccionados en el catalogo propio." : loadingSource === "SUPABASE" ? "Leyendo la ultima sincronizacion de gesu_items_raw." : "Leyendo y comparando los registros disponibles."}
+        title={importingGroups ? "Importando kits externos" : importing ? "Importando productos externos" : "Consultando base externa"}
+        description={importingGroups ? "Creando los kits y vinculando sus componentes." : importing ? "Creando los items seleccionados en el catalogo propio." : "Leyendo la ultima sincronizacion de gesu_items_raw."}
       />
     </main>
   );

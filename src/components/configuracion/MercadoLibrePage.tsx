@@ -272,11 +272,11 @@ export function MercadoLibrePage({ canManage }: Props) {
   };
 
   const copyVisiblePublicationMlas = async () => {
-    const mlas = visiblePublicaciones.map((publication) => publication.itemId).join("\n");
+    const mlas = visiblePublicaciones.map((publication) => publication.itemId.replace(/\D/g, "")).filter(Boolean).join("\n");
     if (!mlas) return;
     try {
       await navigator.clipboard.writeText(mlas);
-      toast.success(`${visiblePublicaciones.length} MLA copiados.`);
+      toast.success(`${visiblePublicaciones.length} ID(s) de publicacion copiados.`);
     } catch {
       toast.error("No se pudieron copiar los MLA. Revisa los permisos del navegador.");
     }

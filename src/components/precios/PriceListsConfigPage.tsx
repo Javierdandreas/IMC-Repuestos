@@ -7,6 +7,7 @@ import { ArrowLeft, Check, DollarSign, Eye, EyeOff, Percent, Plus, Save, Trash2 
 import { usePermissions } from "@/components/auth/usePermissions";
 import { useAppError } from "@/context/AppErrorContext";
 import { useMetadata } from "@/context/MetadataContext";
+import { Modal } from "@/components/ui/Modal";
 import type { TipoPrecio } from "@/interfaces/productos";
 
 type EditableTipoPrecio = {
@@ -34,6 +35,7 @@ export function PriceListsConfigPage() {
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<EditableTipoPrecio | null>(null);
 
   useEffect(() => {
     setItems(tiposPrecio.map(toEditable));
@@ -96,23 +98,23 @@ export function PriceListsConfigPage() {
     }
   };
 
-  const handleDelete = async (item: EditableTipoPrecio) => {
-    const confirmed = window.confirm(`¿Eliminar la lista "${item.descripcion}"? Si ya tiene precios cargados, el sistema te pedira ocultarla en lugar de borrarla.`);
-    if (!confirmed) return;
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
 
     try {
-      setDeletingId(item.id);
-      const response = await fetch(`/api/tipos-precio/${item.id}`, { method: "DELETE" });
+      setDeletingId(deleteTarget.id);
+      const response = await fetch(`/api/tipos-precio/${deleteTarget.id}`, { method: "DELETE" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "No se pudo eliminar la lista de precio");
 
-      setItems((prev) => prev.filter((current) => current.id !== item.id));
+      setItems((prev) => prev.filter((current) => current.id !== deleteTarget.id));
       await refresh();
       toast.success("Lista de precio eliminada");
     } catch (error) {
       showError(error, "No se pudo eliminar la lista de precio");
     } finally {
       setDeletingId(null);
+      setDeleteTarget(null);
     }
   };
 
@@ -220,7 +222,7 @@ export function PriceListsConfigPage() {
                     <button
                       type="button"
                       disabled={!canManage || isCosto || deletingId === item.id}
-                      onClick={() => handleDelete(item)}
+                      onClick={() => setDeleteTarget(item)}
                       className="inline-flex h-10 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-500 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-40"
                       title={isCosto ? "La lista de costo no se puede eliminar" : "Eliminar lista"}
                     >
@@ -252,6 +254,23 @@ export function PriceListsConfigPage() {
             </div>
           </aside>
         </main>
+
+        <Modal
+          title="Eliminar lista de precio"
+          open={Boolean(deleteTarget)}
+          onClose={deletingId ? () => {} : () => setDeleteTarget(null)}
+          width="w-full max-w-md"
+        >
+          <div className="space-y-5 p-6">
+            <p className="text-sm font-medium leading-6 text-slate-600 dark:text-slate-300">
+              Vas a eliminar la lista <span className="font-black text-slate-900 dark:text-white">{deleteTarget?.descripcion}</span>. Si ya tiene precios cargados, el sistema te indicara que debe ocultarse para conservar el historial.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setDeleteTarget(null)} disabled={Boolean(deletingId)} className="h-10 rounded-lg border border-slate-200 px-4 text-xs font-black uppercase tracking-wide text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Cancelar</button>
+              <button type="button" onClick={() => void handleDelete()} disabled={Boolean(deletingId)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-600 px-4 text-xs font-black uppercase tracking-wide text-white transition hover:bg-red-700 disabled:opacity-50"><Trash2 className="h-4 w-4" />{deletingId ? "Eliminando" : "Eliminar"}</button>
+            </div>
+          </div>
+        </Modal>
       </div>
     </div>
   );
