@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: "Cron no configurado." }, { status: 503 });
   }
   try {
-    if (!isAuthorized(request)) return NextResponse.json({ message: "No autorizado.", encabezadoRecibido: Boolean(request.headers.get("x-imc-multimoneda-cron")) }, { status: 401 });
+    if (!isAuthorized(request)) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
     return NextResponse.json({ ok: true, ...(await sincronizarCotizacionesAutomaticas()) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[MULTIMONEDA CRON] Error al actualizar cotizaciones:", error);
