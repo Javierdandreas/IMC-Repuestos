@@ -80,6 +80,11 @@ type ProductsPage = {
   totalCount: number;
 };
 
+type KeywordsUpdateResult = {
+  updated: number;
+  preview: Preview;
+};
+
 type Component = { code: string; quantity: number };
 
 type Group = {
@@ -204,6 +209,9 @@ export function ExternalCatalogPage({ canManage }: Props) {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [confirmingImport, setConfirmingImport] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [confirmingKeywordsUpdate, setConfirmingKeywordsUpdate] = useState(false);
+  const [updatingKeywords, setUpdatingKeywords] = useState(false);
+  const [keywordsUpdated, setKeywordsUpdated] = useState(false);
   const [classifyingProduct, setClassifyingProduct] = useState<Product | null>(null);
   const [classificationCategoryId, setClassificationCategoryId] = useState("");
   const [classificationSubcategoryId, setClassificationSubcategoryId] = useState("");
@@ -277,6 +285,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
       setProductSearch("");
       setProductStatus("");
       setSelectedIds([]);
+      setKeywordsUpdated(false);
       setGroupSearch("");
       setGroupStatus("");
       setSelectedGroupIds([]);
@@ -354,6 +363,29 @@ export function ExternalCatalogPage({ canManage }: Props) {
       toast.error(error instanceof Error ? error.message : "No se pudieron importar los productos seleccionados.");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const updateExistingKeywords = async () => {
+    if (!preview) return;
+    try {
+      setUpdatingKeywords(true);
+      const response = await fetch("/api/catalogo-externo/productos/palabras-clave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshotId: preview.snapshotId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "No se pudieron actualizar las palabras clave existentes.");
+      const result = data as KeywordsUpdateResult;
+      setPreview(result.preview);
+      setKeywordsUpdated(true);
+      setConfirmingKeywordsUpdate(false);
+      toast.success(`${result.updated.toLocaleString("es-AR")} items existentes actualizados con palabras clave externas.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudieron actualizar las palabras clave existentes.");
+    } finally {
+      setUpdatingKeywords(false);
     }
   };
 
@@ -632,6 +664,15 @@ export function ExternalCatalogPage({ canManage }: Props) {
                   <HiUpload className="h-4 w-4" />
                   Importar seleccionados ({selectedIds.length})
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingKeywordsUpdate(true)}
+                  disabled={!preview.products.existing || keywordsUpdated || updatingKeywords}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-violet-500/40 px-4 text-xs font-black uppercase tracking-wide text-violet-600 transition hover:bg-violet-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-violet-300"
+                >
+                  <HiRefresh className="h-4 w-4" />
+                  {keywordsUpdated ? "Palabras clave actualizadas" : "Actualizar palabras clave existentes"}
+                </button>
               </div>
 
               <form onSubmit={submitProductSearch} className="flex flex-wrap items-end gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
@@ -902,6 +943,21 @@ export function ExternalCatalogPage({ canManage }: Props) {
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={() => setConfirmingImport(false)} disabled={importing} className="h-10 rounded-lg border border-slate-200 px-4 text-xs font-black uppercase tracking-wide text-slate-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300">Cancelar</button>
             <button type="button" onClick={importSelected} disabled={importing} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-black uppercase tracking-wide text-white disabled:opacity-50"><HiUpload className="h-4 w-4" /> Importar</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal title="Actualizar palabras clave existentes" open={confirmingKeywordsUpdate} onClose={updatingKeywords ? () => {} : () => setConfirmingKeywordsUpdate(false)} width="max-w-lg">
+        <div className="space-y-4 p-6">
+          <p className="text-sm font-medium leading-6 text-slate-600 dark:text-slate-300">
+            Se actualizaran las palabras clave de los items existentes que coincidan por codigo con esta consulta externa.
+          </p>
+          <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs font-semibold leading-5 text-violet-800 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-200">
+            Solo se usa una palabra clave externa con contenido. No se modificaran piezas, precios, stock, descripcion, marca ni clasificacion local.
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={() => setConfirmingKeywordsUpdate(false)} disabled={updatingKeywords} className="h-10 rounded-lg border border-slate-200 px-4 text-xs font-black uppercase tracking-wide text-slate-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300">Cancelar</button>
+            <button type="button" onClick={updateExistingKeywords} disabled={updatingKeywords} className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-xs font-black uppercase tracking-wide text-white disabled:opacity-50"><HiRefresh className="h-4 w-4" /> Actualizar ahora</button>
           </div>
         </div>
       </Modal>

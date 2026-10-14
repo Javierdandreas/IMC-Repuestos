@@ -141,6 +141,7 @@ export type CatalogImportResult = {
 };
 export type CatalogImportResponse = CatalogImportResult & { preview: ExternalCatalogPreview };
 export type CatalogGroupImportResult = { created: number; skippedExisting: number; invalidSelection: number; componentsLinked: number; preview: ExternalCatalogPreview };
+export type CatalogKeywordsUpdateResponse = { updated: number; preview: ExternalCatalogPreview };
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const nullable = (value: unknown) => clean(value) || null;
@@ -803,10 +804,10 @@ export async function importExternalCatalogProducts(snapshotId: number, rawIds: 
     for (const brand of Array.from(new Set(candidates.map((row) => clean(row.marca)).filter(Boolean)))) {
       const key = normalize(brand);
       if (brandByName.has(key)) continue;
-      const inserted = await db.query<{ id: number }>("INSERT INTO public.marcas (descripcion) SELECT $1 WHERE NOT EXISTS (SELECT 1 FROM public.marcas WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1))) RETURNING id", [brand]);
+      const inserted = await db.query<{ id: number }>("INSERT INTO public.marcas (descripcion) SELECT $1::text WHERE NOT EXISTS (SELECT 1 FROM public.marcas WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1::text))) RETURNING id", [brand]);
       if (inserted.rows[0]) { brandByName.set(key, Number(inserted.rows[0].id)); brandsCreated += 1; }
       else {
-        const existingBrand = await db.query<{ id: number }>("SELECT id FROM public.marcas WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1)) LIMIT 1", [brand]);
+        const existingBrand = await db.query<{ id: number }>("SELECT id FROM public.marcas WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1::text)) LIMIT 1", [brand]);
         if (existingBrand.rows[0]) brandByName.set(key, Number(existingBrand.rows[0].id));
       }
     }
@@ -818,14 +819,14 @@ export async function importExternalCatalogProducts(snapshotId: number, rawIds: 
       const key = normalize(provider);
       if (providerByName.has(key)) continue;
       const insertedProvider = await db.query<{ id: number }>(
-        "INSERT INTO public.proveedores (descripcion) SELECT $1 WHERE NOT EXISTS (SELECT 1 FROM public.proveedores WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1))) RETURNING id",
+        "INSERT INTO public.proveedores (descripcion) SELECT $1::text WHERE NOT EXISTS (SELECT 1 FROM public.proveedores WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1::text))) RETURNING id",
         [provider]
       );
       if (insertedProvider.rows[0]) {
         providerByName.set(key, Number(insertedProvider.rows[0].id));
         providersCreated += 1;
       } else {
-        const existingProvider = await db.query<{ id: number }>("SELECT id FROM public.proveedores WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1)) LIMIT 1", [provider]);
+        const existingProvider = await db.query<{ id: number }>("SELECT id FROM public.proveedores WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1::text)) LIMIT 1", [provider]);
         if (existingProvider.rows[0]) providerByName.set(key, Number(existingProvider.rows[0].id));
       }
     }
@@ -938,6 +939,33 @@ export async function importExternalCatalogProducts(snapshotId: number, rawIds: 
   });
   revalidateTag("meta");
   return { ...result, preview: await summary(snapshotId) };
+}
+
+export async function updateExternalCatalogExistingKeywords(snapshotId: number): Promise<CatalogKeywordsUpdateResponse> {
+  const updated = await withTransaction(async (db) => {
+    const snapshot = await db.query<{ id: number }>(
+      "SELECT id FROM public.catalogo_externo_sincronizacion WHERE id = $1 AND origen = $2 FOR SHARE",
+      [snapshotId, ORIGIN]
+    );
+    if (!snapshot.rowCount) throw new AppError("La consulta externa ya no esta disponible.", 404);
+
+    const result = await db.query<{ id: number }>(
+      `UPDATE public.productos AS producto
+       SET palabra_clave = NULLIF(BTRIM(item.palabras_clave), '')
+       FROM public.catalogo_externo_item AS item
+       WHERE item.id_sincronizacion = $1
+         AND item.tipo = 'PRODUCTO'
+         AND item.existe_local = TRUE
+         AND producto.id = item.id_producto_local
+         AND NULLIF(BTRIM(item.palabras_clave), '') IS NOT NULL
+         AND producto.palabra_clave IS DISTINCT FROM NULLIF(BTRIM(item.palabras_clave), '')
+       RETURNING producto.id`,
+      [snapshotId]
+    );
+    return result.rowCount ?? 0;
+  });
+
+  return { updated, preview: await summary(snapshotId) };
 }
 
 export async function importExternalCatalogGroups(snapshotId: number, rawIds: unknown[]): Promise<CatalogGroupImportResult> {
