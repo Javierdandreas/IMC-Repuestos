@@ -248,13 +248,13 @@ export function PriceChangesReportPage() {
           <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
             <div className="mb-3 flex items-center justify-between gap-3">
               <span className="text-xs font-black uppercase tracking-wide text-slate-500">Ultimas exportaciones</span>
-              <span className="text-[10px] font-bold text-slate-400">{data.recentExports.length} recientes</span>
+              <span className="text-[11px] font-bold text-slate-400">{data.recentExports.length} recientes</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
               {data.recentExports.map((item) => (
                 <article key={item.id} className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/60">
-                  <p className="truncate text-[11px] font-black text-slate-800 dark:text-slate-100">{formatDate(item.created_at)}</p>
-                  <div className="mt-2 flex items-center gap-2 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                  <p className="truncate text-xs font-black text-slate-800 dark:text-slate-100">{formatDate(item.created_at)}</p>
+                  <div className="mt-2 flex items-center gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400">
                     <span>{item.cantidad.toLocaleString("es-AR")} cambios</span>
                     <span className="text-slate-300 dark:text-slate-700">|</span>
                     <span>{item.proveedores} prov.</span>
@@ -271,15 +271,15 @@ export function PriceChangesReportPage() {
           <div className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40">
             <div className="grid gap-3 px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1.4fr)_minmax(170px,1fr)_minmax(180px,1.1fr)_130px_130px_170px]">
               <label className="min-w-0">
-                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Proveedor</span>
-                <select value={providerId} onChange={(event) => { setProviderId(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                <span className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-500">Proveedor</span>
+                <select value={providerId} onChange={(event) => { setProviderId(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
                   <option value="">Todos los proveedores</option>
                   {proveedores.map((provider) => <option key={provider.id} value={provider.id}>{provider.descripcion}</option>)}
                 </select>
               </label>
               <label className="min-w-0">
-                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Estado</span>
-                <select value={status} onChange={(event) => { setStatus(event.target.value as ApprovalStatus); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                <span className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-500">Estado</span>
+                <select value={status} onChange={(event) => { setStatus(event.target.value as ApprovalStatus); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
                   <option value="PENDIENTE">Pendientes de revision</option>
                   <option value="APROBADOS">Aprobados</option>
                   <option value="RECHAZADO">Rechazados</option>
@@ -288,20 +288,20 @@ export function PriceChangesReportPage() {
                 </select>
               </label>
               <label className="min-w-0">
-                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Codigo</span>
-                <span className="relative block"><HiSearch className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" /><input value={code} onChange={(event) => { setCode(event.target.value); setPage(1); }} placeholder="Item o proveedor" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" /></span>
+                <span className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-500">Codigo</span>
+                <span className="relative block"><HiSearch className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" /><input value={code} onChange={(event) => { setCode(event.target.value); setPage(1); }} placeholder="Item o proveedor" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" /></span>
               </label>
               <label className="min-w-0">
-                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Desde</span>
-                <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
+                <span className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-500">Desde</span>
+                <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
               </label>
               <label className="min-w-0">
-                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Hasta</span>
-                <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
+                <span className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-500">Hasta</span>
+                <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
               </label>
               <label className="min-w-0">
-                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Origen</span>
-                <select value={origin} onChange={(event) => { setOrigin(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                <span className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-500">Origen</span>
+                <select value={origin} onChange={(event) => { setOrigin(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
                   <option value="">Todos los origenes</option><option value="IMPORTACION">Lista de proveedor</option><option value="CARGA_MANUAL_PROVEEDOR">Carga manual</option><option value="CRITERIO_MASIVO">Criterio masivo</option><option value="REGLAS_PROVEEDOR">Capas de costo</option><option value="DESCUENTOS_PROVEEDOR">Descuentos</option><option value="EDICION_ITEM">Edicion de item</option>
                 </select>
               </label>
@@ -309,16 +309,16 @@ export function PriceChangesReportPage() {
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 px-4 py-2.5 dark:border-slate-800">
               {canManage && selectedIds.length > 0 && (
                 <>
-                  <button type="button" onClick={() => void resolveChanges(selectedIds, "RECHAZAR")} disabled={isResolving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-500/30 px-3 text-[10px] font-black uppercase tracking-wide text-red-600 transition hover:bg-red-500/10 disabled:opacity-50 dark:text-red-300">
+                  <button type="button" onClick={() => void resolveChanges(selectedIds, "RECHAZAR")} disabled={isResolving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-500/30 px-3 text-[11px] font-black uppercase tracking-wide text-red-600 transition hover:bg-red-500/10 disabled:opacity-50 dark:text-red-300">
                     <HiX className="h-4 w-4" /> Rechazar ({selectedIds.length})
                   </button>
-                  <button type="button" onClick={() => void resolveChanges(selectedIds, "APROBAR")} disabled={isResolving} className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-50">
+                  <button type="button" onClick={() => void resolveChanges(selectedIds, "APROBAR")} disabled={isResolving} className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-3 text-[11px] font-black uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-50">
                     <HiCheck className="h-4 w-4" /> Aprobar ({selectedIds.length})
                   </button>
                 </>
               )}
               {canManage && status === "PENDIENTE" && Number(data?.totalCount || 0) > 0 && (
-                <button type="button" onClick={() => setConfirmingAll(true)} disabled={isResolving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-600/30 px-3 text-[10px] font-black uppercase tracking-wide text-emerald-700 transition hover:bg-emerald-500/10 disabled:opacity-50 dark:text-emerald-300">
+                <button type="button" onClick={() => setConfirmingAll(true)} disabled={isResolving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-600/30 px-3 text-[11px] font-black uppercase tracking-wide text-emerald-700 transition hover:bg-emerald-500/10 disabled:opacity-50 dark:text-emerald-300">
                   <HiCheck className="h-4 w-4" /> Aprobar todos ({data?.totalCount.toLocaleString("es-AR")})
                 </button>
               )}
@@ -329,8 +329,8 @@ export function PriceChangesReportPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] table-fixed text-left text-xs">
-              <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:bg-slate-900/60">
+            <table className="w-full min-w-[1120px] table-fixed text-left text-[13px]">
+              <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:bg-slate-900/60">
                 <tr>
                   {canManage && <th className="sticky left-0 z-20 w-10 bg-slate-50 px-3 py-2.5 dark:bg-slate-900"><input type="checkbox" aria-label="Seleccionar cambios pendientes de la pagina" checked={allSelected} onChange={toggleAll} disabled={selectableIds.length === 0 || isResolving} className="h-4 w-4 rounded border-slate-300 text-blue-600" /></th>}
                   <th className="w-24 px-2 py-2.5">Fecha</th><th className="w-24 px-2 py-2.5">Origen</th><th className="w-28 px-2 py-2.5">Proveedor</th><th className="w-64 px-2 py-2.5">Item</th><th className="w-28 px-2 py-2.5">Cod. proveedor</th><th className="w-24 px-2 py-2.5">Estado</th><th className="w-28 px-2 py-2.5 text-right">Anterior</th><th className="w-28 px-2 py-2.5 text-right">Nuevo</th><th className="w-32 px-2 py-2.5 text-right">Variacion</th>
@@ -348,15 +348,15 @@ export function PriceChangesReportPage() {
                   return (
                     <tr key={row.id} className="text-slate-700 dark:text-slate-300">
                       {canManage && <td className="sticky left-0 z-10 bg-white px-3 py-2.5 dark:bg-slate-950"><input type="checkbox" aria-label={`Seleccionar ${row.codigo_item || row.codigo_proveedor}`} checked={selectedIds.includes(row.id)} onChange={() => toggleSelected(row.id)} disabled={!isPending || isResolving} className="h-4 w-4 rounded border-slate-300 text-blue-600 disabled:opacity-40" /></td>}
-                      <td className="px-2 py-2.5 font-mono text-[10px] font-semibold leading-4">{formatDate(row.fecha_importacion)}</td>
-                      <td className="px-2 py-2.5 text-[9px] font-black uppercase leading-4 tracking-wide text-slate-500">{originLabel(row.origen)}</td>
+                      <td className="px-2 py-2.5 font-mono text-[11px] font-semibold leading-4">{formatDate(row.fecha_importacion)}</td>
+                      <td className="px-2 py-2.5 text-[10px] font-black uppercase leading-4 tracking-wide text-slate-500">{originLabel(row.origen)}</td>
                       <td className="truncate px-2 py-2.5 font-semibold" title={row.proveedor}>{row.proveedor}</td>
-                      <td className="px-2 py-2.5"><p className="truncate font-semibold text-slate-900 dark:text-white" title={row.descripcion_item || "Item sin descripcion"}>{row.descripcion_item || "Item sin descripcion"}</p><p className="mt-0.5 truncate font-mono text-[10px] text-slate-500" title={row.codigo_item || "Sin codigo interno"}>{row.codigo_item || "Sin codigo interno"}</p></td>
+                      <td className="px-2 py-2.5"><p className="truncate font-semibold text-slate-900 dark:text-white" title={row.descripcion_item || "Item sin descripcion"}>{row.descripcion_item || "Item sin descripcion"}</p><p className="mt-0.5 truncate font-mono text-[11px] text-slate-500" title={row.codigo_item || "Sin codigo interno"}>{row.codigo_item || "Sin codigo interno"}</p></td>
                       <td className="truncate px-2 py-2.5 font-mono font-semibold" title={row.codigo_proveedor || "-"}>{row.codigo_proveedor || "-"}</td>
-                      <td className="px-2 py-2.5"><span className={`inline-flex rounded-full px-1.5 py-1 text-[8px] font-black uppercase tracking-wide ${statusClass(row.estado_aprobacion)}`}>{statusLabel(row.estado_aprobacion)}</span></td>
+                      <td className="px-2 py-2.5"><span className={`inline-flex rounded-full px-1.5 py-1 text-[10px] font-black uppercase tracking-wide ${statusClass(row.estado_aprobacion)}`}>{statusLabel(row.estado_aprobacion)}</span></td>
                       <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono font-semibold">{formatMoney(row.costo_anterior)}</td>
                       <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono font-black text-slate-900 dark:text-white">{formatMoney(row.costo_nuevo)}</td>
-                      <td className={`px-2 py-2.5 text-right font-mono font-bold ${differenceClass}`}><p className="whitespace-nowrap">{formatMoney(row.diferencia)}</p><p className="mt-0.5 text-[10px]">{row.diferencia_porcentaje === null ? "-" : `${row.diferencia_porcentaje.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}</p></td>
+                      <td className={`px-2 py-2.5 text-right font-mono font-bold ${differenceClass}`}><p className="whitespace-nowrap">{formatMoney(row.diferencia)}</p><p className="mt-0.5 text-[11px]">{row.diferencia_porcentaje === null ? "-" : `${row.diferencia_porcentaje.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}</p></td>
                       {canManage && <td className="sticky right-0 z-10 bg-white px-2 py-2.5 text-right dark:bg-slate-950">{isPending ? <div className="inline-flex gap-1"><button type="button" title="Rechazar cambio" aria-label="Rechazar cambio" onClick={() => void resolveChanges([row.id], "RECHAZAR")} disabled={isResolving} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-500/30 text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-300"><HiX className="h-4 w-4" /></button><button type="button" title="Aprobar y aplicar costo" aria-label="Aprobar y aplicar costo" onClick={() => void resolveChanges([row.id], "APROBAR")} disabled={isResolving} className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"><HiCheck className="h-4 w-4" /></button></div> : <span className="text-[10px] font-bold text-slate-400">-</span>}</td>}
                     </tr>
                   );

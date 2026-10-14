@@ -393,14 +393,14 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
             <div className="flex flex-wrap items-center gap-2 [&_label]:sr-only">
               {/* Buscador General */}
               <div className="min-w-[230px] flex-1">
-                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Buscador General</label>
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Buscador General</label>
                 <div className="relative">
                   <input
                     type="text"
                     placeholder="DESCRIPCIÓN, ITEM ASOCIADO, PALABRAS..."
                     value={searchGeneral}
                     onChange={(e) => handleGeneralSearchChange(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pl-9 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pl-9 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
                   />
                   <svg className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -410,26 +410,26 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
               {/* Buscador Específico */}
               <div className="w-36">
-                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Buscador Específico</label>
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Buscador Específico</label>
                 <input
                   type="text"
                   placeholder="CÓDIGO EXACTO"
                   value={searchSpecific}
                   onChange={(e) => handleSpecificSearchChange(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 placeholder:text-slate-400 uppercase dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-700"
                 />
               </div>
 
               {/* Categoría */}
               <div className="w-32">
-                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Categoría</label>
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Categoría</label>
                 <select
                   value={categoria}
                   onChange={(e) => {
                     setCategoria(e.target.value);
                     setSubcategoria("");
                   }}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">TODAS</option>
                   {categorias.map((item) => (
@@ -440,12 +440,12 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
               {/* Subcategoría */}
               <div className="w-40">
-                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Subcategoría</label>
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Subcategoría</label>
                 <select
                   value={subcategoria}
                   disabled={!categoria}
                   onChange={(e) => setSubcategoria(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 disabled:opacity-30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 disabled:opacity-30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">TODAS</option>
                   {subcategoriasDisponibles.map((item) => (
@@ -456,11 +456,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
               {/* Marca */}
               <div className="w-28">
-                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Marca</label>
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Marca</label>
                 <select
                   value={marca}
                   onChange={(e) => setMarca(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">TODAS</option>
                   {marcas.map((item) => (
@@ -471,11 +471,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
               {/* Proveedor */}
               <div className="w-40">
-                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Proveedor</label>
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Proveedor</label>
                 <select
                   value={proveedor}
                   onChange={(e) => setProveedor(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">TODOS</option>
                   {proveedores.map((item) => (
@@ -485,11 +485,11 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
 
               <div className="w-36">
-                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Lista venta</label>
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Lista venta</label>
                 <select
                   value={tipoVentaSeleccionado?.id ?? ""}
                   onChange={(event) => setIdTipoVenta(event.target.value ? Number(event.target.value) : null)}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[10px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                   aria-label="Lista de precio de venta"
                 >
                   {tiposVenta.map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.descripcion}</option>)}
@@ -503,7 +503,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               </div>
               <button
                 onClick={clearFilters}
-                className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border border-slate-200 rounded-lg hover:bg-slate-100 hover:text-slate-900 transition-colors dark:text-slate-500 dark:border-slate-800/50 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 border border-slate-200 rounded-lg hover:bg-slate-100 hover:text-slate-900 transition-colors dark:text-slate-500 dark:border-slate-800/50 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 Limpiar filtros
               </button>
@@ -542,20 +542,20 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       />
                     </div>
                   </th>
-                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Info</th>
-                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Tipo</th>
-                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Código</th>
-                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Descripción</th>
-                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Foto</th>
-                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Med.</th>
-                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">ML</th>
-                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Marca</th>
-                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Rubro</th>
-                  <th className="px-2 py-4 text-[10px] font-black uppercase tracking-wider text-slate-500">Proveedores</th>
-                  <th className="px-2 py-4 text-right text-[9px] font-black uppercase leading-tight tracking-wide text-slate-500">Precio de compra</th>
-                  <th className="px-2 py-4 text-right text-[9px] font-black uppercase leading-tight tracking-wide text-slate-500">Precio de venta</th>
-                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">Stock</th>
-                  <th className="px-1 py-4 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Acciones</th>
+                  <th className="px-1 py-4 text-center text-[11px] font-black uppercase tracking-wider text-slate-500">Info</th>
+                  <th className="px-1 py-4 text-center text-[11px] font-black uppercase tracking-wider text-slate-500">Tipo</th>
+                  <th className="px-2 py-4 text-[11px] font-black uppercase tracking-wider text-slate-500">Código</th>
+                  <th className="px-2 py-4 text-[11px] font-black uppercase tracking-wider text-slate-500">Descripción</th>
+                  <th className="px-1 py-4 text-center text-[11px] font-black uppercase tracking-wider text-slate-400">Foto</th>
+                  <th className="px-1 py-4 text-center text-[11px] font-black uppercase tracking-wider text-slate-400">Med.</th>
+                  <th className="px-1 py-4 text-center text-[11px] font-black uppercase tracking-wider text-slate-500">ML</th>
+                  <th className="px-2 py-4 text-[11px] font-black uppercase tracking-wider text-slate-500">Marca</th>
+                  <th className="px-2 py-4 text-[11px] font-black uppercase tracking-wider text-slate-500">Rubro</th>
+                  <th className="px-2 py-4 text-[11px] font-black uppercase tracking-wider text-slate-500">Proveedores</th>
+                  <th className="px-2 py-4 text-right text-[10px] font-black uppercase leading-tight tracking-wide text-slate-500">Precio de compra</th>
+                  <th className="px-2 py-4 text-right text-[10px] font-black uppercase leading-tight tracking-wide text-slate-500">Precio de venta</th>
+                  <th className="px-1 py-4 text-center text-[11px] font-black uppercase tracking-wider text-slate-500">Stock</th>
+                  <th className="px-1 py-4 text-center text-[11px] font-black uppercase tracking-wider text-slate-400">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -590,7 +590,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       ) : <span className="text-slate-300 dark:text-slate-700">-</span>}
                     </td>
                     <td className="px-1 py-3 text-center">
-                      <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[11px] font-black ${product.tipo === "KIT"
+                      <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[12px] font-black ${product.tipo === "KIT"
                         ? "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300"
                         : "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
                         }`} title={product.tipo === "KIT" ? "Kit" : "Item"}>
@@ -603,9 +603,9 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
-                        <span className="truncate font-mono text-[12px] font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
+                        <span className="truncate font-mono text-[13px] font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
                         {product.tipo !== "KIT" && (
-                          <span className="mt-0.5 truncate text-[10px] font-bold tracking-wide text-slate-500 dark:text-slate-400">
+                          <span className="mt-0.5 truncate text-[11px] font-bold tracking-wide text-slate-500 dark:text-slate-400">
                             {product.parent_kit_codigo ? `COMPONENTE DE ${product.parent_kit_codigo}` : product.codigo_pieza}
                           </span>
                         )}
@@ -617,7 +617,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
-                        <span className="line-clamp-2 text-[10px] font-bold leading-tight text-slate-800 transition-colors group-hover:text-blue-600 dark:text-slate-100 dark:group-hover:text-blue-400" title={product.descripcion}>
+                        <span className="line-clamp-2 text-xs font-bold leading-tight text-slate-800 transition-colors group-hover:text-blue-600 dark:text-slate-100 dark:group-hover:text-blue-400" title={product.descripcion}>
                           {product.descripcion}
                         </span>
                       </div>
@@ -678,27 +678,27 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         </span>;
                       })() : null}
                     </td>
-                    <td className="truncate px-2 py-3 text-[10px] text-slate-600 dark:text-slate-300" title={product.marca ?? ""}>{product.marca ?? "-"}</td>
+                    <td className="truncate px-2 py-3 text-[11px] text-slate-600 dark:text-slate-300" title={product.marca ?? ""}>{product.marca ?? "-"}</td>
                     <td className="px-2 py-3">
                       <div className="flex flex-col gap-0.5">
-                        <span className="truncate text-[10px] font-bold text-slate-900 dark:text-slate-100">{product.categoria ?? "-"}</span>
-                        <span className="truncate text-[9px] text-slate-400 dark:text-slate-500">{product.subcategoria ?? "-"}</span>
+                        <span className="truncate text-[11px] font-bold text-slate-900 dark:text-slate-100">{product.categoria ?? "-"}</span>
+                        <span className="truncate text-[10px] text-slate-400 dark:text-slate-500">{product.subcategoria ?? "-"}</span>
                       </div>
                     </td>
-                    <td className="truncate px-2 py-3 text-[10px] text-slate-600 dark:text-slate-400" title={product.proveedor ?? ""}>
+                    <td className="truncate px-2 py-3 text-[11px] text-slate-600 dark:text-slate-400" title={product.proveedor ?? ""}>
                       {product.tipo === "KIT" ? `${product.componentes_kit?.length || 0} componentes` : product.proveedor ?? "-"}
                     </td>
-                    <td className="px-2 py-3 text-right text-[10px] font-bold tabular-nums text-slate-700 dark:text-slate-200" title="Costo de compra">
+                    <td className="px-2 py-3 text-right text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200" title="Costo de compra">
                       {formatMoney(obtenerPrecioListado(product, tipoCompra))}
                     </td>
-                    <td className="px-2 py-3 text-right text-[10px] font-black tabular-nums text-blue-600 dark:text-blue-300" title={tipoVentaSeleccionado?.descripcion ?? "Precio de venta"}>
+                    <td className="px-2 py-3 text-right text-[11px] font-black tabular-nums text-blue-600 dark:text-blue-300" title={tipoVentaSeleccionado?.descripcion ?? "Precio de venta"}>
                       {formatMoney(obtenerPrecioListado(product, tipoVentaSeleccionado))}
                     </td>
                     <td className="w-[46px] px-1 py-3 text-center">
                       {(() => {
                         const status = getStockStatus(product.stock, product.stock_minimo);
                         return <div className={`mx-auto flex h-8 w-8 items-center justify-center rounded-md border text-center ${status.className}`} title={`${status.label}. Stock actual: ${product.stock}. Stock minimo: ${product.stock_minimo}.`}>
-                          <span className="text-[12px] font-black leading-none tabular-nums">{product.stock}</span>
+                          <span className="text-[13px] font-black leading-none tabular-nums">{product.stock}</span>
                         </div>;
                       })()}
                     </td>
