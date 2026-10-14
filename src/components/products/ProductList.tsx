@@ -110,8 +110,9 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   };
 
   const handleSpecificSearchChange = (value: string) => {
-    setSearchSpecific(value);
-    if (value) setSearchGeneral("");
+    const normalizedValue = value.replace(/\s+/g, "");
+    setSearchSpecific(normalizedValue);
+    if (normalizedValue) setSearchGeneral("");
   };
 
   const [isZoomed, setIsZoomed] = useState(false);

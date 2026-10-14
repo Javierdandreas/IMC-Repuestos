@@ -1,5 +1,5 @@
 export function parametroBusquedaItems(value: string, exact = false) {
-  const text = value.trim();
+  const text = exact ? value.replace(/\s+/g, "") : value.trim();
   return exact ? text : `%${text.replace(/[\\%_]/g, "\\$&")}%`;
 }
 
