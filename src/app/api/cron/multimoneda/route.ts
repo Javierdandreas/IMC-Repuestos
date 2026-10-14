@@ -6,15 +6,15 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 async function isAuthorized(request: NextRequest) {
-  const authorization = request.headers.get("authorization");
-  if (!authorization) return false;
+  const providedSecret = request.headers.get("x-imc-multimoneda-cron");
+  if (!providedSecret) return false;
 
   const result = await query<{ decrypted_secret: string }>(
     "SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = $1",
     ["imc_multimoneda_cron_secret"]
   );
   const secret = result.rows[0]?.decrypted_secret;
-  return Boolean(secret) && authorization === `Bearer ${secret}`;
+  return Boolean(secret) && providedSecret === secret;
 }
 
 export async function GET(request: NextRequest) {
