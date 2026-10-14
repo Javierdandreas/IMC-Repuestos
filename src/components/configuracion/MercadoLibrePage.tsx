@@ -2,7 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, ExternalLink, Link2, LoaderCircle, MessageCircle, Package, RefreshCw, Search, Send, Settings2, ShieldCheck, ShoppingCart, Unlink, X } from "lucide-react";
+import { Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, Copy, ExternalLink, Link2, LoaderCircle, MessageCircle, Package, RefreshCw, Search, Send, Settings2, ShieldCheck, ShoppingCart, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
@@ -21,6 +21,7 @@ type Tab = "VENTAS" | "PUBLICACIONES" | "COSTOS" | "PREGUNTAS" | "SINCRONIZACION
 type QuestionStatus = "POR_RESPONDER" | "RESPONDIDAS";
 type DateOrder = "DESC" | "ASC";
 type PublicationLinkFilter = "" | "SIN_VINCULO" | "EXCLUIDO_MANUAL";
+type PublicationDateFilter = { desde: string; hasta: string };
 type LinkCandidate = { tipo: "ITEM" | "KIT"; id: number; codigo: string; descripcion: string };
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof ShoppingCart }> = [
@@ -67,6 +68,7 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [publicationLinkFilter, setPublicationLinkFilter] = useState<PublicationLinkFilter>("");
+  const [publicationDateFilter, setPublicationDateFilter] = useState<PublicationDateFilter>({ desde: "", hasta: "" });
   const deferredSearch = useDeferredValue(search.trim());
   const [questionStatus, setQuestionStatus] = useState<QuestionStatus>("POR_RESPONDER");
   const [questionOrder, setQuestionOrder] = useState<DateOrder>("DESC");
@@ -97,6 +99,7 @@ export function MercadoLibrePage({ canManage }: Props) {
     page = 1,
     publicationSearch = "",
     linkFilter: PublicationLinkFilter = "",
+    publicationDates: PublicationDateFilter = { desde: "", hasta: "" },
   ) => {
     if (nextTab === "SINCRONIZACION") return;
     const path = nextTab === "VENTAS" ? "ventas" : nextTab === "PREGUNTAS" ? "preguntas" : "publicaciones";
@@ -107,6 +110,8 @@ export function MercadoLibrePage({ canManage }: Props) {
     }
     if ((nextTab === "PUBLICACIONES" || nextTab === "COSTOS") && publicationSearch) params.set("q", publicationSearch);
     if (nextTab === "PUBLICACIONES" && linkFilter) params.set("vinculo", linkFilter);
+    if (nextTab === "PUBLICACIONES" && publicationDates.desde) params.set("fechaDesde", publicationDates.desde);
+    if (nextTab === "PUBLICACIONES" && publicationDates.hasta) params.set("fechaHasta", publicationDates.hasta);
     const response = await fetch(`/api/integraciones/mercadolibre/${path}?${params.toString()}`, { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.message || "No se pudo cargar la informacion de Mercado Libre.");
@@ -128,13 +133,13 @@ export function MercadoLibrePage({ canManage }: Props) {
       const isPublicationSearch = tab === "PUBLICACIONES" || tab === "COSTOS";
       const page = isPublicationSearch && deferredSearch ? 1 : pages[tab];
       if (isPublicationSearch && deferredSearch && pages[tab] !== 1) setPages((current) => ({ ...current, [tab]: 1 }));
-      if (accountId) await loadTab(accountId, tab, page, isPublicationSearch ? deferredSearch : "", tab === "PUBLICACIONES" ? publicationLinkFilter : "");
+      if (accountId) await loadTab(accountId, tab, page, isPublicationSearch ? deferredSearch : "", tab === "PUBLICACIONES" ? publicationLinkFilter : "", tab === "PUBLICACIONES" ? publicationDateFilter : undefined);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo cargar Mercado Libre.");
     } finally {
       setLoading(false);
     }
-  }, [deferredSearch, loadTab, pages, publicationLinkFilter, selectedAccountId, tab]);
+  }, [deferredSearch, loadTab, pages, publicationDateFilter, publicationLinkFilter, selectedAccountId, tab]);
 
   const refreshQuestionInbox = useCallback(async (accountId: number) => {
     if (questionRefreshInFlight.current) return;
@@ -172,10 +177,10 @@ export function MercadoLibrePage({ canManage }: Props) {
   useEffect(() => {
     if (!selectedAccountId || tab === "SINCRONIZACION" || tab === "PREGUNTAS" || tab === "VENTAS") return;
     const interval = window.setInterval(() => {
-      void loadTab(selectedAccountId, tab, pages[tab], deferredSearch, tab === "PUBLICACIONES" ? publicationLinkFilter : "").catch(() => undefined);
+      void loadTab(selectedAccountId, tab, pages[tab], deferredSearch, tab === "PUBLICACIONES" ? publicationLinkFilter : "", tab === "PUBLICACIONES" ? publicationDateFilter : undefined).catch(() => undefined);
     }, 15_000);
     return () => window.clearInterval(interval);
-  }, [deferredSearch, loadTab, pages, publicationLinkFilter, selectedAccountId, tab]);
+  }, [deferredSearch, loadTab, pages, publicationDateFilter, publicationLinkFilter, selectedAccountId, tab]);
   useEffect(() => {
     if (!selectedAccountId || tab !== "VENTAS") return;
     const update = async () => {
@@ -217,14 +222,14 @@ export function MercadoLibrePage({ canManage }: Props) {
     try {
       if (nextTab === "PREGUNTAS") await refreshQuestionInbox(selectedAccountId);
       else if (nextTab === "VENTAS") await refreshSalesInbox(selectedAccountId);
-      else await loadTab(selectedAccountId, nextTab, pages[nextTab], "", nextTab === "PUBLICACIONES" ? publicationLinkFilter : "");
+      else await loadTab(selectedAccountId, nextTab, pages[nextTab], "", nextTab === "PUBLICACIONES" ? publicationLinkFilter : "", nextTab === "PUBLICACIONES" ? publicationDateFilter : undefined);
     }
     catch (requestError) { toast.error(requestError instanceof Error ? requestError.message : "No se pudo cargar la seccion."); }
   };
 
   const selectAccount = async (accountId: number) => {
     setSelectedAccountId(accountId); setSearch("");
-    try { await loadTab(accountId, tab, 1, "", tab === "PUBLICACIONES" ? publicationLinkFilter : ""); }
+    try { await loadTab(accountId, tab, 1, "", tab === "PUBLICACIONES" ? publicationLinkFilter : "", tab === "PUBLICACIONES" ? publicationDateFilter : undefined); }
     catch (requestError) { toast.error(requestError instanceof Error ? requestError.message : "No se pudo cargar la cuenta."); }
   };
 
@@ -233,7 +238,7 @@ export function MercadoLibrePage({ canManage }: Props) {
     const totalPages = tab === "VENTAS" ? ventas.totalPages : tab === "PREGUNTAS" ? preguntas.totalPages : publicaciones.totalPages;
     if (nextPage > totalPages) return;
     setPages((current) => ({ ...current, [tab]: nextPage }));
-    try { await loadTab(selectedAccountId, tab, nextPage, tab === "PUBLICACIONES" || tab === "COSTOS" ? deferredSearch : "", tab === "PUBLICACIONES" ? publicationLinkFilter : ""); }
+    try { await loadTab(selectedAccountId, tab, nextPage, tab === "PUBLICACIONES" || tab === "COSTOS" ? deferredSearch : "", tab === "PUBLICACIONES" ? publicationLinkFilter : "", tab === "PUBLICACIONES" ? publicationDateFilter : undefined); }
     catch (requestError) { toast.error(requestError instanceof Error ? requestError.message : "No se pudo cambiar de pagina."); }
   };
 
@@ -248,9 +253,25 @@ export function MercadoLibrePage({ canManage }: Props) {
     setPages((current) => ({ ...current, PUBLICACIONES: 1 }));
   };
 
+  const changePublicationDateFilter = (key: keyof PublicationDateFilter, value: string) => {
+    setPublicationDateFilter((current) => ({ ...current, [key]: value }));
+    setPages((current) => ({ ...current, PUBLICACIONES: 1 }));
+  };
+
+  const copyVisiblePublicationMlas = async () => {
+    const mlas = visiblePublicaciones.map((publication) => publication.itemId).join("\n");
+    if (!mlas) return;
+    try {
+      await navigator.clipboard.writeText(mlas);
+      toast.success(`${visiblePublicaciones.length} MLA copiados.`);
+    } catch {
+      toast.error("No se pudieron copiar los MLA. Revisa los permisos del navegador.");
+    }
+  };
+
   const refreshPublicaciones = async () => {
     if (!selectedAccountId) return;
-    await loadTab(selectedAccountId, "PUBLICACIONES", pages.PUBLICACIONES, deferredSearch, publicationLinkFilter);
+    await loadTab(selectedAccountId, "PUBLICACIONES", pages.PUBLICACIONES, deferredSearch, publicationLinkFilter, publicationDateFilter);
   };
 
   const sync = async () => {
@@ -394,7 +415,16 @@ export function MercadoLibrePage({ canManage }: Props) {
     {cuentas.length > 0 && <>
       <section className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950"><label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cuenta</label><select value={selectedAccountId || ""} onChange={(event) => void selectAccount(Number(event.target.value))} className="h-9 min-w-56 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white">{cuentas.map((cuenta) => <option key={cuenta.id} value={cuenta.id}>{cuenta.nickname || `Vendedor ${cuenta.sellerId}`} · {cuenta.siteId}</option>)}</select>{activeAccount && <span className="text-xs text-slate-500">Ultima sincronizacion: <strong className="text-slate-700 dark:text-slate-200">{date(activeAccount.ultimaSincronizacionAt)}</strong></span>}</section>
       <nav className="flex overflow-x-auto border-b border-slate-200 dark:border-slate-800" aria-label="Secciones de Mercado Libre">{TABS.map((item) => { const Icon = item.icon; const active = tab === item.id; return <button key={item.id} type="button" onClick={() => void changeTab(item.id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-xs font-black uppercase tracking-wide transition ${active ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}><Icon className="h-4 w-4" />{item.label}</button>; })}</nav>
-      {tab !== "SINCRONIZACION" && <div className="flex flex-wrap items-center gap-2">{tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select></>}{tab === "PUBLICACIONES" && <><label className="sr-only" htmlFor="publicaciones-vinculo">Estado de vinculo</label><select id="publicaciones-vinculo" value={publicationLinkFilter} onChange={(event) => changePublicationLinkFilter(event.target.value as PublicationLinkFilter)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="">Todas las publicaciones</option><option value="SIN_VINCULO">Sin vinculo</option><option value="EXCLUIDO_MANUAL">No vincular</option></select></>}<div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} registros</span></div>}
+      {tab !== "SINCRONIZACION" && <div className="flex flex-wrap items-center gap-2">
+        {tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select></>}
+        {tab === "PUBLICACIONES" && <>
+          <label className="sr-only" htmlFor="publicaciones-vinculo">Estado de vinculo</label><select id="publicaciones-vinculo" value={publicationLinkFilter} onChange={(event) => changePublicationLinkFilter(event.target.value as PublicationLinkFilter)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="">Todas las publicaciones</option><option value="SIN_VINCULO">Sin vinculo</option><option value="EXCLUIDO_MANUAL">No vincular</option></select>
+          <label className="sr-only" htmlFor="publicaciones-desde">Creada desde</label><input id="publicaciones-desde" type="date" value={publicationDateFilter.desde} onChange={(event) => changePublicationDateFilter("desde", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" title="Creada desde" />
+          <label className="sr-only" htmlFor="publicaciones-hasta">Creada hasta</label><input id="publicaciones-hasta" type="date" value={publicationDateFilter.hasta} onChange={(event) => changePublicationDateFilter("hasta", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" title="Creada hasta" />
+          <button type="button" onClick={() => void copyVisiblePublicationMlas()} disabled={!visiblePublicaciones.length} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300" title="Copiar MLA de esta pagina"><Copy className="h-4 w-4" />Copiar MLA</button>
+        </>}
+        <div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} registros</span>
+      </div>}
       {tab === "VENTAS" && salesSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{salesSyncError}</p>}
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}

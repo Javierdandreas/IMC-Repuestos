@@ -233,6 +233,8 @@ export async function getMercadoLibrePublicaciones(
   limit = 50,
   search = "",
   tipoVinculo?: "SIN_VINCULO" | "EXCLUIDO_MANUAL",
+  fechaDesde?: string,
+  fechaHasta?: string,
 ): Promise<MercadoLibrePublicacionesResult> {
   const term = search.trim();
   const filters = ["publication.id_cuenta = $1"];
@@ -240,6 +242,14 @@ export async function getMercadoLibrePublicaciones(
   if (tipoVinculo) {
     params.push(tipoVinculo);
     filters.push(`publication.tipo_vinculo = $${params.length}`);
+  }
+  if (fechaDesde) {
+    params.push(fechaDesde);
+    filters.push(`NULLIF(publication.datos->>'fechaCreacionMl', '')::timestamptz >= $${params.length}::date`);
+  }
+  if (fechaHasta) {
+    params.push(fechaHasta);
+    filters.push(`NULLIF(publication.datos->>'fechaCreacionMl', '')::timestamptz < ($${params.length}::date + INTERVAL '1 day')`);
   }
   if (term) {
     params.push(`%${term}%`);
