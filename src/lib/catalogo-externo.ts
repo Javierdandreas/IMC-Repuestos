@@ -213,7 +213,7 @@ function parseRow(row: RawRow): Item | null {
     category: pick(data, ["categoria", "categoría"]),
     subcategory: pick(data, ["subCategoria", "subcategoria", "subCategoría"]),
     barcode: pick(data, ["codigoBarras", "codigo_barras"]) || clean(row.codigo_barras),
-    keywords: pick(data, ["palabrasClave", "palabras_clave"]),
+    keywords: pick(data, ["palabrasClave", "palabraClave", "palabras_clave", "palabra_clave", "keywords", "keyword"]),
     stock: stockValue(data.stock ?? row.stock),
     location: pick(data, ["ubicacionInterna", "ubicacion_interna"]),
     provider: pick(data, ["proveedor"]),

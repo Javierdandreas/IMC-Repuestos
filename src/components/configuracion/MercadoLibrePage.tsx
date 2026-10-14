@@ -2,7 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, Copy, ExternalLink, Link2, LoaderCircle, MessageCircle, Package, RefreshCw, Search, Send, Settings2, ShieldCheck, ShoppingCart, Unlink, X } from "lucide-react";
+import { Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, Copy, ExternalLink, Link2, LoaderCircle, MessageCircle, MessageSquarePlus, Package, Pencil, Plus, RefreshCw, Search, Send, Settings2, ShieldCheck, ShoppingCart, Trash2, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
@@ -23,6 +23,7 @@ type DateOrder = "DESC" | "ASC";
 type PublicationLinkFilter = "" | "SIN_VINCULO" | "EXCLUIDO_MANUAL";
 type PublicationDateFilter = { desde: string; hasta: string };
 type LinkCandidate = { tipo: "ITEM" | "KIT"; id: number; codigo: string; descripcion: string };
+type QuickReply = { id: number; nombre: string; texto: string; orden: number; activo: boolean };
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof ShoppingCart }> = [
   { id: "VENTAS", label: "Ventas", icon: ShoppingCart },
@@ -74,6 +75,8 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [questionOrder, setQuestionOrder] = useState<DateOrder>("DESC");
   const [salesSyncError, setSalesSyncError] = useState<string | null>(null);
   const [questionSyncError, setQuestionSyncError] = useState<string | null>(null);
+  const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
+  const [quickRepliesOpen, setQuickRepliesOpen] = useState(false);
   const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
   const [calculatingCostItemId, setCalculatingCostItemId] = useState<string | null>(null);
   const [calculatingCostPage, setCalculatingCostPage] = useState(false);
@@ -91,6 +94,12 @@ export function MercadoLibrePage({ canManage }: Props) {
       ultimoEstadoSincronizacion: "OK",
       ultimoErrorSincronizacion: null,
     } : account));
+  }, []);
+
+  const loadQuickReplies = useCallback(async (accountId: number) => {
+    const response = await fetch(`/api/integraciones/mercadolibre/respuestas-rapidas?idCuenta=${accountId}`, { cache: "no-store" });
+    if (!response.ok) throw new Error("No se pudieron cargar las respuestas rapidas.");
+    setQuickReplies(await response.json());
   }, []);
 
   const loadTab = useCallback(async (
@@ -211,6 +220,10 @@ export function MercadoLibrePage({ canManage }: Props) {
     const interval = window.setInterval(() => { void update(); }, 20_000);
     return () => window.clearInterval(interval);
   }, [refreshQuestionInbox, selectedAccountId, tab]);
+  useEffect(() => {
+    if (!selectedAccountId || tab !== "PREGUNTAS") return;
+    void loadQuickReplies(selectedAccountId).catch(() => setQuickReplies([]));
+  }, [loadQuickReplies, selectedAccountId, tab]);
   useEffect(() => {
     if (searchParams.get("meli") === "conectado") toast.success("Cuenta de Mercado Libre conectada.");
     if (searchParams.get("meli") === "error") toast.error(searchParams.get("mensaje") || "No se pudo conectar Mercado Libre.");
@@ -430,10 +443,11 @@ export function MercadoLibrePage({ canManage }: Props) {
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}
       {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} canManage={canManage} onChanged={refreshPublicaciones} />}
       {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} calculatingPage={calculatingCostPage} costSync={costSync} massSyncing={massCostSyncing} onCalculate={calculateCost} onCalculatePage={calculateCostPage} onUpdateAll={() => void updateAllActiveCosts()} />}
-      {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} />}
+      {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} quickReplies={quickReplies} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} onManageQuickReplies={() => setQuickRepliesOpen(true)} />}
       {tab === "SINCRONIZACION" && <SyncPanel account={activeAccount} onSync={() => void sync()} syncing={syncing} canManage={canManage} />}
       {tab !== "SINCRONIZACION" && activeResult.totalPages > 1 && <div className="flex items-center justify-center gap-3"><button type="button" onClick={() => void changePage(pages[tab] - 1)} disabled={pages[tab] <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Pagina {pages[tab]} de {activeResult.totalPages}</span><button type="button" onClick={() => void changePage(pages[tab] + 1)} disabled={pages[tab] >= activeResult.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
     </>}
+    {quickRepliesOpen && selectedAccountId && <QuickRepliesModal idCuenta={selectedAccountId} onClose={() => setQuickRepliesOpen(false)} onChanged={() => void loadQuickReplies(selectedAccountId)} />}
   </div></main>;
 }
 
@@ -577,20 +591,22 @@ function CostosTable({ publicaciones, loading, calculatingItemId, calculatingPag
   </div>;
 }
 
-function PreguntasTable({ preguntas, loading, canManage, answeringQuestionId, onAnswer }: {
+function PreguntasTable({ preguntas, loading, canManage, quickReplies, answeringQuestionId, onAnswer, onManageQuickReplies }: {
   preguntas: MercadoLibrePreguntasResult["data"];
   loading: boolean;
   canManage: boolean;
+  quickReplies: QuickReply[];
   answeringQuestionId: string | null;
   onAnswer: (preguntaId: string, texto: string) => Promise<void>;
+  onManageQuickReplies: () => void;
 }) {
-  if (!preguntas.length) return <TableShell hasRows={false} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}>{null}</TableShell>;
-  return <section className="space-y-3">{preguntas.map((pregunta) => <PreguntaCard key={pregunta.id} pregunta={pregunta} canManage={canManage} sending={answeringQuestionId === pregunta.preguntaId} onAnswer={onAnswer} />)}</section>;
+  return <section className="space-y-3"><div className="flex justify-end"><button type="button" onClick={onManageQuickReplies} disabled={!canManage} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><MessageSquarePlus className="h-4 w-4" />Respuestas rapidas</button></div>{preguntas.length ? preguntas.map((pregunta) => <PreguntaCard key={pregunta.id} pregunta={pregunta} canManage={canManage} quickReplies={quickReplies} sending={answeringQuestionId === pregunta.preguntaId} onAnswer={onAnswer} />) : <TableShell hasRows={false} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}>{null}</TableShell>}</section>;
 }
 
-function PreguntaCard({ pregunta, canManage, sending, onAnswer }: {
+function PreguntaCard({ pregunta, canManage, quickReplies, sending, onAnswer }: {
   pregunta: MercadoLibrePreguntasResult["data"][number];
   canManage: boolean;
+  quickReplies: QuickReply[];
   sending: boolean;
   onAnswer: (preguntaId: string, texto: string) => Promise<void>;
 }) {
@@ -608,10 +624,57 @@ function PreguntaCard({ pregunta, canManage, sending, onAnswer }: {
     <div className="border-t border-slate-200 px-4 py-4 dark:border-slate-800">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500"><span className="font-bold text-slate-800 dark:text-white">{pregunta.comprador || "Cliente"}</span><span>{date(pregunta.fecha, "-")}</span><StateBadge value={pregunta.estado} /></div>
       <p className="mt-2 text-sm font-bold text-slate-900 dark:text-white">{pregunta.texto}</p>
-      {pregunta.estado === "UNANSWERED" ? <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><div><textarea value={texto} onChange={(event) => setTexto(event.target.value)} maxLength={2000} disabled={!canManage || sending} placeholder="Escribi la respuesta" className="min-h-24 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /><span className="mt-1 block text-right text-[10px] font-medium text-slate-400">{texto.length}/2000</span></div><button type="button" disabled={!canManage || sending || !texto.trim()} onClick={() => void respond()} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-4 w-4" />{sending ? "Enviando" : "Responder"}</button></div> : <div className="mt-3 border-l-2 border-blue-500 pl-3 text-sm text-slate-600 dark:text-slate-300">{pregunta.respuesta || "Sin respuesta disponible"}</div>}
+      {pregunta.estado === "UNANSWERED" ? <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><div>{quickReplies.length > 0 && <select defaultValue="" disabled={!canManage || sending} onChange={(event) => { const reply = quickReplies.find((item) => String(item.id) === event.target.value); if (reply) setTexto(reply.texto); event.currentTarget.value = ""; }} className="mb-2 h-8 max-w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><option value="">Respuestas rapidas</option>{quickReplies.map((reply) => <option key={reply.id} value={reply.id}>{reply.nombre}</option>)}</select>}<textarea value={texto} onChange={(event) => setTexto(event.target.value)} maxLength={2000} disabled={!canManage || sending} placeholder="Escribi la respuesta" className="min-h-24 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /><span className="mt-1 block text-right text-[10px] font-medium text-slate-400">{texto.length}/2000</span></div><button type="button" disabled={!canManage || sending || !texto.trim()} onClick={() => void respond()} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-4 w-4" />{sending ? "Enviando" : "Responder"}</button></div> : <div className="mt-3 border-l-2 border-blue-500 pl-3 text-sm text-slate-600 dark:text-slate-300">{pregunta.respuesta || "Sin respuesta disponible"}</div>}
       {pregunta.anteriores.length > 0 && <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800"><button type="button" onClick={() => setShowPrevious((value) => !value)} className="inline-flex items-center gap-2 text-xs font-black text-blue-600 hover:text-blue-500 dark:text-blue-300">{showPrevious ? "Ocultar preguntas anteriores" : `Ver preguntas anteriores (${pregunta.anteriores.length})`}{showPrevious ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>{showPrevious && <ol className="mt-3 space-y-3">{pregunta.anteriores.map((anterior) => <li key={anterior.preguntaId} className="border-l-2 border-slate-200 pl-3 text-sm dark:border-slate-700"><div className="flex flex-wrap gap-x-2 text-xs text-slate-500"><span>{date(anterior.fecha, "-")}</span><StateBadge value={anterior.estado} /></div><p className="mt-1 font-semibold text-slate-800 dark:text-slate-100">{anterior.texto}</p>{anterior.respuesta && <p className="mt-1 text-slate-500 dark:text-slate-300">{anterior.respuesta}</p>}</li>)}</ol>}</div>}
     </div>
   </article>;
+}
+
+function QuickRepliesModal({ idCuenta, onClose, onChanged }: { idCuenta: number; onClose: () => void; onChanged: () => void }) {
+  const [replies, setReplies] = useState<QuickReply[]>([]);
+  const [editing, setEditing] = useState<QuickReply | null>(null);
+  const [nombre, setNombre] = useState("");
+  const [texto, setTexto] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const loadReplies = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/integraciones/mercadolibre/respuestas-rapidas?idCuenta=${idCuenta}`, { cache: "no-store" });
+      if (!response.ok) throw new Error();
+      setReplies(await response.json());
+    } catch {
+      toast.error("No se pudieron cargar las respuestas rapidas.");
+    } finally { setLoading(false); }
+  }, [idCuenta]);
+
+  useEffect(() => { void loadReplies(); }, [loadReplies]);
+  const resetForm = () => { setEditing(null); setNombre(""); setTexto(""); };
+  const edit = (reply: QuickReply) => { setEditing(reply); setNombre(reply.nombre); setTexto(reply.texto); };
+  const save = async () => {
+    try {
+      setSaving(true);
+      const response = await fetch(editing ? `/api/integraciones/mercadolibre/respuestas-rapidas/${editing.id}?idCuenta=${idCuenta}` : `/api/integraciones/mercadolibre/respuestas-rapidas?idCuenta=${idCuenta}`, {
+        method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre, texto }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo guardar la respuesta.");
+      toast.success(editing ? "Respuesta actualizada." : "Respuesta rapida creada.");
+      resetForm(); await loadReplies(); onChanged();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "No se pudo guardar la respuesta."); }
+    finally { setSaving(false); }
+  };
+  const remove = async (reply: QuickReply) => {
+    if (!window.confirm(`Eliminar la respuesta rapida "${reply.nombre}"?`)) return;
+    try {
+      const response = await fetch(`/api/integraciones/mercadolibre/respuestas-rapidas/${reply.id}?idCuenta=${idCuenta}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("No se pudo eliminar la respuesta.");
+      toast.success("Respuesta eliminada."); await loadReplies(); onChanged();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "No se pudo eliminar la respuesta."); }
+  };
+
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="quick-replies-title"><div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-950"><header className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-slate-800"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Preguntas</p><h2 id="quick-replies-title" className="mt-1 text-base font-black text-slate-900 dark:text-white">Respuestas rapidas</h2></div><button type="button" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Cerrar"><X className="h-4 w-4" /></button></header><div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><section className="space-y-2"><div className="flex items-center justify-between"><h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Guardadas</h3><button type="button" onClick={resetForm} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"><Plus className="h-3.5 w-3.5" />Nueva</button></div>{loading ? <p className="py-8 text-center text-xs font-semibold text-slate-500">Cargando...</p> : replies.length ? <div className="divide-y divide-slate-200 border border-slate-200 dark:divide-slate-800 dark:border-slate-800">{replies.map((reply) => <div key={reply.id} className="flex gap-2 p-3"><button type="button" onClick={() => edit(reply)} className="min-w-0 flex-1 text-left"><p className="truncate text-xs font-black text-slate-900 dark:text-white">{reply.nombre}</p><p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-300">{reply.texto}</p></button><button type="button" onClick={() => edit(reply)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Editar"><Pencil className="h-3.5 w-3.5" /></button><button type="button" onClick={() => void remove(reply)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30" title="Eliminar"><Trash2 className="h-3.5 w-3.5" /></button></div>)}</div> : <p className="border border-dashed border-slate-300 px-3 py-8 text-center text-xs font-semibold text-slate-500 dark:border-slate-700">Todavia no hay respuestas guardadas.</p>}</section><section className="space-y-3"><h3 className="text-xs font-black uppercase tracking-widest text-slate-500">{editing ? "Editar respuesta" : "Nueva respuesta"}</h3><div><label htmlFor="quick-reply-name" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Nombre</label><input id="quick-reply-name" value={nombre} onChange={(event) => setNombre(event.target.value)} maxLength={80} placeholder="Ej. Pedir chasis" className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /></div><div><label htmlFor="quick-reply-text" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Respuesta</label><textarea id="quick-reply-text" value={texto} onChange={(event) => setTexto(event.target.value)} maxLength={2000} placeholder="Texto que se insertara en la respuesta" className="mt-1 min-h-40 w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /><p className="mt-1 text-right text-[10px] text-slate-400">{texto.length}/2000</p></div><div className="flex justify-end gap-2"><button type="button" onClick={resetForm} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 dark:border-slate-700 dark:text-slate-200">Cancelar</button><button type="button" onClick={() => void save()} disabled={saving || !nombre.trim() || !texto.trim()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{saving ? "Guardando" : "Guardar"}</button></div></section></div></div></div>;
 }
 
 function SyncPanel({ account, onSync, syncing, canManage }: { account: MercadoLibreCuentaEstado | null; onSync: () => void; syncing: boolean; canManage: boolean }) {
