@@ -1,172 +1,128 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { HiArrowLeft, HiRefresh, HiSave } from "react-icons/hi";
 import { toast } from "sonner";
 
-type Moneda = "ARS" | "USD" | "EUR" | "BRL";
-type Referencia = "OFICIAL" | "BLUE" | "MEP" | "CCL";
-type Lado = "COMPRA" | "VENTA";
+type Modo = "MANUAL" | "AUTOMATICA";
 type TipoRecargo = "PORCENTAJE" | "MONTO_FIJO";
-type Configuracion = {
-  monedaDefault: Moneda;
-  referenciaDefault: Referencia;
-  ladoDefault: Lado;
-  tipoRecargoDefault: TipoRecargo;
-  recargoDefault: number;
-  umbralAprobacionPorcentaje: number;
-  updatedAt: string;
-};
-type Cotizacion = {
-  id: number;
-  moneda: Moneda;
-  referencia: Referencia;
+type Row = {
+  codigo: string;
+  etiqueta: string;
+  moneda: string;
+  referencia: string;
+  origenApi: string;
+  modo: Modo;
+  tipoRecargo: TipoRecargo;
+  recargo: number;
+  valorActual: number | null;
   valorCompra: number | null;
   valorVenta: number | null;
-  estado: "VIGENTE" | "ERROR";
-  fuente: "MANUAL" | "AUTOMATICA";
-  observacion: string | null;
-  actualizadoAt: string;
+  fuente: "MANUAL" | "AUTOMATICA" | null;
+  actualizadoAt: string | null;
 };
-type Data = { configuracion: Configuracion; cotizaciones: Cotizacion[] };
+type Data = { configuracion: { umbralAprobacionPorcentaje: number }; cotizaciones: Row[] };
 
-const MONEDAS: Array<{ value: Moneda; label: string }> = [
-  { value: "ARS", label: "Peso argentino" },
-  { value: "USD", label: "Dolar estadounidense" },
-  { value: "EUR", label: "Euro" },
-  { value: "BRL", label: "Real brasileno" },
-];
-const REFERENCIAS: Referencia[] = ["OFICIAL", "BLUE", "MEP", "CCL"];
 const dateFormatter = new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" });
+const fieldClass = "h-9 min-w-0 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs font-bold text-white outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50";
 
-function fetcher(url: string) {
-  return fetch(url, { cache: "no-store" }).then(async (response) => {
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || "No se pudo cargar multimoneda.");
-    return data as Data;
-  });
+function formatValue(value: number | null) {
+  return value === null ? "Sin cotizacion" : value.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
 
-function amount(value: number | null) {
-  return value === null ? "-" : value.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+function sourceLabel(row: Row) {
+  if (row.origenApi === "MONEDAPI_BNA") return "Banco Nacion";
+  if (row.origenApi === "MONEDAPI_BOLSA") return "MonedAPI / Bolsa";
+  return `MonedAPI / ${row.referencia}`;
 }
 
 export function MultiCurrencyPage() {
   const [data, setData] = useState<Data | null>(null);
-  const [configuration, setConfiguration] = useState<Configuracion | null>(null);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [savingConfiguration, setSavingConfiguration] = useState(false);
-  const [savingQuote, setSavingQuote] = useState(false);
-  const [quote, setQuote] = useState({ moneda: "USD" as Moneda, referencia: "OFICIAL" as Referencia, valorCompra: "", valorVenta: "", observacion: "" });
+  const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
-      const next = await fetcher("/api/multimoneda");
-      setData(next);
-      setConfiguration(next.configuracion);
+      const response = await fetch("/api/multimoneda", { cache: "no-store" });
+      const next = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(next.message || "No se pudo cargar multimoneda.");
+      setData(next as Data);
+      setRows((next as Data).cotizaciones);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo cargar multimoneda.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [load]);
 
-  const saveConfiguration = async () => {
-    if (!configuration) return;
-    try {
-      setSavingConfiguration(true);
-      const response = await fetch("/api/multimoneda", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(configuration),
-      });
-      const saved = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(saved.message || "No se pudo guardar la regla global.");
-      setConfiguration(saved as Configuracion);
-      setData((current) => current ? { ...current, configuracion: saved as Configuracion } : current);
-      toast.success("Regla global de moneda guardada.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo guardar la regla global.");
-    } finally {
-      setSavingConfiguration(false);
-    }
-  };
+  const updateRow = (code: string, patch: Partial<Row>) => setRows((current) => current.map((row) => row.codigo === code ? { ...row, ...patch } : row));
 
-  const saveQuote = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const toNumber = (value: string) => value.trim() ? Number(value.replace(",", ".")) : null;
-    const valorCompra = toNumber(quote.valorCompra);
-    const valorVenta = toNumber(quote.valorVenta);
-    if ((valorCompra !== null && (!Number.isFinite(valorCompra) || valorCompra <= 0)) || (valorVenta !== null && (!Number.isFinite(valorVenta) || valorVenta <= 0))) {
-      toast.error("Las cotizaciones deben ser mayores a cero.");
+  const save = async () => {
+    const invalid = rows.find((row) => row.modo === "MANUAL" && (!Number.isFinite(row.valorActual) || Number(row.valorActual) <= 0));
+    if (invalid) {
+      toast.error(`Indica una cotizacion manual valida para ${invalid.etiqueta}.`);
       return;
     }
     try {
-      setSavingQuote(true);
-      const response = await fetch("/api/multimoneda/cotizaciones", {
-        method: "POST",
+      setSaving(true);
+      const response = await fetch("/api/multimoneda/cotizaciones/configuracion", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...quote, valorCompra, valorVenta, observacion: quote.observacion || null }),
+        body: JSON.stringify({ cotizaciones: rows.map((row) => ({
+          codigo: row.codigo,
+          modo: row.modo,
+          tipoRecargo: row.tipoRecargo,
+          recargo: row.recargo,
+          valorManual: row.modo === "MANUAL" ? row.valorActual : null,
+        })) }),
       });
-      const saved = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(saved.message || "No se pudo registrar la cotizacion.");
-      setQuote((current) => ({ ...current, valorCompra: "", valorVenta: "", observacion: "" }));
-      toast.success("Cotizacion registrada.");
-      await load();
+      const next = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(next.message || "No se pudo guardar las cotizaciones.");
+      setData(next as Data);
+      setRows((next as Data).cotizaciones);
+      toast.success("Cotizaciones y recargos guardados.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo registrar la cotizacion.");
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar las cotizaciones.");
     } finally {
-      setSavingQuote(false);
+      setSaving(false);
     }
   };
 
-  const fieldClass = "h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs font-bold text-white outline-none focus:border-blue-500";
-  const labelClass = "mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500";
+  const synchronize = async () => {
+    try {
+      setSyncing(true);
+      const response = await fetch("/api/multimoneda/sincronizar", { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudieron actualizar las cotizaciones.");
+      await load();
+      toast.success(`${result.actualizadas ?? 0} actualizadas. ${result.sinCambios ?? 0} sin cambios.${result.errores ? ` ${result.errores} con error.` : ""}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudieron actualizar las cotizaciones.");
+    } finally {
+      setSyncing(false);
+    }
+  };
 
-  return (
-    <main className="min-h-[calc(100dvh-4rem)] px-4 py-5 md:px-6">
-      <div className="mx-auto w-full max-w-[1500px]">
-        <Link href="/configuracion/datos" className="mb-3 inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-500 transition hover:text-blue-400"><HiArrowLeft className="h-4 w-4" /> Volver a configuracion</Link>
-        <header className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-[#0f172a] p-4">
-          <div><h1 className="text-base font-black text-white">Multimoneda</h1><p className="mt-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">Cotizaciones y reglas de conversion</p></div>
-          <button type="button" onClick={() => void load()} disabled={loading} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700 px-3 text-[10px] font-black uppercase tracking-widest text-slate-300 transition hover:text-white disabled:opacity-50"><HiRefresh className="h-4 w-4" /> Actualizar</button>
-        </header>
+  return <main className="min-h-[calc(100dvh-4rem)] px-4 py-5 md:px-6"><div className="mx-auto w-full max-w-[1500px]">
+    <Link href="/configuracion/datos" className="mb-3 inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-500 transition hover:text-blue-400"><HiArrowLeft className="h-4 w-4" /> Volver a configuracion</Link>
+    <header className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-[#0f172a] p-4"><div><h1 className="text-base font-black text-white">Multimoneda</h1><p className="mt-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">Cambios mayores a {data?.configuracion.umbralAprobacionPorcentaje ?? 5}% quedan pendientes de aprobacion</p></div><div className="flex gap-2"><button type="button" onClick={() => void synchronize()} disabled={loading || syncing} className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-500/40 px-3 text-[10px] font-black uppercase tracking-widest text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-50"><HiRefresh className="h-4 w-4" /> {syncing ? "Actualizando" : "Actualizar ahora"}</button><button type="button" onClick={save} disabled={loading || saving} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-blue-500 disabled:opacity-50"><HiSave className="h-4 w-4" /> {saving ? "Guardando" : "Guardar"}</button></div></header>
 
-        {loading || !configuration ? <div className="rounded-2xl border border-slate-800 bg-[#0f172a] p-10 text-center text-xs font-bold text-slate-500">Cargando configuracion...</div> : <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)]">
-          <section className="rounded-2xl border border-slate-800 bg-[#0f172a] p-4">
-            <div className="mb-4 flex items-center justify-between gap-3"><div><h2 className="text-[11px] font-black uppercase tracking-widest text-white">Regla global</h2><p className="mt-1 text-xs font-medium text-slate-500">Se usa cuando el proveedor no tiene una excepcion.</p></div><button type="button" onClick={saveConfiguration} disabled={savingConfiguration} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-blue-500 disabled:opacity-50"><HiSave className="h-4 w-4" /> {savingConfiguration ? "Guardando" : "Guardar"}</button></div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <label><span className={labelClass}>Moneda</span><select value={configuration.monedaDefault} onChange={(event) => setConfiguration({ ...configuration, monedaDefault: event.target.value as Moneda })} className={fieldClass}>{MONEDAS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span className={labelClass}>Referencia</span><select value={configuration.referenciaDefault} onChange={(event) => setConfiguration({ ...configuration, referenciaDefault: event.target.value as Referencia })} className={fieldClass}>{REFERENCIAS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-              <label><span className={labelClass}>Usar cotizacion</span><select value={configuration.ladoDefault} onChange={(event) => setConfiguration({ ...configuration, ladoDefault: event.target.value as Lado })} className={fieldClass}><option value="VENTA">Venta</option><option value="COMPRA">Compra</option></select></label>
-              <label><span className={labelClass}>Recargo</span><select value={configuration.tipoRecargoDefault} onChange={(event) => setConfiguration({ ...configuration, tipoRecargoDefault: event.target.value as TipoRecargo })} className={fieldClass}><option value="PORCENTAJE">Porcentaje</option><option value="MONTO_FIJO">Monto fijo ARS</option></select></label>
-              <label><span className={labelClass}>Valor recargo</span><input type="number" min="0" step="0.0001" value={configuration.recargoDefault} onChange={(event) => setConfiguration({ ...configuration, recargoDefault: Number(event.target.value) })} className={fieldClass} /></label>
-              <label><span className={labelClass}>Aprobacion desde %</span><input type="number" min="0" max="100" step="0.01" value={configuration.umbralAprobacionPorcentaje} onChange={(event) => setConfiguration({ ...configuration, umbralAprobacionPorcentaje: Number(event.target.value) })} className={fieldClass} /></label>
-            </div>
-          </section>
-
-          <form onSubmit={saveQuote} className="rounded-2xl border border-slate-800 bg-[#0f172a] p-4">
-            <h2 className="text-[11px] font-black uppercase tracking-widest text-white">Cargar cotizacion manual</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label><span className={labelClass}>Moneda</span><select value={quote.moneda} onChange={(event) => setQuote({ ...quote, moneda: event.target.value as Moneda })} className={fieldClass}>{MONEDAS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span className={labelClass}>Referencia</span><select value={quote.referencia} onChange={(event) => setQuote({ ...quote, referencia: event.target.value as Referencia })} className={fieldClass}>{REFERENCIAS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-              <label><span className={labelClass}>Compra ARS</span><input inputMode="decimal" value={quote.valorCompra} onChange={(event) => setQuote({ ...quote, valorCompra: event.target.value })} className={fieldClass} placeholder="Opcional" /></label>
-              <label><span className={labelClass}>Venta ARS</span><input inputMode="decimal" value={quote.valorVenta} onChange={(event) => setQuote({ ...quote, valorVenta: event.target.value })} className={fieldClass} placeholder="Opcional" /></label>
-              <label className="sm:col-span-2"><span className={labelClass}>Observacion</span><input value={quote.observacion} onChange={(event) => setQuote({ ...quote, observacion: event.target.value })} className={fieldClass} maxLength={300} /></label>
-            </div>
-            <button type="submit" disabled={savingQuote} className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-500 disabled:opacity-50"><HiSave className="h-4 w-4" /> {savingQuote ? "Guardando" : "Registrar cotizacion"}</button>
-          </form>
-
-          <section className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0f172a] xl:col-span-2">
-            <div className="border-b border-slate-800 px-4 py-3"><h2 className="text-[11px] font-black uppercase tracking-widest text-white">Ultima cotizacion vigente por referencia</h2></div>
-            <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-xs"><thead className="bg-slate-950/60 text-[9px] font-black uppercase tracking-widest text-slate-500"><tr><th className="px-4 py-3">Moneda</th><th className="px-3 py-3">Referencia</th><th className="px-3 py-3 text-right">Compra</th><th className="px-3 py-3 text-right">Venta</th><th className="px-3 py-3">Origen</th><th className="px-3 py-3">Actualizada</th><th className="px-3 py-3">Estado</th></tr></thead><tbody className="divide-y divide-slate-800">{data?.cotizaciones.length ? data.cotizaciones.map((item) => <tr key={`${item.moneda}-${item.referencia}`}><td className="px-4 py-3 font-black text-white">{item.moneda}</td><td className="px-3 py-3 font-bold text-slate-300">{item.referencia}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{amount(item.valorCompra)}</td><td className="px-3 py-3 text-right font-mono font-black text-emerald-300">{amount(item.valorVenta)}</td><td className="px-3 py-3 text-[10px] font-black text-slate-400">{item.fuente}</td><td className="px-3 py-3 text-[10px] font-bold text-slate-400">{dateFormatter.format(new Date(item.actualizadoAt))}</td><td className="px-3 py-3"><span className={item.estado === "VIGENTE" ? "text-emerald-400" : "text-red-400"}>{item.estado}</span></td></tr>) : <tr><td colSpan={7} className="px-4 py-10 text-center font-bold text-slate-500">Sin cotizaciones registradas.</td></tr>}</tbody></table></div>
-          </section>
-        </div>}
-      </div>
-    </main>
-  );
+    <section className="overflow-x-auto rounded-2xl border border-slate-800 bg-[#0f172a]">
+      <div className="min-w-[1120px]"><div className="grid grid-cols-[210px_145px_240px_215px_155px_110px] items-center gap-3 border-b border-slate-800 bg-slate-950/60 px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-500"><span>Cotizacion</span><span>Valor ARS</span><span>Modo</span><span>Recargo al precio</span><span>Fuente</span><span>Actualizada</span></div>
+      {loading ? <div className="p-10 text-center text-xs font-bold text-slate-500">Cargando cotizaciones...</div> : rows.map((row) => <div key={row.codigo} className="grid grid-cols-[210px_145px_240px_215px_155px_110px] items-center gap-3 border-b border-slate-800 px-4 py-3 last:border-b-0">
+        <div><p className="text-xs font-black text-white">{row.etiqueta}</p><p className="mt-1 text-[10px] font-bold text-slate-500">{row.moneda} / {row.referencia}</p></div>
+        <div>{row.modo === "MANUAL" ? <input type="number" min="0" step="0.0001" value={row.valorActual ?? ""} onChange={(event) => updateRow(row.codigo, { valorActual: event.target.value === "" ? null : Number(event.target.value) })} className={`${fieldClass} w-full text-right font-mono text-emerald-300`} /> : <p className="font-mono text-sm font-black text-emerald-300">$ {formatValue(row.valorActual)}</p>}{row.modo === "AUTOMATICA" && row.valorCompra !== null && row.valorVenta !== null && row.valorCompra !== row.valorVenta ? <p className="mt-1 text-[9px] font-bold text-slate-500">Compra $ {formatValue(row.valorCompra)}</p> : null}</div>
+        <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-wide text-slate-300"><label className="flex cursor-pointer items-center gap-1.5"><input type="radio" checked={row.modo === "MANUAL"} onChange={() => updateRow(row.codigo, { modo: "MANUAL" })} className="accent-blue-600" /> Manual</label><label className="flex cursor-pointer items-center gap-1.5"><input type="radio" checked={row.modo === "AUTOMATICA"} onChange={() => updateRow(row.codigo, { modo: "AUTOMATICA" })} className="accent-blue-600" /> Automatico cada 10 min</label></div>
+        <div className="grid grid-cols-[1fr_78px] gap-2"><select value={row.tipoRecargo} onChange={(event) => updateRow(row.codigo, { tipoRecargo: event.target.value as TipoRecargo })} className={fieldClass}><option value="PORCENTAJE">Porcentaje</option><option value="MONTO_FIJO">Monto fijo</option></select><input type="number" min="0" step="0.0001" value={row.recargo} onChange={(event) => updateRow(row.codigo, { recargo: Number(event.target.value) })} className={`${fieldClass} text-right`} /></div>
+        <div><p className="text-[10px] font-black text-slate-300">{row.modo === "MANUAL" ? "Manual" : sourceLabel(row)}</p><p className="mt-1 text-[9px] font-bold text-slate-500">{row.fuente || "Sin valor"}</p></div>
+        <p className="text-[10px] font-bold text-slate-400">{row.actualizadoAt ? dateFormatter.format(new Date(row.actualizadoAt)) : "Sin registro"}</p>
+      </div>)}</div>
+    </section>
+  </div></main>;
 }
