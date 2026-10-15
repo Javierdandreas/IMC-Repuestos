@@ -4,10 +4,6 @@
     {
       "path": "/api/cron/mercadolibre",
       "schedule": "30 6 * * *"
-    },
-    {
-      "path": "/api/cron/catalogo-externo",
-      "schedule": "0 10 * * *"
     }
   ]
 }

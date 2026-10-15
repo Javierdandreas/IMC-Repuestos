@@ -297,8 +297,8 @@ export function MercadoLibrePage({ canManage }: Props) {
       }
       const content = [...groups.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([, group]) => `${group.label} ${group.ids.join(" ")}`)
-        .join("\n");
+        .map(([, group]) => [group.label, ...group.ids].join("\n"))
+        .join("\n\n");
       if (!content) return toast.error("No hay MLA para copiar con esos filtros.");
       await navigator.clipboard.writeText(content);
       toast.success(`${(result.data || []).length} MLA copiados y agrupados por fecha de creación.`);

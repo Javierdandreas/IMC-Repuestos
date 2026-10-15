@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { refreshExternalCatalogPreview } from "@/lib/catalogo-externo";
+import { syncExternalCatalogAutomatically } from "@/lib/catalogo-externo";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -20,17 +20,19 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const preview = await refreshExternalCatalogPreview();
+    const result = await syncExternalCatalogAutomatically();
     return NextResponse.json({
       ok: true,
-      snapshotId: preview.snapshotId,
-      syncRunId: preview.syncRunId,
-      products: preview.products,
-      groups: preview.groups,
-      errorCount: preview.errorCount,
+      snapshotId: result.preview.snapshotId,
+      syncRunId: result.preview.syncRunId,
+      products: result.preview.products,
+      groups: result.preview.groups,
+      errorCount: result.preview.errorCount,
+      imported: result.imported,
+      batchLimit: result.batchLimit,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    console.error("[CATALOGO EXTERNO CRON] Error al actualizar la revision:", error);
-    return NextResponse.json({ message: "No se pudo actualizar el catalogo externo." }, { status: 500 });
+    console.error("[CATALOGO EXTERNO CRON] Error al importar la revision:", error);
+    return NextResponse.json({ message: "No se pudo importar el catalogo externo." }, { status: 500 });
   }
 }

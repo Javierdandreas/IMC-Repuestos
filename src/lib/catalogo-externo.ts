@@ -7,6 +7,7 @@ import { query, withTransaction } from "@/lib/db-utils";
 const ORIGIN = "GESU_EXTERNO";
 const TABLE = "gesu_items_raw";
 const PAGE_SIZE = 1000;
+const AUTO_IMPORT_LIMIT = 500;
 const MAX_ROWS = 50000;
 const SAMPLE_LIMIT = 80;
 const IMPORT_LIMIT = 500;
@@ -649,7 +650,7 @@ export async function classifyExternalCatalogProduct(
 
 const barcodeIsValid = (value: string | null) => Boolean(value && /^\d+$/.test(value));
 
-export async function importExternalCatalogProducts(snapshotId: number, rawIds: unknown[], userId: number): Promise<CatalogImportResponse> {
+export async function importExternalCatalogProducts(snapshotId: number, rawIds: unknown[], userId: number | null): Promise<CatalogImportResponse> {
   const ids = Array.from(new Set(rawIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)));
   if (!ids.length) throw new AppError("Selecciona al menos un producto listo para importar.", 400);
   if (ids.length > IMPORT_LIMIT) throw new AppError(`La importacion admite hasta ${IMPORT_LIMIT} productos por vez.`, 400);
@@ -846,6 +847,45 @@ export async function updateExternalCatalogExistingKeywords(snapshotId: number):
   });
 
   return { updated, preview: await summary(snapshotId) };
+}
+
+async function readyExternalItemIds(snapshotId: number, type: "PRODUCTO" | "GRUPO") {
+  const readiness = type === "PRODUCTO"
+    ? "estado_clasificacion = 'LISTA' AND id_subcategoria IS NOT NULL"
+    : "componentes->>'status' = 'LISTO'";
+  const rows = await query<{ id: number }>(
+    `SELECT id
+     FROM public.catalogo_externo_item
+     WHERE id_sincronizacion = $1 AND tipo = $2 AND existe_local = FALSE AND ${readiness}
+     ORDER BY codigo ASC
+     LIMIT $3`,
+    [snapshotId, type, AUTO_IMPORT_LIMIT]
+  );
+  return rows.rows.map((row) => Number(row.id));
+}
+
+/**
+ * Incorpora solo altas que el catalogo externo ya pudo validar. Las filas sin
+ * clasificacion o los kits con componentes faltantes quedan disponibles para revision.
+ */
+export async function syncExternalCatalogAutomatically() {
+  const staged = await refreshExternalCatalogPreview();
+  const productIds = await readyExternalItemIds(staged.snapshotId, "PRODUCTO");
+  const products = productIds.length
+    ? await importExternalCatalogProducts(staged.snapshotId, productIds, null)
+    : null;
+
+  // Los kits que dependen de productos nuevos pasan a LISTO en la proxima consulta.
+  const groupIds = await readyExternalItemIds(staged.snapshotId, "GRUPO");
+  const groups = groupIds.length
+    ? await importExternalCatalogGroups(staged.snapshotId, groupIds)
+    : null;
+
+  return {
+    preview: await summary(staged.snapshotId),
+    imported: { products, groups },
+    batchLimit: AUTO_IMPORT_LIMIT,
+  };
 }
 
 export async function importExternalCatalogGroups(snapshotId: number, rawIds: unknown[]): Promise<CatalogGroupImportResult> {
