@@ -1077,6 +1077,43 @@ function mapPublicacion(item: MeliItem): MercadoLibrePublicacion {
   };
 }
 
+async function guardarPublicacionesMercadoLibre(idCuenta: number, items: MeliItem[]) {
+  const publications = items.map(mapPublicacion);
+  const codes = publications.map((item) => normalizeMatchingCode(item.sellerSku)).filter(Boolean);
+  const [products, kits] = await Promise.all([productIdsByCode(codes), kitIdsByCode(codes)]);
+  let linked = 0;
+
+  for (const item of publications) {
+    const code = normalizeMatchingCode(item.sellerSku);
+    const candidateProductId = code ? products.get(code) || null : null;
+    const candidateKitId = code ? kits.get(code) || null : null;
+    const productId = candidateProductId && !candidateKitId ? candidateProductId : null;
+    const kitId = candidateKitId && !candidateProductId ? candidateKitId : null;
+    if (productId || kitId) linked += 1;
+    await query(
+      `INSERT INTO public.mercadolibre_publicacion (
+        id_cuenta, item_id, id_producto, id_kit, tipo_vinculo, seller_sku, titulo, estado, categoria_id, tipo_publicacion,
+        precio, precio_original, moneda, cantidad_disponible, cantidad_vendida, thumbnail_url, permalink, variaciones, datos,
+        ultima_vez_vista_at, sincronizada_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, NOW(), NOW(), NOW())
+      ON CONFLICT (id_cuenta, item_id) DO UPDATE SET
+        id_producto = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.id_producto ELSE EXCLUDED.id_producto END,
+        id_kit = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.id_kit ELSE EXCLUDED.id_kit END,
+        tipo_vinculo = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.tipo_vinculo ELSE EXCLUDED.tipo_vinculo END,
+        seller_sku = EXCLUDED.seller_sku, titulo = EXCLUDED.titulo, estado = EXCLUDED.estado, categoria_id = EXCLUDED.categoria_id,
+        tipo_publicacion = EXCLUDED.tipo_publicacion, precio = EXCLUDED.precio, precio_original = EXCLUDED.precio_original,
+        moneda = EXCLUDED.moneda, cantidad_disponible = EXCLUDED.cantidad_disponible, cantidad_vendida = EXCLUDED.cantidad_vendida,
+        thumbnail_url = EXCLUDED.thumbnail_url, permalink = EXCLUDED.permalink, variaciones = EXCLUDED.variaciones,
+        datos = EXCLUDED.datos, ultima_vez_vista_at = NOW(), sincronizada_at = NOW(), updated_at = NOW()`,
+      [idCuenta, item.itemId, productId, kitId, productId || kitId ? "CODIGO_EXACTO" : "SIN_VINCULO", item.sellerSku, item.titulo, item.estado,
+        item.categoriaId, item.tipoPublicacion, item.precio, item.precioOriginal, item.moneda, item.cantidadDisponible,
+        item.cantidadVendida, item.thumbnailUrl, item.permalink, JSON.stringify(item.variaciones), JSON.stringify(item)]
+    );
+  }
+
+  return { total: publications.length, vinculadasPorCodigo: linked, sinVinculo: publications.length - linked };
+}
+
 async function getItemDetails(itemIds: string[], idCuenta: number, accessToken: string) {
   const items: MeliItem[] = [];
   const errors: string[] = [];
@@ -1092,6 +1129,54 @@ async function getItemDetails(itemIds: string[], idCuenta: number, accessToken: 
     }
   }
   return { items, errors };
+}
+
+/** Sincroniza una tanda corta desde las publicaciones ya conocidas para cron externos. */
+export async function sincronizarMercadoLibreLote(idCuenta: number, requestedLimit = 500) {
+  const limit = Math.max(1, Math.min(500, Math.floor(requestedLimit) || 500));
+  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  await query(
+    `UPDATE public.mercadolibre_cuenta
+     SET ultimo_estado_sincronizacion = 'EN_PROCESO', ultimo_error_sincronizacion = NULL, updated_at = NOW()
+     WHERE id = $1`,
+    [idCuenta]
+  );
+  const run = await query<{ id: number }>("INSERT INTO public.mercadolibre_sincronizacion (id_cuenta) VALUES ($1) RETURNING id", [idCuenta]);
+  const runId = Number(run.rows[0].id);
+
+  try {
+    const selected = await query<{ item_id: string }>(
+      `SELECT item_id
+       FROM public.mercadolibre_publicacion
+       WHERE id_cuenta = $1
+       ORDER BY sincronizada_at ASC NULLS FIRST, id ASC
+       LIMIT $2`,
+      [idCuenta, limit]
+    );
+    if (!selected.rowCount) throw new AppError("No hay publicaciones previas para actualizar por lote. Ejecuta una sincronizacion completa manual una vez.", 409);
+
+    const { items, errors } = await getItemDetails(selected.rows.map((row) => String(row.item_id)), idCuenta, accessToken);
+    const saved = await guardarPublicacionesMercadoLibre(idCuenta, items);
+    await query(
+      `UPDATE public.mercadolibre_sincronizacion
+       SET estado = 'OK', total_publicaciones = $2, vinculadas_por_codigo = $3, sin_vinculo = $4,
+         errores = $5::jsonb, error_count = $6, finished_at = NOW()
+       WHERE id = $1`,
+      [runId, saved.total, saved.vinculadasPorCodigo, saved.sinVinculo, JSON.stringify(errors), errors.length]
+    );
+    await query(
+      `UPDATE public.mercadolibre_cuenta
+       SET ultima_sincronizacion_at = NOW(), ultimo_estado_sincronizacion = 'OK', ultimo_error_sincronizacion = NULL, updated_at = NOW()
+       WHERE id = $1`,
+      [idCuenta]
+    );
+    return { ...saved, solicitadas: selected.rows.length, errores: errors, limite: limit };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Error desconocido al sincronizar Mercado Libre.";
+    await query("UPDATE public.mercadolibre_sincronizacion SET estado = 'ERROR', errores = $2::jsonb, error_count = 1, finished_at = NOW() WHERE id = $1", [runId, JSON.stringify([message])]);
+    await query("UPDATE public.mercadolibre_cuenta SET ultimo_estado_sincronizacion = 'ERROR', ultimo_error_sincronizacion = $2, updated_at = NOW() WHERE id = $1", [idCuenta, message]);
+    throw error;
+  }
 }
 
 type MeliOrder = {
@@ -1462,38 +1547,7 @@ export async function sincronizarMercadoLibre(idCuenta: number): Promise<Mercado
   try {
     const ids = await getAllItemIds(idCuenta, sellerId, accessToken);
     const { items, errors } = await getItemDetails(ids, idCuenta, accessToken);
-    const publications = items.map(mapPublicacion);
-    const codes = publications.map((item) => normalizeMatchingCode(item.sellerSku)).filter(Boolean);
-    const [products, kits] = await Promise.all([productIdsByCode(codes), kitIdsByCode(codes)]);
-    let linked = 0;
-
-    for (const item of publications) {
-      const code = normalizeMatchingCode(item.sellerSku);
-      const candidateProductId = code ? products.get(code) || null : null;
-      const candidateKitId = code ? kits.get(code) || null : null;
-      const productId = candidateProductId && !candidateKitId ? candidateProductId : null;
-      const kitId = candidateKitId && !candidateProductId ? candidateKitId : null;
-      if (productId || kitId) linked += 1;
-      await query(
-        `INSERT INTO public.mercadolibre_publicacion (
-          id_cuenta, item_id, id_producto, id_kit, tipo_vinculo, seller_sku, titulo, estado, categoria_id, tipo_publicacion,
-          precio, precio_original, moneda, cantidad_disponible, cantidad_vendida, thumbnail_url, permalink, variaciones, datos,
-          ultima_vez_vista_at, sincronizada_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, NOW(), NOW(), NOW())
-        ON CONFLICT (id_cuenta, item_id) DO UPDATE SET
-          id_producto = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.id_producto ELSE EXCLUDED.id_producto END,
-          id_kit = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.id_kit ELSE EXCLUDED.id_kit END,
-          tipo_vinculo = CASE WHEN mercadolibre_publicacion.tipo_vinculo IN ('MANUAL', 'EXCLUIDO_MANUAL') THEN mercadolibre_publicacion.tipo_vinculo ELSE EXCLUDED.tipo_vinculo END,
-          seller_sku = EXCLUDED.seller_sku, titulo = EXCLUDED.titulo, estado = EXCLUDED.estado, categoria_id = EXCLUDED.categoria_id,
-          tipo_publicacion = EXCLUDED.tipo_publicacion, precio = EXCLUDED.precio, precio_original = EXCLUDED.precio_original,
-          moneda = EXCLUDED.moneda, cantidad_disponible = EXCLUDED.cantidad_disponible, cantidad_vendida = EXCLUDED.cantidad_vendida,
-          thumbnail_url = EXCLUDED.thumbnail_url, permalink = EXCLUDED.permalink, variaciones = EXCLUDED.variaciones,
-          datos = EXCLUDED.datos, ultima_vez_vista_at = NOW(), sincronizada_at = NOW(), updated_at = NOW()`,
-        [idCuenta, item.itemId, productId, kitId, productId || kitId ? "CODIGO_EXACTO" : "SIN_VINCULO", item.sellerSku, item.titulo, item.estado,
-          item.categoriaId, item.tipoPublicacion, item.precio, item.precioOriginal, item.moneda, item.cantidadDisponible,
-          item.cantidadVendida, item.thumbnailUrl, item.permalink, JSON.stringify(item.variaciones), JSON.stringify(item)]
-      );
-    }
+    const publicaciones = await guardarPublicacionesMercadoLibre(idCuenta, items);
 
     let ventas = 0;
     let preguntas = 0;
@@ -1507,7 +1561,7 @@ export async function sincronizarMercadoLibre(idCuenta: number): Promise<Mercado
     } catch (error) {
       if (errors.length < 50) errors.push(`No se pudieron leer las preguntas: ${error instanceof Error ? error.message : "error desconocido"}`);
     }
-    const result = { total: publications.length, vinculadasPorCodigo: linked, sinVinculo: publications.length - linked, errores: errors, ventas, preguntas };
+    const result = { ...publicaciones, errores: errors, ventas, preguntas };
     await query(
       `UPDATE public.mercadolibre_sincronizacion
        SET estado = 'OK', total_publicaciones = $2, vinculadas_por_codigo = $3, sin_vinculo = $4, errores = $5::jsonb,

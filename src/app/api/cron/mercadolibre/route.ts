@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getMercadoLibreCuentas, procesarEventosMercadoLibrePendientes, sincronizarMercadoLibre } from "@/lib/mercadolibre";
+import { getMercadoLibreCuentas, procesarEventosMercadoLibrePendientes, sincronizarMercadoLibreLote } from "@/lib/mercadolibre";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -21,13 +21,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const eventos = await procesarEventosMercadoLibrePendientes(100);
+    const eventos = await procesarEventosMercadoLibrePendientes(5);
     const cuentas = await getMercadoLibreCuentas();
     const resultados: Array<{ idCuenta: number; ok: boolean; total?: number; error?: string }> = [];
 
     for (const cuenta of cuentas) {
       try {
-        const resultado = await sincronizarMercadoLibre(cuenta.id);
+        const resultado = await sincronizarMercadoLibreLote(cuenta.id, 500);
         resultados.push({ idCuenta: cuenta.id, ok: true, total: resultado.total });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Error desconocido.";
