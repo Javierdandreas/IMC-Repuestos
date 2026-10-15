@@ -27,6 +27,14 @@ const precioProductoSchema = z.object({
   id_tipo_precio: idSchema,
   valor: z.number().nonnegative(),
   porcentaje_ganancia: z.number().optional().default(0),
+  modo_calculo: z.enum(["MARGEN_COSTO", "FIJO_ARS", "FIJO_MONEDA"]).optional().default("MARGEN_COSTO"),
+  importe_origen: z.number().nonnegative().nullable().optional(),
+  moneda_origen: z.enum(["ARS", "USD", "EUR", "BRL"]).nullable().optional(),
+  referencia_cotizacion: z.enum(["OFICIAL", "BLUE", "MEP", "CCL"]).nullable().optional(),
+  lado_cotizacion: z.enum(["COMPRA", "VENTA"]).nullable().optional(),
+  tipo_recargo_cotizacion: z.enum(["PORCENTAJE", "MONTO_FIJO"]).nullable().optional(),
+  recargo_cotizacion: z.number().nonnegative().nullable().optional(),
+  cotizacion_usada: z.number().positive().nullable().optional(),
 });
 
 const barcodeSchema = z.preprocess(

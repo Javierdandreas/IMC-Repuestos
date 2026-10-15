@@ -15,6 +15,7 @@ import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
 import { capturarCostosReferencia, registrarCambiosCostoReferencia } from "@/lib/cambios-costo-referencia";
 import { condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
+import { calcularPrecioArsDesdeOrigen, recalcularPreciosMargenDesdeCosto } from "@/lib/precios-multimoneda";
 
 export type ProductoInput = {
   cod_unico: string;
@@ -30,7 +31,18 @@ export type ProductoInput = {
   proveedores?: ProveedorProducto[];
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
-  precios?: { id_tipo_precio: number; valor: number; porcentaje_ganancia: number }[];
+  precios?: Array<{
+    id_tipo_precio: number;
+    valor: number;
+    porcentaje_ganancia: number;
+    modo_calculo?: "MARGEN_COSTO" | "FIJO_ARS" | "FIJO_MONEDA";
+    importe_origen?: number | null;
+    moneda_origen?: "ARS" | "USD" | "EUR" | "BRL" | null;
+    referencia_cotizacion?: "OFICIAL" | "BLUE" | "MEP" | "CCL" | null;
+    lado_cotizacion?: "COMPRA" | "VENTA" | null;
+    tipo_recargo_cotizacion?: "PORCENTAJE" | "MONTO_FIJO" | null;
+    recargo_cotizacion?: number | null;
+  }>;
   criterio_costo?: "PROVEEDOR_UNICO" | "MANUAL" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
 };
 
@@ -79,7 +91,7 @@ function sanitizeProductoInput(input: ProductoInput) {
 async function syncProductoPrecios(
   client: DbClient,
   productId: number | string,
-  precios: { id_tipo_precio: number; valor: number; porcentaje_ganancia: number }[]
+  precios: NonNullable<ProductoInput["precios"]>
 ) {
   // Solo sincronizar si vienen precios
   if (!precios || precios.length === 0) return;
@@ -88,12 +100,26 @@ async function syncProductoPrecios(
 
   for (const item of precios) {
     if (!item.id_tipo_precio) continue;
+    const modoCalculo = item.modo_calculo ?? "MARGEN_COSTO";
+    const calculado = await calcularPrecioArsDesdeOrigen(client, item);
     await client.query(
       `
-        INSERT INTO producto_precio (id_producto, id_tipo_precio, precio, porcentaje_ganancia)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO producto_precio (
+          id_producto, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo, importe_origen,
+          moneda_origen, referencia_cotizacion, lado_cotizacion, tipo_recargo_cotizacion,
+          recargo_cotizacion, cotizacion_usada, actualizado_origen_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
       `,
-      [productId, item.id_tipo_precio, item.valor, item.porcentaje_ganancia || 0]
+      [
+        productId, item.id_tipo_precio, calculado.valor, item.porcentaje_ganancia || 0, modoCalculo,
+        calculado.importeOrigen, modoCalculo === "FIJO_ARS" ? "ARS" : item.moneda_origen ?? null,
+        modoCalculo === "FIJO_MONEDA" ? item.referencia_cotizacion ?? null : null,
+        modoCalculo === "FIJO_MONEDA" ? item.lado_cotizacion ?? null : null,
+        modoCalculo === "FIJO_MONEDA" ? item.tipo_recargo_cotizacion ?? "PORCENTAJE" : null,
+        modoCalculo === "FIJO_MONEDA" ? item.recargo_cotizacion ?? 0 : null,
+        calculado.cotizacionUsada,
+      ]
     );
 
   }
@@ -105,7 +131,15 @@ async function getProductoPrecios(id: string | number) {
       pp.id_tipo_precio,
       tp.descripcion AS tipo_descripcion,
       pp.precio AS valor,
-      COALESCE(pp.porcentaje_ganancia, 0) AS porcentaje_ganancia
+      COALESCE(pp.porcentaje_ganancia, 0) AS porcentaje_ganancia,
+      COALESCE(pp.modo_calculo, 'MARGEN_COSTO') AS modo_calculo,
+      pp.importe_origen,
+      pp.moneda_origen,
+      pp.referencia_cotizacion,
+      pp.lado_cotizacion,
+      pp.tipo_recargo_cotizacion,
+      pp.recargo_cotizacion,
+      pp.cotizacion_usada
     FROM producto_precio pp
 
     JOIN tipo_precio tp ON tp.id = pp.id_tipo_precio
@@ -265,6 +299,7 @@ export async function getProductosListado(
       p.id_ubicacion,
       u.descripcion AS ubicacion,
       p.usa_numero_serie,
+      p.criterio_costo,
       p.palabra_clave,
       STRING_AGG(DISTINCT prv.descripcion, ', ') AS proveedor,
       STRING_AGG(DISTINCT NULLIF(TRIM(pp.codigo_proveedor), ''), ', ') AS codigo_proveedor,
@@ -816,6 +851,7 @@ export async function getProductoById(id: string | number): Promise<Producto | n
       p.id_ubicacion,
       u.descripcion AS ubicacion,
       p.usa_numero_serie,
+      p.criterio_costo,
       p.palabra_clave,
       COALESCE(
         ARRAY_AGG(DISTINCT cr.codigo) FILTER (WHERE pcr.tipo = 'ORIGINAL' AND cr.codigo IS NOT NULL),
@@ -1013,6 +1049,7 @@ export async function createProducto(input: ProductoInput) {
     await recalcularCostosProveedorProductos(client, { productIds: [newProduct.id] });
     await syncProductoPrecios(client, newProduct.id, payload.precios);
     await recalcularPreciosAutomaticos(client, [newProduct.id]);
+    await recalcularPreciosMargenDesdeCosto(client, [newProduct.id]);
 
 
     return newProduct;
@@ -1083,6 +1120,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
     await syncProductoProveedores(client, id, payload.proveedores);
     await recalcularCostosProveedorProductos(client, { productIds: [productId] });
     await syncProductoPrecios(client, id, payload.precios);
+    await recalcularPreciosMargenDesdeCosto(client, [productId]);
     await registrarCambiosCostoReferencia(client, costosAntes, {
       origen: "EDICION_ITEM",
       detalle: "Criterio o datos de costo editados desde la ficha del item.",

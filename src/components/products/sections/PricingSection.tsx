@@ -14,6 +14,26 @@ interface PricingSectionProps {
   onCriterioCostoChange: (criterio: CriterioCosto) => void;
 }
 
+type MonedaOrigen = "ARS" | "USD" | "EUR" | "BRL";
+type ReferenciaCotizacion = "OFICIAL" | "BLUE" | "MEP" | "CCL";
+type LadoCotizacion = "COMPRA" | "VENTA";
+
+type PanelMultimoneda = {
+  configuracion: {
+    monedaDefault: MonedaOrigen;
+    referenciaDefault: ReferenciaCotizacion;
+    ladoDefault: LadoCotizacion;
+    tipoRecargoDefault: "PORCENTAJE" | "MONTO_FIJO";
+    recargoDefault: number;
+  };
+  cotizaciones: Array<{
+    moneda: MonedaOrigen;
+    referencia: ReferenciaCotizacion;
+    valorCompra: number | null;
+    valorVenta: number | null;
+  }>;
+};
+
 const TIPO_COSTO = 1;
 const TIPO_ML = 2;
 const TIPO_MOSTRADOR = 3;
@@ -98,6 +118,17 @@ function PriceInput({ value, onChange, prefix, className, placeholder, disabled 
 
 export function PricingSection({ precios, proveedores, criterioCosto, onChange, onCriterioCostoChange }: PricingSectionProps) {
   const { tiposPrecio } = useMetadata();
+  const [panelMoneda, setPanelMoneda] = useState<PanelMultimoneda | null>(null);
+
+  useEffect(() => {
+    fetch("/api/multimoneda", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("No se pudo cargar las cotizaciones.");
+        return response.json() as Promise<PanelMultimoneda>;
+      })
+      .then(setPanelMoneda)
+      .catch(() => setPanelMoneda(null));
+  }, []);
 
   const findTipoPrecio = (descripciones: string[], fallbackId: number, fallbackDescripcion: string) => {
     const match = descripciones
@@ -123,28 +154,51 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
   const tiposBase = [tipoCosto, ...tiposVenta];
 
   // Inicializamos Costo
-  const costoItem = precios.find(p => p.id_tipo_precio === tipoCosto.id) || {
+  const costoItem: PrecioDetalle = precios.find(p => p.id_tipo_precio === tipoCosto.id) || {
     id_tipo_precio: tipoCosto.id,
     tipo_descripcion: tipoCosto.descripcion,
     valor: 0,
-    porcentaje_ganancia: 0
+    porcentaje_ganancia: 0,
+    modo_calculo: "MARGEN_COSTO" as const,
   };
 
-  const syncAllPrices = (currentPrecios: PrecioDetalle[], costoBase?: number) => {
+  const cotizacionPredeterminada = () => ({
+    moneda_origen: panelMoneda?.configuracion.monedaDefault ?? "USD" as MonedaOrigen,
+    referencia_cotizacion: panelMoneda?.configuracion.referenciaDefault ?? "OFICIAL" as ReferenciaCotizacion,
+    lado_cotizacion: panelMoneda?.configuracion.ladoDefault ?? "VENTA" as LadoCotizacion,
+    tipo_recargo_cotizacion: panelMoneda?.configuracion.tipoRecargoDefault ?? "PORCENTAJE" as const,
+    recargo_cotizacion: panelMoneda?.configuracion.recargoDefault ?? 0,
+  });
+
+  const estimarArs = (precio: PrecioDetalle, importe?: number) => {
+    const modo = precio.modo_calculo ?? "MARGEN_COSTO";
+    const valorOrigen = Math.max(0, Number(importe ?? precio.importe_origen ?? precio.valor) || 0);
+    if (modo === "FIJO_ARS") return round(valorOrigen);
+    if (modo !== "FIJO_MONEDA") return round(Number(precio.valor) || 0);
+    const quote = panelMoneda?.cotizaciones.find((item) => item.moneda === precio.moneda_origen && item.referencia === precio.referencia_cotizacion);
+    const base = precio.lado_cotizacion === "COMPRA" ? quote?.valorCompra : quote?.valorVenta;
+    if (!base || base <= 0) return round(Number(precio.valor) || 0);
+    const recargo = Math.max(0, Number(precio.recargo_cotizacion) || 0);
+    const cotizacion = precio.tipo_recargo_cotizacion === "MONTO_FIJO" ? base + recargo : base * (1 + recargo / 100);
+    return round(valorOrigen * cotizacion);
+  };
+
+  const syncAllPrices = (currentPrecios: PrecioDetalle[], costoBase?: number): PrecioDetalle[] => {
     const basicTypes = tiposBase.map(tipo => tipo.id);
     const missing = basicTypes.filter(id => !currentPrecios.find(p => p.id_tipo_precio === id));
     
     if (missing.length === 0) return currentPrecios;
 
     const costo = costoBase ?? currentPrecios.find(p => p.id_tipo_precio === tipoCosto.id)?.valor ?? 0;
-    const added = missing.map(id => {
+    const added: PrecioDetalle[] = missing.map(id => {
       const tipo = tiposBase.find(item => item.id === id);
       const margen = id === tipoCosto.id ? 0 : tipo?.margen_default ?? 0;
       return {
         id_tipo_precio: id,
         tipo_descripcion: tipo?.descripcion ?? "PRECIO",
         valor: round(costo * (1 + margen / 100)),
-        porcentaje_ganancia: margen
+        porcentaje_ganancia: margen,
+        modo_calculo: "MARGEN_COSTO" as const,
       };
     });
 
@@ -156,9 +210,14 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
     const tiposVentaActivos = new Set(tiposVenta.map(tipo => tipo.id));
     const nuevosPrecios = basePrecios.map(p => {
       if (p.id_tipo_precio === tipoCosto.id) {
-        return { ...p, valor: round(val) };
+        const modo = criterioCosto === "MANUAL" && p.modo_calculo === "FIJO_MONEDA"
+          ? "FIJO_MONEDA"
+          : criterioCosto === "MANUAL" ? "FIJO_ARS" : "MARGEN_COSTO";
+        const costoActualizado = { ...p, modo_calculo: modo, importe_origen: modo === "MARGEN_COSTO" ? null : round(val) } as PrecioDetalle;
+        return { ...costoActualizado, valor: estimarArs(costoActualizado, val) };
       }
       if (!tiposVentaActivos.has(p.id_tipo_precio)) return p;
+      if ((p.modo_calculo ?? "MARGEN_COSTO") !== "MARGEN_COSTO") return p;
       const nuevoValor = val * (1 + (p.porcentaje_ganancia || 0) / 100);
       return { ...p, valor: round(nuevoValor) };
     });
@@ -191,6 +250,11 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
     const nuevosPrecios = basePrecios.map(p => {
       if (p.id_tipo_precio !== idTipo) return p;
 
+      if ((p.modo_calculo ?? "MARGEN_COSTO") !== "MARGEN_COSTO") {
+        const updated = { ...p, importe_origen: round(val) } as PrecioDetalle;
+        return { ...updated, valor: estimarArs(updated, val) };
+      }
+
       if (field === "valor") {
         const nuevoMargen = costo > 0 ? ((val / costo) - 1) * 100 : 0;
         return { ...p, valor: round(val), porcentaje_ganancia: round(nuevoMargen) };
@@ -203,8 +267,41 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
     onChange(nuevosPrecios);
   };
 
+  const updateModoPrecio = (idTipo: number, modo: NonNullable<PrecioDetalle["modo_calculo"]>) => {
+    const basePrecios = syncAllPrices(precios);
+    const defaults = cotizacionPredeterminada();
+    const nuevosPrecios = basePrecios.map((precio) => {
+      if (precio.id_tipo_precio !== idTipo) return precio;
+      if (modo === "MARGEN_COSTO") return { ...precio, modo_calculo: modo, importe_origen: null, moneda_origen: null, referencia_cotizacion: null, lado_cotizacion: null, tipo_recargo_cotizacion: null, recargo_cotizacion: null };
+      if (modo === "FIJO_ARS") return { ...precio, modo_calculo: modo, importe_origen: precio.valor, moneda_origen: "ARS" as const, referencia_cotizacion: null, lado_cotizacion: null, tipo_recargo_cotizacion: null, recargo_cotizacion: null, cotizacion_usada: 1 };
+      const fixed = { ...precio, modo_calculo: modo, importe_origen: precio.importe_origen ?? 0, ...defaults } as PrecioDetalle;
+      return { ...fixed, valor: estimarArs(fixed) };
+    });
+    onChange(nuevosPrecios);
+  };
+
+  const updateCostoMoneda = (field: keyof PrecioDetalle, value: string | number) => {
+    const basePrecios = syncAllPrices(precios);
+    onChange(basePrecios.map((precio) => {
+      if (precio.id_tipo_precio !== tipoCosto.id) return precio;
+      const updated = { ...precio, modo_calculo: "FIJO_MONEDA" as const, ...cotizacionPredeterminada(), [field]: value } as PrecioDetalle;
+      return { ...updated, valor: estimarArs(updated) };
+    }));
+  };
+
+  const changeCriterioCosto = (criterio: CriterioCosto) => {
+    if (criterio === "MANUAL" && (costoItem.modo_calculo ?? "MARGEN_COSTO") === "MARGEN_COSTO") {
+      const basePrecios = syncAllPrices(precios);
+      onChange(basePrecios.map((precio) => precio.id_tipo_precio === tipoCosto.id
+        ? { ...precio, modo_calculo: "FIJO_ARS" as const, importe_origen: precio.valor, moneda_origen: "ARS" as const, cotizacion_usada: 1 }
+        : precio));
+    }
+    onCriterioCostoChange(criterio);
+  };
+
   const renderPriceRow = (idTipo: number, label: string, Icon: any, colorClass: string) => {
-    const item = precios.find(p => p.id_tipo_precio === idTipo) || { valor: 0, porcentaje_ganancia: 0 };
+    const item: PrecioDetalle = precios.find(p => p.id_tipo_precio === idTipo) || { id_tipo_precio: idTipo, tipo_descripcion: label, valor: 0, porcentaje_ganancia: 0, modo_calculo: "MARGEN_COSTO" as const };
+    const modo = item.modo_calculo ?? "MARGEN_COSTO";
     
     return (
       <div className="group flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700">
@@ -215,6 +312,15 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
           <span className="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest">{label}</span>
         </div>
 
+        <select
+          value={modo}
+          onChange={(event) => updateModoPrecio(idTipo, event.target.value as NonNullable<PrecioDetalle["modo_calculo"]>)}
+          className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+        >
+          <option value="MARGEN_COSTO">Margen sobre costo</option>
+          <option value="FIJO_ARS">Fijo en ARS</option>
+          <option value="FIJO_MONEDA">Fijo en moneda</option>
+        </select>
         <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-2">
           <div className="flex flex-col gap-1.5">
             <label className="flex h-3 items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
@@ -224,7 +330,8 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
               value={item.porcentaje_ganancia}
               onChange={(val) => updatePrecio(idTipo, "porcentaje_ganancia", val)}
               placeholder="0"
-              className="h-10 min-w-0 w-full rounded-lg border border-slate-100 bg-slate-50 px-2 text-center text-sm font-bold tabular-nums text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
+              disabled={modo !== "MARGEN_COSTO"}
+              className="h-10 min-w-0 w-full rounded-lg border border-slate-100 bg-slate-50 px-2 text-center text-sm font-bold tabular-nums text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:opacity-40 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -232,13 +339,17 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
               Final $
             </label>
             <PriceInput
-              value={item.valor}
+              value={modo === "MARGEN_COSTO" ? item.valor : Number(item.importe_origen ?? item.valor)}
               onChange={(val) => updatePrecio(idTipo, "valor", val)}
+              prefix={modo === "FIJO_MONEDA" ? item.moneda_origen ?? "USD" : "$"}
               placeholder="0"
               className="h-10 min-w-0 w-full rounded-lg border border-slate-100 bg-slate-50 px-2 text-right text-[13px] font-bold tabular-nums text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-blue-700 dark:focus:ring-blue-900/20"
             />
           </div>
         </div>
+        {modo === "FIJO_MONEDA" && (
+          <p className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">ARS estimado: $ {formatMoney(item.valor)}</p>
+        )}
       </div>
     );
   };
@@ -286,7 +397,7 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
                       ? "Se usa cuando hay un único proveedor con costo"
                       : "Carga al menos un precio de lista de proveedor"
                     : undefined}
-                  onClick={() => onCriterioCostoChange(criterio)}
+                  onClick={() => changeCriterioCosto(criterio)}
                   className={`h-8 min-w-0 whitespace-nowrap rounded-md border px-1.5 text-[8px] font-black uppercase tracking-normal transition ${criterioCosto === criterio ? "border-blue-500 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"} disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   {label}
@@ -296,13 +407,42 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
           </div>
           
           <PriceInput
-            value={costoItem.valor}
+            value={costoItem.modo_calculo === "FIJO_MONEDA" ? Number(costoItem.importe_origen ?? costoItem.valor) : costoItem.valor}
             onChange={handleCostoChange}
             disabled={criterioCosto !== "MANUAL"}
-            prefix="$"
+            prefix={costoItem.modo_calculo === "FIJO_MONEDA" ? costoItem.moneda_origen ?? "USD" : "$"}
             placeholder="0.00"
             className="h-12 w-full rounded-lg border-none bg-white pr-4 text-lg font-bold text-slate-900 shadow-sm outline-none transition focus:ring-4 focus:ring-blue-200 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-900/30"
           />
+          {criterioCosto === "MANUAL" && (
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <select
+                value={costoItem.modo_calculo === "FIJO_MONEDA" ? costoItem.moneda_origen ?? "USD" : "ARS"}
+                onChange={(event) => {
+                  if (event.target.value === "ARS") {
+                    const basePrecios = syncAllPrices(precios);
+                    onChange(basePrecios.map((precio) => precio.id_tipo_precio === tipoCosto.id
+                      ? { ...precio, modo_calculo: "FIJO_ARS" as const, importe_origen: precio.valor, moneda_origen: "ARS" as const, cotizacion_usada: 1 }
+                      : precio));
+                  } else updateCostoMoneda("moneda_origen", event.target.value as MonedaOrigen);
+                }}
+                className="h-9 rounded-md border border-blue-100 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <option value="ARS">ARS</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="BRL">BRL</option>
+              </select>
+              {costoItem.modo_calculo === "FIJO_MONEDA" && <>
+                <select value={costoItem.referencia_cotizacion ?? "OFICIAL"} onChange={(event) => updateCostoMoneda("referencia_cotizacion", event.target.value as ReferenciaCotizacion)} className="h-9 rounded-md border border-blue-100 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                  <option value="OFICIAL">Oficial</option><option value="BLUE">Blue</option><option value="MEP">MEP</option><option value="CCL">CCL</option>
+                </select>
+                <select value={costoItem.lado_cotizacion ?? "VENTA"} onChange={(event) => updateCostoMoneda("lado_cotizacion", event.target.value as LadoCotizacion)} className="h-9 rounded-md border border-blue-100 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                  <option value="VENTA">Venta</option><option value="COMPRA">Compra</option>
+                </select>
+              </>}
+            </div>
+          )}
+          {criterioCosto === "MANUAL" && costoItem.modo_calculo === "FIJO_MONEDA" && (
+            <p className="mt-2 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">Equivalente ARS actual: $ {formatMoney(costoItem.valor)}</p>
+          )}
         </div>
 
         {/* Selling Prices - Horizontal Row */}

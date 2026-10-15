@@ -8,8 +8,10 @@ import { toast } from "sonner";
 
 import { MercadoLibreMlaManager } from "@/components/mercadolibre/MercadoLibreMlaManager";
 import { ImageUpload } from "@/components/products/ImageUpload";
+import { PricingSection } from "@/components/products/sections/PricingSection";
 import { useMetadata } from "@/context/MetadataContext";
 import type { KitComponenteSearch } from "@/interfaces/kits";
+import type { PrecioDetalle } from "@/interfaces/productos";
 
 type KitItem = {
   id_producto: number;
@@ -56,6 +58,8 @@ export function KitForm({ kitId, initialData }: Props) {
   const [idSubcategoria, setIdSubcategoria] = useState<number | "">(initialData?.id_subcategoria || "");
   const [idMarca, setIdMarca] = useState<number | "">(initialData?.id_marca || "");
   const [stockMinimo, setStockMinimo] = useState<number>(Number(initialData?.stock_minimo || 0));
+  const [criterioCosto, setCriterioCosto] = useState<"COMPONENTES" | "MANUAL">(initialData?.criterio_costo === "MANUAL" ? "MANUAL" : "COMPONENTES");
+  const [preciosManual, setPreciosManual] = useState<PrecioDetalle[]>(initialData?.precios || []);
   const [items, setItems] = useState<KitItem[]>(() => (initialData?.componentes || []).map((component: any) => ({
     id_producto: component.id_producto,
     codigo: component.cod_unico || component.codigo || "",
@@ -83,6 +87,29 @@ export function KitForm({ kitId, initialData }: Props) {
     mostrador: total.mostrador + item.precio_mostrador * item.cantidad,
     cuentaCorriente: total.cuentaCorriente + item.precio_mecanico * item.cantidad,
   }), { costo: 0, mercadoLibre: 0, mostrador: 0, cuentaCorriente: 0 }), [items]);
+
+  const activarPreciosManuales = () => {
+    if (criterioCosto === "MANUAL") return;
+    const valorInicial = (descripcion: string) => {
+      const nombre = descripcion.toUpperCase();
+      if (nombre === "PRECIO COSTO") return precios.costo;
+      if (nombre === "MERCADO LIBRE") return precios.mercadoLibre;
+      if (nombre === "MOSTRADOR") return precios.mostrador;
+      if (nombre === "CUENTA CORRIENTE" || nombre === "MECANICO") return precios.cuentaCorriente;
+      return 0;
+    };
+    setPreciosManual(meta.tiposPrecio.filter((tipo) => tipo.activo !== false).map((tipo) => ({
+      id_tipo_precio: tipo.id,
+      tipo_descripcion: tipo.descripcion,
+      valor: valorInicial(tipo.descripcion),
+      porcentaje_ganancia: 0,
+      modo_calculo: "FIJO_ARS",
+      importe_origen: valorInicial(tipo.descripcion),
+      moneda_origen: "ARS",
+      cotizacion_usada: 1,
+    })));
+    setCriterioCosto("MANUAL");
+  };
 
   useEffect(() => {
     if (searchQuery.trim().length < 2) {
@@ -138,7 +165,10 @@ export function KitForm({ kitId, initialData }: Props) {
           nombre: nombre.toUpperCase(), codigo_kit: codigoManual.toUpperCase(), descripcion: descripcion.toUpperCase(), imagen_url: imagenUrl,
           id_categoria: idCategoria || null, id_subcategoria: idSubcategoria || null, id_marca: idMarca || null,
           stock_minimo: stockMinimo,
-          activo: initialData?.activo ?? true, componentes: items.map((item) => ({ id_producto: item.id_producto, cantidad: item.cantidad })),
+          activo: initialData?.activo ?? true,
+          criterio_costo: criterioCosto,
+          precios: criterioCosto === "MANUAL" ? preciosManual : [],
+          componentes: items.map((item) => ({ id_producto: item.id_producto, cantidad: item.cantidad })),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -166,6 +196,13 @@ export function KitForm({ kitId, initialData }: Props) {
 
     <form onSubmit={save} className="flex flex-col gap-4">
       <div className="min-h-[400px]">
+        {activeTab === "precios" && <section className={`${panelClass} space-y-4`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><h2 className="text-base font-bold text-slate-900 dark:text-white">Origen de precios</h2><p className="mt-1 text-sm text-slate-500">{criterioCosto === "MANUAL" ? "El kit usa precios propios." : "El kit deriva sus precios de los componentes."}</p></div>
+            <button type="button" onClick={() => criterioCosto === "MANUAL" ? setCriterioCosto("COMPONENTES") : activarPreciosManuales()} className={`h-9 rounded-lg px-3 text-xs font-bold ${criterioCosto === "MANUAL" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200" : "bg-blue-600 text-white"}`}>{criterioCosto === "MANUAL" ? "Usar componentes" : "Definir precios manuales"}</button>
+          </div>
+          {criterioCosto === "MANUAL" && <PricingSection precios={preciosManual} proveedores={[]} criterioCosto="MANUAL" onChange={setPreciosManual} onCriterioCostoChange={() => undefined} />}
+        </section>}
         {activeTab === "principal" && <div className="grid grid-cols-1 gap-8 animate-in fade-in slide-in-from-bottom-2 duration-300 xl:grid-cols-2">
           <section className="space-y-4">
             <div className="mb-1"><h2 className="text-lg font-bold text-slate-900 dark:text-white">Datos principales</h2></div>

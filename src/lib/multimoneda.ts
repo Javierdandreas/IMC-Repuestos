@@ -1,6 +1,8 @@
 import "server-only";
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
+import { recalcularPreciosFijosEnMoneda } from "@/lib/precios-multimoneda";
+import { encolarActualizacionesPrecioMercadoLibre, procesarActualizacionesPrecioMercadoLibre } from "@/lib/mercadolibre";
 
 export const MONEDAS = ["ARS", "USD", "EUR", "BRL"] as const;
 export const REFERENCIAS_COTIZACION = ["OFICIAL", "BLUE", "MEP", "CCL"] as const;
@@ -112,6 +114,15 @@ function asConfiguredQuote(row: Record<string, unknown>): CotizacionConfigurada 
   };
 }
 
+async function propagarPreciosDesdeCotizaciones() {
+  const precios = await withTransaction((client) => recalcularPreciosFijosEnMoneda(client));
+  const encoladas = precios.actualizados > 0
+    ? await encolarActualizacionesPrecioMercadoLibre(precios.productosAfectados, precios.kitsAfectados)
+    : 0;
+  const mercadoLibre = await procesarActualizacionesPrecioMercadoLibre();
+  return { precios, encoladas, mercadoLibre };
+}
+
 export async function getConfiguracionMultimoneda(): Promise<ConfiguracionMultimoneda> {
   const result = await query<Record<string, unknown>>(
     "SELECT moneda_default, referencia_default, lado_default, tipo_recargo_default, recargo_default, umbral_aprobacion_porcentaje, updated_at FROM public.multimoneda_configuracion WHERE id = 1"
@@ -183,7 +194,9 @@ export async function registerManualCurrencyQuote(input: {
      RETURNING id, moneda, referencia, valor_compra, valor_venta, estado, fuente, observacion, actualizado_at`,
     [input.moneda, input.referencia, input.valorCompra, input.valorVenta, input.observacion ?? null]
   );
-  return asQuote(result.rows[0]);
+  const quote = asQuote(result.rows[0]);
+  await propagarPreciosDesdeCotizaciones();
+  return quote;
 }
 
 export async function saveCotizacionesConfiguradas(input: Array<{
@@ -235,6 +248,7 @@ export async function saveCotizacionesConfiguradas(input: Array<{
       );
     }
   });
+  await propagarPreciosDesdeCotizaciones();
   return getPanelMultimoneda();
 }
 
@@ -331,7 +345,10 @@ export async function sincronizarCotizacionesAutomaticas() {
     );
     result.actualizadas += 1;
   }
-  return result;
+  const propagacion = result.actualizadas > 0
+    ? await propagarPreciosDesdeCotizaciones()
+    : { precios: { actualizados: 0, productosAfectados: [], kitsAfectados: [] }, encoladas: 0, mercadoLibre: await procesarActualizacionesPrecioMercadoLibre() };
+  return { ...result, ...propagacion };
 }
 
 export async function getConfiguracionMonedaProveedor(idProveedor: number): Promise<ConfiguracionMonedaProveedor> {

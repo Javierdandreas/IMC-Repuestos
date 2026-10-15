@@ -135,6 +135,7 @@ export async function aplicarPreciosDesdeCostosReferencia(
         INNER JOIN costos ON costos.id_producto = precio.id_producto
         CROSS JOIN tipo_costo
         WHERE precio.id_tipo_precio <> tipo_costo.id
+          AND COALESCE(precio.modo_calculo, 'MARGEN_COSTO') = 'MARGEN_COSTO'
       ),
       precios_actualizados AS (
         UPDATE public.producto_precio precio

@@ -3,6 +3,8 @@ import type { DbClient } from "@/lib/db-utils";
 import type { Kit, KitListado, KitComponente } from "@/interfaces/kits";
 import { condicionBusquedaKit, condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
 import { cantidadComponenteKitValida } from "@/lib/kit-cantidades";
+import { calcularPrecioArsDesdeOrigen } from "@/lib/precios-multimoneda";
+import type { PrecioDetalle } from "@/interfaces/productos";
 
 const TIPO_CUENTA_CORRIENTE_SQL = `
   SELECT id
@@ -49,9 +51,9 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
       COALESCE(k.stock_minimo, 0)::int AS stock_minimo,
       k.created_at,
       COUNT(kd.id_producto)::int AS cantidad_componentes,
-       COALESCE(SUM(pml.precio * kd.cantidad), 0) AS precio_ml_total,
-       COALESCE(SUM(pmo.precio * kd.cantidad), 0) AS precio_mostrador_total,
-       COALESCE(SUM(pme.precio * kd.cantidad), 0) AS precio_mecanico_total,
+       CASE WHEN k.criterio_costo = 'MANUAL' THEN COALESCE(MAX(kml.precio), 0) ELSE COALESCE(SUM(pml.precio * kd.cantidad), 0) END AS precio_ml_total,
+       CASE WHEN k.criterio_costo = 'MANUAL' THEN COALESCE(MAX(kmo.precio), 0) ELSE COALESCE(SUM(pmo.precio * kd.cantidad), 0) END AS precio_mostrador_total,
+       CASE WHEN k.criterio_costo = 'MANUAL' THEN COALESCE(MAX(kme.precio), 0) ELSE COALESCE(SUM(pme.precio * kd.cantidad), 0) END AS precio_mecanico_total,
        precios_kit.precios,
        COALESCE(MIN(FLOOR(p.stock / kd.cantidad)), 0)::int AS stock_kit,
       STRING_AGG(DISTINCT m.descripcion, ', ') FILTER (WHERE m.descripcion IS NOT NULL) AS marcas_componentes
@@ -65,6 +67,9 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
     LEFT JOIN public.producto_precio pml ON kd.id_producto = pml.id_producto AND pml.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)
     LEFT JOIN public.producto_precio pmo ON kd.id_producto = pmo.id_producto AND pmo.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)
     LEFT JOIN public.producto_precio pme ON kd.id_producto = pme.id_producto AND pme.id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})
+    LEFT JOIN public.kit_precio kml ON kml.id_kit = k.id AND kml.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MERCADO LIBRE' LIMIT 1)
+    LEFT JOIN public.kit_precio kmo ON kmo.id_kit = k.id AND kmo.id_tipo_precio = (SELECT id FROM public.tipo_precio WHERE descripcion = 'MOSTRADOR' LIMIT 1)
+    LEFT JOIN public.kit_precio kme ON kme.id_kit = k.id AND kme.id_tipo_precio = (${TIPO_CUENTA_CORRIENTE_SQL})
     LEFT JOIN LATERAL (
       SELECT COALESCE(
         JSONB_AGG(
@@ -83,11 +88,22 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
           tipo.id AS id_tipo_precio,
           tipo.descripcion AS tipo_descripcion,
           COALESCE(tipo.orden, 0) AS orden,
+          manual.precio AS valor
+        FROM public.kit_precio manual
+        INNER JOIN public.tipo_precio tipo ON tipo.id = manual.id_tipo_precio
+        WHERE manual.id_kit = k.id AND k.criterio_costo = 'MANUAL'
+
+        UNION ALL
+
+        SELECT
+          tipo.id AS id_tipo_precio,
+          tipo.descripcion AS tipo_descripcion,
+          COALESCE(tipo.orden, 0) AS orden,
           COALESCE(SUM(valor.precio * detalle.cantidad), 0) AS valor
         FROM public.kit_detalle detalle
         INNER JOIN public.producto_precio valor ON valor.id_producto = detalle.id_producto
         INNER JOIN public.tipo_precio tipo ON tipo.id = valor.id_tipo_precio
-        WHERE detalle.id_kit = k.id
+        WHERE detalle.id_kit = k.id AND k.criterio_costo <> 'MANUAL'
         GROUP BY tipo.id, tipo.descripcion, tipo.orden
       ) precio
     ) precios_kit ON true
@@ -96,6 +112,52 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
   `;
 
   return await paginateQuery<KitListado>("log_importaciones", baseQuery, page, limit, params, { skipCount });
+}
+
+async function getKitPrecios(id: number) {
+  const result = await query<PrecioDetalle>(
+    `SELECT kp.id_tipo_precio, tp.descripcion AS tipo_descripcion, kp.precio AS valor,
+       COALESCE(kp.porcentaje_ganancia, 0) AS porcentaje_ganancia,
+       kp.modo_calculo, kp.importe_origen, kp.moneda_origen, kp.referencia_cotizacion,
+       kp.lado_cotizacion, kp.tipo_recargo_cotizacion, kp.recargo_cotizacion, kp.cotizacion_usada
+     FROM public.kit_precio kp
+     INNER JOIN public.tipo_precio tp ON tp.id = kp.id_tipo_precio
+     WHERE kp.id_kit = $1
+     ORDER BY COALESCE(tp.orden, 0), tp.id`,
+    [id]
+  );
+  return result.rows;
+}
+
+async function syncKitPrecios(client: DbClient, idKit: number, precios: PrecioDetalle[] | undefined, criterio: Kit["criterio_costo"]) {
+  if (criterio !== "MANUAL") {
+    await client.query("DELETE FROM public.kit_precio WHERE id_kit = $1", [idKit]);
+    return;
+  }
+  if (!precios?.length) return;
+
+  await client.query("DELETE FROM public.kit_precio WHERE id_kit = $1", [idKit]);
+  for (const item of precios) {
+    if (!item.id_tipo_precio) continue;
+    const modo = item.modo_calculo ?? "MARGEN_COSTO";
+    const calculated = await calcularPrecioArsDesdeOrigen(client, item);
+    await client.query(
+      `INSERT INTO public.kit_precio (
+        id_kit, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo, importe_origen, moneda_origen,
+        referencia_cotizacion, lado_cotizacion, tipo_recargo_cotizacion, recargo_cotizacion,
+        cotizacion_usada, actualizado_origen_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())`,
+      [
+        idKit, item.id_tipo_precio, calculated.valor, item.porcentaje_ganancia || 0, modo,
+        calculated.importeOrigen, modo === "FIJO_ARS" ? "ARS" : item.moneda_origen ?? null,
+        modo === "FIJO_MONEDA" ? item.referencia_cotizacion ?? null : null,
+        modo === "FIJO_MONEDA" ? item.lado_cotizacion ?? null : null,
+        modo === "FIJO_MONEDA" ? item.tipo_recargo_cotizacion ?? "PORCENTAJE" : null,
+        modo === "FIJO_MONEDA" ? item.recargo_cotizacion ?? 0 : null,
+        calculated.cotizacionUsada,
+      ]
+    );
+  }
 }
 
 /**
@@ -116,7 +178,7 @@ export async function getKitById(id: number): Promise<Kit | null> {
   const kitData = kitRes.rows[0];
 
   // Obtener componentes con sus precios individuales
-  const componentesRes = await query(`
+  const [componentesRes, preciosManual] = await Promise.all([query(`
     SELECT 
       p.id AS id_producto,
       p.cod_unico,
@@ -134,7 +196,7 @@ export async function getKitById(id: number): Promise<Kit | null> {
     JOIN public.productos p ON kd.id_producto = p.id
     LEFT JOIN public.pieza pieza ON pieza.id = p.id_pieza
     WHERE kd.id_kit = $1
-  `, [id]);
+  `, [id]), getKitPrecios(id)]);
 
   const componentes = componentesRes.rows as KitComponente[];
 
@@ -155,7 +217,8 @@ export async function getKitById(id: number): Promise<Kit | null> {
     ...kitData,
     componentes,
     precio_totales,
-    stock_kit
+    stock_kit,
+    precios: preciosManual,
   };
 }
 
@@ -168,10 +231,10 @@ export async function createKit(payload: Kit): Promise<Kit> {
   return await withTransaction(async (client) => {
     // 1. Insertar Kit
     const kitRes = await client.query(`
-      INSERT INTO public.kits (nombre, descripcion, codigo_kit, id_categoria, id_subcategoria, id_marca, imagen_url, activo, stock_minimo)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO public.kits (nombre, descripcion, codigo_kit, id_categoria, id_subcategoria, id_marca, imagen_url, activo, stock_minimo, criterio_costo)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
-    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo, stockMinimo]);
+    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo, stockMinimo, payload.criterio_costo === "MANUAL" ? "MANUAL" : "COMPONENTES"]);
 
     const newKit = kitRes.rows[0];
 
@@ -184,6 +247,7 @@ export async function createKit(payload: Kit): Promise<Kit> {
         `, [newKit.id, comp.id_producto, comp.cantidad]);
       }
     }
+    await syncKitPrecios(client, newKit.id, payload.precios, payload.criterio_costo);
 
     return newKit;
   });
@@ -199,10 +263,10 @@ export async function updateKit(id: number, payload: Kit): Promise<Kit> {
     // 1. Actualizar Kit
     const kitRes = await client.query(`
       UPDATE public.kits 
-      SET nombre = $1, descripcion = $2, codigo_kit = $3, id_categoria = $4, id_subcategoria = $5, id_marca = $6, imagen_url = $7, activo = $8, stock_minimo = $9
-      WHERE id = $10
+      SET nombre = $1, descripcion = $2, codigo_kit = $3, id_categoria = $4, id_subcategoria = $5, id_marca = $6, imagen_url = $7, activo = $8, stock_minimo = $9, criterio_costo = $10
+      WHERE id = $11
       RETURNING *
-    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo, stockMinimo, id]);
+    `, [payload.nombre, payload.descripcion, payload.codigo_kit, payload.id_categoria || null, payload.id_subcategoria, payload.id_marca || null, payload.imagen_url || null, payload.activo, stockMinimo, payload.criterio_costo === "MANUAL" ? "MANUAL" : "COMPONENTES", id]);
 
     if (kitRes.rowCount === 0) throw new Error("Kit no encontrado");
 
@@ -217,6 +281,7 @@ export async function updateKit(id: number, payload: Kit): Promise<Kit> {
         `, [id, comp.id_producto, comp.cantidad]);
       }
     }
+    await syncKitPrecios(client, id, payload.precios, payload.criterio_costo);
 
     return kitRes.rows[0];
   });

@@ -465,6 +465,9 @@ export function ProductForm({
         id_tipo_precio: Number(precio.id_tipo_precio),
         valor: toNullableNumber(precio.valor) ?? 0,
         porcentaje_ganancia: toNullableNumber(precio.porcentaje_ganancia) ?? 0,
+        importe_origen: toNullableNumber(precio.importe_origen),
+        recargo_cotizacion: toNullableNumber(precio.recargo_cotizacion),
+        cotizacion_usada: toNullableNumber(precio.cotizacion_usada),
       })),
       criterio_costo: normalizarCriterioCosto(source.criterio_costo),
     };

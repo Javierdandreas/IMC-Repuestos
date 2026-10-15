@@ -61,6 +61,14 @@ export type PrecioDetalle = {
   tipo_descripcion: string;
   valor: number;
   porcentaje_ganancia: number;
+  modo_calculo?: "MARGEN_COSTO" | "FIJO_ARS" | "FIJO_MONEDA";
+  importe_origen?: number | null;
+  moneda_origen?: "ARS" | "USD" | "EUR" | "BRL" | null;
+  referencia_cotizacion?: "OFICIAL" | "BLUE" | "MEP" | "CCL" | null;
+  lado_cotizacion?: "COMPRA" | "VENTA" | null;
+  tipo_recargo_cotizacion?: "PORCENTAJE" | "MONTO_FIJO" | null;
+  recargo_cotizacion?: number | null;
+  cotizacion_usada?: number | null;
 };
 
 

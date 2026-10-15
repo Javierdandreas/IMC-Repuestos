@@ -691,9 +691,101 @@ async function meliPut(path: string, idCuenta: number, token: string, body: Reco
   if (!response.ok) {
     const details = await response.json().catch(() => null) as { message?: unknown; error?: unknown } | null;
     const detail = typeof details?.message === "string" ? details.message : typeof details?.error === "string" ? details.error : "";
-    throw new AppError(`Mercado Libre no pudo actualizar el SKU (${response.status})${detail ? `: ${detail}` : "."}`, response.status === 403 ? 403 : 502);
+    throw new AppError(`Mercado Libre no pudo actualizar la publicacion (${response.status})${detail ? `: ${detail}` : "."}`, response.status === 403 ? 403 : 502);
   }
   return response.json() as Promise<unknown>;
+}
+
+export async function encolarActualizacionesPrecioMercadoLibre(productIds: number[], kitIds: number[]) {
+  const products = [...new Set(productIds.filter((id) => Number.isInteger(id) && id > 0))];
+  const kits = [...new Set(kitIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!products.length && !kits.length) return 0;
+  const result = await query(
+    `WITH tipo_ml AS (
+       SELECT id FROM public.tipo_precio WHERE upper(trim(descripcion)) = 'MERCADO LIBRE' ORDER BY id LIMIT 1
+     ), kits_afectados AS (
+       SELECT UNNEST($2::int[]) AS id_kit
+       UNION
+       SELECT detalle.id_kit FROM public.kit_detalle detalle WHERE detalle.id_producto = ANY($1::int[])
+     ), objetivos AS (
+       SELECT publication.id AS id_publicacion, precio.precio
+       FROM public.mercadolibre_publicacion publication
+       INNER JOIN public.producto_precio precio ON precio.id_producto = publication.id_producto
+       CROSS JOIN tipo_ml
+       WHERE publication.estado = 'active' AND precio.id_tipo_precio = tipo_ml.id
+         AND publication.id_producto = ANY($1::int[]) AND precio.precio > 0
+       UNION ALL
+       SELECT publication.id AS id_publicacion,
+         CASE WHEN kit.criterio_costo = 'MANUAL' THEN manual.precio ELSE COALESCE(SUM(componente.precio * detalle.cantidad), 0) END AS precio
+       FROM public.mercadolibre_publicacion publication
+       INNER JOIN public.kits kit ON kit.id = publication.id_kit
+       LEFT JOIN public.kit_precio manual ON manual.id_kit = kit.id AND manual.id_tipo_precio = (SELECT id FROM tipo_ml)
+       LEFT JOIN public.kit_detalle detalle ON detalle.id_kit = kit.id
+       LEFT JOIN public.producto_precio componente ON componente.id_producto = detalle.id_producto AND componente.id_tipo_precio = (SELECT id FROM tipo_ml)
+       WHERE publication.estado = 'active' AND publication.id_kit IN (SELECT id_kit FROM kits_afectados)
+       GROUP BY publication.id, kit.id, kit.criterio_costo, manual.precio
+     )
+     INSERT INTO public.mercadolibre_actualizacion_precio (id_publicacion, precio, estado, intentos, ultimo_error, created_at, updated_at)
+     SELECT id_publicacion, ROUND(precio, 2), 'PENDIENTE', 0, NULL, NOW(), NOW()
+     FROM objetivos WHERE precio > 0
+     ON CONFLICT (id_publicacion) DO UPDATE SET precio = EXCLUDED.precio, estado = 'PENDIENTE', intentos = 0,
+       ultimo_error = NULL, procesado_at = NULL, updated_at = NOW()`,
+    [products, kits]
+  );
+  return result.rowCount ?? 0;
+}
+
+type PrecioPendiente = { id: number; id_publicacion: number; precio: number; id_cuenta: number; item_id: string };
+
+/** Procesa una tanda acotada; el cron externo la vuelve a ejecutar en el siguiente ciclo. */
+export async function procesarActualizacionesPrecioMercadoLibre(limit = 20) {
+  const jobs = await withTransaction(async (db) => {
+    const claimed = await db.query<PrecioPendiente>(
+      `WITH pendientes AS (
+         SELECT queue.id
+         FROM public.mercadolibre_actualizacion_precio queue
+         WHERE queue.estado IN ('PENDIENTE', 'ERROR') AND queue.intentos < 3
+         ORDER BY queue.updated_at ASC, queue.id ASC
+         LIMIT $1
+         FOR UPDATE SKIP LOCKED
+       )
+       UPDATE public.mercadolibre_actualizacion_precio queue
+       SET estado = 'PROCESANDO', intentos = queue.intentos + 1, updated_at = NOW()
+       FROM pendientes, public.mercadolibre_publicacion publication
+       WHERE queue.id = pendientes.id AND publication.id = queue.id_publicacion
+       RETURNING queue.id, queue.id_publicacion, queue.precio, publication.id_cuenta, publication.item_id`,
+      [Math.max(1, Math.min(50, Math.floor(limit) || 20))]
+    );
+    return claimed.rows;
+  });
+
+  let actualizadas = 0;
+  let errores = 0;
+  for (const job of jobs) {
+    try {
+      const { accessToken } = await accessTokenForCuenta(Number(job.id_cuenta));
+      await meliPut(`/items/${encodeURIComponent(String(job.item_id))}`, Number(job.id_cuenta), accessToken, { price: Number(job.precio) });
+      await query(
+        `UPDATE public.mercadolibre_actualizacion_precio
+         SET estado = 'COMPLETADA', ultimo_error = NULL, procesado_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [job.id]
+      );
+      await query(
+        `UPDATE public.mercadolibre_publicacion SET precio = $2, updated_at = NOW() WHERE id = $1`,
+        [job.id_publicacion, job.precio]
+      );
+      actualizadas += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message.slice(0, 900) : "No se pudo actualizar el precio.";
+      await query(
+        `UPDATE public.mercadolibre_actualizacion_precio
+         SET estado = 'ERROR', ultimo_error = $2, updated_at = NOW() WHERE id = $1`,
+        [job.id, message]
+      );
+      errores += 1;
+    }
+  }
+  return { procesadas: jobs.length, actualizadas, errores };
 }
 
 function toFiniteNumber(value: unknown) {

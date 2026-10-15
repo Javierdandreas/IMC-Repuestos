@@ -24,7 +24,9 @@ export type Kit = {
   id_subcategoria?: number | null;
   id_marca?: number | null;
   activo: boolean;
+  criterio_costo?: "COMPONENTES" | "MANUAL";
   componentes: KitComponente[];
+  precios?: PrecioDetalle[];
   precio_totales?: {
     costo: number;
     ml: number;
