@@ -712,7 +712,7 @@ export async function encolarActualizacionesPrecioMercadoLibre(productIds: numbe
        FROM public.mercadolibre_publicacion publication
        INNER JOIN public.producto_precio precio ON precio.id_producto = publication.id_producto
        CROSS JOIN tipo_ml
-       WHERE publication.estado = 'active' AND precio.id_tipo_precio = tipo_ml.id
+       WHERE publication.estado IN ('active', 'paused') AND precio.id_tipo_precio = tipo_ml.id
          AND publication.id_producto = ANY($1::int[]) AND precio.precio > 0
        UNION ALL
        SELECT publication.id AS id_publicacion,
@@ -722,7 +722,7 @@ export async function encolarActualizacionesPrecioMercadoLibre(productIds: numbe
        LEFT JOIN public.kit_precio manual ON manual.id_kit = kit.id AND manual.id_tipo_precio = (SELECT id FROM tipo_ml)
        LEFT JOIN public.kit_detalle detalle ON detalle.id_kit = kit.id
        LEFT JOIN public.producto_precio componente ON componente.id_producto = detalle.id_producto AND componente.id_tipo_precio = (SELECT id FROM tipo_ml)
-       WHERE publication.estado = 'active' AND publication.id_kit IN (SELECT id_kit FROM kits_afectados)
+       WHERE publication.estado IN ('active', 'paused') AND publication.id_kit IN (SELECT id_kit FROM kits_afectados)
        GROUP BY publication.id, kit.id, kit.criterio_costo, manual.precio
      )
      INSERT INTO public.mercadolibre_actualizacion_precio (id_publicacion, precio, estado, intentos, ultimo_error, created_at, updated_at)

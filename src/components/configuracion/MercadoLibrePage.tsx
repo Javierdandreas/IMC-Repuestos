@@ -271,14 +271,39 @@ export function MercadoLibrePage({ canManage }: Props) {
     setPages((current) => ({ ...current, PUBLICACIONES: 1 }));
   };
 
-  const copyVisiblePublicationMlas = async () => {
-    const mlas = visiblePublicaciones.map((publication) => publication.itemId.replace(/\D/g, "")).filter(Boolean).join("\n");
-    if (!mlas) return;
+  const copyFilteredPublicationMlas = async () => {
+    if (!selectedAccountId) return;
     try {
-      await navigator.clipboard.writeText(mlas);
-      toast.success(`${visiblePublicaciones.length} ID(s) de publicacion copiados.`);
+      const params = new URLSearchParams({ idCuenta: String(selectedAccountId) });
+      if (deferredSearch) params.set("q", deferredSearch);
+      if (publicationLinkFilter) params.set("vinculo", publicationLinkFilter);
+      if (publicationDateFilter.desde) params.set("fechaDesde", publicationDateFilter.desde);
+      if (publicationDateFilter.hasta) params.set("fechaHasta", publicationDateFilter.hasta);
+      const response = await fetch(`/api/integraciones/mercadolibre/publicaciones/copiar?${params.toString()}`, { cache: "no-store" });
+      const result = await response.json().catch(() => ({})) as { data?: MercadoLibrePublicacionListado[]; message?: string };
+      if (!response.ok) throw new Error(result.message || "No se pudieron obtener las publicaciones filtradas.");
+
+      const dateFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Argentina/Buenos_Aires" });
+      const groups = new Map<string, { label: string; ids: string[] }>();
+      for (const publication of result.data || []) {
+        const id = publication.itemId.replace(/\D/g, "");
+        if (!id) continue;
+        const createdAt = publication.fechaCreacionMl ? new Date(publication.fechaCreacionMl) : null;
+        const validDate = createdAt && !Number.isNaN(createdAt.getTime());
+        const key = validDate ? createdAt.toISOString().slice(0, 10) : "9999-99-99";
+        const current = groups.get(key) || { label: validDate ? dateFormatter.format(createdAt) : "Sin fecha", ids: [] };
+        current.ids.push(id);
+        groups.set(key, current);
+      }
+      const content = [...groups.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([, group]) => `${group.label} ${group.ids.join(" ")}`)
+        .join("\n");
+      if (!content) return toast.error("No hay MLA para copiar con esos filtros.");
+      await navigator.clipboard.writeText(content);
+      toast.success(`${(result.data || []).length} MLA copiados y agrupados por fecha de creación.`);
     } catch {
-      toast.error("No se pudieron copiar los MLA. Revisa los permisos del navegador.");
+      toast.error("No se pudieron copiar los MLA. Revisa los filtros y permisos del navegador.");
     }
   };
 
@@ -434,7 +459,7 @@ export function MercadoLibrePage({ canManage }: Props) {
           <label className="sr-only" htmlFor="publicaciones-vinculo">Estado de vinculo</label><select id="publicaciones-vinculo" value={publicationLinkFilter} onChange={(event) => changePublicationLinkFilter(event.target.value as PublicationLinkFilter)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="">Todas las publicaciones</option><option value="SIN_VINCULO">Sin vinculo</option><option value="EXCLUIDO_MANUAL">No vincular</option></select>
           <label className="sr-only" htmlFor="publicaciones-desde">Creada desde</label><input id="publicaciones-desde" type="date" value={publicationDateFilter.desde} onChange={(event) => changePublicationDateFilter("desde", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" title="Creada desde" />
           <label className="sr-only" htmlFor="publicaciones-hasta">Creada hasta</label><input id="publicaciones-hasta" type="date" value={publicationDateFilter.hasta} onChange={(event) => changePublicationDateFilter("hasta", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" title="Creada hasta" />
-          <button type="button" onClick={() => void copyVisiblePublicationMlas()} disabled={!visiblePublicaciones.length} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300" title="Copiar MLA de esta pagina"><Copy className="h-4 w-4" />Copiar MLA</button>
+          <button type="button" onClick={() => void copyFilteredPublicationMlas()} disabled={!publicaciones.totalCount} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300" title="Copiar MLA filtrados por fecha de creación"><Copy className="h-4 w-4" />Copiar MLA</button>
         </>}
         <div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} registros</span>
       </div>}

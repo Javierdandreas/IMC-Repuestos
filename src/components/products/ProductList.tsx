@@ -598,12 +598,12 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       </span>
                     </td>
                     <td
-                      className="cursor-help px-2 py-3"
+                      className={`cursor-help px-2 py-3 ${product.tipo === "KIT" ? "align-top" : ""}`}
                       onMouseEnter={(e) => handleTooltipEnter(product, product.tipo === "KIT" ? "details" : "locations", e)}
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
-                        <span className="truncate font-mono text-sm font-black text-slate-900 dark:text-white">{product.cod_unico}</span>
+                        <span className={`${product.tipo === "KIT" ? "break-words whitespace-normal" : "truncate"} font-mono text-sm font-black text-slate-900 dark:text-white`}>{product.cod_unico}</span>
                         {product.tipo !== "KIT" && (
                           <span className="mt-0.5 truncate text-[11px] font-bold tracking-wide text-slate-500 dark:text-slate-400">
                             {product.parent_kit_codigo ? `COMPONENTE DE ${product.parent_kit_codigo}` : product.codigo_pieza}
@@ -612,12 +612,12 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       </div>
                     </td>
                     <td
-                      className="cursor-help border-r border-slate-50 px-2 py-3 dark:border-slate-800/50"
+                      className={`cursor-help border-r border-slate-50 px-2 py-3 dark:border-slate-800/50 ${product.tipo === "KIT" ? "align-top" : ""}`}
                       onMouseEnter={(e) => handleTooltipEnter(product, "details", e)}
                       onMouseLeave={handleTooltipLeave}
                     >
                       <div className="flex flex-col">
-                        <span className="line-clamp-2 text-xs font-bold leading-tight text-slate-800 transition-colors group-hover:text-blue-600 dark:text-slate-100 dark:group-hover:text-blue-400" title={product.descripcion}>
+                        <span className={`${product.tipo === "KIT" ? "whitespace-normal break-words text-[13px] leading-[1.35]" : "line-clamp-2 text-xs leading-tight"} font-bold text-slate-800 transition-colors group-hover:text-blue-600 dark:text-slate-100 dark:group-hover:text-blue-400`} title={product.descripcion}>
                           {product.descripcion}
                         </span>
                       </div>
