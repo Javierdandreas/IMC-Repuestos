@@ -598,7 +598,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       </span>
                     </td>
                     <td
-                      className={`cursor-help px-2 py-3 ${product.tipo === "KIT" ? "align-top" : ""}`}
+                      className="cursor-help px-2 py-3"
                       onMouseEnter={(e) => handleTooltipEnter(product, product.tipo === "KIT" ? "details" : "locations", e)}
                       onMouseLeave={handleTooltipLeave}
                     >
@@ -612,7 +612,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       </div>
                     </td>
                     <td
-                      className={`cursor-help border-r border-slate-50 px-2 py-3 dark:border-slate-800/50 ${product.tipo === "KIT" ? "align-top" : ""}`}
+                      className="cursor-help border-r border-slate-50 px-2 py-3 dark:border-slate-800/50"
                       onMouseEnter={(e) => handleTooltipEnter(product, "details", e)}
                       onMouseLeave={handleTooltipLeave}
                     >
