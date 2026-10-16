@@ -6,7 +6,7 @@ type RawImportItem = CreateImportacionInput["items"][number];
 export function normalizarItemsImportacionProveedor(items: RawImportItem[]) {
   return items.map((item, index) => {
     const parsedPrice = item.precio_lista === null || item.precio_lista === undefined
-      ? null
+      ? 0
       : Number(item.precio_lista);
     const stock = item.stock_fuente === "COLOR_FILA"
       ? normalizarStockProveedorPorColor(item.stock_color, item.stock_color_estado)
@@ -16,7 +16,7 @@ export function normalizarItemsImportacionProveedor(items: RawImportItem[]) {
       fila: Number(item.fila || index + 2),
       proveedor_archivo: String(item.proveedor_archivo ?? "").trim(),
       codigo_proveedor: String(item.codigo_proveedor ?? "").trim().toUpperCase(),
-      precio_lista: Number.isFinite(parsedPrice) ? parsedPrice : null,
+      precio_lista: Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0,
       precio_original: String(item.precio_original ?? item.precio_lista ?? "").trim(),
       stock_original: stock.original || null,
       stock_estado: stock.estado,

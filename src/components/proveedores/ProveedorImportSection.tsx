@@ -89,7 +89,6 @@ interface Props {
 }
 
 const SUPPLIER_FIELDS = [
-  { id: "proveedor", label: "Proveedor", required: false },
   { id: "codigo_proveedor", label: "Codigo proveedor", required: true },
   { id: "precio_lista", label: "Precio de lista", required: true },
   { id: "stock_proveedor", label: "Stock proveedor", required: false },
@@ -105,16 +104,7 @@ function normalizeHeader(value: string) {
 }
 
 function detectHeader(headers: string[], fieldId: string) {
-  const candidates = fieldId === "proveedor"
-    ? [
-        { terms: ["proveedor"], score: 100 },
-        { terms: ["razon social"], score: 95 },
-        { terms: ["empresa"], score: 90 },
-        { terms: ["nombre proveedor"], score: 90 },
-        { terms: ["cuit"], score: 80 },
-        { terms: ["dni"], score: 75 },
-      ]
-    : fieldId === "codigo_proveedor"
+  const candidates = fieldId === "codigo_proveedor"
     ? [
         { terms: ["codigo proveedor"], score: 100 },
         { terms: ["cod proveedor"], score: 95 },
@@ -154,27 +144,33 @@ function detectHeader(headers: string[], fieldId: string) {
   return best?.score ? best.header : "";
 }
 
-function parseSupplierPrice(value: unknown): number | null {
-  if (value === null || value === undefined) return null;
+function parseSupplierPrice(value: unknown): number {
+  if (value === null || value === undefined) return 0;
   const raw = String(value).trim();
-  if (!raw) return null;
+  if (!raw) return 0;
 
   let clean = raw.replace(/[^0-9,.-]/g, "");
-  if (!clean || clean === "-" || clean === "," || clean === ".") return null;
+  if (!clean || clean === "-" || clean === "," || clean === "." || clean.includes("-")) return 0;
 
   const lastComma = clean.lastIndexOf(",");
   const lastDot = clean.lastIndexOf(".");
 
-  if (lastComma >= 0 && lastDot >= 0) {
-    clean = lastComma > lastDot
-      ? clean.replace(/\./g, "").replace(",", ".")
-      : clean.replace(/,/g, "");
-  } else if (lastComma >= 0) {
-    clean = clean.replace(",", ".");
+  const decimalSeparator = lastComma >= 0 && lastDot >= 0
+    ? lastComma > lastDot ? "," : "."
+    : lastComma >= 0 ? "," : lastDot >= 0 ? "." : null;
+  const decimalIndex = decimalSeparator ? clean.lastIndexOf(decimalSeparator) : -1;
+  const decimalDigits = decimalIndex >= 0 ? clean.length - decimalIndex - 1 : 0;
+
+  if (decimalIndex >= 0 && decimalDigits >= 1 && decimalDigits <= 2) {
+    const integerPart = clean.slice(0, decimalIndex).replace(/[.,]/g, "");
+    const fractionPart = clean.slice(decimalIndex + 1).replace(/[.,]/g, "");
+    clean = `${integerPart}.${fractionPart}`;
+  } else {
+    clean = clean.replace(/[.,]/g, "");
   }
 
   const parsed = Number(clean);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function buildMappedRows(
@@ -184,7 +180,6 @@ function buildMappedRows(
   stockColorRules: StockColorRule[],
   previewLimit = 6,
 ) {
-  const supplierHeader = mappings.proveedor?.csvHeader;
   const codeHeader = mappings.codigo_proveedor?.csvHeader;
   const priceHeader = mappings.precio_lista?.csvHeader;
   const stockHeader = mappings.stock_proveedor?.csvHeader;
@@ -208,7 +203,7 @@ function buildMappedRows(
   }
 
   rows.forEach((row, index) => {
-    const proveedor = supplierHeader ? String(row?.[supplierHeader] ?? "").trim() : nombreProveedor;
+    const proveedor = nombreProveedor;
     const codigo = String(row?.[codeHeader] ?? "").trim().toUpperCase();
     const precioOriginal = String(row?.[priceHeader] ?? "").trim();
     const precio = parseSupplierPrice(row?.[priceHeader]);
@@ -229,10 +224,7 @@ function buildMappedRows(
       : normalizarStockProveedor(stockOriginal);
     let reason = "";
 
-    if (!proveedor) reason = "Sin proveedor";
     if (!codigo) reason = "Sin codigo";
-    if (precio === null) reason = reason ? `${reason} y sin precio` : "Sin precio";
-    if (precio !== null && precio < 0) reason = reason ? `${reason} y precio negativo` : "Precio negativo";
 
     if (reason) {
       invalidCount += 1;
@@ -348,9 +340,8 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     }));
     setResults(null);
     setMappings({
-      proveedor: { csvHeader: detectHeader(headers, "proveedor"), isRequired: false },
       codigo_proveedor: { csvHeader: detectHeader(headers, "codigo_proveedor"), isRequired: true },
-      precio_lista: { csvHeader: detectHeader(headers, "precio_lista"), isRequired: true },
+      precio_lista: { csvHeader: "", isRequired: true },
       stock_proveedor: { csvHeader: detectHeader(headers, "stock_proveedor"), isRequired: false },
     });
     setStep("mapping");
@@ -729,9 +720,6 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
                 <option key={header} value={header}>{header}</option>
               ))}
             </select>
-            {field.id === "proveedor" ? (
-              <p className="text-[9px] font-bold text-slate-500">Si lo dejas vacio, se usa {nombre_proveedor}.</p>
-            ) : null}
           </div>
         ))}
       </div>
@@ -833,7 +821,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
               <li>El archivo puede estar en formato CSV o Excel.</li>
               <li>Debe tener columnas claras para codigo y precio.</li>
               <li>La columna de stock es opcional.</li>
-              <li>Si no incluye proveedor, se usa el proveedor abierto.</li>
+              <li>Las filas se asignan al proveedor que tenes abierto.</li>
               <li>El orden no importa, podras mapearlas en el siguiente paso.</li>
             </ul>
           </div>
@@ -907,7 +895,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         description={importPhase === "uploading"
           ? "Guardando las filas por partes. No cierres esta ventana."
           : importPhase === "validating"
-            ? "Verificando codigos, proveedor y duplicados antes de actualizar."
+            ? "Verificando codigos, stock y duplicados antes de actualizar."
             : "Actualizando precios, stock y costos por bloques confirmados."}
         total={importPhase === "uploading" ? mappedData.items.length : applicationTotal}
         processed={processedRows}

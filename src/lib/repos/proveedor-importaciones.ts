@@ -289,7 +289,7 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
     `
       SELECT EXISTS (
         SELECT 1
-        FROM public.proveedor_importacion_item
+        FROM public.proveedor_importacion_item pii
         WHERE id_importacion = $1
           AND (estado <> 'PENDIENTE' OR applied_at IS NOT NULL)
       ) AS preparada
@@ -303,14 +303,12 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
       UPDATE public.proveedor_importacion_item pii
       SET
         estado = CASE
-          WHEN trim(COALESCE(pii.proveedor_archivo, '')) = '' THEN 'INVALIDO'
           WHEN trim(COALESCE(pii.codigo_proveedor, '')) = '' THEN 'INVALIDO'
           WHEN pii.precio_lista IS NULL THEN 'INVALIDO'
           WHEN pii.precio_lista < 0 THEN 'INVALIDO'
           ELSE 'PENDIENTE'
         END,
         mensaje = CASE
-          WHEN trim(COALESCE(pii.proveedor_archivo, '')) = '' THEN 'Falta proveedor en la fila'
           WHEN trim(COALESCE(pii.codigo_proveedor, '')) = '' THEN 'Falta codigo de proveedor'
           WHEN pii.precio_lista IS NULL THEN 'Precio vacio o invalido'
           WHEN pii.precio_lista < 0 THEN 'Precio negativo'
@@ -327,45 +325,37 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
 
   await client.query(
     `
-      WITH proveedor_actual AS (
+      WITH filas AS (
         SELECT
-          pi.id,
-          pi.id_proveedor,
-          regexp_replace(upper(trim(p.descripcion)), '[^A-Z0-9]+', '', 'g') AS proveedor_nombre,
-          regexp_replace(COALESCE(p.documento, ''), '[^0-9]+', '', 'g') AS proveedor_documento
-        FROM public.proveedor_importacion pi
-        INNER JOIN public.proveedores p ON p.id = pi.id_proveedor
-        WHERE pi.id = $1
-      )
-      UPDATE public.proveedor_importacion_item pii
-      SET estado = 'PROVEEDOR_DISTINTO', mensaje = 'El proveedor del archivo no coincide con el proveedor abierto'
-      FROM proveedor_actual pa
-      WHERE pii.id_importacion = pa.id
-        AND pii.estado = 'PENDIENTE'
-        AND NOT (
-          regexp_replace(upper(trim(COALESCE(pii.proveedor_archivo, ''))), '[^A-Z0-9]+', '', 'g') = pa.proveedor_nombre
-          OR (pa.proveedor_documento <> '' AND regexp_replace(COALESCE(pii.proveedor_archivo, ''), '[^0-9]+', '', 'g') = pa.proveedor_documento)
-          OR trim(COALESCE(pii.proveedor_archivo, '')) = pa.id_proveedor::text
-        )
-    `,
-    [idImportacion],
-  );
-
-  await client.query(
-    `
-      WITH duplicados AS (
-        SELECT upper(trim(codigo_proveedor)) AS codigo_normalizado
+          pii.id,
+          upper(trim(pii.codigo_proveedor)) AS codigo_normalizado,
+          ROW_NUMBER() OVER (
+            PARTITION BY upper(trim(pii.codigo_proveedor))
+            ORDER BY pii.fila NULLS LAST, pii.id
+          ) AS posicion
+        FROM public.proveedor_importacion_item pii
+        WHERE pii.id_importacion = $1 AND pii.estado = 'PENDIENTE'
+      ), grupos AS (
+        SELECT
+          upper(trim(codigo_proveedor)) AS codigo_normalizado,
+          COUNT(*) AS cantidad,
+          COUNT(DISTINCT ROW(precio_lista, upper(trim(COALESCE(stock_original, ''))))) AS variantes
         FROM public.proveedor_importacion_item
         WHERE id_importacion = $1 AND estado = 'PENDIENTE'
         GROUP BY upper(trim(codigo_proveedor))
-        HAVING COUNT(*) > 1
       )
       UPDATE public.proveedor_importacion_item pii
-      SET estado = 'DUPLICADO', mensaje = 'El codigo aparece mas de una vez en este archivo'
-      FROM duplicados d
-      WHERE pii.id_importacion = $1
-        AND pii.estado = 'PENDIENTE'
-        AND upper(trim(pii.codigo_proveedor)) = d.codigo_normalizado
+      SET
+        estado = 'DUPLICADO',
+        mensaje = CASE
+          WHEN grupos.variantes = 1 THEN 'Fila repetida: se aplicara la primera fila identica'
+          ELSE 'El codigo aparece mas de una vez con precio o stock distinto'
+        END
+      FROM filas
+      INNER JOIN grupos ON grupos.codigo_normalizado = filas.codigo_normalizado
+      WHERE pii.id = filas.id
+        AND grupos.cantidad > 1
+        AND (grupos.variantes > 1 OR filas.posicion > 1)
     `,
     [idImportacion],
   );
@@ -478,14 +468,12 @@ async function aplicarImportacionAlCatalogoCompletaLegacy(id_importacion: number
         UPDATE public.proveedor_importacion_item pii
         SET
           estado = CASE
-            WHEN trim(COALESCE(pii.proveedor_archivo, '')) = '' THEN 'INVALIDO'
             WHEN trim(COALESCE(pii.codigo_proveedor, '')) = '' THEN 'INVALIDO'
             WHEN pii.precio_lista IS NULL THEN 'INVALIDO'
             WHEN pii.precio_lista < 0 THEN 'INVALIDO'
             ELSE 'PENDIENTE'
           END,
           mensaje = CASE
-            WHEN trim(COALESCE(pii.proveedor_archivo, '')) = '' THEN 'Falta proveedor en la fila'
             WHEN trim(COALESCE(pii.codigo_proveedor, '')) = '' THEN 'Falta codigo de proveedor'
             WHEN pii.precio_lista IS NULL THEN 'Precio vacio o invalido'
             WHEN pii.precio_lista < 0 THEN 'Precio negativo'
@@ -502,53 +490,37 @@ async function aplicarImportacionAlCatalogoCompletaLegacy(id_importacion: number
 
     await client.query(
       `
-        WITH proveedor_actual AS (
+        WITH filas AS (
           SELECT
-            pi.id,
-            pi.id_proveedor,
-            regexp_replace(upper(trim(p.descripcion)), '[^A-Z0-9]+', '', 'g') AS proveedor_nombre,
-            regexp_replace(COALESCE(p.documento, ''), '[^0-9]+', '', 'g') AS proveedor_documento
-          FROM public.proveedor_importacion pi
-          INNER JOIN public.proveedores p ON p.id = pi.id_proveedor
-          WHERE pi.id = $1
-        )
-        UPDATE public.proveedor_importacion_item pii
-        SET
-          estado = 'PROVEEDOR_DISTINTO',
-          mensaje = 'El proveedor del archivo no coincide con el proveedor abierto'
-        FROM proveedor_actual pa
-        WHERE pii.id_importacion = pa.id
-          AND pii.estado = 'PENDIENTE'
-          AND NOT (
-            regexp_replace(upper(trim(COALESCE(pii.proveedor_archivo, ''))), '[^A-Z0-9]+', '', 'g') = pa.proveedor_nombre
-            OR (
-              pa.proveedor_documento <> ''
-              AND regexp_replace(COALESCE(pii.proveedor_archivo, ''), '[^0-9]+', '', 'g') = pa.proveedor_documento
-            )
-            OR trim(COALESCE(pii.proveedor_archivo, '')) = pa.id_proveedor::text
-          )
-      `,
-      [id_importacion]
-    );
-
-    await client.query(
-      `
-        WITH duplicados AS (
-          SELECT upper(trim(codigo_proveedor)) AS codigo_normalizado
+            pii.id,
+            upper(trim(pii.codigo_proveedor)) AS codigo_normalizado,
+            ROW_NUMBER() OVER (
+              PARTITION BY upper(trim(pii.codigo_proveedor))
+              ORDER BY pii.fila NULLS LAST, pii.id
+            ) AS posicion
+          FROM public.proveedor_importacion_item pii
+          WHERE pii.id_importacion = $1 AND pii.estado = 'PENDIENTE'
+        ), grupos AS (
+          SELECT
+            upper(trim(codigo_proveedor)) AS codigo_normalizado,
+            COUNT(*) AS cantidad,
+            COUNT(DISTINCT ROW(precio_lista, upper(trim(COALESCE(stock_original, ''))))) AS variantes
           FROM public.proveedor_importacion_item
-          WHERE id_importacion = $1
-            AND estado = 'PENDIENTE'
+          WHERE id_importacion = $1 AND estado = 'PENDIENTE'
           GROUP BY upper(trim(codigo_proveedor))
-          HAVING COUNT(*) > 1
         )
         UPDATE public.proveedor_importacion_item pii
         SET
           estado = 'DUPLICADO',
-          mensaje = 'El codigo aparece mas de una vez en este archivo'
-        FROM duplicados d
-        WHERE pii.id_importacion = $1
-          AND pii.estado = 'PENDIENTE'
-          AND upper(trim(pii.codigo_proveedor)) = d.codigo_normalizado
+          mensaje = CASE
+            WHEN grupos.variantes = 1 THEN 'Fila repetida: se aplicara la primera fila identica'
+            ELSE 'El codigo aparece mas de una vez con precio o stock distinto'
+          END
+        FROM filas
+        INNER JOIN grupos ON grupos.codigo_normalizado = filas.codigo_normalizado
+        WHERE pii.id = filas.id
+          AND grupos.cantidad > 1
+          AND (grupos.variantes > 1 OR filas.posicion > 1)
       `,
       [id_importacion]
     );
