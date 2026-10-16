@@ -1044,6 +1044,112 @@ export async function getImportacionItems(
   };
 }
 
+export type DetalleImportacionExportable = {
+  importacion: {
+    id: number;
+    nombre_archivo: string;
+    created_at: string;
+    proveedor: string;
+  };
+  items: ProveedorImportacionItem[];
+  cambiosPendientes: Array<{
+    codigo_item: string | null;
+    descripcion_item: string | null;
+    codigo_proveedor: string | null;
+    costo_anterior: number | null;
+    costo_nuevo: number;
+    diferencia_porcentaje: number | null;
+  }>;
+};
+
+export async function getDetalleImportacionExportable(idImportacion: number): Promise<DetalleImportacionExportable> {
+  if (!Number.isInteger(idImportacion) || idImportacion <= 0) throw new AppError("Importacion invalida", 400);
+
+  const [headerResult, itemsResult, pendingChangesResult] = await Promise.all([
+    query<{ id: number; nombre_archivo: string; created_at: string; proveedor: string }>(
+      `
+        SELECT pi.id, pi.nombre_archivo, pi.created_at, COALESCE(p.descripcion, 'Sin proveedor') AS proveedor
+        FROM public.proveedor_importacion pi
+        LEFT JOIN public.proveedores p ON p.id = pi.id_proveedor
+        WHERE pi.id = $1
+        LIMIT 1
+      `,
+      [idImportacion],
+    ),
+    query<ProveedorImportacionItem>(
+      `
+        SELECT
+          pii.id,
+          pii.id_importacion,
+          pii.fila,
+          pii.proveedor_archivo,
+          pii.codigo_proveedor,
+          pii.precio_lista::float AS precio_lista,
+          pii.precio_original,
+          pii.stock_original,
+          pii.stock_estado,
+          pii.stock_cantidad::float AS stock_cantidad,
+          pii.estado,
+          pii.mensaje,
+          pii.id_producto,
+          p.cod_unico AS producto_codigo,
+          p.descripcion AS producto_descripcion,
+          pii.precio_anterior::float AS precio_anterior,
+          pii.precio_aplicado::float AS precio_aplicado,
+          pii.applied_at,
+          pii.created_at
+        FROM public.proveedor_importacion_item pii
+        LEFT JOIN public.productos p ON p.id = pii.id_producto
+        WHERE pii.id_importacion = $1
+        ORDER BY pii.fila NULLS LAST, pii.id ASC
+      `,
+      [idImportacion],
+    ),
+    query<{
+      codigo_item: string | null;
+      descripcion_item: string | null;
+      codigo_proveedor: string | null;
+      costo_anterior: number | null;
+      costo_nuevo: number;
+      diferencia_porcentaje: number | null;
+    }>(
+      `
+        SELECT
+          cambio.codigo_item,
+          cambio.descripcion_item,
+          cambio.codigo_proveedor,
+          cambio.costo_anterior::float AS costo_anterior,
+          cambio.costo_nuevo::float AS costo_nuevo,
+          cambio.porcentaje_variacion::float AS diferencia_porcentaje
+        FROM public.proveedor_importacion_cambio_costo cambio
+        WHERE cambio.id_importacion = $1
+          AND cambio.estado_aprobacion = 'PENDIENTE'
+        ORDER BY cambio.id ASC
+      `,
+      [idImportacion],
+    ),
+  ]);
+
+  const header = headerResult.rows[0];
+  if (!header) throw new AppError("Importacion no encontrada", 404);
+
+  return {
+    importacion: {
+      id: Number(header.id),
+      nombre_archivo: String(header.nombre_archivo ?? ""),
+      created_at: header.created_at,
+      proveedor: String(header.proveedor ?? "Sin proveedor"),
+    },
+    items: itemsResult.rows,
+    cambiosPendientes: pendingChangesResult.rows.map((item) => ({
+      ...item,
+      costo_anterior: item.costo_anterior === null ? null : Number(item.costo_anterior),
+      costo_nuevo: Number(item.costo_nuevo),
+      diferencia_porcentaje: item.diferencia_porcentaje === null ? null : Number(item.diferencia_porcentaje),
+    })),
+  };
+}
+
 export type PrecioModificadoProveedor = {
   id: number;
   id_importacion: number | null;

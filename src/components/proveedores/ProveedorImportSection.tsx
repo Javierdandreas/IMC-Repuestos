@@ -868,21 +868,23 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
               {results.invalidCount} invalida(s), {results.duplicateCount} duplicada(s), {results.providerMismatchCount} de otro proveedor.
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => { window.location.href = `/api/listados/precios-modificados/export?importacion=${results.idImportacion}`; }}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-500/40 px-3 text-[10px] font-black uppercase tracking-widest text-blue-300 transition hover:bg-blue-500/10"
-          >
-            <HiDownload className="h-4 w-4" />
-            Exportar costos modificados
-          </button>
-          <button
-            type="button"
-            onClick={() => setStep("upload")}
-            className="h-9 rounded-lg border border-slate-700 px-3 text-[10px] font-black uppercase tracking-widest text-slate-300 transition hover:bg-slate-900"
-          >
-            Importar otra
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { window.location.href = `/api/proveedores/importaciones/${results.idImportacion}/export`; }}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-500/40 px-3 text-[10px] font-black uppercase tracking-widest text-blue-300 transition hover:bg-blue-500/10"
+            >
+              <HiDownload className="h-4 w-4" />
+              Exportar detalle
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep("upload")}
+              className="inline-flex h-9 items-center rounded-lg border border-slate-700 px-3 text-[10px] font-black uppercase tracking-widest text-slate-300 transition hover:bg-slate-900"
+            >
+              Importar otra
+            </button>
+          </div>
         </div>
       );
     }
