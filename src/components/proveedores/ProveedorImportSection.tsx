@@ -173,6 +173,11 @@ function parseSupplierPrice(value: unknown): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
+function formatImportPrice(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "-";
+  return `$ ${value.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function buildMappedRows(
   rows: any[],
   mappings: Record<string, MappingConfig>,
@@ -633,7 +638,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
               <span className="font-mono font-bold text-slate-500">{row.row}</span>
               <span className="truncate font-bold text-slate-300">{row.proveedor || "-"}</span>
               <span className="truncate font-black text-white">{row.codigo || "-"}</span>
-              <span className="font-mono font-black text-blue-300">{row.precio === null ? "-" : row.precio}</span>
+              <span className="font-mono font-black text-blue-300">{formatImportPrice(row.precio)}</span>
               <span className="truncate font-bold text-slate-400">{row.stock}</span>
               <span className={row.status === "OK" ? "font-black text-green-300" : "font-black text-amber-300"}>
                 {row.reason}
