@@ -1053,6 +1053,15 @@ async function getAllItemIds(idCuenta: number, sellerId: number, accessToken: st
   return Array.from(new Set(ids));
 }
 
+async function getRecentItemIds(idCuenta: number, sellerId: number, accessToken: string, limit = 100) {
+  const search = new URLSearchParams({
+    limit: String(Math.max(1, Math.min(100, Math.floor(limit) || 100))),
+    orders: "start_time_desc",
+  });
+  const payload = await meliGet(`/users/${sellerId}/items/search?${search.toString()}`, idCuenta, accessToken) as { results?: unknown[] };
+  return Array.from(new Set((payload.results || []).map(String).filter(Boolean)));
+}
+
 function itemSku(item: MeliItem) {
   const attributeSku = item.attributes?.find((attribute) => attribute.id === "SELLER_SKU" || attribute.id === "SELLER_CUSTOM_FIELD")?.value_name;
   const variationSku = item.variations?.map((variation) => {
@@ -1131,10 +1140,10 @@ async function getItemDetails(itemIds: string[], idCuenta: number, accessToken: 
   return { items, errors };
 }
 
-/** Sincroniza una tanda corta desde las publicaciones ya conocidas para cron externos. */
+/** Sincroniza una tanda corta y descubre publicaciones nuevas para cron externos. */
 export async function sincronizarMercadoLibreLote(idCuenta: number, requestedLimit = 500) {
   const limit = Math.max(1, Math.min(500, Math.floor(requestedLimit) || 500));
-  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
   await query(
     `UPDATE public.mercadolibre_cuenta
      SET ultimo_estado_sincronizacion = 'EN_PROCESO', ultimo_error_sincronizacion = NULL, updated_at = NOW()
@@ -1145,6 +1154,22 @@ export async function sincronizarMercadoLibreLote(idCuenta: number, requestedLim
   const runId = Number(run.rows[0].id);
 
   try {
+    // The webhook is the primary source of changes. This small newest-first scan is
+    // a fallback for publications created while a notification is delayed or lost.
+    const recentIds = await getRecentItemIds(idCuenta, sellerId, accessToken);
+    const existingRecent = recentIds.length
+      ? await query<{ item_id: string }>(
+        "SELECT item_id FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = ANY($2::text[])",
+        [idCuenta, recentIds],
+      )
+      : { rows: [] as Array<{ item_id: string }> };
+    const knownRecentIds = new Set(existingRecent.rows.map((row) => String(row.item_id)));
+    const newItemIds = recentIds.filter((itemId) => !knownRecentIds.has(itemId));
+    const discovered = newItemIds.length
+      ? await getItemDetails(newItemIds, idCuenta, accessToken)
+      : { items: [] as MeliItem[], errors: [] as string[] };
+    const savedDiscovered = await guardarPublicacionesMercadoLibre(idCuenta, discovered.items);
+
     const selected = await query<{ item_id: string }>(
       `SELECT item_id
        FROM public.mercadolibre_publicacion
@@ -1153,16 +1178,21 @@ export async function sincronizarMercadoLibreLote(idCuenta: number, requestedLim
        LIMIT $2`,
       [idCuenta, limit]
     );
-    if (!selected.rowCount) throw new AppError("No hay publicaciones previas para actualizar por lote. Ejecuta una sincronizacion completa manual una vez.", 409);
 
-    const { items, errors } = await getItemDetails(selected.rows.map((row) => String(row.item_id)), idCuenta, accessToken);
+    const { items, errors } = selected.rowCount
+      ? await getItemDetails(selected.rows.map((row) => String(row.item_id)), idCuenta, accessToken)
+      : { items: [] as MeliItem[], errors: [] as string[] };
     const saved = await guardarPublicacionesMercadoLibre(idCuenta, items);
+    const total = savedDiscovered.total + saved.total;
+    const vinculadasPorCodigo = savedDiscovered.vinculadasPorCodigo + saved.vinculadasPorCodigo;
+    const sinVinculo = savedDiscovered.sinVinculo + saved.sinVinculo;
+    const syncErrors = [...discovered.errors, ...errors];
     await query(
       `UPDATE public.mercadolibre_sincronizacion
        SET estado = 'OK', total_publicaciones = $2, vinculadas_por_codigo = $3, sin_vinculo = $4,
          errores = $5::jsonb, error_count = $6, finished_at = NOW()
        WHERE id = $1`,
-      [runId, saved.total, saved.vinculadasPorCodigo, saved.sinVinculo, JSON.stringify(errors), errors.length]
+      [runId, total, vinculadasPorCodigo, sinVinculo, JSON.stringify(syncErrors), syncErrors.length]
     );
     await query(
       `UPDATE public.mercadolibre_cuenta
@@ -1170,7 +1200,15 @@ export async function sincronizarMercadoLibreLote(idCuenta: number, requestedLim
        WHERE id = $1`,
       [idCuenta]
     );
-    return { ...saved, solicitadas: selected.rows.length, errores: errors, limite: limit };
+    return {
+      total,
+      vinculadasPorCodigo,
+      sinVinculo,
+      descubiertas: savedDiscovered.total,
+      solicitadas: newItemIds.length + selected.rows.length,
+      errores: syncErrors,
+      limite: limit,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error desconocido al sincronizar Mercado Libre.";
     await query("UPDATE public.mercadolibre_sincronizacion SET estado = 'ERROR', errores = $2::jsonb, error_count = 1, finished_at = NOW() WHERE id = $1", [runId, JSON.stringify([message])]);
