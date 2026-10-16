@@ -14,6 +14,7 @@ type MeliNotification = {
   topic?: unknown;
   resource?: unknown;
   user_id?: unknown;
+  application_id?: unknown;
   sent?: unknown;
   id?: unknown;
   data?: { id?: unknown };
@@ -45,6 +46,19 @@ function validSignature(notification: MeliNotification, request: NextRequest) {
   return timingSafeEqual(Buffer.from(actual, "hex") as never, Buffer.from(expected, "hex") as never);
 }
 
+function validApplication(notification: MeliNotification) {
+  const applicationId = String(notification.application_id ?? "").trim();
+  const clientId = process.env.MELI_CLIENT_ID?.trim();
+  return Boolean(applicationId && clientId && applicationId === clientId);
+}
+
+function validNotification(notification: MeliNotification, request: NextRequest) {
+  // Mercado Libre notifications can arrive without the Mercado Pago x-signature headers.
+  // In that case, the callback payload identifies the application that received the event.
+  if (request.headers.get("x-signature")) return validSignature(notification, request);
+  return validApplication(notification);
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   let notification: MeliNotification;
@@ -54,8 +68,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "Payload invalido." }, { status: 400 });
   }
 
-  if (!validSignature(notification, request)) {
-    return NextResponse.json({ message: "Firma invalida." }, { status: 401 });
+  if (!validNotification(notification, request)) {
+    console.warn("[MERCADO LIBRE WEBHOOK] Notificacion rechazada", {
+      hasSignature: Boolean(request.headers.get("x-signature")),
+      applicationId: String(notification.application_id ?? "") || null,
+      topic: typeof notification.topic === "string" ? notification.topic : null,
+      sellerId: Number.isSafeInteger(Number(notification.user_id)) ? Number(notification.user_id) : null,
+    });
+    return NextResponse.json({ message: "Notificacion no autorizada." }, { status: 401 });
   }
 
   const topic = typeof notification.topic === "string" ? notification.topic : "";
