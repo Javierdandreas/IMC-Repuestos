@@ -2,7 +2,7 @@ import type { ProductoListado } from "@/interfaces/productos";
 import { query } from "@/lib/db-utils";
 import { getProductosListado } from "@/lib/repos/productos";
 import { getComponentesParaKitsListado, getKitsListado } from "@/lib/repos/kits";
-import { condicionBusquedaKit, condicionBusquedaKitPorComponentes, condicionBusquedaProducto, parametroBusquedaItems, prefijosCodigosComponentes } from "@/lib/busqueda-items";
+import { condicionBusquedaKit, condicionBusquedaKitPorComponentes, condicionBusquedaProducto, parametroBusquedaItems, prefijosCodigosComponentes, terminosDescripcionBusqueda } from "@/lib/busqueda-items";
 
 export type FiltrosItemsUnificados = {
   search?: string;
@@ -55,7 +55,16 @@ function catalogoBusquedaGeneralRapida() {
     WITH direct_matching_products AS (
       SELECT p.id FROM public.productos p
       WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
-        AND (p.cod_unico::text ILIKE $1 OR p.cod_barra::text ILIKE $1 OR p.descripcion::text ILIKE $1 OR p.palabra_clave::text ILIKE $1)
+        AND (
+          p.cod_unico::text ILIKE $1
+          OR p.cod_barra::text ILIKE $1
+          OR p.palabra_clave::text ILIKE $1
+          OR NOT EXISTS (
+            SELECT 1
+            FROM UNNEST($2::text[]) AS termino
+            WHERE STRPOS(UPPER(COALESCE(p.descripcion::text, '')), UPPER(termino)) = 0
+          )
+        )
       UNION
       SELECT p.id FROM public.productos p JOIN public.pieza pi ON pi.id = p.id_pieza
       WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
@@ -161,6 +170,7 @@ export async function getItemsUnificadosListado(
   const productConditions = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
   const kitConditions: string[] = [];
   const componentCodePrefixes = prefijosCodigosComponentes(filters.search || "");
+  const descriptionTerms = terminosDescripcionBusqueda(filters.search || "");
   const useCandidateSearch = Boolean(filters.search?.trim())
     && componentCodePrefixes.length === 0
     && !filters.searchSpecific?.trim()
@@ -182,12 +192,17 @@ export async function getItemsUnificadosListado(
       kitConditions.push(condicionBusquedaKitPorComponentes(parameterPositions));
     } else {
       params.push(parametroBusquedaItems(filters.search));
-      productConditions.push(condicionBusquedaProducto(params.length));
-      kitConditions.push(condicionBusquedaKit(params.length));
+      const searchParameter = params.length;
+      params.push(descriptionTerms);
+      productConditions.push(condicionBusquedaProducto(searchParameter, false, "p", params.length));
+      kitConditions.push(condicionBusquedaKit(searchParameter));
     }
   }
 
-  if (useCandidateSearch) params.push(parametroBusquedaItems(filters.search!));
+  if (useCandidateSearch) {
+    params.push(parametroBusquedaItems(filters.search!));
+    params.push(descriptionTerms);
+  }
 
   if (filters.searchSpecific?.trim()) {
     params.push(parametroBusquedaItems(filters.searchSpecific, true));

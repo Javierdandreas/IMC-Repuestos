@@ -175,7 +175,6 @@ export async function finalizarCargaImportacionProveedor(idImportacion: number, 
       [idImportacion, idProveedor],
     );
     if (result.rowCount === 0) throw new Error("No se pudo finalizar la carga de la importacion");
-    await limpiarImportacionesAnterioresProveedor(client, idProveedor, idImportacion);
     return result.rows[0] as { id: number; total_items: number };
   });
 }
@@ -222,45 +221,13 @@ export async function createImportacion(input: CreateImportacionInput): Promise<
       ]
     );
 
-    await limpiarImportacionesAnterioresProveedor(client, id_proveedor, importacion.id);
-
     return importacion;
   });
 }
 
-const TAMANO_LOTE_APLICACION = 500;
-
 /**
- * Cada nueva lista completa reemplaza las anteriores del mismo proveedor.
- * Una lista con costos pendientes se conserva hasta terminar su revision.
- */
-async function limpiarImportacionesAnterioresProveedor(
-  client: DbClient,
-  idProveedor: number,
-  idImportacionActual: number,
-) {
-  await client.query(
-    `
-      DELETE FROM public.proveedor_importacion AS anterior
-      USING public.proveedor_importacion AS actual
-      WHERE actual.id = $2
-        AND anterior.id_proveedor = $1
-        AND anterior.id <> actual.id
-        AND (anterior.created_at, anterior.id) < (actual.created_at, actual.id)
-        AND NOT EXISTS (
-          SELECT 1
-          FROM public.proveedor_importacion_cambio_costo AS cambio
-          WHERE cambio.id_importacion = anterior.id
-            AND cambio.estado_aprobacion = 'PENDIENTE'
-        )
-    `,
-    [idProveedor, idImportacionActual],
-  );
-}
-
-/**
- * El detalle de una lista de proveedor solo es necesario hasta aplicar el
- * lote y resolver sus cambios de costo. El encabezado conserva el resumen.
+ * Conserva todos los encabezados. Solo depura las filas de listas aplicadas
+ * anteriores cuando ya existe una lista aplicada mas reciente del proveedor.
  */
 async function limpiarDetalleImportacionesResueltas(client: DbClient, importacionIds?: number[]) {
   const ids = [...new Set((importacionIds ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
@@ -268,7 +235,11 @@ async function limpiarDetalleImportacionesResueltas(client: DbClient, importacio
   const scope = ids.length > 0
     ? (() => {
       params.push(ids);
-      return `AND pi.id = ANY($${params.length}::int[])`;
+      return `AND pi.id_proveedor IN (
+        SELECT DISTINCT id_proveedor
+        FROM public.proveedor_importacion
+        WHERE id = ANY($${params.length}::int[])
+      )`;
     })()
     : "";
 
@@ -279,6 +250,13 @@ async function limpiarDetalleImportacionesResueltas(client: DbClient, importacio
       WHERE item.id_importacion = pi.id
         AND pi.estado = 'APLICADA'
         ${scope}
+        AND EXISTS (
+          SELECT 1
+          FROM public.proveedor_importacion mas_reciente
+          WHERE mas_reciente.id_proveedor = pi.id_proveedor
+            AND mas_reciente.estado = 'APLICADA'
+            AND (mas_reciente.created_at, mas_reciente.id) > (pi.created_at, pi.id)
+        )
         AND NOT EXISTS (
           SELECT 1
           FROM public.proveedor_importacion_cambio_costo AS cambio
@@ -291,6 +269,8 @@ async function limpiarDetalleImportacionesResueltas(client: DbClient, importacio
   );
   return new Set(result.rows.map((row) => Number(row.id_importacion))).size;
 }
+
+const TAMANO_LOTE_APLICACION = 500;
 
 async function prepararImportacionParaAplicar(client: DbClient, idImportacion: number) {
   const importacion = await client.query<{ estado: string }>(
@@ -997,11 +977,13 @@ export async function getImportacionesByProveedor(id_proveedor: number) {
     `
       SELECT
         pi.*,
-        COALESCE(COUNT(pii.id) FILTER (WHERE pii.estado = 'ACTUALIZADO'), 0)::int AS actualizados,
-        COALESCE(COUNT(pii.id) FILTER (WHERE pii.estado = 'NO_ENCONTRADO'), 0)::int AS no_encontrados,
-        COALESCE(COUNT(pii.id) FILTER (WHERE pii.estado = 'INVALIDO'), 0)::int AS invalidos,
-        COALESCE(COUNT(pii.id) FILTER (WHERE pii.estado = 'DUPLICADO'), 0)::int AS duplicados,
-        COALESCE(COUNT(pii.id) FILTER (WHERE pii.estado = 'PROVEEDOR_DISTINTO'), 0)::int AS proveedor_distinto
+        COUNT(DISTINCT pii.id)::int AS filas_detalle,
+        (COUNT(DISTINCT pii.id) > 0) AS detalle_disponible,
+        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'ACTUALIZADO'), 0)::int AS actualizados,
+        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'NO_ENCONTRADO'), 0)::int AS no_encontrados,
+        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'INVALIDO'), 0)::int AS invalidos,
+        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'DUPLICADO'), 0)::int AS duplicados,
+        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'PROVEEDOR_DISTINTO'), 0)::int AS proveedor_distinto
       FROM public.proveedor_importacion pi
       LEFT JOIN public.proveedor_importacion_item pii ON pii.id_importacion = pi.id
       WHERE pi.id_proveedor = $1
@@ -1025,9 +1007,20 @@ export async function getImportacionItems(
   id_importacion: number,
   page = 1,
   limit = 50,
+  search = "",
 ): Promise<PaginaImportacionItems> {
   const safePage = Math.max(1, Math.floor(page) || 1);
   const safeLimit = Math.min(100, Math.max(10, Math.floor(limit) || 50));
+  const searchValue = search.trim();
+  const searchPattern = `%${searchValue.replace(/[\\%_]/g, "\\$&")}%`;
+  const filter = searchValue
+    ? `AND (
+      pii.codigo_proveedor ILIKE $2 ESCAPE '\\'
+      OR COALESCE(p.cod_unico, '') ILIKE $2 ESCAPE '\\'
+      OR COALESCE(p.descripcion, '') ILIKE $2 ESCAPE '\\'
+      OR COALESCE(pii.estado, '') ILIKE $2 ESCAPE '\\'
+    )`
+    : "";
   const [{ rows }, countResult] = await Promise.all([
     query(
     `
@@ -1054,14 +1047,19 @@ export async function getImportacionItems(
       FROM public.proveedor_importacion_item pii
       LEFT JOIN public.productos p ON p.id = pii.id_producto
       WHERE pii.id_importacion = $1
+      ${filter}
       ORDER BY pii.fila NULLS LAST, pii.id ASC
-      LIMIT $2 OFFSET $3
+      LIMIT $${searchValue ? 3 : 2} OFFSET $${searchValue ? 4 : 3}
     `,
-    [id_importacion, safeLimit, (safePage - 1) * safeLimit],
+    searchValue ? [id_importacion, searchPattern, safeLimit, (safePage - 1) * safeLimit] : [id_importacion, safeLimit, (safePage - 1) * safeLimit],
     ),
     query<{ total: string }>(
-      `SELECT COUNT(*)::int AS total FROM public.proveedor_importacion_item WHERE id_importacion = $1`,
-      [id_importacion],
+      `SELECT COUNT(*)::int AS total
+       FROM public.proveedor_importacion_item pii
+       LEFT JOIN public.productos p ON p.id = pii.id_producto
+       WHERE pii.id_importacion = $1
+       ${filter}`,
+      searchValue ? [id_importacion, searchPattern] : [id_importacion],
     ),
   ]);
   const total = Number(countResult.rows[0]?.total || 0);

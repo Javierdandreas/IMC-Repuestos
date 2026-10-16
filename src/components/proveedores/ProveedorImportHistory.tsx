@@ -4,7 +4,7 @@ import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { HiCheckCircle, HiChevronLeft, HiChevronRight, HiClock, HiDownload, HiInformationCircle, HiLightningBolt, HiOutlineDocumentText, HiXCircle } from "react-icons/hi";
+import { HiCheckCircle, HiChevronLeft, HiChevronRight, HiClock, HiDownload, HiInformationCircle, HiLightningBolt, HiOutlineDocumentText, HiSearch, HiXCircle } from "react-icons/hi";
 import { toast } from "sonner";
 
 import type { ProveedorImportacion, ProveedorImportacionItem } from "@/interfaces/importaciones";
@@ -32,19 +32,21 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
   const [confirmImport, setConfirmImport] = useState<ProveedorImportacion | null>(null);
   const [detailImport, setDetailImport] = useState<ProveedorImportacion | null>(null);
   const [detailPage, setDetailPage] = useState(1);
+  const [detailSearch, setDetailSearch] = useState("");
 
   const { data: history, error, isLoading } = useSWR<ProveedorImportacion[]>(
     `/api/proveedores/importaciones?id_proveedor=${id_proveedor}`,
     fetcher
   );
   const { data: detailItemsPage, isLoading: isLoadingDetail } = useSWR<ImportacionItemsPage>(
-    detailImport ? `/api/proveedores/importaciones/${detailImport.id}/items?page=${detailPage}&limit=50` : null,
+    detailImport ? `/api/proveedores/importaciones/${detailImport.id}/items?page=${detailPage}&limit=50&q=${encodeURIComponent(detailSearch)}` : null,
     fetcher
   );
   const detailItems = detailItemsPage?.data ?? [];
 
   const openDetail = (item: ProveedorImportacion) => {
     setDetailPage(1);
+    setDetailSearch("");
     setDetailImport(item);
   };
 
@@ -287,6 +289,19 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
             </div>
 
             <div>
+              <div className="mb-3 flex items-center gap-3">
+                <label className="relative min-w-0 flex-1">
+                  <span className="sr-only">Buscar en el detalle de importacion</span>
+                  <HiSearch className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                  <input
+                    value={detailSearch}
+                    onChange={(event) => { setDetailSearch(event.target.value); setDetailPage(1); }}
+                    placeholder="Codigo proveedor, codigo IMC, descripcion o estado"
+                    className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 pl-9 pr-3 text-xs font-semibold text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
+                  />
+                </label>
+                <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-slate-500">50 por pagina</span>
+              </div>
               <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/30">
                 <div className="grid min-w-[1040px] grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_minmax(170px,1.6fr)_96px_96px] gap-2 bg-slate-950 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
                   <span>Fila</span>
@@ -303,7 +318,13 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                   {isLoadingDetail ? (
                     <div className="px-5 py-8 text-center text-xs font-bold text-slate-500">Cargando detalle...</div>
                   ) : detailItems.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-xs font-bold text-slate-500">Sin detalle disponible.</div>
+                    <div className="px-5 py-8 text-center text-xs font-bold text-slate-500">
+                      {detailImport.detalle_disponible === false
+                        ? "Detalle depurado: se conserva fecha, archivo, estado y cantidad de la importacion."
+                        : detailSearch.trim()
+                          ? "No hay filas que coincidan con la busqueda."
+                          : "Sin detalle disponible."}
+                    </div>
                   ) : (
                     detailItems.map((row) => (
                       <div

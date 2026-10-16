@@ -3,6 +3,10 @@ export function parametroBusquedaItems(value: string, exact = false) {
   return exact ? text : `%${text.replace(/[\\%_]/g, "\\$&")}%`;
 }
 
+export function terminosDescripcionBusqueda(value: string) {
+  return [...new Set(value.trim().split(/\s+/).filter(Boolean))];
+}
+
 export function prefijosCodigosComponentes(value: string) {
   const tokens = value.trim().toUpperCase().split(/\s+/).filter(Boolean);
   const isCodePrefix = (token: string) => token.length >= 3
@@ -18,7 +22,8 @@ export function prefijosCodigosComponentes(value: string) {
 export function condicionBusquedaProducto(
   parameter: number,
   exact = false,
-  alias: "p" | "componente" = "p"
+  alias: "p" | "componente" = "p",
+  descriptionTermsParameter?: number,
 ) {
   const match = (column: string) => exact
     ? `UPPER(TRIM(${column}::text)) = UPPER(TRIM($${parameter}::text))`
@@ -26,6 +31,13 @@ export function condicionBusquedaProducto(
   const matchPalabraClave = exact
     ? `REGEXP_REPLACE(UPPER(COALESCE(${alias}.palabra_clave::text, '')), '\\s+', '', 'g') LIKE '%' || UPPER(TRIM($${parameter}::text)) || '%'`
     : match(`${alias}.palabra_clave`);
+  const matchDescription = descriptionTermsParameter
+    ? `NOT EXISTS (
+      SELECT 1
+      FROM UNNEST($${descriptionTermsParameter}::text[]) AS termino
+      WHERE STRPOS(UPPER(COALESCE(${alias}.descripcion::text, '')), UPPER(termino)) = 0
+    )`
+    : match(`${alias}.descripcion`);
 
   const conditions = [
     match(`${alias}.cod_unico`),
@@ -59,7 +71,7 @@ export function condicionBusquedaProducto(
 
   if (!exact) {
     conditions.push(
-      match(`${alias}.descripcion`),
+      matchDescription,
       `EXISTS (
         SELECT 1 FROM public.marcas buscar_marca
         WHERE buscar_marca.id = ${alias}.id_marca AND ${match("buscar_marca.descripcion")}
