@@ -44,8 +44,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Esta ruta valida su propio Bearer token y no puede requerir una sesion de usuario.
-  if (pathname === "/api/cron/catalogo-externo" || pathname === "/api/cron/mercadolibre" || pathname === "/api/cron/multimoneda") {
+  // Los cron validan su propio Bearer token y el webhook valida la aplicacion de Mercado Libre.
+  // Ninguno puede depender de una sesion de usuario del navegador.
+  if (
+    pathname === "/api/cron/catalogo-externo" ||
+    pathname === "/api/cron/mercadolibre" ||
+    pathname === "/api/cron/multimoneda" ||
+    pathname === "/api/integraciones/mercadolibre/notificaciones"
+  ) {
     return NextResponse.next();
   }
 
