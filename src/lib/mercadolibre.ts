@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
 
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
+import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -369,7 +370,7 @@ export async function getMercadoLibrePreguntas(
            WHERE question.id_cuenta = $1 ${where}
            GROUP BY
              COALESCE(question.item_id, 'pregunta:' || question.id::text),
-             COALESCE(question.comprador_id, 'pregunta:' || question.id::text)
+             COALESCE(question.comprador_id::text, 'pregunta:' || question.id::text)
          ) grupos`
       : `SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_pregunta question WHERE question.id_cuenta = $1 ${where}`,
     [idCuenta],
@@ -385,12 +386,12 @@ export async function getMercadoLibrePreguntas(
              COUNT(*) OVER (
                PARTITION BY
                  COALESCE(question.item_id, 'pregunta:' || question.id::text),
-                 COALESCE(question.comprador_id, 'pregunta:' || question.id::text)
+                 COALESCE(question.comprador_id::text, 'pregunta:' || question.id::text)
              )::int AS cantidad_conversaciones,
              ROW_NUMBER() OVER (
                PARTITION BY
                  COALESCE(question.item_id, 'pregunta:' || question.id::text),
-                 COALESCE(question.comprador_id, 'pregunta:' || question.id::text)
+                 COALESCE(question.comprador_id::text, 'pregunta:' || question.id::text)
                ORDER BY question.fecha ${direction} NULLS LAST, question.id ${direction}
              ) AS posicion
            FROM public.mercadolibre_pregunta question
@@ -1350,9 +1351,9 @@ async function guardarVentaMercadoLibre(idCuenta: number, venta: MeliOrder) {
   );
 }
 
-async function guardarPreguntaMercadoLibre(idCuenta: number, pregunta: MeliQuestion) {
+async function guardarPreguntaMercadoLibre(idCuenta: number, pregunta: MeliQuestion, options: { notificar?: boolean } = {}) {
   if (!pregunta.id || !pregunta.text) return;
-  await query(
+  const { rows } = await query<{ creada: boolean; titulo: string | null; estado: string }>(
     `INSERT INTO public.mercadolibre_pregunta (
       id_cuenta, pregunta_id, item_id, titulo, comprador, comprador_id, texto, estado, fecha, respuesta, respondida_at, datos, sincronizada_at, updated_at
     ) VALUES (
@@ -1362,12 +1363,26 @@ async function guardarPreguntaMercadoLibre(idCuenta: number, pregunta: MeliQuest
     ) ON CONFLICT (id_cuenta, pregunta_id) DO UPDATE SET
       item_id = EXCLUDED.item_id, titulo = COALESCE(EXCLUDED.titulo, mercadolibre_pregunta.titulo), comprador = EXCLUDED.comprador, comprador_id = EXCLUDED.comprador_id,
       texto = EXCLUDED.texto, estado = EXCLUDED.estado, fecha = EXCLUDED.fecha, respuesta = EXCLUDED.respuesta,
-      respondida_at = EXCLUDED.respondida_at, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
+      respondida_at = EXCLUDED.respondida_at, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()
+    RETURNING (xmax = 0) AS creada, titulo, estado`,
     [idCuenta, String(pregunta.id), pregunta.item_id || null, pregunta.from?.nickname || null,
       pregunta.from?.id === null || pregunta.from?.id === undefined ? null : String(pregunta.from.id), pregunta.text,
       pregunta.status || "UNANSWERED", pregunta.date_created || null, pregunta.answer?.text || null,
       pregunta.answer?.date_created || null, JSON.stringify(pregunta)],
   );
+  const saved = rows[0];
+  if (options.notificar && saved?.creada && saved.estado === "UNANSWERED") {
+    try {
+      await notificarNuevaPreguntaMercadoLibre({
+        idCuenta,
+        preguntaId: String(pregunta.id),
+        titulo: saved.titulo,
+        texto: pregunta.text,
+      });
+    } catch (error) {
+      console.error("La pregunta se guardo, pero no se pudo enviar la notificacion push.", error);
+    }
+  }
 }
 
 async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
@@ -1506,7 +1521,7 @@ async function procesarEventoMercadoLibreReclamado(row: MeliWebhookEventRow) {
   }
   const resource = await meliGet(row.recurso, row.id_cuenta, accessToken);
   if (row.topic === "orders_v2") await guardarVentaMercadoLibre(row.id_cuenta, resource as MeliOrder);
-  if (row.topic === "questions") await guardarPreguntaMercadoLibre(row.id_cuenta, resource as MeliQuestion);
+  if (row.topic === "questions") await guardarPreguntaMercadoLibre(row.id_cuenta, resource as MeliQuestion, { notificar: true });
   if (row.topic === "items") await guardarPublicacionDesdeWebhook(row.id_cuenta, resource as MeliItem);
   await query(
     "UPDATE public.mercadolibre_webhook_evento SET estado = 'PROCESADO', procesado_at = NOW(), ultimo_error = NULL WHERE id = $1",

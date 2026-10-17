@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, Copy, ExternalLink, Link2, LoaderCircle, MessageCircle, MessageSquarePlus, Package, Pencil, Plus, RefreshCw, Search, Send, Settings2, ShieldCheck, ShoppingCart, Trash2, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { PushNotificationsControl } from "@/components/notificaciones/PushNotificationsControl";
+
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -57,7 +59,10 @@ function publicationLinkLabel(tipo: "SIN_VINCULO" | "CODIGO_EXACTO" | "MANUAL" |
 
 export function MercadoLibrePage({ canManage }: Props) {
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState<Tab>("VENTAS");
+  const targetQuestionId = searchParams.get("pregunta");
+  const requestedAccountId = Number(searchParams.get("cuenta"));
+  const targetAccountId = Number.isInteger(requestedAccountId) && requestedAccountId > 0 ? requestedAccountId : null;
+  const [tab, setTab] = useState<Tab>(() => targetQuestionId ? "PREGUNTAS" : "VENTAS");
   const [cuentas, setCuentas] = useState<MercadoLibreCuentaEstado[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [ventas, setVentas] = useState<MercadoLibreVentasResult>({ data: [], totalCount: 0, totalPages: 0 });
@@ -137,7 +142,9 @@ export function MercadoLibrePage({ canManage }: Props) {
       if (!response.ok) throw new Error(data.message || "No se pudo cargar Mercado Libre.");
       const nextAccounts = data.cuentas as MercadoLibreCuentaEstado[];
       setCuentas(nextAccounts);
-      const accountId = nextAccounts.some((account) => account.id === selectedAccountId) ? selectedAccountId : nextAccounts[0]?.id ?? null;
+      const accountId = targetAccountId && nextAccounts.some((account) => account.id === targetAccountId)
+        ? targetAccountId
+        : nextAccounts.some((account) => account.id === selectedAccountId) ? selectedAccountId : nextAccounts[0]?.id ?? null;
       setSelectedAccountId(accountId);
       const isPublicationSearch = tab === "PUBLICACIONES" || tab === "COSTOS";
       const page = isPublicationSearch && deferredSearch ? 1 : pages[tab];
@@ -148,7 +155,7 @@ export function MercadoLibrePage({ canManage }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [deferredSearch, loadTab, pages, publicationDateFilter, publicationLinkFilter, selectedAccountId, tab]);
+  }, [deferredSearch, loadTab, pages, publicationDateFilter, publicationLinkFilter, selectedAccountId, tab, targetAccountId]);
 
   const refreshQuestionInbox = useCallback(async (accountId: number) => {
     if (questionRefreshInFlight.current) return;
@@ -228,6 +235,17 @@ export function MercadoLibrePage({ canManage }: Props) {
     if (searchParams.get("meli") === "conectado") toast.success("Cuenta de Mercado Libre conectada.");
     if (searchParams.get("meli") === "error") toast.error(searchParams.get("mensaje") || "No se pudo conectar Mercado Libre.");
   }, [searchParams]);
+  useEffect(() => {
+    if (!targetQuestionId) return;
+    setTab("PREGUNTAS");
+    setQuestionStatus("POR_RESPONDER");
+    setPages((current) => current.PREGUNTAS === 1 ? current : { ...current, PREGUNTAS: 1 });
+  }, [targetQuestionId]);
+  useEffect(() => {
+    if (!targetQuestionId || tab !== "PREGUNTAS") return;
+    const timer = window.setTimeout(() => document.getElementById(`pregunta-${targetQuestionId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+    return () => window.clearTimeout(timer);
+  }, [preguntas.data, tab, targetQuestionId]);
 
   const changeTab = async (nextTab: Tab) => {
     setTab(nextTab); setSearch("");
@@ -457,7 +475,7 @@ export function MercadoLibrePage({ canManage }: Props) {
       <section className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950"><label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cuenta</label><select value={selectedAccountId || ""} onChange={(event) => void selectAccount(Number(event.target.value))} className="h-9 min-w-56 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white">{cuentas.map((cuenta) => <option key={cuenta.id} value={cuenta.id}>{cuenta.nickname || `Vendedor ${cuenta.sellerId}`} · {cuenta.siteId}</option>)}</select>{activeAccount && <span className="text-xs text-slate-500">Ultima sincronizacion: <strong className="text-slate-700 dark:text-slate-200">{date(activeAccount.ultimaSincronizacionAt)}</strong></span>}</section>
       <nav className="flex overflow-x-auto border-b border-slate-200 dark:border-slate-800" aria-label="Secciones de Mercado Libre">{TABS.map((item) => { const Icon = item.icon; const active = tab === item.id; return <button key={item.id} type="button" onClick={() => void changeTab(item.id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-xs font-black uppercase tracking-wide transition ${active ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}><Icon className="h-4 w-4" />{item.label}</button>; })}</nav>
       {tab !== "SINCRONIZACION" && <div className="flex flex-wrap items-center gap-2">
-        {tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select><button type="button" onClick={() => setQuickRepliesOpen(true)} disabled={!canManage} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><MessageSquarePlus className="h-4 w-4" />Respuestas rapidas</button></>}
+        {tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select><PushNotificationsControl /><button type="button" onClick={() => setQuickRepliesOpen(true)} disabled={!canManage} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><MessageSquarePlus className="h-4 w-4" />Respuestas rapidas</button></>}
         {tab === "PUBLICACIONES" && <>
           <label className="sr-only" htmlFor="publicaciones-vinculo">Estado de vinculo</label><select id="publicaciones-vinculo" value={publicationLinkFilter} onChange={(event) => changePublicationLinkFilter(event.target.value as PublicationLinkFilter)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="">Todas las publicaciones</option><option value="SIN_VINCULO">Sin vinculo</option><option value="EXCLUIDO_MANUAL">No vincular</option></select>
           <label className="sr-only" htmlFor="publicaciones-desde">Creada desde</label><input id="publicaciones-desde" type="date" value={publicationDateFilter.desde} onChange={(event) => changePublicationDateFilter("desde", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" title="Creada desde" />
@@ -471,7 +489,7 @@ export function MercadoLibrePage({ canManage }: Props) {
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}
       {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} canManage={canManage} onChanged={refreshPublicaciones} />}
       {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} calculatingPage={calculatingCostPage} costSync={costSync} massSyncing={massCostSyncing} onCalculate={calculateCost} onCalculatePage={calculateCostPage} onUpdateAll={() => void updateAllActiveCosts()} />}
-      {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} quickReplies={quickReplies} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} />}
+      {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} quickReplies={quickReplies} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} targetQuestionId={targetQuestionId} />}
       {tab === "SINCRONIZACION" && <SyncPanel account={activeAccount} onSync={() => void sync()} syncing={syncing} canManage={canManage} />}
       {tab !== "SINCRONIZACION" && activeResult.totalPages > 1 && <div className="flex items-center justify-center gap-3"><button type="button" onClick={() => void changePage(pages[tab] - 1)} disabled={pages[tab] <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Pagina {pages[tab]} de {activeResult.totalPages}</span><button type="button" onClick={() => void changePage(pages[tab] + 1)} disabled={pages[tab] >= activeResult.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
     </>}
@@ -619,18 +637,19 @@ function CostosTable({ publicaciones, loading, calculatingItemId, calculatingPag
   </div>;
 }
 
-function PreguntasTable({ preguntas, loading, canManage, quickReplies, answeringQuestionId, onAnswer }: {
+function PreguntasTable({ preguntas, loading, canManage, quickReplies, answeringQuestionId, onAnswer, targetQuestionId }: {
   preguntas: MercadoLibrePreguntasResult["data"];
   loading: boolean;
   canManage: boolean;
   quickReplies: QuickReply[];
   answeringQuestionId: string | null;
   onAnswer: (preguntaId: string, texto: string) => Promise<void>;
+  targetQuestionId: string | null;
 }) {
-  return <section className="space-y-3">{preguntas.length ? preguntas.map((pregunta) => pregunta.estado === "ANSWERED" ? <PreguntaRespondidaAgrupadaCard key={pregunta.id} pregunta={pregunta} /> : <PreguntaCard key={pregunta.id} pregunta={pregunta} canManage={canManage} quickReplies={quickReplies} sending={answeringQuestionId === pregunta.preguntaId} onAnswer={onAnswer} />) : <TableShell hasRows={false} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}>{null}</TableShell>}</section>;
+  return <section className="space-y-3">{preguntas.length ? preguntas.map((pregunta) => pregunta.estado === "ANSWERED" ? <PreguntaRespondidaAgrupadaCard key={pregunta.id} pregunta={pregunta} highlighted={pregunta.preguntaId === targetQuestionId} /> : <PreguntaCard key={pregunta.id} pregunta={pregunta} canManage={canManage} quickReplies={quickReplies} sending={answeringQuestionId === pregunta.preguntaId} onAnswer={onAnswer} highlighted={pregunta.preguntaId === targetQuestionId} />) : <TableShell hasRows={false} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}>{null}</TableShell>}</section>;
 }
 
-function PreguntaRespondidaAgrupadaCard({ pregunta }: { pregunta: MercadoLibrePreguntasResult["data"][number] }) {
+function PreguntaRespondidaAgrupadaCard({ pregunta, highlighted }: { pregunta: MercadoLibrePreguntasResult["data"][number]; highlighted: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const conversaciones = [
@@ -639,7 +658,7 @@ function PreguntaRespondidaAgrupadaCard({ pregunta }: { pregunta: MercadoLibrePr
   ].sort((a, b) => new Date(b.fecha || 0).getTime() - new Date(a.fecha || 0).getTime());
   const ultima = conversaciones[0];
 
-  return <article className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+  return <article id={`pregunta-${pregunta.preguntaId}`} className={`overflow-hidden rounded-lg border bg-white ${highlighted ? "border-blue-500 ring-2 ring-blue-500/30" : "border-slate-200 dark:border-slate-800"} dark:bg-slate-950`}>
     <header className="grid gap-3 p-4 sm:grid-cols-[3rem_minmax(0,1fr)_auto_auto] sm:items-center">
       <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">{pregunta.thumbnailUrl && !thumbnailFailed ? <img src={pregunta.thumbnailUrl} alt="" className="h-full w-full object-contain" onError={() => setThumbnailFailed(true)} /> : <Package className="h-5 w-5 text-slate-400" />}</div>
       <div className="min-w-0"><p className="font-mono text-[10px] font-bold uppercase text-slate-500">{pregunta.sellerSku ? `SKU ${pregunta.sellerSku}` : pregunta.itemId || "Publicacion"}</p><p className="truncate text-sm font-black text-slate-900 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "Sin titulo"}</p></div>
@@ -656,18 +675,19 @@ function PreguntaRespondidaAgrupadaCard({ pregunta }: { pregunta: MercadoLibrePr
   </article>;
 }
 
-function PreguntaCard({ pregunta, canManage, quickReplies, sending, onAnswer }: {
+function PreguntaCard({ pregunta, canManage, quickReplies, sending, onAnswer, highlighted }: {
   pregunta: MercadoLibrePreguntasResult["data"][number];
   canManage: boolean;
   quickReplies: QuickReply[];
   sending: boolean;
   onAnswer: (preguntaId: string, texto: string) => Promise<void>;
+  highlighted: boolean;
 }) {
   const [texto, setTexto] = useState("");
   const [showPrevious, setShowPrevious] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const respond = async () => { await onAnswer(pregunta.preguntaId, texto); setTexto(""); };
-  return <article className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+  return <article id={`pregunta-${pregunta.preguntaId}`} className={`overflow-hidden rounded-lg border bg-white ${highlighted ? "border-blue-500 ring-2 ring-blue-500/30" : "border-slate-200 dark:border-slate-800"} dark:bg-slate-950`}>
     <header className="grid gap-3 p-4 sm:grid-cols-[3rem_minmax(0,1fr)_auto_auto] sm:items-center">
       <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">{pregunta.thumbnailUrl && !thumbnailFailed ? <img src={pregunta.thumbnailUrl} alt="" className="h-full w-full object-contain" onError={() => setThumbnailFailed(true)} /> : <Package className="h-5 w-5 text-slate-400" />}</div>
       <div className="min-w-0"><p className="font-mono text-[10px] font-bold uppercase text-slate-500">{pregunta.sellerSku ? `SKU ${pregunta.sellerSku}` : pregunta.itemId || "Publicacion"}</p><p className="truncate text-sm font-black text-slate-900 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "Sin titulo"}</p></div>

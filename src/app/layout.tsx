@@ -18,6 +18,7 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "IMC Items",
   description: "Panel interno de items, items asociados y catálogos",
+  manifest: "/manifest.webmanifest",
   icons: {
     icon: "/icon.ico",
   },
