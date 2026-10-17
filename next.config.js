@@ -10,7 +10,7 @@ const nextConfig = {
           // Contenido de seguridad (Cubre XSS, inyecciones de datos, etc)
           {
             key: "Content-Security-Policy",
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://mzvzinbjclndofhceaaa.supabase.co; connect-src 'self' https://mzvzinbjclndofhceaaa.supabase.co https://*.vercel-insights.com; font-src 'self' data:; frame-ancestors 'none'; upgrade-insecure-requests;",
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://mzvzinbjclndofhceaaa.supabase.co https://http2.mlstatic.com; connect-src 'self' https://mzvzinbjclndofhceaaa.supabase.co https://*.vercel-insights.com; font-src 'self' data:; frame-ancestors 'none'; upgrade-insecure-requests;",
           },
           // Previene clickjacking
           { key: "X-Frame-Options", value: "DENY" },
@@ -39,6 +39,12 @@ const nextConfig = {
         hostname: "mzvzinbjclndofhceaaa.supabase.co",
         port: "",
         pathname: "/storage/v1/object/public/**",
+      },
+      {
+        protocol: "https",
+        hostname: "http2.mlstatic.com",
+        port: "",
+        pathname: "/**",
       },
     ],
   },
