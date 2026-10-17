@@ -119,6 +119,7 @@ export type MercadoLibrePreguntaListado = {
   respuesta: string | null;
   respondidaAt: string | null;
   sincronizadaAt: string;
+  cantidadConversaciones: number;
   anteriores: Array<{
     preguntaId: string;
     texto: string;

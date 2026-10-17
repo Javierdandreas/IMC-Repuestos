@@ -359,22 +359,61 @@ export async function getMercadoLibrePreguntas(
 ): Promise<MercadoLibrePreguntasResult> {
   const where = estadoFiltro === "POR_RESPONDER" ? "AND question.estado = 'UNANSWERED'" : "AND question.estado = 'ANSWERED'";
   const direction = orden === "ASC" ? "ASC" : "DESC";
+  const isAnswered = estadoFiltro === "RESPONDIDAS";
   const totalResult = await query<{ total_count: number }>(
-    `SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_pregunta question WHERE question.id_cuenta = $1 ${where}`,
+    isAnswered
+      ? `SELECT COUNT(*)::int AS total_count
+         FROM (
+           SELECT 1
+           FROM public.mercadolibre_pregunta question
+           WHERE question.id_cuenta = $1 ${where}
+           GROUP BY
+             COALESCE(question.item_id, 'pregunta:' || question.id::text),
+             COALESCE(question.comprador_id, 'pregunta:' || question.id::text)
+         ) grupos`
+      : `SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_pregunta question WHERE question.id_cuenta = $1 ${where}`,
     [idCuenta],
   );
   const totalCount = Number(totalResult.rows[0]?.total_count || 0);
   if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
   const safePage = Math.max(1, page);
   const { rows } = await query(
-    `SELECT question.id, question.pregunta_id, question.item_id, question.titulo, question.comprador, question.comprador_id,
-       question.texto, question.estado, question.fecha, question.respuesta, question.respondida_at, question.sincronizada_at,
-       publication.thumbnail_url, publication.seller_sku, publication.precio, publication.moneda, publication.cantidad_disponible
-     FROM public.mercadolibre_pregunta question
-     LEFT JOIN public.mercadolibre_publicacion publication
-       ON publication.id_cuenta = question.id_cuenta AND publication.item_id = question.item_id
-     WHERE question.id_cuenta = $1 ${where}
-     ORDER BY question.fecha ${direction} NULLS LAST, question.id ${direction} LIMIT $2 OFFSET $3`,
+    isAnswered
+      ? `WITH agrupadas AS (
+           SELECT
+             question.*,
+             COUNT(*) OVER (
+               PARTITION BY
+                 COALESCE(question.item_id, 'pregunta:' || question.id::text),
+                 COALESCE(question.comprador_id, 'pregunta:' || question.id::text)
+             )::int AS cantidad_conversaciones,
+             ROW_NUMBER() OVER (
+               PARTITION BY
+                 COALESCE(question.item_id, 'pregunta:' || question.id::text),
+                 COALESCE(question.comprador_id, 'pregunta:' || question.id::text)
+               ORDER BY question.fecha ${direction} NULLS LAST, question.id ${direction}
+             ) AS posicion
+           FROM public.mercadolibre_pregunta question
+           WHERE question.id_cuenta = $1 ${where}
+         )
+         SELECT question.id, question.pregunta_id, question.item_id, question.titulo, question.comprador, question.comprador_id,
+           question.texto, question.estado, question.fecha, question.respuesta, question.respondida_at, question.sincronizada_at,
+           question.cantidad_conversaciones,
+           publication.thumbnail_url, publication.seller_sku, publication.precio, publication.moneda, publication.cantidad_disponible
+         FROM agrupadas question
+         LEFT JOIN public.mercadolibre_publicacion publication
+           ON publication.id_cuenta = question.id_cuenta AND publication.item_id = question.item_id
+         WHERE question.posicion = 1
+         ORDER BY question.fecha ${direction} NULLS LAST, question.id ${direction} LIMIT $2 OFFSET $3`
+      : `SELECT question.id, question.pregunta_id, question.item_id, question.titulo, question.comprador, question.comprador_id,
+         question.texto, question.estado, question.fecha, question.respuesta, question.respondida_at, question.sincronizada_at,
+         1::int AS cantidad_conversaciones,
+         publication.thumbnail_url, publication.seller_sku, publication.precio, publication.moneda, publication.cantidad_disponible
+       FROM public.mercadolibre_pregunta question
+       LEFT JOIN public.mercadolibre_publicacion publication
+         ON publication.id_cuenta = question.id_cuenta AND publication.item_id = question.item_id
+       WHERE question.id_cuenta = $1 ${where}
+       ORDER BY question.fecha ${direction} NULLS LAST, question.id ${direction} LIMIT $2 OFFSET $3`,
     [idCuenta, limit, (safePage - 1) * limit],
   );
   const preguntaIds = rows.map((row) => String(row.pregunta_id));
@@ -409,6 +448,7 @@ export async function getMercadoLibrePreguntas(
       respuesta: row.respuesta ? String(row.respuesta) : null,
       respondidaAt: row.respondida_at ? new Date(String(row.respondida_at)).toISOString() : null,
       sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
+      cantidadConversaciones: Number(row.cantidad_conversaciones || 1),
       anteriores: (previousByBuyerAndItem.get(`${String(row.item_id || "")}|${String(row.comprador_id || "")}`) || []).map((history) => ({
         preguntaId: String(history.pregunta_id), texto: String(history.texto), estado: String(history.estado),
         fecha: history.fecha ? new Date(String(history.fecha)).toISOString() : null,

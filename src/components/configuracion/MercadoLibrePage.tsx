@@ -372,7 +372,10 @@ export function MercadoLibrePage({ canManage }: Props) {
   const visiblePreguntas = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return preguntas.data;
-    return preguntas.data.filter((pregunta) => [pregunta.preguntaId, pregunta.itemId, pregunta.titulo, pregunta.comprador, pregunta.texto, pregunta.respuesta].some((value) => String(value || "").toLowerCase().includes(term)));
+    return preguntas.data.filter((pregunta) => [
+      pregunta.preguntaId, pregunta.itemId, pregunta.titulo, pregunta.comprador, pregunta.texto, pregunta.respuesta,
+      ...pregunta.anteriores.flatMap((anterior) => [anterior.preguntaId, anterior.texto, anterior.respuesta]),
+    ].some((value) => String(value || "").toLowerCase().includes(term)));
   }, [preguntas.data, search]);
 
   const calculateCostPage = async () => {
@@ -461,7 +464,7 @@ export function MercadoLibrePage({ canManage }: Props) {
           <label className="sr-only" htmlFor="publicaciones-hasta">Creada hasta</label><input id="publicaciones-hasta" type="date" value={publicationDateFilter.hasta} onChange={(event) => changePublicationDateFilter("hasta", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" title="Creada hasta" />
           <button type="button" onClick={() => void copyFilteredPublicationMlas()} disabled={!publicaciones.totalCount} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300" title="Copiar MLA filtrados por fecha de creación"><Copy className="h-4 w-4" />Copiar MLA</button>
         </>}
-        <div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} registros</span>
+        <div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} {tab === "PREGUNTAS" && questionStatus === "RESPONDIDAS" ? "conversaciones" : "registros"}</span>
       </div>}
       {tab === "VENTAS" && salesSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{salesSyncError}</p>}
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
@@ -625,7 +628,33 @@ function PreguntasTable({ preguntas, loading, canManage, quickReplies, answering
   onAnswer: (preguntaId: string, texto: string) => Promise<void>;
   onManageQuickReplies: () => void;
 }) {
-  return <section className="space-y-3"><div className="flex justify-end"><button type="button" onClick={onManageQuickReplies} disabled={!canManage} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><MessageSquarePlus className="h-4 w-4" />Respuestas rapidas</button></div>{preguntas.length ? preguntas.map((pregunta) => <PreguntaCard key={pregunta.id} pregunta={pregunta} canManage={canManage} quickReplies={quickReplies} sending={answeringQuestionId === pregunta.preguntaId} onAnswer={onAnswer} />) : <TableShell hasRows={false} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}>{null}</TableShell>}</section>;
+  return <section className="space-y-3"><div className="flex justify-end"><button type="button" onClick={onManageQuickReplies} disabled={!canManage} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><MessageSquarePlus className="h-4 w-4" />Respuestas rapidas</button></div>{preguntas.length ? preguntas.map((pregunta) => pregunta.estado === "ANSWERED" ? <PreguntaRespondidaAgrupadaCard key={pregunta.id} pregunta={pregunta} /> : <PreguntaCard key={pregunta.id} pregunta={pregunta} canManage={canManage} quickReplies={quickReplies} sending={answeringQuestionId === pregunta.preguntaId} onAnswer={onAnswer} />) : <TableShell hasRows={false} empty={loading ? "Cargando preguntas..." : "No hay preguntas sincronizadas."}>{null}</TableShell>}</section>;
+}
+
+function PreguntaRespondidaAgrupadaCard({ pregunta }: { pregunta: MercadoLibrePreguntasResult["data"][number] }) {
+  const [expanded, setExpanded] = useState(false);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const conversaciones = [
+    { preguntaId: pregunta.preguntaId, texto: pregunta.texto, fecha: pregunta.fecha, respuesta: pregunta.respuesta, respondidaAt: pregunta.respondidaAt, estado: pregunta.estado },
+    ...pregunta.anteriores,
+  ].sort((a, b) => new Date(b.fecha || 0).getTime() - new Date(a.fecha || 0).getTime());
+  const ultima = conversaciones[0];
+
+  return <article className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+    <header className="grid gap-3 p-4 sm:grid-cols-[3rem_minmax(0,1fr)_auto_auto] sm:items-center">
+      <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">{pregunta.thumbnailUrl && !thumbnailFailed ? <img src={pregunta.thumbnailUrl} alt="" className="h-full w-full object-contain" onError={() => setThumbnailFailed(true)} /> : <Package className="h-5 w-5 text-slate-400" />}</div>
+      <div className="min-w-0"><p className="font-mono text-[10px] font-bold uppercase text-slate-500">{pregunta.sellerSku ? `SKU ${pregunta.sellerSku}` : pregunta.itemId || "Publicacion"}</p><p className="truncate text-sm font-black text-slate-900 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "Sin titulo"}</p></div>
+      <div className="text-sm font-black text-slate-800 dark:text-white">{money(pregunta.precio, pregunta.moneda)}</div>
+      <div className="text-sm font-bold text-slate-500">{pregunta.cantidadDisponible === null ? "" : `${pregunta.cantidadDisponible} unidades`}</div>
+    </header>
+    <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="grid w-full gap-2 border-t border-slate-200 px-4 py-3 text-left transition hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900/60 sm:grid-cols-[minmax(9rem,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-center">
+      <div className="flex min-w-0 items-center gap-2 text-xs text-slate-500"><span className="truncate font-bold text-slate-800 dark:text-white">{pregunta.comprador || "Cliente"}</span><span className="shrink-0">{date(ultima.fecha, "-")}</span></div>
+      <p className="truncate text-sm font-semibold text-slate-900 dark:text-white" title={ultima.texto}>{ultima.texto}</p>
+      <p className="truncate text-sm text-slate-500 dark:text-slate-300" title={ultima.respuesta || "Sin respuesta disponible"}>{ultima.respuesta || "Sin respuesta disponible"}</p>
+      <span className="flex items-center justify-end gap-2 text-xs font-black text-blue-600 dark:text-blue-300">{conversaciones.length} {conversaciones.length === 1 ? "pregunta" : "preguntas"}{expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span>
+    </button>
+    {expanded && <ol className="divide-y divide-slate-200 border-t border-slate-200 dark:divide-slate-800 dark:border-slate-800">{conversaciones.map((conversacion) => <li key={conversacion.preguntaId} className="p-4"><div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500"><span className="font-bold text-slate-800 dark:text-white">{pregunta.comprador || "Cliente"}</span><span>{date(conversacion.fecha, "-")}</span><StateBadge value={conversacion.estado} /></div><p className="mt-2 text-sm font-bold text-slate-900 dark:text-white">{conversacion.texto}</p><p className="mt-3 border-l-2 border-blue-500 pl-3 text-sm text-slate-600 dark:text-slate-300">{conversacion.respuesta || "Sin respuesta disponible"}</p></li>)}</ol>}
+  </article>;
 }
 
 function PreguntaCard({ pregunta, canManage, quickReplies, sending, onAnswer }: {
