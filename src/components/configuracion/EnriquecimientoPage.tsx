@@ -26,6 +26,7 @@ type Item = {
   categoria: string | null;
   subcategoria: string | null;
   proveedor: string | null;
+  codigos_proveedor: string[];
   id_subcategoria: number | null;
   id_pieza: number | null;
   codigo_pieza: number | null;
@@ -228,7 +229,7 @@ export function EnriquecimientoPage({ canManage }: Props) {
     setIdDescripcion(selectedItems[0].id);
     setOriginales("");
     setEquivalentes(selectedItems.map((item) => item.cod_unico).filter(Boolean).join("\n"));
-    setSustitutos("");
+    setSustitutos(Array.from(new Set(selectedItems.flatMap((item) => item.codigos_proveedor ?? []))).join("\n"));
     setShowCreatePieza(true);
   };
 

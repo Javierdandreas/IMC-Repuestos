@@ -24,6 +24,7 @@ export type EnriquecimientoItem = {
   categoria: string | null;
   subcategoria: string | null;
   proveedor: string | null;
+  codigos_proveedor: string[];
   id_subcategoria: number | null;
   id_pieza: number | null;
   codigo_pieza: number | null;
@@ -137,6 +138,7 @@ export async function getEnriquecimientoItems(filters: EnriquecimientoFiltros = 
         s.descripcion AS subcategoria,
         s.id AS id_subcategoria,
         proveedores.proveedor,
+        proveedores.codigos_proveedor,
         p.id_pieza,
         pi.codigo_pieza,
         pi.descripcion AS pieza_descripcion,
@@ -157,7 +159,12 @@ export async function getEnriquecimientoItems(filters: EnriquecimientoFiltros = 
       LEFT JOIN public.categoria c ON c.id = s.id_categoria
       LEFT JOIN public.pieza pi ON pi.id = p.id_pieza
       LEFT JOIN LATERAL (
-        SELECT STRING_AGG(prv.descripcion, ', ' ORDER BY prv.descripcion) AS proveedor
+        SELECT
+          STRING_AGG(prv.descripcion, ', ' ORDER BY prv.descripcion) AS proveedor,
+          COALESCE(
+            ARRAY_AGG(DISTINCT NULLIF(TRIM(pp.codigo_proveedor), '')) FILTER (WHERE NULLIF(TRIM(pp.codigo_proveedor), '') IS NOT NULL),
+            ARRAY[]::varchar[]
+          ) AS codigos_proveedor
         FROM public.producto_proveedor pp
         JOIN public.proveedores prv ON prv.id = pp.id_proveedor
         WHERE pp.id_producto = p.id
