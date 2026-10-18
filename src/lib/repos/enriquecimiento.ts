@@ -1,5 +1,7 @@
 import { query, withTransaction } from "@/lib/db-utils";
 import { revalidateTag } from "next/cache";
+import { findOrCreateCodigo } from "@/lib/repos/piezas";
+import { sanitizeRequiredString, sanitizeUppercaseString } from "@/utils/sanitization";
 
 export type EstadoEnriquecimiento = "PENDIENTES" | "ENRIQUECIDOS" | "TODOS";
 
@@ -22,6 +24,7 @@ export type EnriquecimientoItem = {
   categoria: string | null;
   subcategoria: string | null;
   proveedor: string | null;
+  id_subcategoria: number | null;
   id_pieza: number | null;
   codigo_pieza: number | null;
   pieza_descripcion: string | null;
@@ -115,6 +118,7 @@ export async function getEnriquecimientoItems(filters: EnriquecimientoFiltros = 
         m.descripcion AS marca,
         c.descripcion AS categoria,
         s.descripcion AS subcategoria,
+        s.id AS id_subcategoria,
         proveedores.proveedor,
         p.id_pieza,
         pi.codigo_pieza,
@@ -248,5 +252,77 @@ export async function updateSufijosMarca(items: Array<{ id: unknown; sufijo_codi
 
     revalidateTag("meta");
     return payload;
+  });
+}
+
+export async function crearPiezaDesdeItems(input: { ids: unknown; id_descripcion: unknown }) {
+  const ids = Array.from(new Set(
+    (Array.isArray(input.ids) ? input.ids : [])
+      .map((value) => positiveId(Number(value)))
+      .filter((value): value is number => value !== null)
+  ));
+  const idDescripcion = positiveId(Number(input.id_descripcion));
+
+  if (ids.length === 0 || !idDescripcion || !ids.includes(idDescripcion)) {
+    throw new Error("Selecciona los items y la descripcion para crear la pieza.");
+  }
+
+  return withTransaction(async (client) => {
+    const { rows } = await client.query<{
+      id: number;
+      cod_unico: string | null;
+      descripcion: string;
+      id_subcategoria: number;
+      id_pieza: number | null;
+    }>(`
+      SELECT id, cod_unico, descripcion, id_subcategoria, id_pieza
+      FROM public.productos
+      WHERE id = ANY($1::int[])
+        AND COALESCE(oculto_por_kit, FALSE) = FALSE
+      FOR UPDATE
+    `, [ids]);
+
+    if (rows.length !== ids.length) throw new Error("Uno de los items seleccionados ya no esta disponible.");
+    if (rows.some((item) => item.id_pieza !== null)) {
+      throw new Error("No se puede crear una pieza con items que ya estan enriquecidos.");
+    }
+
+    const subcategorias = new Set(rows.map((item) => item.id_subcategoria));
+    if (subcategorias.size !== 1) {
+      throw new Error("Los items seleccionados deben pertenecer a la misma subcategoria.");
+    }
+
+    const source = rows.find((item) => item.id === idDescripcion);
+    const descripcion = sanitizeRequiredString(source?.descripcion);
+    if (!descripcion) throw new Error("La descripcion seleccionada no es valida.");
+
+    const piezaResult = await client.query<{ id: number; codigo_pieza: number; descripcion: string }>(`
+      INSERT INTO public.pieza (descripcion, id_subcategoria)
+      VALUES ($1, $2)
+      RETURNING id, codigo_pieza, descripcion
+    `, [descripcion, rows[0].id_subcategoria]);
+    const pieza = piezaResult.rows[0];
+
+    const codigos = Array.from(new Set(rows
+      .map((item) => sanitizeUppercaseString(item.cod_unico))
+      .filter(Boolean)));
+
+    for (const codigo of codigos) {
+      const idCodigo = await findOrCreateCodigo(client, codigo);
+      await client.query(`
+        INSERT INTO public.pieza_codigo_referencia (id_pieza, id_codigo_referencia, tipo)
+        VALUES ($1, $2, 'EQUIVALENTE')
+        ON CONFLICT DO NOTHING
+      `, [pieza.id, idCodigo]);
+    }
+
+    await client.query(`
+      UPDATE public.productos
+      SET id_pieza = $1, palabra_clave = NULL
+      WHERE id = ANY($2::int[])
+    `, [pieza.id, ids]);
+
+    revalidateTag("meta");
+    return { pieza, cantidad: ids.length, equivalentes: codigos };
   });
 }
