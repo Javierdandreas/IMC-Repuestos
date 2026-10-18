@@ -1,7 +1,7 @@
 import { query, withTransaction } from "@/lib/db-utils";
 import { revalidateTag } from "next/cache";
-import { findOrCreateCodigo } from "@/lib/repos/piezas";
-import { sanitizeRequiredString, sanitizeUppercaseString } from "@/utils/sanitization";
+import { buildConflictMessage, findCodeConflicts, findOrCreateCodigo } from "@/lib/repos/piezas";
+import { sanitizeCodes, sanitizeRequiredString } from "@/utils/sanitization";
 
 export type EstadoEnriquecimiento = "PENDIENTES" | "ENRIQUECIDOS" | "TODOS";
 
@@ -255,7 +255,13 @@ export async function updateSufijosMarca(items: Array<{ id: unknown; sufijo_codi
   });
 }
 
-export async function crearPiezaDesdeItems(input: { ids: unknown; id_descripcion: unknown }) {
+export async function crearPiezaDesdeItems(input: {
+  ids: unknown;
+  id_descripcion: unknown;
+  originales?: unknown;
+  equivalentes?: unknown;
+  sustitutos?: unknown;
+}) {
   const ids = Array.from(new Set(
     (Array.isArray(input.ids) ? input.ids : [])
       .map((value) => positiveId(Number(value)))
@@ -266,6 +272,10 @@ export async function crearPiezaDesdeItems(input: { ids: unknown; id_descripcion
   if (ids.length === 0 || !idDescripcion || !ids.includes(idDescripcion)) {
     throw new Error("Selecciona los items y la descripcion para crear la pieza.");
   }
+
+  const originales = sanitizeCodes(Array.isArray(input.originales) ? input.originales : []);
+  const equivalentes = sanitizeCodes(Array.isArray(input.equivalentes) ? input.equivalentes : []);
+  const sustitutos = sanitizeCodes(Array.isArray(input.sustitutos) ? input.sustitutos : []);
 
   return withTransaction(async (client) => {
     const { rows } = await client.query<{
@@ -303,17 +313,26 @@ export async function crearPiezaDesdeItems(input: { ids: unknown; id_descripcion
     `, [descripcion, rows[0].id_subcategoria]);
     const pieza = piezaResult.rows[0];
 
-    const codigos = Array.from(new Set(rows
-      .map((item) => sanitizeUppercaseString(item.cod_unico))
-      .filter(Boolean)));
+    const originalConflicts = await findCodeConflicts(client, originales, "ORIGINAL");
+    if (originalConflicts.length > 0) {
+      throw new Error(buildConflictMessage("Estos numeros originales ya existen en otros items asociados", originalConflicts));
+    }
 
-    for (const codigo of codigos) {
-      const idCodigo = await findOrCreateCodigo(client, codigo);
-      await client.query(`
-        INSERT INTO public.pieza_codigo_referencia (id_pieza, id_codigo_referencia, tipo)
-        VALUES ($1, $2, 'EQUIVALENTE')
-        ON CONFLICT DO NOTHING
-      `, [pieza.id, idCodigo]);
+    const codigosPorTipo: Array<{ tipo: "ORIGINAL" | "EQUIVALENTE" | "SUSTITUTO"; codigos: string[] }> = [
+      { tipo: "ORIGINAL", codigos: originales },
+      { tipo: "EQUIVALENTE", codigos: equivalentes },
+      { tipo: "SUSTITUTO", codigos: sustitutos },
+    ];
+
+    for (const { tipo, codigos } of codigosPorTipo) {
+      for (const codigo of codigos) {
+        const idCodigo = await findOrCreateCodigo(client, codigo);
+        await client.query(`
+          INSERT INTO public.pieza_codigo_referencia (id_pieza, id_codigo_referencia, tipo)
+          VALUES ($1, $2, $3)
+          ON CONFLICT DO NOTHING
+        `, [pieza.id, idCodigo, tipo]);
+      }
     }
 
     await client.query(`
@@ -323,6 +342,6 @@ export async function crearPiezaDesdeItems(input: { ids: unknown; id_descripcion
     `, [pieza.id, ids]);
 
     revalidateTag("meta");
-    return { pieza, cantidad: ids.length, equivalentes: codigos };
+    return { pieza, cantidad: ids.length, originales, equivalentes, sustitutos };
   });
 }

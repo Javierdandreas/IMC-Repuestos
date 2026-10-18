@@ -10,6 +10,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await crearPiezaDesdeItems({
       ids: body?.ids,
       id_descripcion: body?.id_descripcion,
+      originales: body?.originales,
+      equivalentes: body?.equivalentes,
+      sustitutos: body?.sustitutos,
     }));
   } catch (error: unknown) {
     return jsonError(error, "No se pudo crear el numero de pieza.");
