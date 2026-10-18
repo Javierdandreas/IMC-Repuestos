@@ -33,6 +33,23 @@ export type EnriquecimientoItem = {
   coincidencias_codigo: number;
 };
 
+export type EnriquecimientoGrupo = {
+  codigo_base: string;
+  cantidad_items: number;
+  cantidad_marcas: number;
+  cantidad_enriquecidos: number;
+  estado: "PENDIENTE" | "ENRIQUECIDO" | "MIXTO";
+  categorias: string[];
+  subcategorias: string[];
+  miembros: Array<{
+    id: number;
+    codigo: string;
+    descripcion: string;
+    marca: string | null;
+    id_pieza: number | null;
+  }>;
+};
+
 type CatalogOption = { id: number; descripcion: string };
 
 export type EnriquecimientoOpciones = {
@@ -174,6 +191,138 @@ export async function getEnriquecimientoItems(filters: EnriquecimientoFiltros = 
   const totalCount = Number(countResult.rows[0]?.count ?? 0);
   return {
     data: rowsResult.rows,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    page,
+    limit,
+  };
+}
+
+export async function getEnriquecimientoGrupos(filters: EnriquecimientoFiltros = {}) {
+  const params: unknown[] = [];
+  const filtersWhere = ["codigo_base IS NOT NULL"];
+  const search = filters.search?.trim();
+
+  if (search) {
+    params.push(`%${search}%`);
+    filtersWhere.push(`(
+      codigo_base ILIKE $${params.length}
+      OR cod_unico ILIKE $${params.length}
+      OR descripcion ILIKE $${params.length}
+      OR marca ILIKE $${params.length}
+    )`);
+  }
+
+  const addIdFilter = (value: number | null | undefined, column: string) => {
+    const id = positiveId(value);
+    if (!id) return;
+    params.push(id);
+    filtersWhere.push(`${column} = $${params.length}`);
+  };
+
+  addIdFilter(filters.categoria, "id_categoria");
+  addIdFilter(filters.subcategoria, "id_subcategoria");
+  addIdFilter(filters.marca, "id_marca");
+
+  const proveedor = positiveId(filters.proveedor);
+  if (proveedor) {
+    params.push(proveedor);
+    filtersWhere.push(`EXISTS (
+      SELECT 1 FROM public.producto_proveedor pp_filter
+      WHERE pp_filter.id_producto = id_producto AND pp_filter.id_proveedor = $${params.length}
+    )`);
+  }
+
+  const cte = `
+    WITH base_items AS (
+      SELECT
+        p.id AS id_producto,
+        COALESCE(p.cod_unico, '') AS cod_unico,
+        p.descripcion,
+        p.id_pieza,
+        m.id AS id_marca,
+        m.descripcion AS marca,
+        c.id AS id_categoria,
+        c.descripcion AS categoria,
+        s.id AS id_subcategoria,
+        s.descripcion AS subcategoria,
+        CASE
+          WHEN NULLIF(TRIM(m.sufijo_codigo), '') IS NOT NULL
+            AND UPPER(TRIM(COALESCE(p.cod_unico, ''))) LIKE '%' || UPPER(TRIM(m.sufijo_codigo))
+            AND LENGTH(TRIM(COALESCE(p.cod_unico, ''))) > LENGTH(TRIM(m.sufijo_codigo))
+          THEN LEFT(TRIM(p.cod_unico), LENGTH(TRIM(p.cod_unico)) - LENGTH(TRIM(m.sufijo_codigo)))
+          ELSE NULL
+        END AS codigo_base
+      FROM public.productos p
+      LEFT JOIN public.marcas m ON m.id = p.id_marca
+      LEFT JOIN public.subcategoria s ON s.id = p.id_subcategoria
+      LEFT JOIN public.categoria c ON c.id = s.id_categoria
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+    ),
+    bases_filtradas AS (
+      SELECT DISTINCT codigo_base
+      FROM base_items
+      WHERE ${filtersWhere.join(" AND ")}
+    ),
+    grupos AS (
+      SELECT
+        base.codigo_base,
+        COUNT(*)::int AS cantidad_items,
+        COUNT(DISTINCT base.id_marca)::int AS cantidad_marcas,
+        COUNT(*) FILTER (WHERE base.id_pieza IS NOT NULL)::int AS cantidad_enriquecidos,
+        ARRAY_AGG(DISTINCT base.categoria ORDER BY base.categoria) FILTER (WHERE base.categoria IS NOT NULL) AS categorias,
+        ARRAY_AGG(DISTINCT base.subcategoria ORDER BY base.subcategoria) FILTER (WHERE base.subcategoria IS NOT NULL) AS subcategorias,
+        JSONB_AGG(
+          JSONB_BUILD_OBJECT(
+            'id', base.id_producto,
+            'codigo', base.cod_unico,
+            'descripcion', base.descripcion,
+            'marca', base.marca,
+            'id_pieza', base.id_pieza
+          )
+          ORDER BY
+            CASE WHEN UPPER(COALESCE(base.marca, '')) = 'MANN FILTER' THEN 0 ELSE 1 END,
+            base.marca NULLS LAST,
+            base.cod_unico
+        ) AS miembros
+      FROM base_items base
+      WHERE base.codigo_base IN (SELECT codigo_base FROM bases_filtradas)
+      GROUP BY base.codigo_base
+      HAVING COUNT(*) >= 2
+    )
+  `;
+
+  const estado = filters.estado ?? "TODOS";
+  const groupWhere = estado === "PENDIENTES"
+    ? "cantidad_enriquecidos = 0"
+    : estado === "ENRIQUECIDOS"
+      ? "cantidad_enriquecidos = cantidad_items"
+      : "TRUE";
+  const page = Math.max(1, Math.floor(filters.page ?? 1));
+  const limit = Math.min(100, Math.max(1, Math.floor(filters.limit ?? 50)));
+  const offset = (page - 1) * limit;
+
+  const [countResult, dataResult] = await Promise.all([
+    query<{ count: string }>(`${cte} SELECT COUNT(*)::text AS count FROM grupos WHERE ${groupWhere}`, params),
+    query<EnriquecimientoGrupo>(`
+      ${cte}
+      SELECT
+        *,
+        CASE
+          WHEN cantidad_enriquecidos = 0 THEN 'PENDIENTE'
+          WHEN cantidad_enriquecidos = cantidad_items THEN 'ENRIQUECIDO'
+          ELSE 'MIXTO'
+        END AS estado
+      FROM grupos
+      WHERE ${groupWhere}
+      ORDER BY cantidad_items DESC, codigo_base ASC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `, [...params, limit, offset]),
+  ]);
+
+  const totalCount = Number(countResult.rows[0]?.count ?? 0);
+  return {
+    data: dataResult.rows,
     totalCount,
     totalPages: Math.ceil(totalCount / limit),
     page,
