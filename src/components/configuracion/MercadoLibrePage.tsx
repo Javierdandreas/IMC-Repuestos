@@ -353,6 +353,12 @@ export function MercadoLibrePage({ canManage }: Props) {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudo responder la pregunta.");
+      setPreguntas((current) => {
+        const data = current.data.filter((pregunta) => pregunta.preguntaId !== preguntaId);
+        if (data.length === current.data.length) return current;
+        const totalCount = Math.max(0, current.totalCount - 1);
+        return { ...current, data, totalCount, totalPages: Math.ceil(totalCount / 50) };
+      });
       toast.success("Respuesta enviada a Mercado Libre.");
       await refreshQuestionInbox(selectedAccountId);
     } catch (requestError) {
@@ -661,7 +667,7 @@ function PreguntaRespondidaAgrupadaCard({ pregunta, highlighted }: { pregunta: M
   return <article id={`pregunta-${pregunta.preguntaId}`} className={`overflow-hidden rounded-lg border bg-white ${highlighted ? "border-blue-500 ring-2 ring-blue-500/30" : "border-slate-200 dark:border-slate-800"} dark:bg-slate-950`}>
     <header className="grid gap-3 p-4 sm:grid-cols-[3rem_minmax(0,1fr)_auto_auto] sm:items-center">
       <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">{pregunta.thumbnailUrl && !thumbnailFailed ? <img src={pregunta.thumbnailUrl} alt="" className="h-full w-full object-contain" onError={() => setThumbnailFailed(true)} /> : <Package className="h-5 w-5 text-slate-400" />}</div>
-      <div className="min-w-0"><p className="font-mono text-[10px] font-bold uppercase text-slate-500">{pregunta.sellerSku ? `SKU ${pregunta.sellerSku}` : pregunta.itemId || "Publicacion"}</p><p className="truncate text-sm font-black text-slate-900 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "Sin titulo"}</p></div>
+      <PreguntaPublicacionLink pregunta={pregunta} />
       <div className="text-sm font-black text-slate-800 dark:text-white">{money(pregunta.precio, pregunta.moneda)}</div>
       <div className="text-sm font-bold text-slate-500">{pregunta.cantidadDisponible === null ? "" : `${pregunta.cantidadDisponible} unidades`}</div>
     </header>
@@ -690,7 +696,7 @@ function PreguntaCard({ pregunta, canManage, quickReplies, sending, onAnswer, hi
   return <article id={`pregunta-${pregunta.preguntaId}`} className={`overflow-hidden rounded-lg border bg-white ${highlighted ? "border-blue-500 ring-2 ring-blue-500/30" : "border-slate-200 dark:border-slate-800"} dark:bg-slate-950`}>
     <header className="grid gap-3 p-4 sm:grid-cols-[3rem_minmax(0,1fr)_auto_auto] sm:items-center">
       <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">{pregunta.thumbnailUrl && !thumbnailFailed ? <img src={pregunta.thumbnailUrl} alt="" className="h-full w-full object-contain" onError={() => setThumbnailFailed(true)} /> : <Package className="h-5 w-5 text-slate-400" />}</div>
-      <div className="min-w-0"><p className="font-mono text-[10px] font-bold uppercase text-slate-500">{pregunta.sellerSku ? `SKU ${pregunta.sellerSku}` : pregunta.itemId || "Publicacion"}</p><p className="truncate text-sm font-black text-slate-900 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "Sin titulo"}</p></div>
+      <PreguntaPublicacionLink pregunta={pregunta} />
       <div className="text-sm font-black text-slate-800 dark:text-white">{money(pregunta.precio, pregunta.moneda)}</div>
       <div className="text-sm font-bold text-slate-500">{pregunta.cantidadDisponible === null ? "" : `${pregunta.cantidadDisponible} unidades`}</div>
     </header>
@@ -701,6 +707,13 @@ function PreguntaCard({ pregunta, canManage, quickReplies, sending, onAnswer, hi
       {pregunta.anteriores.length > 0 && <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800"><button type="button" onClick={() => setShowPrevious((value) => !value)} className="inline-flex items-center gap-2 text-xs font-black text-blue-600 hover:text-blue-500 dark:text-blue-300">{showPrevious ? "Ocultar preguntas anteriores" : `Ver preguntas anteriores (${pregunta.anteriores.length})`}{showPrevious ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>{showPrevious && <ol className="mt-3 space-y-3">{pregunta.anteriores.map((anterior) => <li key={anterior.preguntaId} className="border-l-2 border-slate-200 pl-3 text-sm dark:border-slate-700"><div className="flex flex-wrap gap-x-2 text-xs text-slate-500"><span>{date(anterior.fecha, "-")}</span><StateBadge value={anterior.estado} /></div><p className="mt-1 font-semibold text-slate-800 dark:text-slate-100">{anterior.texto}</p>{anterior.respuesta && <p className="mt-1 text-slate-500 dark:text-slate-300">{anterior.respuesta}</p>}</li>)}</ol>}</div>}
     </div>
   </article>;
+}
+
+function PreguntaPublicacionLink({ pregunta }: { pregunta: MercadoLibrePreguntasResult["data"][number] }) {
+  const content = <><p className="font-mono text-xs font-black uppercase text-slate-800 dark:text-white">{pregunta.sellerSku ? `SKU ${pregunta.sellerSku}` : pregunta.itemId || "Publicacion"}</p><p className="truncate text-sm font-black text-slate-900 dark:text-white" title={pregunta.titulo || ""}>{pregunta.titulo || pregunta.itemId || "Sin titulo"}</p></>;
+  return pregunta.permalink
+    ? <a href={pregunta.permalink} target="_blank" rel="noreferrer" className="min-w-0 rounded outline-none hover:text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:text-blue-300">{content}</a>
+    : <div className="min-w-0">{content}</div>;
 }
 
 function QuickRepliesModal({ idCuenta, onClose, onChanged }: { idCuenta: number; onClose: () => void; onChanged: () => void }) {

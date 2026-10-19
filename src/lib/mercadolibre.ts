@@ -400,7 +400,7 @@ export async function getMercadoLibrePreguntas(
          SELECT question.id, question.pregunta_id, question.item_id, question.titulo, question.comprador, question.comprador_id,
            question.texto, question.estado, question.fecha, question.respuesta, question.respondida_at, question.sincronizada_at,
            question.cantidad_conversaciones,
-           publication.thumbnail_url, publication.seller_sku, publication.precio, publication.moneda, publication.cantidad_disponible
+           publication.thumbnail_url, publication.permalink, publication.seller_sku, publication.precio, publication.moneda, publication.cantidad_disponible
          FROM agrupadas question
          LEFT JOIN public.mercadolibre_publicacion publication
            ON publication.id_cuenta = question.id_cuenta AND publication.item_id = question.item_id
@@ -409,7 +409,7 @@ export async function getMercadoLibrePreguntas(
       : `SELECT question.id, question.pregunta_id, question.item_id, question.titulo, question.comprador, question.comprador_id,
          question.texto, question.estado, question.fecha, question.respuesta, question.respondida_at, question.sincronizada_at,
          1::int AS cantidad_conversaciones,
-         publication.thumbnail_url, publication.seller_sku, publication.precio, publication.moneda, publication.cantidad_disponible
+         publication.thumbnail_url, publication.permalink, publication.seller_sku, publication.precio, publication.moneda, publication.cantidad_disponible
        FROM public.mercadolibre_pregunta question
        LEFT JOIN public.mercadolibre_publicacion publication
          ON publication.id_cuenta = question.id_cuenta AND publication.item_id = question.item_id
@@ -441,7 +441,8 @@ export async function getMercadoLibrePreguntas(
     data: rows.map((row): MercadoLibrePreguntaListado => ({
       id: Number(row.id), preguntaId: String(row.pregunta_id), itemId: row.item_id ? String(row.item_id) : null,
       titulo: row.titulo ? String(row.titulo) : null, comprador: row.comprador ? String(row.comprador) : null,
-      thumbnailUrl: secureThumbnailUrl(row.thumbnail_url ? String(row.thumbnail_url) : null), sellerSku: row.seller_sku ? String(row.seller_sku) : null,
+      thumbnailUrl: secureThumbnailUrl(row.thumbnail_url ? String(row.thumbnail_url) : null), permalink: row.permalink ? String(row.permalink) : null,
+      sellerSku: row.seller_sku ? String(row.seller_sku) : null,
       precio: row.precio === null ? null : Number(row.precio), moneda: row.moneda ? String(row.moneda) : null,
       cantidadDisponible: row.cantidad_disponible === null ? null : Number(row.cantidad_disponible),
       compradorId: row.comprador_id === null ? null : String(row.comprador_id),
@@ -1472,7 +1473,14 @@ export async function responderPreguntaMercadoLibre(idCuenta: number, preguntaId
   if (!existing.rows[0]) throw new AppError("La pregunta ya fue respondida o no pertenece a esta cuenta.", 409);
   const { accessToken } = await accessTokenForCuenta(idCuenta);
   const response = await meliPost("/answers", idCuenta, accessToken, { question_id: Number(preguntaId), text: answer }) as MeliQuestion;
-  await guardarPreguntaMercadoLibre(idCuenta, response);
+  await query(
+    `UPDATE public.mercadolibre_pregunta
+     SET estado = 'ANSWERED', respuesta = $3, respondida_at = NOW(),
+         datos = COALESCE(datos, '{}'::jsonb) || $4::jsonb,
+         sincronizada_at = NOW(), updated_at = NOW()
+     WHERE id_cuenta = $1 AND pregunta_id = $2`,
+    [idCuenta, preguntaId, answer, JSON.stringify(response)],
+  );
 }
 
 async function guardarPublicacionDesdeWebhook(idCuenta: number, item: MeliItem) {

@@ -107,6 +107,7 @@ export type MercadoLibrePreguntaListado = {
   itemId: string | null;
   titulo: string | null;
   thumbnailUrl: string | null;
+  permalink: string | null;
   sellerSku: string | null;
   precio: number | null;
   moneda: string | null;
