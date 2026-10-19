@@ -28,12 +28,13 @@ export function PushNotificationsControl() {
         return;
       }
       try {
-        const [response, worker] = await Promise.all([
+        const [response] = await Promise.all([
           fetch("/api/notificaciones/push", { cache: "no-store" }),
           navigator.serviceWorker.register("/sw.js", { scope: "/" }),
         ]);
         if (!response.ok) throw new Error();
         const nextConfiguration = await response.json() as PushConfiguration;
+        const worker = await navigator.serviceWorker.ready;
         const nextSubscription = await worker.pushManager.getSubscription();
         setConfiguration(nextConfiguration);
         setRegistration(worker);
