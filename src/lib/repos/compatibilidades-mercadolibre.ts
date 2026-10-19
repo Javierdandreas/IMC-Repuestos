@@ -250,10 +250,12 @@ export async function exportarCatalogoChasis(input: {
   }
   const result = await query<{
     chasis: string | null; marca: string | null; modelo: string | null; motor: string | null; anio: string | null; cilindrada: string | null;
+    titulo_publicacion: string | null; pregunta: string; respuesta_historica: string | null;
   }>(`
     SELECT
       COALESCE(candidate.chasis_confirmado, candidate.chasis_detectado) AS chasis,
-      candidate.marca, candidate.modelo, candidate.motor, candidate.anio, candidate.cilindrada
+      candidate.marca, candidate.modelo, candidate.motor, candidate.anio, candidate.cilindrada,
+      candidate.titulo_publicacion, candidate.pregunta, candidate.respuesta_historica
     FROM public.mercadolibre_compatibilidad_candidata candidate
     WHERE ${where.join(" AND ")}
     ORDER BY chasis, candidate.id

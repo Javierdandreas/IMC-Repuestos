@@ -23,10 +23,13 @@ export async function GET(request: NextRequest) {
       MOTOR: row.motor || "",
       "AÑO": row.anio || "",
       CILINDRADA: row.cilindrada || "",
+      PUBLICACION: row.titulo_publicacion || "",
+      "PREGUNTA DEL CLIENTE": row.pregunta,
+      "RESPUESTA HISTORICA": row.respuesta_historica || "",
     })));
-    worksheet["!autofilter"] = { ref: worksheet["!ref"] || "A1:F1" };
+    worksheet["!autofilter"] = { ref: worksheet["!ref"] || "A1:I1" };
     worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
-    worksheet["!cols"] = [{ wch: 21 }, { wch: 20 }, { wch: 30 }, { wch: 24 }, { wch: 12 }, { wch: 16 }];
+    worksheet["!cols"] = [{ wch: 21 }, { wch: 20 }, { wch: 30 }, { wch: 24 }, { wch: 12 }, { wch: 16 }, { wch: 50 }, { wch: 70 }, { wch: 70 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Chasis");
     const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
