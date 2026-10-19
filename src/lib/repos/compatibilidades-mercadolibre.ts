@@ -17,8 +17,11 @@ export type CompatibilidadCandidata = {
   respuestaHistorica: string | null;
   chasisDetectado: string | null;
   chasisConfirmado: string | null;
-  vehiculo: string | null;
+  marca: string | null;
+  modelo: string | null;
   motor: string | null;
+  anio: string | null;
+  cilindrada: string | null;
   notas: string | null;
   estado: EstadoCompatibilidad;
   analizadoAt: string;
@@ -38,8 +41,11 @@ type Row = {
   respuesta_historica: string | null;
   chasis_detectado: string | null;
   chasis_confirmado: string | null;
-  vehiculo: string | null;
+  marca: string | null;
+  modelo: string | null;
   motor: string | null;
+  anio: string | null;
+  cilindrada: string | null;
   notas: string | null;
   estado: EstadoCompatibilidad;
   analizado_at: string;
@@ -57,8 +63,8 @@ function mapRow(row: Row): CompatibilidadCandidata {
     idProducto: row.id_producto === null ? null : Number(row.id_producto), idKit: row.id_kit === null ? null : Number(row.id_kit),
     idPieza: row.id_pieza === null ? null : Number(row.id_pieza), codigoPieza: row.codigo_pieza === null ? null : Number(row.codigo_pieza),
     tituloPublicacion: row.titulo_publicacion, pregunta: row.pregunta, respuestaHistorica: row.respuesta_historica,
-    chasisDetectado: row.chasis_detectado, chasisConfirmado: row.chasis_confirmado, vehiculo: row.vehiculo,
-    motor: row.motor, notas: row.notas, estado: row.estado,
+    chasisDetectado: row.chasis_detectado, chasisConfirmado: row.chasis_confirmado, marca: row.marca,
+    modelo: row.modelo, motor: row.motor, anio: row.anio, cilindrada: row.cilindrada, notas: row.notas, estado: row.estado,
     analizadoAt: new Date(row.analizado_at).toISOString(), revisadoAt: row.revisado_at ? new Date(row.revisado_at).toISOString() : null,
   };
 }
@@ -86,6 +92,8 @@ export async function analizarPreguntasParaCompatibilidades(idCuenta: number) {
       LEFT JOIN public.productos product ON product.id = publication.id_producto
       WHERE question.id_cuenta = $1
         AND question.texto ~* '(\\mchasis\\M|\\mvin\\M|\\mdominio\\M|\\mpatente\\M|\\mmotor\\M|\\mmodelo\\M|\\mcompatib[a-z]*\\M|\\maplica\\M)'
+    ), candidatas AS (
+      SELECT * FROM fuentes WHERE chasis_detectado IS NOT NULL
     )
     INSERT INTO public.mercadolibre_compatibilidad_candidata (
       id_cuenta, id_pregunta, item_id, id_producto, id_kit, id_pieza, titulo_publicacion,
@@ -94,7 +102,7 @@ export async function analizarPreguntasParaCompatibilidades(idCuenta: number) {
     SELECT
       id_cuenta, id_pregunta, item_id, id_producto, id_kit, id_pieza, titulo_publicacion,
       pregunta, respuesta_historica, chasis_detectado, NOW(), NOW()
-    FROM fuentes
+    FROM candidatas
     ON CONFLICT (id_cuenta, id_pregunta) DO UPDATE SET
       item_id = EXCLUDED.item_id,
       id_producto = EXCLUDED.id_producto,
@@ -112,10 +120,18 @@ export async function analizarPreguntasParaCompatibilidades(idCuenta: number) {
     RETURNING (xmax = 0) AS created
   `, [idCuenta]);
 
+  const cleanup = await query(`
+    DELETE FROM public.mercadolibre_compatibilidad_candidata candidate
+    WHERE candidate.id_cuenta = $1
+      AND candidate.estado = 'PENDIENTE'
+      AND candidate.chasis_detectado IS NULL
+  `, [idCuenta]);
+
   return {
     analizadas: result.rowCount,
     nuevas: result.rows.filter((row) => row.created).length,
     actualizadas: result.rows.filter((row) => !row.created).length,
+    eliminadas: cleanup.rowCount,
   };
 }
 
@@ -127,7 +143,7 @@ export async function getCompatibilidadesCandidatas(input: {
   limit?: number;
 }) {
   const params: unknown[] = [input.idCuenta];
-  const where = ["candidate.id_cuenta = $1"];
+  const where = ["candidate.id_cuenta = $1", "candidate.chasis_detectado IS NOT NULL"];
   if (input.estado && input.estado !== "TODAS") {
     params.push(input.estado);
     where.push(`candidate.estado = $${params.length}`);
@@ -140,7 +156,9 @@ export async function getCompatibilidadesCandidatas(input: {
       OR candidate.respuesta_historica ILIKE $${params.length}
       OR candidate.chasis_detectado ILIKE $${params.length}
       OR candidate.chasis_confirmado ILIKE $${params.length}
-      OR candidate.vehiculo ILIKE $${params.length}
+      OR candidate.marca ILIKE $${params.length}
+      OR candidate.modelo ILIKE $${params.length}
+      OR candidate.motor ILIKE $${params.length}
     )`);
   }
   const page = Math.max(1, Math.floor(input.page ?? 1));
@@ -156,7 +174,7 @@ export async function getCompatibilidadesCandidatas(input: {
         COUNT(*) FILTER (WHERE estado = 'CONFIRMADA')::text AS confirmadas,
         COUNT(*) FILTER (WHERE estado = 'DESCARTADA')::text AS descartadas
       FROM public.mercadolibre_compatibilidad_candidata
-      WHERE id_cuenta = $1
+      WHERE id_cuenta = $1 AND chasis_detectado IS NOT NULL
     `, [input.idCuenta]),
     query<Row>(`
       SELECT candidate.*, piece.codigo_pieza
@@ -182,23 +200,63 @@ export async function actualizarCompatibilidadCandidata(idCuenta: number, id: nu
   const estado = input.estado === "CONFIRMADA" || input.estado === "DESCARTADA" || input.estado === "PENDIENTE" ? input.estado : null;
   if (!estado) throw new AppError("El estado de compatibilidad no es valido.", 400);
   const chasisConfirmado = optionalText(input.chasisConfirmado, 40);
-  const vehiculo = optionalText(input.vehiculo, 180);
+  const marca = optionalText(input.marca, 80);
+  const modelo = optionalText(input.modelo, 120);
   const motor = optionalText(input.motor, 120);
+  const anio = optionalText(input.anio, 20);
+  const cilindrada = optionalText(input.cilindrada, 40);
   const notas = optionalText(input.notas, 1_000);
-  if (estado === "CONFIRMADA" && !chasisConfirmado && !vehiculo) {
-    throw new AppError("Para confirmar, completa al menos el chasis o el vehiculo compatible.", 400);
+  if (estado === "CONFIRMADA" && !chasisConfirmado) {
+    throw new AppError("Para confirmar, completa el chasis o VIN.", 400);
   }
 
   return withTransaction(async (client) => {
     const result = await client.query<Row>(`
       UPDATE public.mercadolibre_compatibilidad_candidata candidate
-      SET chasis_confirmado = $3, vehiculo = $4, motor = $5, notas = $6, estado = $7,
-          revisado_at = CASE WHEN $7 = 'PENDIENTE' THEN NULL ELSE NOW() END,
+      SET chasis_confirmado = $3, marca = $4, modelo = $5, motor = $6, anio = $7, cilindrada = $8,
+          notas = $9, estado = $10,
+          revisado_at = CASE WHEN $10 = 'PENDIENTE' THEN NULL ELSE NOW() END,
           updated_at = NOW()
       WHERE candidate.id = $1 AND candidate.id_cuenta = $2
       RETURNING candidate.*, (SELECT codigo_pieza FROM public.pieza WHERE id = candidate.id_pieza) AS codigo_pieza
-    `, [id, idCuenta, chasisConfirmado, vehiculo, motor, notas, estado]);
+    `, [id, idCuenta, chasisConfirmado, marca, modelo, motor, anio, cilindrada, notas, estado]);
     if (!result.rows[0]) throw new AppError("No se encontro la compatibilidad indicada.", 404);
     return mapRow(result.rows[0]);
   });
+}
+
+export async function exportarCatalogoChasis(input: {
+  idCuenta: number;
+  estado?: EstadoCompatibilidad | "TODAS";
+  search?: string;
+}) {
+  const params: unknown[] = [input.idCuenta];
+  const where = ["candidate.id_cuenta = $1", "candidate.chasis_detectado IS NOT NULL"];
+  if (input.estado && input.estado !== "TODAS") {
+    params.push(input.estado);
+    where.push(`candidate.estado = $${params.length}`);
+  }
+  if (input.search?.trim()) {
+    params.push(`%${input.search.trim()}%`);
+    where.push(`(
+      candidate.titulo_publicacion ILIKE $${params.length}
+      OR candidate.pregunta ILIKE $${params.length}
+      OR candidate.chasis_detectado ILIKE $${params.length}
+      OR candidate.chasis_confirmado ILIKE $${params.length}
+      OR candidate.marca ILIKE $${params.length}
+      OR candidate.modelo ILIKE $${params.length}
+      OR candidate.motor ILIKE $${params.length}
+    )`);
+  }
+  const result = await query<{
+    chasis: string | null; marca: string | null; modelo: string | null; motor: string | null; anio: string | null; cilindrada: string | null;
+  }>(`
+    SELECT
+      COALESCE(candidate.chasis_confirmado, candidate.chasis_detectado) AS chasis,
+      candidate.marca, candidate.modelo, candidate.motor, candidate.anio, candidate.cilindrada
+    FROM public.mercadolibre_compatibilidad_candidata candidate
+    WHERE ${where.join(" AND ")}
+    ORDER BY chasis, candidate.id
+  `, params);
+  return result.rows;
 }
