@@ -47,6 +47,8 @@ export type EnriquecimientoGrupo = {
     codigo: string;
     descripcion: string;
     marca: string | null;
+    id_subcategoria: number | null;
+    codigos_proveedor: string[];
     id_pieza: number | null;
   }>;
 };
@@ -253,6 +255,12 @@ export async function getEnriquecimientoGrupos(filters: EnriquecimientoFiltros =
         c.descripcion AS categoria,
         s.id AS id_subcategoria,
         s.descripcion AS subcategoria,
+        COALESCE((
+          SELECT ARRAY_AGG(DISTINCT NULLIF(TRIM(pp.codigo_proveedor), ''))
+            FILTER (WHERE NULLIF(TRIM(pp.codigo_proveedor), '') IS NOT NULL)
+          FROM public.producto_proveedor pp
+          WHERE pp.id_producto = p.id
+        ), ARRAY[]::varchar[]) AS codigos_proveedor,
         CASE
           WHEN NULLIF(TRIM(m.sufijo_codigo), '') IS NOT NULL
             AND UPPER(TRIM(COALESCE(p.cod_unico, ''))) LIKE '%' || UPPER(TRIM(m.sufijo_codigo))
@@ -285,6 +293,8 @@ export async function getEnriquecimientoGrupos(filters: EnriquecimientoFiltros =
             'codigo', base.cod_unico,
             'descripcion', base.descripcion,
             'marca', base.marca,
+            'id_subcategoria', base.id_subcategoria,
+            'codigos_proveedor', base.codigos_proveedor,
             'id_pieza', base.id_pieza
           )
           ORDER BY
