@@ -13,6 +13,7 @@ type NuevaPreguntaPush = {
   idCuenta: number;
   preguntaId: string;
   titulo: string | null;
+  thumbnailUrl: string | null;
   texto: string;
 };
 
@@ -46,8 +47,9 @@ export async function notificarNuevaPreguntaMercadoLibre(input: NuevaPreguntaPus
 
   const url = `/operaciones/mercadolibre?pregunta=${encodeURIComponent(input.preguntaId)}&cuenta=${input.idCuenta}`;
   const payload = JSON.stringify({
-    title: "Nueva pregunta de Mercado Libre",
+    title: truncate(input.titulo?.trim() || "Nueva pregunta de Mercado Libre", 110),
     body: truncate(input.texto, 180),
+    icon: input.thumbnailUrl || "/icon.ico",
     tag: `mercadolibre-pregunta-${input.idCuenta}-${input.preguntaId}`,
     url,
     data: { url, preguntaId: input.preguntaId, cuentaId: input.idCuenta, titulo: input.titulo },

@@ -1373,10 +1373,16 @@ async function guardarPreguntaMercadoLibre(idCuenta: number, pregunta: MeliQuest
   const saved = rows[0];
   if (options.notificar && saved?.creada && saved.estado === "UNANSWERED") {
     try {
+      const { rows: publicationRows } = await query<{ titulo: string | null; thumbnail_url: string | null }>(
+        "SELECT titulo, thumbnail_url FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = $2 LIMIT 1",
+        [idCuenta, pregunta.item_id || null],
+      );
+      const publication = publicationRows[0];
       await notificarNuevaPreguntaMercadoLibre({
         idCuenta,
         preguntaId: String(pregunta.id),
-        titulo: saved.titulo,
+        titulo: saved.titulo || publication?.titulo || null,
+        thumbnailUrl: secureThumbnailUrl(publication?.thumbnail_url),
         texto: pregunta.text,
       });
     } catch (error) {

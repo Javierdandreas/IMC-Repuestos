@@ -3,7 +3,7 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "Nueva notificacion";
   const options = {
     body: payload.body || "",
-    icon: "/icon.ico",
+    icon: payload.icon || "/icon.ico",
     badge: "/icon.ico",
     tag: payload.tag || "imc-notificacion",
     data: payload.data || { url: payload.url || "/" },
