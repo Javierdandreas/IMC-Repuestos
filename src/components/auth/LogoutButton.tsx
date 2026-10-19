@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/utils/supabase/client";
 import { HiOutlineLogout } from "react-icons/hi";
 
 interface LogoutButtonProps {
@@ -15,10 +14,9 @@ export default function LogoutButton({ className, showIcon = true }: LogoutButto
   async function handleLogout() {
     setLoading(true);
     try {
-      const supabase = createClient();
-      await supabase.auth.signOut();
+      await fetch("/api/auth/logout", { method: "POST" });
     } finally {
-      window.location.href = "/login";
+      window.location.replace("/login");
     }
   }
 

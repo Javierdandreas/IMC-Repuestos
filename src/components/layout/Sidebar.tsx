@@ -16,7 +16,7 @@ import {
 import { ThemeToggle } from "./ThemeToggle";
 import LogoutButton from "../auth/LogoutButton";
 import { useTheme } from "@/context/ThemeContext";
-import { createClient } from "@/utils/supabase/client";
+import { useUser } from "@/context/UserContext";
 
 interface NavLink {
   href?: string;
@@ -100,6 +100,7 @@ export const Sidebar = () => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { theme } = useTheme();
+  const { user } = useUser();
   const navRef = useRef<HTMLElement>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -140,25 +141,12 @@ export const Sidebar = () => {
   };
 
   useEffect(() => {
-    const fetchUserProfile = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+    if (!user) return;
 
-      const { data: authData } = await supabase
-        .from("usuario_auth")
-        .select("rol, usuario:usuario_id(nombre_usuario)")
-        .eq("auth_user_id", user.id)
-        .single();
-      if (!authData) return;
-
-      const nombre = (authData.usuario as { nombre_usuario?: string } | null)?.nombre_usuario || "Usuario";
-      const initials = nombre.split(" ").map((part) => part[0]).join("").toUpperCase().substring(0, 2);
-      setUserProfile({ nombre, rol: authData.rol || "Administrador", initials });
-    };
-
-    void fetchUserProfile();
-  }, []);
+    const nombre = user.nombreUsuario || [user.nombre, user.apellido].filter(Boolean).join(" ") || user.email || "Usuario";
+    const initials = nombre.split(" ").map((part) => part[0]).join("").toUpperCase().substring(0, 2);
+    setUserProfile({ nombre, rol: user.rol || "Usuario", initials });
+  }, [user]);
 
   useEffect(() => {
     const closeMenus = (event: MouseEvent) => {
