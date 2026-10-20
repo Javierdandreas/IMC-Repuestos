@@ -1,0 +1,13 @@
+{
+  "name": "imc-identificador-chasis",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "iniciar": "node index.mjs",
+    "verificar-html": "node verificar-html.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.64.1",
+    "xlsx": "0.18.5"
+  }
+}

@@ -56,13 +56,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const invalid = detail.items.filter((item) => item.estado === "INVALIDO");
     const duplicates = detail.items.filter((item) => item.estado === "DUPLICADO");
 
-    const itemHeaders = ["Fila", "Codigo proveedor", "Codigo IMC", "Descripcion", "Precio lista", "Stock", "Estado", "Detalle"];
+    const itemHeaders = ["Fila", "Codigo proveedor", "Codigo IMC", "Descripcion", "Precio lista", "Precio origen", "Moneda origen", "Cotizacion usada", "Stock", "Estado", "Detalle"];
     const itemRows = (items: typeof detail.items): ExportRow[] => items.map((item) => ({
       Fila: item.fila ?? null,
       "Codigo proveedor": item.codigo_proveedor,
       "Codigo IMC": item.producto_codigo ?? "",
       Descripcion: item.producto_descripcion ?? "",
       "Precio lista": item.precio_lista ?? null,
+      "Precio origen": item.precio_origen ?? null,
+      "Moneda origen": item.moneda_origen ?? "ARS",
+      "Cotizacion usada": item.cotizacion_usada ?? null,
       Stock: item.stock_original ?? "",
       Estado: (item.estado ?? "").replace(/_/g, " "),
       Detalle: item.mensaje ?? "",

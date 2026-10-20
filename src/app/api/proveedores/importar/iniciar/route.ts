@@ -10,8 +10,9 @@ export async function POST(request: NextRequest) {
     const idProveedor = Number(body.id_proveedor);
     const totalItems = Number(body.total_items);
     const nombreArchivo = String(body.nombre_archivo ?? "lista-precios.csv").trim();
+    const codigoCotizacion = String(body.codigo_cotizacion ?? "ARS").trim();
 
-    return NextResponse.json(await iniciarImportacionProveedor(idProveedor, nombreArchivo, totalItems));
+    return NextResponse.json(await iniciarImportacionProveedor(idProveedor, nombreArchivo, totalItems, codigoCotizacion));
   } catch (error: unknown) {
     return jsonError(error, "No se pudo iniciar la importacion del proveedor");
   }

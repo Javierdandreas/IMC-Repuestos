@@ -10,6 +10,7 @@ import {
   registrarCambiosCostoReferencia,
 } from "@/lib/cambios-costo-referencia";
 import { AppError } from "@/lib/api-errors";
+import { calcularCotizacionProveedor } from "@/lib/cotizacion-proveedor";
 import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
 import {
   CreateImportacionInput,
@@ -95,18 +96,54 @@ export async function iniciarImportacionProveedor(
   idProveedor: number,
   nombreArchivo: string,
   totalItems: number,
+  codigoCotizacion = "ARS",
 ): Promise<ProveedorImportacion> {
   if (!Number.isInteger(idProveedor) || idProveedor <= 0) throw new Error("Proveedor invalido");
   if (!Number.isInteger(totalItems) || totalItems <= 0) throw new Error("La lista de items no puede estar vacia");
 
   return withTransaction(async (client) => {
+    let moneda = "ARS";
+    let referencia: string | null = null;
+    let lado: string | null = null;
+    let tipoRecargo: string | null = null;
+    let recargo = 0;
+    let cotizacionUsada = 1;
+    let idCotizacion: number | null = null;
+    if (codigoCotizacion !== "ARS") {
+      const quote = await client.query<{
+        moneda: string; referencia: string; lado: string; tipo_recargo: string; recargo: string;
+        id_cotizacion: number | null; valor_compra: string | null; valor_venta: string | null;
+      }>(`
+        SELECT config.moneda, config.referencia, selected.lado, selected.tipo_recargo, selected.recargo,
+               latest.id AS id_cotizacion, latest.valor_compra, latest.valor_venta
+        FROM public.proveedor_cotizacion_configuracion selected
+        JOIN public.moneda_cotizacion_configuracion config ON config.codigo = selected.codigo
+        LEFT JOIN LATERAL (
+          SELECT id, valor_compra, valor_venta FROM public.moneda_cotizacion
+          WHERE moneda = config.moneda AND referencia = config.referencia AND estado = 'VIGENTE'
+          ORDER BY actualizado_at DESC, id DESC LIMIT 1
+        ) latest ON TRUE
+        WHERE selected.id_proveedor = $1 AND selected.codigo = $2
+      `, [idProveedor, codigoCotizacion]);
+      const selected = quote.rows[0];
+      if (!selected) throw new AppError("La cotizacion no esta habilitada para este proveedor.", 400);
+      const base = Number(selected.lado === "COMPRA" ? selected.valor_compra : selected.valor_venta);
+      if (!Number.isFinite(base) || base <= 0 || !selected.id_cotizacion) throw new AppError("La cotizacion seleccionada no tiene un valor vigente para el lado elegido.", 409);
+      moneda = selected.moneda; referencia = selected.referencia; lado = selected.lado;
+      tipoRecargo = selected.tipo_recargo; recargo = Number(selected.recargo); idCotizacion = Number(selected.id_cotizacion);
+      const calculada = calcularCotizacionProveedor(base, tipoRecargo, recargo);
+      if (calculada === null) throw new AppError("La cotizacion calculada no es valida.", 400);
+      cotizacionUsada = calculada;
+    }
     const result = await client.query(
       `
-        INSERT INTO public.proveedor_importacion (id_proveedor, nombre_archivo, total_items, estado)
-        VALUES ($1, $2, $3, 'PENDIENTE')
+        INSERT INTO public.proveedor_importacion (id_proveedor, nombre_archivo, total_items, estado,
+          moneda_origen, referencia_cotizacion, lado_cotizacion, tipo_recargo_cotizacion,
+          recargo_cotizacion, cotizacion_usada, id_moneda_cotizacion)
+        VALUES ($1, $2, $3, 'PENDIENTE', $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
       `,
-      [idProveedor, nombreArchivo, totalItems],
+      [idProveedor, nombreArchivo, totalItems, moneda, referencia, lado, tipoRecargo, recargo, cotizacionUsada, idCotizacion],
     );
     return result.rows[0] as ProveedorImportacion;
   });
@@ -136,12 +173,18 @@ export async function agregarItemsImportacionProveedor(
       `
         INSERT INTO public.proveedor_importacion_item (
           id_importacion, fila, proveedor_archivo, codigo_proveedor, precio_lista, precio_original,
-          stock_original, stock_estado, stock_cantidad
+          stock_original, stock_estado, stock_cantidad, precio_origen, moneda_origen, cotizacion_usada, costo_ars_calculado
         )
-        SELECT $1, * FROM UNNEST(
+        SELECT $1, items.fila, items.proveedor_archivo, items.codigo_proveedor,
+          ROUND(items.precio_lista * COALESCE(pi.cotizacion_usada, 1), 2), items.precio_original,
+          items.stock_original, items.stock_estado, items.stock_cantidad, items.precio_lista,
+          COALESCE(pi.moneda_origen, 'ARS'), COALESCE(pi.cotizacion_usada, 1),
+          ROUND(items.precio_lista * COALESCE(pi.cotizacion_usada, 1), 2)
+        FROM UNNEST(
           $2::int[], $3::text[], $4::text[], $5::numeric[], $6::text[],
           $7::text[], $8::text[], $9::numeric[]
-        )
+        ) AS items(fila, proveedor_archivo, codigo_proveedor, precio_lista, precio_original, stock_original, stock_estado, stock_cantidad)
+        JOIN public.proveedor_importacion pi ON pi.id = $1
       `,
       [
         idImportacion,
@@ -1003,6 +1046,9 @@ export async function getImportacionItems(
         pii.proveedor_archivo,
         pii.codigo_proveedor,
         pii.precio_lista::float AS precio_lista,
+        pii.precio_origen::float AS precio_origen,
+        pii.moneda_origen,
+        pii.cotizacion_usada::float AS cotizacion_usada,
         pii.precio_original,
         pii.stock_original,
         pii.stock_estado,
@@ -1085,6 +1131,9 @@ export async function getDetalleImportacionExportable(idImportacion: number): Pr
           pii.proveedor_archivo,
           pii.codigo_proveedor,
           pii.precio_lista::float AS precio_lista,
+          pii.precio_origen::float AS precio_origen,
+          pii.moneda_origen,
+          pii.cotizacion_usada::float AS cotizacion_usada,
           pii.precio_original,
           pii.stock_original,
           pii.stock_estado,

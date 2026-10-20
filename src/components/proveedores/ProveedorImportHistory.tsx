@@ -307,7 +307,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                   <span>Fila</span>
                   <span>Proveedor</span>
                   <span>Codigo prov.</span>
-                  <span>Precio</span>
+                  <span>Precio ARS</span>
                   <span>Stock</span>
                   <span>Estado</span>
                   <span>Item</span>
@@ -336,6 +336,9 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                         <span className="truncate font-black text-white">{row.codigo_proveedor}</span>
                         <span className="font-mono font-black text-blue-300">
                           {row.precio_lista === null || row.precio_lista === undefined ? (row.precio_original || "-") : formatMoney(row.precio_lista)}
+                          {row.moneda_origen && row.moneda_origen !== "ARS" && row.precio_origen != null && (
+                            <span className="block text-[10px] font-bold text-slate-400">{row.moneda_origen} {formatMoney(row.precio_origen)}</span>
+                          )}
                         </span>
                         <span className="truncate font-bold text-slate-400">
                           {labelEstadoStockProveedor(row.stock_estado, row.stock_cantidad)}

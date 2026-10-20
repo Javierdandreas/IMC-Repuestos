@@ -25,6 +25,9 @@ export interface ProveedorImportacionItem {
   proveedor_archivo?: string | null;
   codigo_proveedor: string;
   precio_lista?: number | null;
+  precio_origen?: number | null;
+  moneda_origen?: string | null;
+  cotizacion_usada?: number | null;
   precio_original?: string | null;
   stock_original?: string | null;
   stock_estado?: import("@/lib/stock-proveedor").EstadoStockProveedor | null;
