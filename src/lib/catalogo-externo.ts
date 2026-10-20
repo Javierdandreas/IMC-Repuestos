@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { revalidateTag } from "next/cache";
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
+import { limitarDescripcionCatalogoExterno } from "@/lib/descripcion-catalogo-externo";
 
 const ORIGIN = "GESU_EXTERNO";
 const TABLE = "gesu_items_raw";
@@ -750,7 +751,7 @@ export async function importExternalCatalogProducts(snapshotId: number, rawIds: 
          AS data(cod_unico, descripcion, cod_barra, stock, id_marca, id_subcategoria, palabra_clave, criterio_costo, id_ubicacion)
        ON CONFLICT (cod_unico) DO NOTHING RETURNING id, cod_unico`,
       [
-        candidates.map((row) => normalize(row.codigo)), candidates.map((row) => clean(row.descripcion) || normalize(row.codigo)), barcodes,
+        candidates.map((row) => normalize(row.codigo)), candidates.map((row) => limitarDescripcionCatalogoExterno(clean(row.descripcion) || normalize(row.codigo))), barcodes,
         candidates.map((row) => stockValue(row.stock)), candidates.map((row) => clean(row.marca) ? brandByName.get(normalize(row.marca)) ?? null : null),
         candidates.map((row) => Number(row.id_subcategoria)), candidates.map((row) => nullable(row.palabras_clave)), candidates.map(() => "PROVEEDOR_UNICO"), locationIds,
       ]

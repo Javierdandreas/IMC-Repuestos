@@ -727,16 +727,6 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         </div>
       ) : null}
 
-      <div className="max-w-xl space-y-1.5">
-        <label htmlFor="importacion-cotizacion" className="text-[10px] font-black uppercase tracking-widest text-blue-400">Moneda de la lista</label>
-        <select id="importacion-cotizacion" value={codigoCotizacion} onChange={(event) => setCodigoCotizacion(event.target.value)} disabled={!cotizaciones || Boolean(cotizacionesError)} className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 text-xs font-black text-white outline-none focus:border-blue-500 disabled:opacity-50">
-          <option value="">Seleccionar moneda</option><option value="ARS">Pesos argentinos (ARS)</option>
-          {cotizaciones?.filter((item) => item.activa).map((item) => <option key={item.codigo} value={item.codigo}>{item.etiqueta} - {item.lado === "COMPRA" ? "Compra" : "Venta"}</option>)}
-        </select>
-        {cotizacionesError && <p className="text-xs font-bold text-red-300">No se pudieron cargar las monedas del proveedor.</p>}
-        {cotizacionSeleccionada && <p className="text-xs font-semibold text-slate-400">{cotizacionEfectiva !== null && valorCotizacion !== null ? `Cotizacion base: ${valorCotizacion.toLocaleString("es-AR", { maximumFractionDigits: 4 })}; recargo: ${cotizacionSeleccionada.recargo}${cotizacionSeleccionada.tipoRecargo === "PORCENTAJE" ? "%" : " ARS"}; cotizacion a aplicar: ${cotizacionEfectiva.toLocaleString("es-AR", { maximumFractionDigits: 4 })} ARS. La cotizacion se fija al iniciar la importacion.` : "No hay cotizacion vigente para el lado seleccionado."}</p>}
-      </div>
-
       <div className="grid gap-2 sm:grid-cols-2">
         {SUPPLIER_FIELDS.map((field) => (
           <div key={field.id} className="space-y-1.5">
@@ -756,6 +746,15 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
             </select>
           </div>
         ))}
+        <div className="min-w-0 space-y-1.5">
+          <label htmlFor="importacion-cotizacion" className="text-[10px] font-black uppercase tracking-widest text-blue-400">Moneda</label>
+          <select id="importacion-cotizacion" value={codigoCotizacion} onChange={(event) => setCodigoCotizacion(event.target.value)} disabled={!cotizaciones || Boolean(cotizacionesError)} className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 text-xs font-black text-white outline-none focus:border-blue-500 disabled:opacity-50">
+            <option value="">Seleccionar moneda</option><option value="ARS">Pesos argentinos (ARS)</option>
+            {cotizaciones?.filter((item) => item.activa).map((item) => <option key={item.codigo} value={item.codigo}>{item.etiqueta} - {item.lado === "COMPRA" ? "Compra" : "Venta"}</option>)}
+          </select>
+          {cotizacionesError && <p className="text-xs font-bold text-red-300">No se pudieron cargar las monedas del proveedor.</p>}
+          {cotizacionSeleccionada && <p className="text-xs font-semibold text-slate-400">{cotizacionEfectiva !== null && valorCotizacion !== null ? `Cotizacion base: ${valorCotizacion.toLocaleString("es-AR", { maximumFractionDigits: 4 })}; recargo: ${cotizacionSeleccionada.recargo}${cotizacionSeleccionada.tipoRecargo === "PORCENTAJE" ? "%" : " ARS"}; cotizacion a aplicar: ${cotizacionEfectiva.toLocaleString("es-AR", { maximumFractionDigits: 4 })} ARS. La cotizacion se fija al iniciar la importacion.` : "No hay cotizacion vigente para el lado seleccionado."}</p>}
+        </div>
       </div>
 
       {mappings.stock_proveedor.csvHeader === STOCK_COLOR_ROW ? (
