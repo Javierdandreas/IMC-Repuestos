@@ -851,7 +851,14 @@ async function copiarCompatibilidadesDePublicacion(sourceId: string, sourceUp: u
     const plan = planCopiaCompatibilidades(sourceUp, targetUp, origen, destino);
     if (plan === "COMPARTIDAS") return { estado: "COMPARTIDAS", origen, destino };
     if (plan === "SIN_ORIGEN") return { estado: "SIN_ORIGEN", origen, destino };
-    if (plan === "DESCONOCIDO") return { estado: "NO_VERIFICADA", origen, destino, detalle: "Mercado Libre no informo el total o el User Product necesario para decidir la copia." };
+    if (plan === "DESCONOCIDO") {
+      const faltantes = [
+        origen === null ? "total de compatibilidades del origen" : null,
+        destino === null ? "total de compatibilidades del destino" : null,
+        typeof sourceUp === "string" && sourceUp && !(typeof targetUp === "string" && targetUp) ? "User Product del destino" : null,
+      ].filter(Boolean);
+      return { estado: "NO_VERIFICADA", origen, destino, detalle: `No se intento copiar. Datos no informados por Mercado Libre: ${faltantes.join(", ")}.` };
+    }
     const itemToCopy = { item_id: sourceId, extended_information: true };
     etapa = "copia";
     const copy = await fetch(`${API_BASE_URL}/items/${encodeURIComponent(targetId)}/compatibilities`, {
