@@ -23,6 +23,8 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
   const [validando, setValidando] = useState(false);
   const [validacion, setValidacion] = useState<{ validada: boolean; status: number; mensaje: string; error: string; detalles: { tipo: string; codigo: string; mensaje: string; referencias: string[] }[]; diagnostico?: unknown } | null>(null);
   const [copiado, setCopiado] = useState("");
+  const [intento, setIntento] = useState(false);
+  const [creacion, setCreacion] = useState<{ resultado: string; mensaje?: string; publicacion?: string; titulo?: string | null; userProductId?: string | null; estado?: string | null; status?: number; respuesta?: unknown } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -63,6 +65,22 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
     finally { setValidando(false); }
   };
 
+  const probarCreacion = async () => {
+    if (!review || !window.confirm(`Se intentara crear una publicacion REAL con el nombre "${nombre}". Se usaran los datos actuales de la publicacion de origen; el precio y stock pueden haber cambiado. Mercado Libre podria agruparla con un producto existente y afectar su titulo. No se copiaran la descripcion ni las compatibilidades. Continuar?`)) return;
+    setIntento(true); setError("");
+    try {
+      const response = await fetch("/api/integraciones/mercadolibre/publicaciones/probar-duplicacion", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo: product.tipo, id: product.id, publicacion: Number(selected), nombre, confirmar: true }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "No se pudo confirmar el resultado.");
+      setCreacion(data);
+    } catch {
+      setCreacion({ resultado: "INCIERTO", mensaje: "No se pudo confirmar el resultado. Revisa las publicaciones de la cuenta antes de volver a intentar." });
+    }
+  };
+
   return <Modal title="Duplicar publicacion" open onClose={onClose} width="w-[min(96vw,680px)]">
     <div className="space-y-4 p-6 text-sm text-slate-700 dark:text-slate-200">
       <p className="font-bold">{product.descripcion}</p>
@@ -90,7 +108,7 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
           <label htmlFor="nombre-copia" className="block text-xs font-bold">{review.userProductId ? "Nombre de familia propuesto" : "Titulo propuesto"}</label>
           <input id="nombre-copia" value={nombre} maxLength={200} onChange={(event) => { setNombre(event.target.value); setValidacion(null); }} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" />
           <button type="button" onClick={() => void validar()} disabled={!nombre.trim() || validando} className="h-9 rounded-md bg-blue-600 px-3 text-xs font-bold text-white disabled:opacity-50">{validando ? "Validando..." : "Validar sin publicar"}</button>
-          <p className="text-amber-700 dark:text-amber-300">Esta prueba no crea ni modifica publicaciones. No confirma el titulo definitivo ni si Mercado Libre agrupara la copia con otro producto. La creacion de la copia todavia no esta habilitada.</p>
+          <p className="text-amber-700 dark:text-amber-300">La validacion no crea ni modifica publicaciones. No confirma el titulo definitivo ni si Mercado Libre agrupara la copia con otro producto.</p>
           {validacion && <div role="status" className="space-y-1">
             <p className="font-bold">{validacion.validada ? "Mercado Libre valido los datos enviados." : `Mercado Libre no confirmo la validacion (HTTP ${validacion.status}).`}</p>
             {validacion.mensaje && <p>{validacion.mensaje}</p>}
@@ -110,6 +128,16 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
               {copiado && <p role="status">{copiado}</p>}
               <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-300 p-3 text-xs dark:border-slate-700">{JSON.stringify(validacion.diagnostico, null, 2)}</pre>
             </details>}
+          </div>}
+          {review.itemId === "MLA2837425938" && <div className="space-y-2 border-t border-slate-200 pt-4 dark:border-slate-800">
+            <p className="text-amber-700 dark:text-amber-300">Prueba real: puede crear una publicacion visible y afectar un producto compartido. No copia descripcion ni compatibilidades.</p>
+            <button type="button" onClick={() => void probarCreacion()} disabled={!nombre.trim() || intento} className="rounded-md bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{intento && !creacion ? "Enviando..." : "Probar creacion real"}</button>
+            {creacion && <div role="status" className="space-y-1">
+              <p className="font-bold">{creacion.resultado === "CREADA" ? `Publicacion creada: ${creacion.publicacion}` : creacion.resultado === "RECHAZADA" ? `Mercado Libre rechazo la creacion (HTTP ${creacion.status}).` : "Resultado incierto."}</p>
+              {creacion.mensaje && <p>{creacion.mensaje}</p>}
+              {creacion.resultado === "CREADA" && <p>Titulo: {creacion.titulo || "Sin dato"} | User Product: {creacion.userProductId || "Sin dato"} | Estado: {creacion.estado || "Sin dato"}</p>}
+              {creacion.respuesta != null && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify(creacion.respuesta, null, 2)}</pre>}
+            </div>}
           </div>}
         </div>
       </div>}

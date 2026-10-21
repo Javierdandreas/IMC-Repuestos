@@ -791,6 +791,39 @@ export async function validarPublicacionParaDuplicar(idPublicacion: number, tipo
   };
 }
 
+export async function probarCreacionPublicacion(idPublicacion: number, tipo: "ITEM" | "KIT", id: number, nombre: string) {
+  const column = tipo === "KIT" ? "id_kit" : "id_producto";
+  const result = await query<{ id_cuenta: number; item_id: string }>(
+    `SELECT id_cuenta, item_id FROM public.mercadolibre_publicacion WHERE id = $1 AND ${column} = $2`,
+    [idPublicacion, id],
+  );
+  const publication = result.rows[0];
+  if (!publication || publication.item_id !== "MLA2837425938") throw new AppError("La prueba solo esta habilitada para la publicacion acordada.", 400);
+  const idCuenta = Number(publication.id_cuenta);
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  const item = await meliGet(`/items/${encodeURIComponent(publication.item_id)}`, idCuenta, accessToken) as Record<string, unknown>;
+  if (Number(item.seller_id) !== sellerId) throw new AppError("La publicacion no pertenece a la cuenta conectada.", 403);
+  const body = prepararValidacionPublicacion(item, nombre);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/items`, {
+      method: "POST", headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(body), cache: "no-store",
+    });
+  } catch {
+    return { resultado: "INCIERTO", mensaje: "No se recibio respuesta de Mercado Libre. Antes de volver a intentar, revisa si se creo la publicacion en la cuenta." };
+  }
+  const data = await response.json().catch(() => null) as Record<string, unknown> | null;
+  const safeData = protegerDiagnostico(data, [accessToken]);
+  if (response.ok && typeof data?.id === "string") {
+    return { resultado: "CREADA", publicacion: data.id, titulo: typeof data.title === "string" ? data.title : null, userProductId: typeof data.user_product_id === "string" ? data.user_product_id : null, estado: typeof data.status === "string" ? data.status : null };
+  }
+  if (response.status >= 500 || response.ok) {
+    return { resultado: "INCIERTO", status: response.status, mensaje: "Mercado Libre no confirmo el resultado. Revisa la cuenta antes de volver a intentar.", respuesta: safeData };
+  }
+  return { resultado: "RECHAZADA", status: response.status, respuesta: safeData };
+}
+
 async function meliPost(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {
   const request = async (accessToken: string) => fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
