@@ -5,7 +5,7 @@ import { query, withTransaction } from "@/lib/db-utils";
 import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
 import { interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico } from "@/lib/mercadolibre-validacion-publicacion";
 import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
-import { planCopiaCompatibilidades, totalCompatibilidades } from "@/lib/mercadolibre-copia-compatibilidades";
+import { dominiosCompatibles, planCopiaCompatibilidades, totalCompatibilidades, totalResumen } from "@/lib/mercadolibre-copia-compatibilidades";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -830,7 +830,7 @@ export async function probarCreacionPublicacion(idPublicacion: number, tipo: "IT
         descripcionEstado = descriptionResponse.ok ? "GUARDADA" : "ERROR";
       } catch { descripcionEstado = "INCIERTA"; }
     }
-    const compatibilidades = await copiarCompatibilidadesDePublicacion(publication.item_id, item.user_product_id, data.id, data.user_product_id, idCuenta, accessToken);
+    const compatibilidades = await copiarCompatibilidadesDePublicacion(publication.item_id, item.user_product_id, data.id, data.user_product_id, item.category_id, idCuenta, accessToken);
     return { resultado: "CREADA", publicacion: data.id, titulo: typeof data.title === "string" ? data.title : null, userProductId: typeof data.user_product_id === "string" ? data.user_product_id : null, estado: typeof data.status === "string" ? data.status : null, descripcionEstado, compatibilidades };
   }
   if (response.status >= 500 || response.ok) {
@@ -839,15 +839,27 @@ export async function probarCreacionPublicacion(idPublicacion: number, tipo: "IT
   return { resultado: "RECHAZADA", status: response.status, respuesta: safeData };
 }
 
-async function copiarCompatibilidadesDePublicacion(sourceId: string, sourceUp: unknown, targetId: string, targetUp: unknown, idCuenta: number, token: string) {
+async function copiarCompatibilidadesDePublicacion(sourceId: string, sourceUp: unknown, targetId: string, targetUp: unknown, categoria: unknown, idCuenta: number, token: string) {
   let etapa = "consulta";
   try {
     const [source, target] = await Promise.all([
       meliGet(`/items/${encodeURIComponent(sourceId)}/compatibilities?limit=1`, idCuenta, token),
       meliGet(`/items/${encodeURIComponent(targetId)}/compatibilities?limit=1`, idCuenta, token),
     ]);
-    const origen = totalCompatibilidades(source);
-    const destino = totalCompatibilidades(target);
+    let origen = totalCompatibilidades(source);
+    let destino = totalCompatibilidades(target);
+    let dominios: string[] = [];
+    if ((origen === null || destino === null) && !(typeof sourceUp === "string" && sourceUp && sourceUp === targetUp)) {
+      const dump = await meliGet("/catalog/dumps/domains/MLA/compatibilities", idCuenta, token);
+      dominios = dominiosCompatibles(dump, categoria);
+      if (dominios.length) {
+        const summaries = await Promise.all(dominios.map((domain_id) => meliPost("/items/compatibilities_summary", idCuenta, token, { domain_id, items: [sourceId, targetId] })));
+        const sourceCounts = summaries.map((summary) => totalResumen(summary, sourceId));
+        const targetCounts = summaries.map((summary) => totalResumen(summary, targetId));
+        if (origen === null && sourceCounts.every((count) => count !== null)) origen = sourceCounts.reduce<number>((sum, count) => sum + (count ?? 0), 0);
+        if (destino === null && targetCounts.every((count) => count !== null)) destino = targetCounts.reduce<number>((sum, count) => sum + (count ?? 0), 0);
+      }
+    }
     const plan = planCopiaCompatibilidades(sourceUp, targetUp, origen, destino);
     if (plan === "COMPARTIDAS") return { estado: "COMPARTIDAS", origen, destino };
     if (plan === "SIN_ORIGEN") return { estado: "SIN_ORIGEN", origen, destino };
@@ -874,7 +886,13 @@ async function copiarCompatibilidadesDePublicacion(sourceId: string, sourceUp: u
     }
     try {
       const updated = await meliGet(`/items/${encodeURIComponent(targetId)}/compatibilities?limit=1`, idCuenta, token);
-      return { estado: "SOLICITADA", origen, destino: totalCompatibilidades(updated) };
+      let totalActualizado = totalCompatibilidades(updated);
+      if (totalActualizado === null && dominios.length) {
+        const summaries = await Promise.all(dominios.map((domain_id) => meliPost("/items/compatibilities_summary", idCuenta, token, { domain_id, items: [targetId] })));
+        const counts = summaries.map((summary) => totalResumen(summary, targetId));
+        if (counts.every((count) => count !== null)) totalActualizado = counts.reduce<number>((sum, count) => sum + (count ?? 0), 0);
+      }
+      return totalActualizado === null ? { estado: "SOLICITADA_SIN_VERIFICAR", origen, destino: null } : { estado: "SOLICITADA", origen, destino: totalActualizado };
     } catch { return { estado: "SOLICITADA_SIN_VERIFICAR", origen, destino: null }; }
   } catch (error) { return { estado: "NO_VERIFICADA", origen: null, destino: null, detalle: etapa === "copia" ? "No se recibio respuesta de la copia. Revisa el destino antes de reintentar." : error instanceof AppError ? error.message : "No se pudo consultar origen o destino." }; }
 }
@@ -895,7 +913,7 @@ export async function reintentarCompatibilidades(idPublicacion: number, tipo: "I
   ]) as [Record<string, unknown>, Record<string, unknown>];
   if (Number(source.seller_id) !== sellerId || Number(target.seller_id) !== sellerId) throw new AppError("Ambas publicaciones deben pertenecer a la cuenta conectada.", 403);
   if (!source.category_id || source.category_id !== target.category_id) throw new AppError("Las publicaciones no tienen la misma categoria; no se intento copiar.", 400);
-  return copiarCompatibilidadesDePublicacion(publication.item_id, source.user_product_id, destino, target.user_product_id, idCuenta, accessToken);
+  return copiarCompatibilidadesDePublicacion(publication.item_id, source.user_product_id, destino, target.user_product_id, source.category_id, idCuenta, accessToken);
 }
 
 async function meliPost(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {
