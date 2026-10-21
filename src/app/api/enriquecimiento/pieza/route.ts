@@ -10,6 +10,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await crearPiezaDesdeItems({
       ids: body?.ids,
       id_descripcion: body?.id_descripcion,
+      descripcion: body?.descripcion,
       originales: body?.originales,
       equivalentes: body?.equivalentes,
       sustitutos: body?.sustitutos,

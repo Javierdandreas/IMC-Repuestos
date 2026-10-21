@@ -424,6 +424,7 @@ export async function updateSufijosMarca(items: Array<{ id: unknown; sufijo_codi
 export async function crearPiezaDesdeItems(input: {
   ids: unknown;
   id_descripcion: unknown;
+  descripcion?: unknown;
   originales?: unknown;
   equivalentes?: unknown;
   sustitutos?: unknown;
@@ -469,7 +470,7 @@ export async function crearPiezaDesdeItems(input: {
     }
 
     const source = rows.find((item) => item.id === idDescripcion);
-    const descripcion = sanitizeRequiredString(source?.descripcion);
+    const descripcion = sanitizeRequiredString(input.descripcion === undefined ? source?.descripcion : input.descripcion);
     if (!descripcion) throw new Error("La descripcion seleccionada no es valida.");
 
     const piezaResult = await client.query<{ id: number; codigo_pieza: number; descripcion: string }>(`

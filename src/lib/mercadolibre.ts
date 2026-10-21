@@ -741,6 +741,7 @@ export async function revisarPublicacionParaDuplicar(idPublicacion: number, tipo
       retiro: typeof shipping?.local_pick_up === "boolean" ? shipping.local_pick_up : null,
     },
     descripcionDisponible: description === null ? null : Boolean(description.plain_text || description.text),
+    descripcionTexto: typeof description?.plain_text === "string" ? description.plain_text : "",
     compatibilidades: compat === null ? null : {
       total: typeof paging?.total === "number" ? paging.total : null,
       muestras: products.length,
@@ -791,14 +792,14 @@ export async function validarPublicacionParaDuplicar(idPublicacion: number, tipo
   };
 }
 
-export async function probarCreacionPublicacion(idPublicacion: number, tipo: "ITEM" | "KIT", id: number, nombre: string) {
+export async function probarCreacionPublicacion(idPublicacion: number, tipo: "ITEM" | "KIT", id: number, nombre: string, descripcion: string) {
   const column = tipo === "KIT" ? "id_kit" : "id_producto";
   const result = await query<{ id_cuenta: number; item_id: string }>(
     `SELECT id_cuenta, item_id FROM public.mercadolibre_publicacion WHERE id = $1 AND ${column} = $2`,
     [idPublicacion, id],
   );
   const publication = result.rows[0];
-  if (!publication || publication.item_id !== "MLA2837425938") throw new AppError("La prueba solo esta habilitada para la publicacion acordada.", 400);
+  if (!publication) throw new AppError("La publicacion ya no esta vinculada a este item o grupo.", 404);
   const idCuenta = Number(publication.id_cuenta);
   const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
   const item = await meliGet(`/items/${encodeURIComponent(publication.item_id)}`, idCuenta, accessToken) as Record<string, unknown>;
@@ -816,7 +817,17 @@ export async function probarCreacionPublicacion(idPublicacion: number, tipo: "IT
   const data = await response.json().catch(() => null) as Record<string, unknown> | null;
   const safeData = protegerDiagnostico(data, [accessToken]);
   if (response.ok && typeof data?.id === "string") {
-    return { resultado: "CREADA", publicacion: data.id, titulo: typeof data.title === "string" ? data.title : null, userProductId: typeof data.user_product_id === "string" ? data.user_product_id : null, estado: typeof data.status === "string" ? data.status : null };
+    let descripcionEstado = "SIN_DESCRIPCION";
+    if (descripcion.trim()) {
+      try {
+        const descriptionResponse = await fetch(`${API_BASE_URL}/items/${encodeURIComponent(data.id)}/description`, {
+          method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ plain_text: descripcion }), cache: "no-store",
+        });
+        descripcionEstado = descriptionResponse.ok ? "GUARDADA" : "ERROR";
+      } catch { descripcionEstado = "INCIERTA"; }
+    }
+    return { resultado: "CREADA", publicacion: data.id, titulo: typeof data.title === "string" ? data.title : null, userProductId: typeof data.user_product_id === "string" ? data.user_product_id : null, estado: typeof data.status === "string" ? data.status : null, descripcionEstado };
   }
   if (response.status >= 500 || response.ok) {
     return { resultado: "INCIERTO", status: response.status, mensaje: "Mercado Libre no confirmo el resultado. Revisa la cuenta antes de volver a intentar.", respuesta: safeData };
