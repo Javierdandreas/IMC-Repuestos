@@ -4,6 +4,7 @@ import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
 import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
 import { interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico } from "@/lib/mercadolibre-validacion-publicacion";
+import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -742,6 +743,7 @@ export async function revisarPublicacionParaDuplicar(idPublicacion: number, tipo
     },
     descripcionDisponible: description === null ? null : Boolean(description.plain_text || description.text),
     descripcionTexto: typeof description?.plain_text === "string" ? description.plain_text : "",
+    atributosDescripcion: atributosParaDescripcion(item.attributes),
     compatibilidades: compat === null ? null : {
       total: typeof paging?.total === "number" ? paging.total : null,
       muestras: products.length,
