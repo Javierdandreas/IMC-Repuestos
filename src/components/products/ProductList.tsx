@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { PencilButton } from "@/components/ui/PencilButton";
@@ -17,6 +18,7 @@ import { ProductoListado, Subcategoria, TipoPrecio } from "@/interfaces/producto
 import { BulkLabelPrinter } from "@/components/products/BulkLabelPrinter";
 import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
 import { MassEditItemsModal } from "@/components/products/MassEditItemsModal";
+import { ReviewPublicationModal } from "@/components/products/ReviewPublicationModal";
 
 interface Props {
   products: ItemListadoUnificado[];
@@ -88,13 +90,36 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [activeTab, setActiveTab] = useState<TabId>("principal");
   const [deletingProduct, setDeletingProduct] = useState<ItemListadoUnificado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [openOptionsKey, setOpenOptionsKey] = useState<string | null>(null);
+  const [openOptions, setOpenOptions] = useState<{ product: ItemListadoUnificado; top: number; left: number; width: number } | null>(null);
+  const optionsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const optionsMenuRef = useRef<HTMLDivElement | null>(null);
+  const [reviewPublicationProduct, setReviewPublicationProduct] = useState<ItemListadoUnificado | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [activityState, setActivityState] = useState<{ key: string; activities: ProductActivity[]; loading: boolean }>({
     key: "",
     activities: [],
     loading: false,
   });
+
+  useEffect(() => {
+    if (!openOptions) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!optionsMenuRef.current?.contains(target) && !optionsButtonRef.current?.contains(target)) setOpenOptions(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpenOptions(null); };
+    const close = () => setOpenOptions(null);
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [openOptions]);
 
   // Estados de filtros (sincronizados con URL)
   const [searchGeneral, setSearchGeneral] = useState(searchParams.get("search") || "");
@@ -716,39 +741,26 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                               type="button"
                               title="Mas opciones"
                               aria-label={`Mas opciones para ${product.descripcion}`}
-                              aria-expanded={openOptionsKey === `${product.tipo}-${product.id}`}
-                              onClick={() => setOpenOptionsKey((current) => current === `${product.tipo}-${product.id}` ? null : `${product.tipo}-${product.id}`)}
+                              aria-expanded={openOptions?.product.tipo === product.tipo && openOptions.product.id === product.id}
+                              onClick={(event) => {
+                                if (openOptions?.product.tipo === product.tipo && openOptions.product.id === product.id) {
+                                  setOpenOptions(null);
+                                  return;
+                                }
+                                const button = event.currentTarget;
+                                const rect = button.getBoundingClientRect();
+                                const width = Math.min(208, Math.max(0, window.innerWidth - 16));
+                                const height = 124;
+                                const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+                                const top = rect.bottom + 4 + height <= window.innerHeight - 8
+                                  ? rect.bottom + 4 : Math.max(8, rect.top - height - 4);
+                                optionsButtonRef.current = button;
+                                setOpenOptions({ product, top, left, width });
+                              }}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-300 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                             >
                               <HiDotsVertical className="h-5 w-5" />
                             </button>
-                            {openOptionsKey === `${product.tipo}-${product.id}` && (
-                              <div className="absolute right-1 top-full z-30 mt-1 w-36 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOpenOptionsKey(null);
-                                    product.tipo === "KIT"
-                                      ? navigateToKitForm(`/kits/duplicar/${product.id}`)
-                                      : navigateToProductForm(`/productos/duplicar/${product.id}`);
-                                  }}
-                                  className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-slate-600 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"
-                                >
-                                  <HiCollection className="h-4 w-4" /> Duplicar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOpenOptionsKey(null);
-                                    setDeletingProduct(product);
-                                  }}
-                                  disabled={isDeleting && deletingProduct?.id === product.id && deletingProduct?.tipo === product.tipo}
-                                  className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-500/10"
-                                >
-                                  <HiTrash className="h-4 w-4" /> Borrar
-                                </button>
-                              </div>
-                            )}
                           </>
                         ) : (
                           <span className="text-xs font-medium tracking-wide text-slate-400">SOLO LECTURA</span>
@@ -1179,6 +1191,26 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
           />
         )}
       </Modal>
+
+      {openOptions && createPortal(
+        <div ref={optionsMenuRef} style={{ top: openOptions.top, left: openOptions.left, width: openOptions.width }} className="fixed z-[100] rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+          <button type="button" onClick={() => {
+            const product = openOptions.product;
+            setOpenOptions(null);
+            product.tipo === "KIT" ? navigateToKitForm(`/kits/duplicar/${product.id}`) : navigateToProductForm(`/productos/duplicar/${product.id}`);
+          }} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-slate-600 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-300">
+            <HiCollection className="h-4 w-4 shrink-0" /> Duplicar
+          </button>
+          <button type="button" onClick={() => { setReviewPublicationProduct(openOptions.product); setOpenOptions(null); }} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-slate-600 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-300">
+            <HiExternalLink className="h-4 w-4 shrink-0" /> Duplicar publicacion ML
+          </button>
+          <button type="button" onClick={() => { setDeletingProduct(openOptions.product); setOpenOptions(null); }} disabled={isDeleting && deletingProduct?.id === openOptions.product.id && deletingProduct?.tipo === openOptions.product.tipo} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-500/10">
+            <HiTrash className="h-4 w-4 shrink-0" /> Borrar
+          </button>
+        </div>, document.body,
+      )}
+
+      {reviewPublicationProduct && <ReviewPublicationModal product={reviewPublicationProduct} onClose={() => setReviewPublicationProduct(null)} />}
 
       <ConfirmDeleteModal
         open={canManage && !!deletingProduct}

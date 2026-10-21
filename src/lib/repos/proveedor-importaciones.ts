@@ -382,7 +382,8 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
         SELECT
           upper(trim(codigo_proveedor)) AS codigo_normalizado,
           COUNT(*) AS cantidad,
-          COUNT(DISTINCT ROW(precio_lista, upper(trim(COALESCE(stock_original, ''))))) AS variantes
+          COUNT(DISTINCT COALESCE(precio_origen, precio_lista)) AS precios,
+          COUNT(DISTINCT ROW(COALESCE(stock_estado, 'DESCONOCIDO'), stock_cantidad, upper(trim(COALESCE(stock_original, ''))))) AS stocks
         FROM public.proveedor_importacion_item
         WHERE id_importacion = $1 AND estado = 'PENDIENTE'
         GROUP BY upper(trim(codigo_proveedor))
@@ -391,14 +392,33 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
       SET
         estado = 'DUPLICADO',
         mensaje = CASE
-          WHEN grupos.variantes = 1 THEN 'Fila repetida: se aplicara la primera fila identica'
-          ELSE 'El codigo aparece mas de una vez con precio o stock distinto'
+          WHEN grupos.precios > 1 THEN 'El codigo aparece mas de una vez con precio distinto'
+          WHEN grupos.stocks > 1 THEN 'Fila repetida con distinto stock: se aplicara stock desconocido'
+          ELSE 'Fila repetida: se aplicara la primera fila identica'
         END
       FROM filas
       INNER JOIN grupos ON grupos.codigo_normalizado = filas.codigo_normalizado
       WHERE pii.id = filas.id
         AND grupos.cantidad > 1
-        AND (grupos.variantes > 1 OR filas.posicion > 1)
+        AND (grupos.precios > 1 OR filas.posicion > 1)
+    `,
+    [idImportacion],
+  );
+
+  await client.query(
+    `
+      WITH grupos AS (
+        SELECT upper(trim(codigo_proveedor)) AS codigo_normalizado,
+          COUNT(DISTINCT ROW(COALESCE(stock_estado, 'DESCONOCIDO'), stock_cantidad, upper(trim(COALESCE(stock_original, ''))))) AS stocks
+        FROM public.proveedor_importacion_item
+        WHERE id_importacion = $1 AND estado IN ('PENDIENTE', 'DUPLICADO')
+        GROUP BY upper(trim(codigo_proveedor))
+      )
+      UPDATE public.proveedor_importacion_item pii
+      SET stock_estado = 'DESCONOCIDO', stock_cantidad = NULL, stock_original = NULL
+      FROM grupos
+      WHERE pii.id_importacion = $1 AND pii.estado = 'PENDIENTE'
+        AND upper(trim(pii.codigo_proveedor)) = grupos.codigo_normalizado AND grupos.stocks > 1
     `,
     [idImportacion],
   );
@@ -491,6 +511,32 @@ async function finalizarAplicacionImportacion(client: DbClient, idImportacion: n
           ),
           updated_at = NOW()
       WHERE id = $1
+    `,
+    [idImportacion],
+  );
+  await client.query(
+    `
+      INSERT INTO public.proveedor_catalogo_precio (
+        id_proveedor, codigo_normalizado, codigo_proveedor, precio_lista,
+        stock_original, stock_estado, stock_cantidad, id_importacion, fecha_importacion
+      )
+      SELECT DISTINCT ON (upper(trim(pii.codigo_proveedor)))
+        pi.id_proveedor, upper(trim(pii.codigo_proveedor)), pii.codigo_proveedor, pii.precio_lista,
+        pii.stock_original, pii.stock_estado, pii.stock_cantidad, pi.id, pi.created_at
+      FROM public.proveedor_importacion pi
+      JOIN public.proveedor_importacion_item pii ON pii.id_importacion = pi.id
+      WHERE pi.id = $1 AND pii.precio_lista IS NOT NULL AND pii.precio_lista >= 0
+        AND trim(COALESCE(pii.codigo_proveedor, '')) <> ''
+        AND (pii.estado IN ('ACTUALIZADO', 'NO_ENCONTRADO')
+          OR (pii.estado = 'DUPLICADO' AND pii.mensaje = 'El codigo esta asociado a mas de un item en este proveedor'))
+      ORDER BY upper(trim(pii.codigo_proveedor)), pii.id DESC
+      ON CONFLICT (id_proveedor, codigo_normalizado) DO UPDATE SET
+        codigo_proveedor = EXCLUDED.codigo_proveedor, precio_lista = EXCLUDED.precio_lista,
+        stock_original = EXCLUDED.stock_original, stock_estado = EXCLUDED.stock_estado,
+        stock_cantidad = EXCLUDED.stock_cantidad, id_importacion = EXCLUDED.id_importacion,
+        fecha_importacion = EXCLUDED.fecha_importacion
+      WHERE (EXCLUDED.fecha_importacion, EXCLUDED.id_importacion) >=
+            (proveedor_catalogo_precio.fecha_importacion, proveedor_catalogo_precio.id_importacion)
     `,
     [idImportacion],
   );
@@ -958,23 +1004,17 @@ export async function getUltimoItemProveedor(
   const { rows } = await query(
     `
       SELECT
-        pii.id_importacion,
-        pi.id_proveedor,
-        pii.codigo_proveedor,
-        pii.precio_lista::float AS precio_lista,
-        pii.stock_original,
-        pii.stock_estado,
-        pii.stock_cantidad::float AS stock_cantidad,
-        pi.created_at AS fecha_importacion
-      FROM public.proveedor_importacion_item pii
-      INNER JOIN public.proveedor_importacion pi ON pi.id = pii.id_importacion
-      WHERE pi.id_proveedor = $1
-        AND upper(trim(pii.codigo_proveedor)) = upper(trim($2))
-        AND pi.estado = 'APLICADA'
-        -- Una fila sin item asociado sigue teniendo un precio valido para aplicar
-        -- cuando el usuario vincula luego ese proveedor y codigo al item.
-        AND pii.estado IN ('ACTUALIZADO', 'NO_ENCONTRADO')
-      ORDER BY pi.created_at DESC, pii.id DESC
+        catalogo.id_importacion AS importacion_id,
+        catalogo.id_proveedor,
+        catalogo.codigo_proveedor,
+        catalogo.precio_lista::float AS precio_lista,
+        catalogo.stock_original,
+        catalogo.stock_estado,
+        catalogo.stock_cantidad::float AS stock_cantidad,
+        catalogo.fecha_importacion
+      FROM public.proveedor_catalogo_precio catalogo
+      WHERE catalogo.id_proveedor = $1
+        AND catalogo.codigo_normalizado = upper(trim($2))
       LIMIT 1
     `,
     [id_proveedor, codigo_proveedor]

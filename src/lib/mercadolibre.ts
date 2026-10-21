@@ -698,6 +698,49 @@ async function meliGet(path: string, idCuenta: number, token: string) {
   return response.json() as Promise<unknown>;
 }
 
+export async function revisarPublicacionParaDuplicar(idPublicacion: number, tipo: "ITEM" | "KIT", id: number) {
+  const column = tipo === "KIT" ? "id_kit" : "id_producto";
+  const result = await query<{ id_cuenta: number; item_id: string }>(
+    `SELECT id_cuenta, item_id FROM public.mercadolibre_publicacion WHERE id = $1 AND ${column} = $2`,
+    [idPublicacion, id],
+  );
+  const publication = result.rows[0];
+  if (!publication) throw new AppError("La publicacion ya no esta vinculada a este item o grupo.", 404);
+  const idCuenta = Number(publication.id_cuenta);
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  const itemId = encodeURIComponent(publication.item_id);
+  const item = await meliGet(`/items/${itemId}`, idCuenta, accessToken) as Record<string, unknown>;
+  if (Number(item.seller_id) !== sellerId) throw new AppError("La publicacion no pertenece a la cuenta conectada.", 403);
+  const compatibilities = await Promise.allSettled([
+    meliGet(`/items/${itemId}/description`, idCuenta, accessToken),
+    meliGet(`/items/${itemId}/compatibilities?limit=50`, idCuenta, accessToken),
+  ]);
+  const description = compatibilities[0].status === "fulfilled" ? compatibilities[0].value as Record<string, unknown> : null;
+  const compat = compatibilities[1].status === "fulfilled" ? compatibilities[1].value as Record<string, unknown> : null;
+  const products = Array.isArray(compat?.products) ? compat.products as Array<Record<string, unknown>> : [];
+  const paging = compat?.paging && typeof compat.paging === "object" ? compat.paging as Record<string, unknown> : null;
+  return {
+    itemId: publication.item_id,
+    titulo: String(item.title || ""),
+    estado: String(item.status || ""),
+    categoria: String(item.category_id || ""),
+    userProductId: typeof item.user_product_id === "string" ? item.user_product_id : null,
+    sku: itemSku(item as MeliItem),
+    precio: typeof item.price === "number" ? item.price : null,
+    moneda: String(item.currency_id || ""),
+    stock: typeof item.available_quantity === "number" ? item.available_quantity : null,
+    fotos: Array.isArray(item.pictures) ? item.pictures.length : null,
+    descripcionDisponible: description === null ? null : Boolean(description.plain_text || description.text),
+    compatibilidades: compat === null ? null : {
+      total: typeof paging?.total === "number" ? paging.total : null,
+      muestras: products.length,
+      vendedor: products.filter((product) => product.source === "SELLER").length,
+      catalogo: products.filter((product) => product.source === "CATALOGO").reduce((sum, product) => sum + (Number(product.total) || 1), 0),
+      sinOrigen: products.filter((product) => product.source !== "SELLER" && product.source !== "CATALOGO").length,
+    },
+  };
+}
+
 async function meliPost(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {
   const request = async (accessToken: string) => fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
