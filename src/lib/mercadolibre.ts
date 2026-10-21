@@ -3,6 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
 import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
+import { prepararValidacionPublicacion } from "@/lib/mercadolibre-validacion-publicacion";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -739,6 +740,36 @@ export async function revisarPublicacionParaDuplicar(idPublicacion: number, tipo
       sinOrigen: products.filter((product) => product.source !== "SELLER" && product.source !== "CATALOGO").length,
     },
   };
+}
+
+export async function validarPublicacionParaDuplicar(idPublicacion: number, tipo: "ITEM" | "KIT", id: number, nombre: string) {
+  const column = tipo === "KIT" ? "id_kit" : "id_producto";
+  const result = await query<{ id_cuenta: number; item_id: string }>(
+    `SELECT id_cuenta, item_id FROM public.mercadolibre_publicacion WHERE id = $1 AND ${column} = $2`,
+    [idPublicacion, id],
+  );
+  const publication = result.rows[0];
+  if (!publication) throw new AppError("La publicacion ya no esta vinculada a este item o grupo.", 404);
+  const idCuenta = Number(publication.id_cuenta);
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  const item = await meliGet(`/items/${encodeURIComponent(publication.item_id)}`, idCuenta, accessToken) as Record<string, unknown>;
+  if (Number(item.seller_id) !== sellerId) throw new AppError("La publicacion no pertenece a la cuenta conectada.", 403);
+  let body: Record<string, unknown>;
+  try { body = prepararValidacionPublicacion(item, nombre); }
+  catch (error) { throw new AppError(error instanceof Error ? error.message : "No se pudo preparar la validacion.", 400); }
+  const request = (token: string) => fetch(`${API_BASE_URL}/items/validate`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body), cache: "no-store",
+  });
+  let response = await request(accessToken);
+  if (response.status === 401) response = await request((await accessTokenForCuenta(idCuenta, true)).accessToken);
+  const data = response.status === 204 ? null : await response.json().catch(() => null) as { message?: unknown; error?: unknown; cause?: unknown } | null;
+  const details = Array.isArray(data?.cause) ? data.cause.flatMap((cause: { code?: unknown; message?: unknown }) => {
+    const message = typeof cause?.message === "string" ? cause.message : "";
+    return message ? [`${typeof cause.code === "string" ? `${cause.code}: ` : ""}${message}`] : [];
+  }).slice(0, 20) : [];
+  const message = typeof data?.message === "string" ? data.message : typeof data?.error === "string" ? data.error : "";
+  return { validada: response.status === 204, status: response.status, mensaje: message, detalles: details };
 }
 
 async function meliPost(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {
