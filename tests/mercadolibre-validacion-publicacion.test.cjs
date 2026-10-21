@@ -7,7 +7,8 @@ test('prepara una propuesta de User Product sin identificadores de la publicacio
     id: 'MLA1', user_product_id: 'MLAU1', title: 'Anterior', seller_id: 123,
     category_id: 'MLA123', price: 50, currency_id: 'ARS', available_quantity: 5,
     pictures: [{ id: 'foto1', url: 'https://example.com/foto' }],
-    attributes: [{ id: 'BRAND', value_id: '123', value_name: 'Marca', tags: {} }],
+    attributes: [{ id: 'BRAND', value_id: '123', value_name: 'Marca', tags: {} },
+      { id: 'CATALOG_TITLE', value_name: 'Titulo' }, { id: 'HAS_COMPATIBILITIES', value_name: 'Si' }],
   }, 'Nombre nuevo');
   assert.equal(result.family_name, 'Nombre nuevo');
   assert.equal(result.title, undefined);

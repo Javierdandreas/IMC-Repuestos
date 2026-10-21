@@ -14,6 +14,7 @@ export function prepararValidacionPublicacion(item: Record<string, unknown>, nom
   if (Array.isArray(item.attributes)) {
     payload.attributes = item.attributes.flatMap((attribute: Record<string, unknown>) => {
       if (typeof attribute?.id !== "string") return [];
+      if (attribute.id === "CATALOG_TITLE" || attribute.id === "HAS_COMPATIBILITIES") return [];
       const result: Record<string, unknown> = { id: attribute.id };
       if (attribute.value_id) result.value_id = attribute.value_id;
       else if (attribute.value_name) result.value_name = attribute.value_name;
