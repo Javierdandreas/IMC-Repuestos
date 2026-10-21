@@ -720,6 +720,7 @@ export async function revisarPublicacionParaDuplicar(idPublicacion: number, tipo
   const compat = compatibilities[1].status === "fulfilled" ? compatibilities[1].value as Record<string, unknown> : null;
   const products = Array.isArray(compat?.products) ? compat.products as Array<Record<string, unknown>> : [];
   const paging = compat?.paging && typeof compat.paging === "object" ? compat.paging as Record<string, unknown> : null;
+  const shipping = item.shipping && typeof item.shipping === "object" ? item.shipping as Record<string, unknown> : null;
   return {
     itemId: publication.item_id,
     titulo: String(item.title || ""),
@@ -731,6 +732,11 @@ export async function revisarPublicacionParaDuplicar(idPublicacion: number, tipo
     moneda: String(item.currency_id || ""),
     stock: typeof item.available_quantity === "number" ? item.available_quantity : null,
     fotos: Array.isArray(item.pictures) ? item.pictures.length : null,
+    envio: {
+      modalidad: typeof shipping?.mode === "string" ? shipping.mode : null,
+      gratis: typeof shipping?.free_shipping === "boolean" ? shipping.free_shipping : null,
+      retiro: typeof shipping?.local_pick_up === "boolean" ? shipping.local_pick_up : null,
+    },
     descripcionDisponible: description === null ? null : Boolean(description.plain_text || description.text),
     compatibilidades: compat === null ? null : {
       total: typeof paging?.total === "number" ? paging.total : null,

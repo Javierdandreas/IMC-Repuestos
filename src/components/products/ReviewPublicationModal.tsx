@@ -8,6 +8,7 @@ type Review = {
   itemId: string; titulo: string; estado: string; categoria: string; userProductId: string | null;
   sku: string | null; precio: number | null; moneda: string; stock: number | null; fotos: number | null;
   descripcionDisponible: boolean | null;
+  envio: { modalidad: string | null; gratis: boolean | null; retiro: boolean | null };
   compatibilidades: { total: number | null; muestras: number; vendedor: number; catalogo: number; sinOrigen: number } | null;
 };
 
@@ -79,6 +80,7 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
         <p>Modelo: {review.userProductId ? `User Product (${review.userProductId})` : "Sin User Product informado"} | Estado: {review.estado || "Sin dato"}</p>
         <p>SKU: {review.sku || "Sin dato"} | Categoria: {review.categoria || "Sin dato"}</p>
         <p>Precio: {review.precio === null ? "Sin dato" : `${review.moneda} ${review.precio.toLocaleString("es-AR")}`} | Stock: {review.stock ?? "Sin dato"} | Fotos: {review.fotos ?? "Sin dato"}</p>
+        <p>Envio: {review.envio?.modalidad || "Sin dato"} | Envio gratis: {review.envio?.gratis == null ? "Sin dato" : review.envio.gratis ? "Si" : "No"} | Retiro en persona: {review.envio?.retiro == null ? "Sin dato" : review.envio.retiro ? "Si" : "No"}</p>
         <p>Descripcion: {review.descripcionDisponible === null ? "No se pudo consultar" : review.descripcionDisponible ? "Disponible" : "Sin descripcion informada"}</p>
         <p>Compatibilidades: {review.compatibilidades === null ? "No se pudieron consultar" : `Mercado Libre devolvio ${review.compatibilidades.muestras} registros${review.compatibilidades.total === null ? "" : ` de ${review.compatibilidades.total}`}; en esta respuesta: ${review.compatibilidades.vendedor} del vendedor, ${review.compatibilidades.catalogo} del catalogo y ${review.compatibilidades.sinOrigen} registros sin origen informado.`}</p>
         <div className="space-y-2 border-t border-slate-200 pt-4 dark:border-slate-800">
