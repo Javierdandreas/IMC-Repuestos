@@ -715,9 +715,11 @@ export async function revisarPublicacionParaDuplicar(idPublicacion: number, tipo
   const compatibilities = await Promise.allSettled([
     meliGet(`/items/${itemId}/description`, idCuenta, accessToken),
     meliGet(`/items/${itemId}/compatibilities?limit=50`, idCuenta, accessToken),
+    meliGet(`/users/${sellerId}`, idCuenta, accessToken),
   ]);
   const description = compatibilities[0].status === "fulfilled" ? compatibilities[0].value as Record<string, unknown> : null;
   const compat = compatibilities[1].status === "fulfilled" ? compatibilities[1].value as Record<string, unknown> : null;
+  const seller = compatibilities[2].status === "fulfilled" ? compatibilities[2].value as Record<string, unknown> : null;
   const products = Array.isArray(compat?.products) ? compat.products as Array<Record<string, unknown>> : [];
   const paging = compat?.paging && typeof compat.paging === "object" ? compat.paging as Record<string, unknown> : null;
   const shipping = item.shipping && typeof item.shipping === "object" ? item.shipping as Record<string, unknown> : null;
@@ -727,6 +729,7 @@ export async function revisarPublicacionParaDuplicar(idPublicacion: number, tipo
     estado: String(item.status || ""),
     categoria: String(item.category_id || ""),
     userProductId: typeof item.user_product_id === "string" ? item.user_product_id : null,
+    userProductSeller: Array.isArray(seller?.tags) ? seller.tags.includes("user_product_seller") : null,
     sku: itemSku(item as MeliItem),
     precio: typeof item.price === "number" ? item.price : null,
     moneda: String(item.currency_id || ""),
