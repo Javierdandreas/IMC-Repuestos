@@ -6,6 +6,7 @@ test('prepara una propuesta de User Product sin identificadores de la publicacio
   const result = prepararValidacionPublicacion({
     id: 'MLA1', user_product_id: 'MLAU1', title: 'Anterior', seller_id: 123,
     category_id: 'MLA123', price: 50, currency_id: 'ARS', available_quantity: 5,
+    shipping: { mode: 'me2', local_pick_up: false, free_shipping: true, logistic_type: 'fulfillment' },
     pictures: [{ id: 'foto1', url: 'https://example.com/foto' }],
     attributes: [{ id: 'BRAND', value_id: '123', value_name: 'Marca', tags: {} },
       { id: 'CATALOG_TITLE', value_name: 'Titulo' }, { id: 'HAS_COMPATIBILITIES', value_name: 'Si' }],
@@ -16,7 +17,12 @@ test('prepara una propuesta de User Product sin identificadores de la publicacio
   assert.equal(result.user_product_id, undefined);
   assert.equal(result.seller_id, undefined);
   assert.deepEqual(result.pictures, [{ id: 'foto1' }]);
+  assert.deepEqual(result.shipping, { mode: 'me2', local_pick_up: false, free_shipping: true });
   assert.deepEqual(result.attributes, [{ id: 'BRAND', value_id: '123' }]);
+});
+
+test('no supone configuracion para otros modos de envio', () => {
+  assert.equal(prepararValidacionPublicacion({ shipping: { mode: 'custom' } }, 'Nombre').shipping, undefined);
 });
 
 test('usa titulo en el modelo anterior y no descarta valores numericos cero', () => {

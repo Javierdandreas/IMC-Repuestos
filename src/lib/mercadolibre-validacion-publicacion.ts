@@ -7,6 +7,15 @@ export function prepararValidacionPublicacion(item: Record<string, unknown>, nom
     if (item[key] !== null && item[key] !== undefined) payload[key] = item[key];
   }
   payload[item.user_product_id ? "family_name" : "title"] = nombre;
+  if (item.shipping && typeof item.shipping === "object") {
+    const shipping = item.shipping as Record<string, unknown>;
+    if (shipping.mode === "me2") {
+      const proposedShipping: Record<string, unknown> = { mode: "me2" };
+      if (typeof shipping.local_pick_up === "boolean") proposedShipping.local_pick_up = shipping.local_pick_up;
+      if (typeof shipping.free_shipping === "boolean") proposedShipping.free_shipping = shipping.free_shipping;
+      payload.shipping = proposedShipping;
+    }
+  }
   if (Array.isArray(item.pictures)) {
     payload.pictures = item.pictures.flatMap((picture: Record<string, unknown>) =>
       typeof picture?.id === "string" ? [{ id: picture.id }] : []);
