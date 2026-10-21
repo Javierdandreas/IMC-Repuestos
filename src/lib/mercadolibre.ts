@@ -840,6 +840,7 @@ export async function probarCreacionPublicacion(idPublicacion: number, tipo: "IT
 }
 
 async function copiarCompatibilidadesDePublicacion(sourceId: string, sourceUp: unknown, targetId: string, targetUp: unknown, idCuenta: number, token: string) {
+  let etapa = "consulta";
   try {
     const [source, target] = await Promise.all([
       meliGet(`/items/${encodeURIComponent(sourceId)}/compatibilities?limit=1`, idCuenta, token),
@@ -850,20 +851,44 @@ async function copiarCompatibilidadesDePublicacion(sourceId: string, sourceUp: u
     const plan = planCopiaCompatibilidades(sourceUp, targetUp, origen, destino);
     if (plan === "COMPARTIDAS") return { estado: "COMPARTIDAS", origen, destino };
     if (plan === "SIN_ORIGEN") return { estado: "SIN_ORIGEN", origen, destino };
-    if (plan === "DESCONOCIDO") return { estado: "NO_VERIFICADA", origen, destino };
+    if (plan === "DESCONOCIDO") return { estado: "NO_VERIFICADA", origen, destino, detalle: "Mercado Libre no informo el total o el User Product necesario para decidir la copia." };
     const itemToCopy = { item_id: sourceId, extended_information: true };
+    etapa = "copia";
     const copy = await fetch(`${API_BASE_URL}/items/${encodeURIComponent(targetId)}/compatibilities`, {
       method: plan === "ACTUALIZAR" ? "PUT" : "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(plan === "ACTUALIZAR" ? { create: { item_to_copy: itemToCopy } } : { item_to_copy: itemToCopy }),
       cache: "no-store",
     });
-    if (!copy.ok) return { estado: "ERROR", origen, destino, status: copy.status };
+    if (!copy.ok) {
+      const data = await copy.json().catch(() => null) as { message?: unknown; error?: unknown } | null;
+      const detalle = typeof data?.message === "string" ? data.message : typeof data?.error === "string" ? data.error : "Mercado Libre rechazo la copia.";
+      return { estado: "ERROR", origen, destino, status: copy.status, detalle: String(protegerDiagnostico(detalle, [token])) };
+    }
     try {
       const updated = await meliGet(`/items/${encodeURIComponent(targetId)}/compatibilities?limit=1`, idCuenta, token);
       return { estado: "SOLICITADA", origen, destino: totalCompatibilidades(updated) };
     } catch { return { estado: "SOLICITADA_SIN_VERIFICAR", origen, destino: null }; }
-  } catch { return { estado: "NO_VERIFICADA", origen: null, destino: null }; }
+  } catch (error) { return { estado: "NO_VERIFICADA", origen: null, destino: null, detalle: etapa === "copia" ? "No se recibio respuesta de la copia. Revisa el destino antes de reintentar." : error instanceof AppError ? error.message : "No se pudo consultar origen o destino." }; }
+}
+
+export async function reintentarCompatibilidades(idPublicacion: number, tipo: "ITEM" | "KIT", id: number, destino: string) {
+  const column = tipo === "KIT" ? "id_kit" : "id_producto";
+  const result = await query<{ id_cuenta: number; item_id: string }>(
+    `SELECT id_cuenta, item_id FROM public.mercadolibre_publicacion WHERE id = $1 AND ${column} = $2`, [idPublicacion, id],
+  );
+  const publication = result.rows[0];
+  if (!publication) throw new AppError("La publicacion de origen no esta vinculada a este item o grupo.", 404);
+  if (publication.item_id === destino) throw new AppError("El origen y el destino deben ser diferentes.", 400);
+  const idCuenta = Number(publication.id_cuenta);
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  const [source, target] = await Promise.all([
+    meliGet(`/items/${encodeURIComponent(publication.item_id)}`, idCuenta, accessToken),
+    meliGet(`/items/${encodeURIComponent(destino)}`, idCuenta, accessToken),
+  ]) as [Record<string, unknown>, Record<string, unknown>];
+  if (Number(source.seller_id) !== sellerId || Number(target.seller_id) !== sellerId) throw new AppError("Ambas publicaciones deben pertenecer a la cuenta conectada.", 403);
+  if (!source.category_id || source.category_id !== target.category_id) throw new AppError("Las publicaciones no tienen la misma categoria; no se intento copiar.", 400);
+  return copiarCompatibilidadesDePublicacion(publication.item_id, source.user_product_id, destino, target.user_product_id, idCuenta, accessToken);
 }
 
 async function meliPost(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {

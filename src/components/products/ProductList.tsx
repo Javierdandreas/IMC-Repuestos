@@ -18,7 +18,7 @@ import { ProductoListado, Subcategoria, TipoPrecio } from "@/interfaces/producto
 import { BulkLabelPrinter } from "@/components/products/BulkLabelPrinter";
 import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
 import { MassEditItemsModal } from "@/components/products/MassEditItemsModal";
-import { ReviewPublicationModal } from "@/components/products/ReviewPublicationModal";
+import { ReviewPublicationModal, resumenCompatibilidad, type ResultadoPublicacion } from "@/components/products/ReviewPublicationModal";
 
 interface Props {
   products: ItemListadoUnificado[];
@@ -94,6 +94,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const optionsButtonRef = useRef<HTMLButtonElement | null>(null);
   const optionsMenuRef = useRef<HTMLDivElement | null>(null);
   const [reviewPublicationProduct, setReviewPublicationProduct] = useState<ItemListadoUnificado | null>(null);
+  const [publicacionCreada, setPublicacionCreada] = useState<ResultadoPublicacion | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [activityState, setActivityState] = useState<{ key: string; activities: ProductActivity[]; loading: boolean }>({
     key: "",
@@ -375,6 +376,9 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     <>
       <div className="flex min-h-screen flex-col bg-slate-50 p-3 transition-colors duration-200 dark:bg-slate-950 md:p-4">
         <div className="w-full space-y-3">
+          {publicacionCreada && <section role="status" className="border border-emerald-500/40 bg-emerald-500/5 p-4 text-sm text-slate-800 dark:text-slate-200">
+            <div className="flex flex-wrap items-start justify-between gap-3"><div className="space-y-1"><p className="font-bold">Publicacion creada: {publicacionCreada.publicacion}</p><p>{publicacionCreada.titulo || "Sin titulo informado"} | Estado: {publicacionCreada.estado || "Sin dato"}</p><p>{publicacionCreada.descripcionEstado === "GUARDADA" ? "Descripcion guardada." : publicacionCreada.descripcionEstado === "SIN_DESCRIPCION" ? "Sin descripcion." : "No se confirmo el guardado de la descripcion; revisa la publicacion."}</p><p>{resumenCompatibilidad(publicacionCreada.compatibilidades)}</p></div><button type="button" onClick={() => setPublicacionCreada(null)} className="rounded-md border border-slate-400 px-3 py-2 text-xs font-bold">Cerrar</button></div>
+          </section>}
           {/* Encabezado y Filtros */}
           <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/45">
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -1210,7 +1214,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         </div>, document.body,
       )}
 
-      {reviewPublicationProduct && <ReviewPublicationModal product={reviewPublicationProduct} onClose={() => setReviewPublicationProduct(null)} />}
+      {reviewPublicationProduct && <ReviewPublicationModal product={reviewPublicationProduct} onClose={() => setReviewPublicationProduct(null)} onPublished={(result) => { setPublicacionCreada(result); setReviewPublicationProduct(null); }} />}
 
       <ConfirmDeleteModal
         open={canManage && !!deletingProduct}
