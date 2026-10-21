@@ -5,6 +5,7 @@ import { query, withTransaction } from "@/lib/db-utils";
 import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
 import { interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico } from "@/lib/mercadolibre-validacion-publicacion";
 import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
+import { planCopiaCompatibilidades, totalCompatibilidades } from "@/lib/mercadolibre-copia-compatibilidades";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -829,12 +830,40 @@ export async function probarCreacionPublicacion(idPublicacion: number, tipo: "IT
         descripcionEstado = descriptionResponse.ok ? "GUARDADA" : "ERROR";
       } catch { descripcionEstado = "INCIERTA"; }
     }
-    return { resultado: "CREADA", publicacion: data.id, titulo: typeof data.title === "string" ? data.title : null, userProductId: typeof data.user_product_id === "string" ? data.user_product_id : null, estado: typeof data.status === "string" ? data.status : null, descripcionEstado };
+    const compatibilidades = await copiarCompatibilidadesDePublicacion(publication.item_id, item.user_product_id, data.id, data.user_product_id, idCuenta, accessToken);
+    return { resultado: "CREADA", publicacion: data.id, titulo: typeof data.title === "string" ? data.title : null, userProductId: typeof data.user_product_id === "string" ? data.user_product_id : null, estado: typeof data.status === "string" ? data.status : null, descripcionEstado, compatibilidades };
   }
   if (response.status >= 500 || response.ok) {
     return { resultado: "INCIERTO", status: response.status, mensaje: "Mercado Libre no confirmo el resultado. Revisa la cuenta antes de volver a intentar.", respuesta: safeData };
   }
   return { resultado: "RECHAZADA", status: response.status, respuesta: safeData };
+}
+
+async function copiarCompatibilidadesDePublicacion(sourceId: string, sourceUp: unknown, targetId: string, targetUp: unknown, idCuenta: number, token: string) {
+  try {
+    const [source, target] = await Promise.all([
+      meliGet(`/items/${encodeURIComponent(sourceId)}/compatibilities?limit=1`, idCuenta, token),
+      meliGet(`/items/${encodeURIComponent(targetId)}/compatibilities?limit=1`, idCuenta, token),
+    ]);
+    const origen = totalCompatibilidades(source);
+    const destino = totalCompatibilidades(target);
+    const plan = planCopiaCompatibilidades(sourceUp, targetUp, origen, destino);
+    if (plan === "COMPARTIDAS") return { estado: "COMPARTIDAS", origen, destino };
+    if (plan === "SIN_ORIGEN") return { estado: "SIN_ORIGEN", origen, destino };
+    if (plan === "DESCONOCIDO") return { estado: "NO_VERIFICADA", origen, destino };
+    const itemToCopy = { item_id: sourceId, extended_information: true };
+    const copy = await fetch(`${API_BASE_URL}/items/${encodeURIComponent(targetId)}/compatibilities`, {
+      method: plan === "ACTUALIZAR" ? "PUT" : "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(plan === "ACTUALIZAR" ? { create: { item_to_copy: itemToCopy } } : { item_to_copy: itemToCopy }),
+      cache: "no-store",
+    });
+    if (!copy.ok) return { estado: "ERROR", origen, destino, status: copy.status };
+    try {
+      const updated = await meliGet(`/items/${encodeURIComponent(targetId)}/compatibilities?limit=1`, idCuenta, token);
+      return { estado: "SOLICITADA", origen, destino: totalCompatibilidades(updated) };
+    } catch { return { estado: "SOLICITADA_SIN_VERIFICAR", origen, destino: null }; }
+  } catch { return { estado: "NO_VERIFICADA", origen: null, destino: null }; }
 }
 
 async function meliPost(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {

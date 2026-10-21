@@ -8,7 +8,7 @@ type Review = {
   itemId: string; titulo: string; userProductId: string | null; descripcionTexto: string; descripcionDisponible: boolean | null;
   compatibilidades: { total: number | null; muestras: number } | null;
 };
-type Resultado = { resultado: string; mensaje?: string; publicacion?: string; titulo?: string | null; estado?: string | null; status?: number; respuesta?: unknown; descripcionEstado?: string };
+type Resultado = { resultado: string; mensaje?: string; publicacion?: string; titulo?: string | null; estado?: string | null; status?: number; respuesta?: unknown; descripcionEstado?: string; compatibilidades?: { estado: string; origen: number | null; destino: number | null; status?: number } };
 
 export function ReviewPublicationModal({ product, onClose }: { product: { id: number; tipo: "ITEM" | "KIT"; descripcion: string }; onClose: () => void }) {
   const [links, setLinks] = useState<Link[] | null>(null);
@@ -61,7 +61,7 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
   };
 
   const publicar = async () => {
-    if (!review || !window.confirm(`Se creara una publicacion real usando los datos actuales de ${review.itemId}. Mercado Libre podria agruparla y afectar datos compartidos. Las compatibilidades NO se copiaran. Continuar?`)) return;
+    if (!review || !window.confirm(`Se creara una publicacion real usando los datos actuales de ${review.itemId}. Mercado Libre podria agruparla y afectar datos compartidos. Se intentara copiar las compatibilidades del vendedor con sus notas y restricciones. Continuar?`)) return;
     setIntento(true); setError("");
     try {
       const response = await fetch("/api/integraciones/mercadolibre/publicaciones/probar-duplicacion", {
@@ -105,7 +105,10 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
         {resultado && <div role="status" className="space-y-1">
           <p className="font-bold">{resultado.resultado === "CREADA" ? `Publicacion creada: ${resultado.publicacion}` : resultado.resultado === "RECHAZADA" ? `Mercado Libre rechazo la creacion (HTTP ${resultado.status}).` : "Resultado incierto."}</p>
           {resultado.mensaje && <p>{resultado.mensaje}</p>}
-          {resultado.resultado === "CREADA" && <><p>Titulo: {resultado.titulo || "Sin dato"} | Estado: {resultado.estado || "Sin dato"}</p><p>{resultado.descripcionEstado === "GUARDADA" ? "Descripcion guardada." : resultado.descripcionEstado === "SIN_DESCRIPCION" ? "Sin descripcion." : "No se confirmo el guardado de la descripcion. Revisa la publicacion creada."}</p><p>Las compatibilidades no se copiaron.</p></>}
+          {resultado.resultado === "CREADA" && <><p>Titulo: {resultado.titulo || "Sin dato"} | Estado: {resultado.estado || "Sin dato"}</p><p>{resultado.descripcionEstado === "GUARDADA" ? "Descripcion guardada." : resultado.descripcionEstado === "SIN_DESCRIPCION" ? "Sin descripcion." : "No se confirmo el guardado de la descripcion. Revisa la publicacion creada."}</p>
+            <p>{resultado.compatibilidades?.estado === "COMPARTIDAS" ? "Las publicaciones comparten el mismo producto; no se modificaron sus compatibilidades." : resultado.compatibilidades?.estado === "SIN_ORIGEN" ? "La publicacion original no informa compatibilidades." : resultado.compatibilidades?.estado === "SOLICITADA" ? `Copia de compatibilidades solicitada. Origen: ${resultado.compatibilidades.origen ?? "sin dato"}; destino consultado: ${resultado.compatibilidades.destino ?? "sin dato"}.` : resultado.compatibilidades?.estado === "SOLICITADA_SIN_VERIFICAR" ? "Copia solicitada, pero no se pudo verificar el destino." : "No se pudieron copiar o verificar las compatibilidades. Revisa la publicacion creada."}</p>
+            {resultado.compatibilidades?.estado === "SOLICITADA" && <p>Mercado Libre puede demorar en completar la copia y excluir compatibilidades del catalogo o con reclamos.</p>}
+          </>}
           {resultado.respuesta != null && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify(resultado.respuesta, null, 2)}</pre>}
         </div>}
       </div>}

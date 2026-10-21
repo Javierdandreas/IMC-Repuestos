@@ -4,6 +4,7 @@ import { requireApiWriteSession } from "@/lib/api-auth";
 import { probarCreacionPublicacion } from "@/lib/mercadolibre";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
