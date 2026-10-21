@@ -23,3 +23,24 @@ export function prepararValidacionPublicacion(item: Record<string, unknown>, nom
   }
   return payload;
 }
+
+export function interpretarValidacionPublicacion(status: number, data: unknown) {
+  const response = data && typeof data === "object" ? data as Record<string, unknown> : {};
+  const causes = Array.isArray(response.cause) ? response.cause : [];
+  return {
+    validada: status === 204,
+    status,
+    mensaje: typeof response.message === "string" ? response.message : "",
+    error: typeof response.error === "string" ? response.error : "",
+    detalles: causes.flatMap((value: unknown) => {
+      if (!value || typeof value !== "object") return [];
+      const cause = value as Record<string, unknown>;
+      return [{
+        tipo: typeof cause.type === "string" ? cause.type : "",
+        codigo: typeof cause.code === "string" ? cause.code : "",
+        mensaje: typeof cause.message === "string" ? cause.message : "",
+        referencias: Array.isArray(cause.references) ? cause.references.filter((reference): reference is string => typeof reference === "string") : [],
+      }];
+    }),
+  };
+}

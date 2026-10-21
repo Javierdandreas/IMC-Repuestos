@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
 import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
-import { prepararValidacionPublicacion } from "@/lib/mercadolibre-validacion-publicacion";
+import { interpretarValidacionPublicacion, prepararValidacionPublicacion } from "@/lib/mercadolibre-validacion-publicacion";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -763,13 +763,8 @@ export async function validarPublicacionParaDuplicar(idPublicacion: number, tipo
   });
   let response = await request(accessToken);
   if (response.status === 401) response = await request((await accessTokenForCuenta(idCuenta, true)).accessToken);
-  const data = response.status === 204 ? null : await response.json().catch(() => null) as { message?: unknown; error?: unknown; cause?: unknown } | null;
-  const details = Array.isArray(data?.cause) ? data.cause.flatMap((cause: { code?: unknown; message?: unknown }) => {
-    const message = typeof cause?.message === "string" ? cause.message : "";
-    return message ? [`${typeof cause.code === "string" ? `${cause.code}: ` : ""}${message}`] : [];
-  }).slice(0, 20) : [];
-  const message = typeof data?.message === "string" ? data.message : typeof data?.error === "string" ? data.error : "";
-  return { validada: response.status === 204, status: response.status, mensaje: message, detalles: details };
+  const data = response.status === 204 ? null : await response.json().catch(() => null);
+  return interpretarValidacionPublicacion(response.status, data);
 }
 
 async function meliPost(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {

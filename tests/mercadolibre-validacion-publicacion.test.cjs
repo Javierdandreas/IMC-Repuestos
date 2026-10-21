@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { prepararValidacionPublicacion } = require('../src/lib/mercadolibre-validacion-publicacion.ts');
+const { prepararValidacionPublicacion, interpretarValidacionPublicacion } = require('../src/lib/mercadolibre-validacion-publicacion.ts');
 
 test('prepara una propuesta de User Product sin identificadores de la publicacion', () => {
   const result = prepararValidacionPublicacion({
@@ -27,4 +27,15 @@ test('usa titulo en el modelo anterior y no descarta valores numericos cero', ()
 
 test('no prepara una propuesta incompleta para publicaciones con variaciones', () => {
   assert.throws(() => prepararValidacionPublicacion({ variations: [{ id: 1 }] }, 'Nombre'), /variaciones/);
+});
+
+test('conserva todos los errores y advertencias de la validacion', () => {
+  const cause = Array.from({ length: 22 }, (_, i) => ({ type: i === 21 ? 'error' : 'warning', code: `code${i}`, message: `detalle${i}`, references: ['item.attributes'] }));
+  const result = interpretarValidacionPublicacion(400, { message: 'Validation error', error: 'validation_error', cause });
+  assert.equal(result.validada, false);
+  assert.equal(result.error, 'validation_error');
+  assert.equal(result.detalles.length, 22);
+  assert.equal(result.detalles[21].tipo, 'error');
+  assert.deepEqual(result.detalles[21].referencias, ['item.attributes']);
+  assert.equal(interpretarValidacionPublicacion(204, null).validada, true);
 });

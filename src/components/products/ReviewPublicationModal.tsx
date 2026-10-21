@@ -19,7 +19,7 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
   const [error, setError] = useState("");
   const [nombre, setNombre] = useState("");
   const [validando, setValidando] = useState(false);
-  const [validacion, setValidacion] = useState<{ validada: boolean; status: number; mensaje: string; detalles: string[] } | null>(null);
+  const [validacion, setValidacion] = useState<{ validada: boolean; status: number; mensaje: string; error: string; detalles: { tipo: string; codigo: string; mensaje: string; referencias: string[] }[] } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -89,7 +89,13 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
           {validacion && <div role="status" className="space-y-1">
             <p className="font-bold">{validacion.validada ? "Mercado Libre valido los datos enviados." : `Mercado Libre no confirmo la validacion (HTTP ${validacion.status}).`}</p>
             {validacion.mensaje && <p>{validacion.mensaje}</p>}
-            {validacion.detalles.map((detail, index) => <p key={index}>{detail}</p>)}
+            {validacion.error && validacion.error !== validacion.mensaje && <p>{validacion.error}</p>}
+            {validacion.detalles.map((detail, index) => <div key={index} className="border-t border-slate-200 pt-2 dark:border-slate-800">
+              <p><strong>{detail.tipo === "error" ? "Error bloqueante" : detail.tipo === "warning" ? "Advertencia" : detail.tipo || "Detalle"}</strong>{detail.codigo ? ` (${detail.codigo})` : ""}</p>
+              {detail.mensaje && <p className="break-words">{detail.mensaje}</p>}
+              {detail.referencias.length > 0 && <p className="break-words text-xs">Campos: {detail.referencias.join(", ")}</p>}
+            </div>)}
+            {!validacion.validada && validacion.detalles.length > 0 && !validacion.detalles.some((detail) => detail.tipo === "error") && <p>No se recibio un motivo identificado como error bloqueante. La validacion no fue aprobada.</p>}
           </div>}
         </div>
       </div>}
