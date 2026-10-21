@@ -35,3 +35,17 @@ export function totalResumen(payload: unknown, itemId: string): number | null {
   const total = matches[0].compatibilities_count;
   return typeof total === "number" && Number.isSafeInteger(total) && total >= 0 ? total : null;
 }
+
+export function solicitudCopiaUserProduct(sourceId: string, sourceUp: unknown, targetUp: string, categoria: string, dominio: string) {
+  const userProductOrigen = typeof sourceUp === "string" && sourceUp ? sourceUp : null;
+  return {
+    path: `/user-products/${encodeURIComponent(targetUp)}/compatibilities/copy-paste`,
+    body: {
+      domain_id: dominio,
+      category_id: categoria,
+      item_id: userProductOrigen ? null : sourceId,
+      user_product_id: userProductOrigen,
+      extended_information: true,
+    },
+  };
+}

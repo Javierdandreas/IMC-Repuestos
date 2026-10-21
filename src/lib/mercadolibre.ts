@@ -5,7 +5,7 @@ import { query, withTransaction } from "@/lib/db-utils";
 import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
 import { interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico } from "@/lib/mercadolibre-validacion-publicacion";
 import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
-import { dominiosCompatibles, planCopiaCompatibilidades, totalCompatibilidades, totalResumen } from "@/lib/mercadolibre-copia-compatibilidades";
+import { dominiosCompatibles, planCopiaCompatibilidades, solicitudCopiaUserProduct, totalCompatibilidades, totalResumen } from "@/lib/mercadolibre-copia-compatibilidades";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -871,12 +871,23 @@ async function copiarCompatibilidadesDePublicacion(sourceId: string, sourceUp: u
       ].filter(Boolean);
       return { estado: "NO_VERIFICADA", origen, destino, detalle: `No se intento copiar. Datos no informados por Mercado Libre: ${faltantes.join(", ")}.` };
     }
+    let ruta = `/items/${encodeURIComponent(targetId)}/compatibilities`;
+    let metodo = plan === "ACTUALIZAR" ? "PUT" : "POST";
     const itemToCopy = { item_id: sourceId, extended_information: true };
+    let cuerpo: Record<string, unknown> = plan === "ACTUALIZAR" ? { create: { item_to_copy: itemToCopy } } : { item_to_copy: itemToCopy };
+    if (typeof targetUp === "string" && targetUp) {
+      if (!dominios.length) dominios = dominiosCompatibles(await meliGet("/catalog/dumps/domains/MLA/compatibilities", idCuenta, token), categoria);
+      if (typeof categoria !== "string" || dominios.length !== 1) return { estado: "NO_VERIFICADA", origen, destino, detalle: "No se intento copiar: no se pudo identificar un unico dominio compatible para la categoria." };
+      const solicitud = solicitudCopiaUserProduct(sourceId, sourceUp, targetUp, categoria, dominios[0]);
+      ruta = solicitud.path;
+      metodo = "POST";
+      cuerpo = solicitud.body;
+    }
     etapa = "copia";
-    const copy = await fetch(`${API_BASE_URL}/items/${encodeURIComponent(targetId)}/compatibilities`, {
-      method: plan === "ACTUALIZAR" ? "PUT" : "POST",
+    const copy = await fetch(`${API_BASE_URL}${ruta}`, {
+      method: metodo,
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(plan === "ACTUALIZAR" ? { create: { item_to_copy: itemToCopy } } : { item_to_copy: itemToCopy }),
+      body: JSON.stringify(cuerpo),
       cache: "no-store",
     });
     if (!copy.ok) {
