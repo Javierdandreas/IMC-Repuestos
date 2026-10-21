@@ -20,7 +20,8 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
   const [error, setError] = useState("");
   const [nombre, setNombre] = useState("");
   const [validando, setValidando] = useState(false);
-  const [validacion, setValidacion] = useState<{ validada: boolean; status: number; mensaje: string; error: string; detalles: { tipo: string; codigo: string; mensaje: string; referencias: string[] }[] } | null>(null);
+  const [validacion, setValidacion] = useState<{ validada: boolean; status: number; mensaje: string; error: string; detalles: { tipo: string; codigo: string; mensaje: string; referencias: string[] }[]; diagnostico?: unknown } | null>(null);
+  const [copiado, setCopiado] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -48,7 +49,7 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
   };
 
   const validar = async () => {
-    setValidando(true); setError(""); setValidacion(null);
+    setValidando(true); setError(""); setValidacion(null); setCopiado("");
     try {
       const response = await fetch("/api/integraciones/mercadolibre/publicaciones/validar-duplicacion", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -98,6 +99,15 @@ export function ReviewPublicationModal({ product, onClose }: { product: { id: nu
               {detail.referencias.length > 0 && <p className="break-words text-xs">Campos: {detail.referencias.join(", ")}</p>}
             </div>)}
             {!validacion.validada && validacion.detalles.length > 0 && !validacion.detalles.some((detail) => detail.tipo === "error") && <p>No se recibio un motivo identificado como error bloqueante. La validacion no fue aprobada.</p>}
+            {validacion.diagnostico != null && <details className="border-t border-slate-200 pt-2 dark:border-slate-800">
+              <summary className="cursor-pointer font-bold">Diagnostico tecnico</summary>
+              <p className="my-2">Incluye datos comerciales de la publicacion. Revisa su contenido antes de compartirlo.</p>
+              <button type="button" className="rounded-md border border-slate-500 px-3 py-2 text-xs font-bold" onClick={() => {
+                void navigator.clipboard.writeText(JSON.stringify(validacion.diagnostico, null, 2)).then(() => setCopiado("Diagnostico copiado.")).catch(() => setCopiado("No se pudo copiar. Selecciona el texto manualmente."));
+              }}>Copiar diagnostico</button>
+              {copiado && <p role="status">{copiado}</p>}
+              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-300 p-3 text-xs dark:border-slate-700">{JSON.stringify(validacion.diagnostico, null, 2)}</pre>
+            </details>}
           </div>}
         </div>
       </div>}

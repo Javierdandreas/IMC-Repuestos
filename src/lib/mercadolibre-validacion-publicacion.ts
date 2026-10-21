@@ -54,3 +54,18 @@ export function interpretarValidacionPublicacion(status: number, data: unknown) 
     }),
   };
 }
+
+export function protegerDiagnostico(value: unknown, tokens: string[]): unknown {
+  if (typeof value === "string") {
+    let result = value.replace(/\bBearer\s+\S+/gi, "Bearer [OCULTO]");
+    for (const token of tokens) if (token) result = result.split(token).join("[OCULTO]");
+    return result;
+  }
+  if (Array.isArray(value)) return value.map((entry) => protegerDiagnostico(entry, tokens));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key,
+      /authorization|token|secret|password|cookie|api.?key/i.test(key) ? "[OCULTO]" : protegerDiagnostico(entry, tokens),
+    ]));
+  }
+  return value;
+}

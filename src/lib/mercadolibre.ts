@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
 import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
-import { interpretarValidacionPublicacion, prepararValidacionPublicacion } from "@/lib/mercadolibre-validacion-publicacion";
+import { interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico } from "@/lib/mercadolibre-validacion-publicacion";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -767,10 +767,25 @@ export async function validarPublicacionParaDuplicar(idPublicacion: number, tipo
     method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(body), cache: "no-store",
   });
+  const tokens = [accessToken];
   let response = await request(accessToken);
-  if (response.status === 401) response = await request((await accessTokenForCuenta(idCuenta, true)).accessToken);
-  const data = response.status === 204 ? null : await response.json().catch(() => null);
-  return interpretarValidacionPublicacion(response.status, data);
+  if (response.status === 401) {
+    const renewed = await accessTokenForCuenta(idCuenta, true);
+    tokens.push(renewed.accessToken);
+    response = await request(renewed.accessToken);
+  }
+  const responseText = await response.text();
+  let data: unknown = null;
+  if (responseText) {
+    try { data = JSON.parse(responseText); }
+    catch { data = responseText; }
+  }
+  const safeData = protegerDiagnostico(data, tokens);
+  return {
+    ...interpretarValidacionPublicacion(response.status, safeData),
+    diagnostico: { metodo: "POST", recurso: "/items/validate", publicacionOrigen: publication.item_id,
+      solicitud: protegerDiagnostico(body, tokens), estadoHttp: response.status, respuesta: safeData },
+  };
 }
 
 async function meliPost(path: string, idCuenta: number, token: string, body: Record<string, unknown>) {

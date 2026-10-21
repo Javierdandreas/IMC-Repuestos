@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { prepararValidacionPublicacion, interpretarValidacionPublicacion } = require('../src/lib/mercadolibre-validacion-publicacion.ts');
+const { prepararValidacionPublicacion, interpretarValidacionPublicacion, protegerDiagnostico } = require('../src/lib/mercadolibre-validacion-publicacion.ts');
 
 test('prepara una propuesta de User Product sin identificadores de la publicacion', () => {
   const result = prepararValidacionPublicacion({
@@ -45,4 +45,11 @@ test('conserva todos los errores y advertencias de la validacion', () => {
   assert.equal(result.detalles[21].tipo, 'error');
   assert.deepEqual(result.detalles[21].referencias, ['item.attributes']);
   assert.equal(interpretarValidacionPublicacion(204, null).validada, true);
+});
+
+test('oculta credenciales incluso en respuestas anidadas o de texto', () => {
+  const result = protegerDiagnostico({ authorization: 'Bearer abc', nested: [{ access_token: 'abc', message: 'fallo abc Bearer xyz' }] }, ['abc']);
+  assert.equal(result.authorization, '[OCULTO]');
+  assert.equal(result.nested[0].access_token, '[OCULTO]');
+  assert.equal(result.nested[0].message, 'fallo [OCULTO] Bearer [OCULTO]');
 });
