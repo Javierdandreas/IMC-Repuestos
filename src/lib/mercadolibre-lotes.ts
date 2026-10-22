@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
 import { probarCreacionPublicacion } from "@/lib/mercadolibre";
-import { loteBloqueado } from "@/lib/mercadolibre-lote-validacion";
+import { descripcionParaPublicacion, loteBloqueado } from "@/lib/mercadolibre-lote-validacion";
 
 type Tipo = "ITEM" | "KIT";
 
@@ -14,13 +14,13 @@ export async function obtenerLote(tipo: Tipo, id: number, loteId?: string) {
   );
   const lote = result.rows[0];
   if (!lote) return null;
-  const items = await query<{ posicion: number; titulo: string; estado: string; resultado: unknown }>(
-    "SELECT posicion, titulo, estado, resultado FROM public.mercadolibre_lote_publicacion_item WHERE lote_id = $1 ORDER BY posicion", [lote.id],
+  const items = await query<{ posicion: number; titulo: string; descripcion: string | null; estado: string; resultado: unknown }>(
+    "SELECT posicion, titulo, descripcion, estado, resultado FROM public.mercadolibre_lote_publicacion_item WHERE lote_id = $1 ORDER BY posicion", [lote.id],
   );
   return { id: lote.id, publicacion: Number(lote.publicacion_id), descripcion: lote.descripcion, creado: lote.created_at, items: items.rows };
 }
 
-export async function crearLote(tipo: Tipo, id: number, publicacion: number, titulos: string[], descripcion: string) {
+export async function crearLote(tipo: Tipo, id: number, publicacion: number, titulos: string[], descripcion: string, descripciones?: string[]) {
   const column = tipo === "KIT" ? "id_kit" : "id_producto";
   const loteId = randomUUID();
   await withTransaction(async (client) => {
@@ -28,7 +28,7 @@ export async function crearLote(tipo: Tipo, id: number, publicacion: number, tit
     if (!link.rows.length) throw new AppError("La publicacion no esta vinculada a este producto.", 404);
     await client.query("INSERT INTO public.mercadolibre_lote_publicacion (id, tipo, producto_id, publicacion_id, descripcion) VALUES ($1, $2, $3, $4, $5)", [loteId, tipo, id, publicacion, descripcion]);
     for (const [posicion, titulo] of titulos.entries()) {
-      await client.query("INSERT INTO public.mercadolibre_lote_publicacion_item (lote_id, posicion, titulo) VALUES ($1, $2, $3)", [loteId, posicion, titulo]);
+      await client.query("INSERT INTO public.mercadolibre_lote_publicacion_item (lote_id, posicion, titulo, descripcion) VALUES ($1, $2, $3, $4)", [loteId, posicion, titulo, descripciones?.[posicion] ?? null]);
     }
   });
   return obtenerLote(tipo, id, loteId);
@@ -38,18 +38,18 @@ export async function procesarSiguienteLote(tipo: Tipo, id: number, loteId: stri
   const actual = await obtenerLote(tipo, id, loteId);
   if (!actual) throw new AppError("No se encontro el lote.", 404);
   if (loteBloqueado(actual.items)) throw new AppError("Hay una publicacion sin resultado confirmado. Revisa Mercado Libre antes de continuar.", 409);
-  const claimed = await query<{ posicion: number; titulo: string }>(
+  const claimed = await query<{ posicion: number; titulo: string; descripcion: string | null }>(
     `UPDATE public.mercadolibre_lote_publicacion_item SET estado = 'EJECUTANDO', updated_at = NOW()
      WHERE lote_id = $1 AND estado = 'PENDIENTE'
        AND posicion = (SELECT MIN(posicion) FROM public.mercadolibre_lote_publicacion_item WHERE lote_id = $1 AND estado = 'PENDIENTE')
        AND NOT EXISTS (SELECT 1 FROM public.mercadolibre_lote_publicacion_item WHERE lote_id = $1 AND estado IN ('EJECUTANDO', 'INCIERTO'))
-     RETURNING posicion, titulo`, [loteId],
+     RETURNING posicion, titulo, descripcion`, [loteId],
   );
   const item = claimed.rows[0];
   if (!item) return obtenerLote(tipo, id, loteId);
   let resultado: Record<string, unknown>;
   try {
-    resultado = await probarCreacionPublicacion(actual.publicacion, tipo, id, item.titulo, actual.descripcion);
+    resultado = await probarCreacionPublicacion(actual.publicacion, tipo, id, item.titulo, descripcionParaPublicacion(item.descripcion, actual.descripcion));
   } catch {
     resultado = { resultado: "INCIERTO", mensaje: "No se pudo confirmar el resultado. Revisa Mercado Libre antes de continuar." };
   }

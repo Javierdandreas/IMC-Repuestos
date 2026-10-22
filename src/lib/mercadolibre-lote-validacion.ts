@@ -8,3 +8,7 @@ export function validarTitulosLote(titulos: string[]) {
 export function loteBloqueado(items: Array<{ estado: string }>) {
   return items.some((item) => item.estado === "INCIERTO" || item.estado === "EJECUTANDO");
 }
+
+export function descripcionParaPublicacion(individual: string | null, comun: string) {
+  return individual ?? comun;
+}

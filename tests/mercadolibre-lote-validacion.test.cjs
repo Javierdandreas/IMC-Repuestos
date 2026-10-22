@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { validarTitulosLote, loteBloqueado } = require('../src/lib/mercadolibre-lote-validacion.ts');
+const { validarTitulosLote, loteBloqueado, descripcionParaPublicacion } = require('../src/lib/mercadolibre-lote-validacion.ts');
 
 test('valida limites y titulos repetidos sin distinguir mayusculas', () => {
   assert.equal(validarTitulosLote(['Filtro Toyota', 'Filtro Honda']), true);
@@ -9,6 +9,11 @@ test('valida limites y titulos repetidos sin distinguir mayusculas', () => {
   assert.equal(validarTitulosLote(['x'.repeat(61)]), false);
   assert.equal(validarTitulosLote(Array.from({ length: 21 }, (_, i) => `titulo ${i}`)), false);
   assert.equal(validarTitulosLote(['   ']), false);
+});
+
+test('usa la descripcion propia y conserva la comun en lotes anteriores', () => {
+  assert.equal(descripcionParaPublicacion('Descripcion Prius', 'Descripcion comun'), 'Descripcion Prius');
+  assert.equal(descripcionParaPublicacion(null, 'Descripcion comun'), 'Descripcion comun');
 });
 
 test('detiene el lote mientras existe una publicacion incierta o ejecutandose', () => {

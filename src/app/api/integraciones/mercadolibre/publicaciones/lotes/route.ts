@@ -8,7 +8,7 @@ import { validarTitulosLote } from "@/lib/mercadolibre-lote-validacion";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const base = z.object({ tipo: z.enum(["ITEM", "KIT"]), id: z.number().int().positive() });
-const nuevo = base.extend({ publicacion: z.number().int().positive(), titulos: z.array(z.string().trim().min(1).max(60)).min(1).max(20), descripcion: z.string().max(50000), confirmar: z.literal(true) });
+const nuevo = base.extend({ publicacion: z.number().int().positive(), titulos: z.array(z.string().trim().min(1).max(60)).min(1).max(20), descripcion: z.string().max(50000), descripciones: z.array(z.string().trim().min(1).max(50000)).max(20).optional(), confirmar: z.literal(true) }).refine((data) => !data.descripciones || data.descripciones.length === data.titulos.length, { message: "Debe haber una descripcion por titulo." });
 const procesar = base.extend({ lote: z.string().uuid() });
 
 export async function GET(request: NextRequest) {
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     await requireApiWriteSession(request);
     const data = nuevo.parse(await request.json());
     if (!validarTitulosLote(data.titulos)) throw new AppError("Revisa los titulos y elimina los repetidos.", 400);
-    return NextResponse.json(await crearLote(data.tipo, data.id, data.publicacion, data.titulos, data.descripcion), { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(await crearLote(data.tipo, data.id, data.publicacion, data.titulos, data.descripcion, data.descripciones), { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return jsonError(error, "No se pudo guardar el lote. No se publicaron las lineas."); }
 }
 

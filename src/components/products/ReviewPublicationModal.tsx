@@ -11,7 +11,7 @@ type Review = {
 };
 export type CompatibilidadResultado = { estado: string; origen: number | null; destino: number | null; status?: number; detalle?: string };
 export type ResultadoPublicacion = { resultado: string; mensaje?: string; publicacion?: string; titulo?: string | null; estado?: string | null; status?: number; respuesta?: unknown; descripcionEstado?: string; compatibilidades?: CompatibilidadResultado };
-type Lote = { id: string; publicacion: number; descripcion: string; items: Array<{ posicion: number; titulo: string; estado: string; resultado: ResultadoPublicacion | null }> };
+type Lote = { id: string; publicacion: number; descripcion: string; items: Array<{ posicion: number; titulo: string; descripcion: string | null; estado: string; resultado: ResultadoPublicacion | null }> };
 
 export function resumenCompatibilidad(value?: CompatibilidadResultado) {
   if (!value) return "No se pudo comprobar la copia de compatibilidades.";
@@ -39,6 +39,9 @@ export function ReviewPublicationModal({ product, onClose, onPublished }: { prod
   const [copia, setCopia] = useState<CompatibilidadResultado | null>(null);
   const [modo, setModo] = useState<"individual" | "lote">("individual");
   const [titulosLote, setTitulosLote] = useState("");
+  const [descripcionPorTitulo, setDescripcionPorTitulo] = useState(true);
+  const [descripcionesLote, setDescripcionesLote] = useState<Record<string, string>>({});
+  const [progresoDescripcion, setProgresoDescripcion] = useState("");
   const [lote, setLote] = useState<Lote | null>(null);
   const [loteCargando, setLoteCargando] = useState(false);
   const [historialListo, setHistorialListo] = useState(false);
@@ -95,7 +98,7 @@ export function ReviewPublicationModal({ product, onClose, onPublished }: { prod
     try {
       const response = await fetch("/api/integraciones/mercadolibre/publicaciones/lotes", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo: product.tipo, id: product.id, publicacion: Number(selected), titulos: titulosLote.split(/\r?\n/).map((line) => line.trim()).filter(Boolean), descripcion, confirmar: true }),
+        body: JSON.stringify({ tipo: product.tipo, id: product.id, publicacion: Number(selected), titulos: titulosLote.split(/\r?\n/).map((line) => line.trim()).filter(Boolean), descripcion, ...(descripcionPorTitulo ? { descripciones: titulosLote.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((titulo) => descripcionesLote[titulo]) } : {}), confirmar: true }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "No se pudo guardar el lote.");
@@ -138,6 +141,25 @@ export function ReviewPublicationModal({ product, onClose, onPublished }: { prod
     finally { setGenerando(false); }
   };
 
+  const generarDescripcionesLote = async () => {
+    setGenerando(true); setError("");
+    const pendientes = titulos.filter((titulo) => !descripcionesLote[titulo]?.trim());
+    try {
+      for (const [index, titulo] of pendientes.entries()) {
+        if (!montado.current) break;
+        setProgresoDescripcion(`${index + 1}/${pendientes.length}`);
+        const response = await fetch("/api/integraciones/mercadolibre/publicaciones/generar-descripcion", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tipo: product.tipo, id: product.id, publicacion: Number(selected), nombre: titulo }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || `No se pudo generar la descripcion de ${titulo}.`);
+        if (montado.current) setDescripcionesLote((actual) => ({ ...actual, [titulo]: data.descripcion }));
+      }
+    } catch (err) { if (montado.current) setError(err instanceof Error ? err.message : "No se pudieron generar las descripciones."); }
+    finally { if (montado.current) { setGenerando(false); setProgresoDescripcion(""); } }
+  };
+
   const publicar = async () => {
     if (!review) return;
     setConfirmando(false); setIntento(true); setError("");
@@ -170,8 +192,9 @@ export function ReviewPublicationModal({ product, onClose, onPublished }: { prod
   const tituloValido = nombre.trim().length > 0 && nombre.length <= 60;
   const titulos = titulosLote.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const titulosValidos = validarTitulosLote(titulos);
+  const descripcionesCompletas = titulos.every((titulo) => Boolean(descripcionesLote[titulo]?.trim()));
   if (confirmandoLote && review) return <Modal title="Confirmar lote" open onClose={() => setConfirmandoLote(false)} width="w-[min(96vw,560px)]"><div className="space-y-4 p-6 text-sm">
-    <p>Se crearan {titulos.length} publicaciones reales desde {review.itemId}, con la misma descripcion y las compatibilidades disponibles del vendedor.</p>
+    <p>Se crearan {titulos.length} publicaciones reales desde {review.itemId}, {descripcionPorTitulo ? "con la descripcion revisada para cada titulo" : "con la misma descripcion"} y las compatibilidades disponibles del vendedor.</p>
     <p>Mercado Libre puede agrupar publicaciones y omitir compatibilidades de catalogo o con reclamos. Revisa que los datos correspondan a todos los titulos.</p>
     <div className="flex justify-end gap-2"><button type="button" onClick={() => setConfirmandoLote(false)} className="rounded-md border border-slate-500 px-4 py-2 text-xs font-bold">Cancelar</button><button type="button" onClick={() => void iniciarLote()} className="rounded-md bg-blue-600 px-4 py-2 text-xs font-bold text-white">Confirmar lote</button></div>
   </div></Modal>;
@@ -191,7 +214,7 @@ export function ReviewPublicationModal({ product, onClose, onPublished }: { prod
       {links?.length === 0 && <p>No hay publicaciones de Mercado Libre vinculadas.</p>}
       {links && links.length > 0 && <div className="space-y-2">
         <label htmlFor="publicacion-origen" className="block text-xs font-bold">Publicacion de origen</label>
-        <select id="publicacion-origen" value={selected} disabled={intento || loading || generando || loteCargando} onChange={(event) => { setSelected(event.target.value); setReview(null); setError(""); }} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950">
+        <select id="publicacion-origen" value={selected} disabled={intento || loading || generando || loteCargando} onChange={(event) => { setSelected(event.target.value); setReview(null); setDescripcionesLote({}); setError(""); }} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950">
           <option value="">Seleccionar publicacion</option>
           {links.map((link) => <option key={link.id} value={link.id}>{link.itemId} - {link.titulo} ({link.estado})</option>)}
         </select>
@@ -200,25 +223,28 @@ export function ReviewPublicationModal({ product, onClose, onPublished }: { prod
       {error && <p role="alert" className="text-red-600 dark:text-red-300">{error}</p>}
       {review && <div className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-800">
         <p className="font-bold">Compatibilidades: {review.compatibilidades === null ? "No se pudieron consultar" : review.compatibilidades.total ?? review.compatibilidades.muestras}</p>
-        <div role="group" aria-label="Modo de publicacion" className="inline-flex rounded-md border border-slate-300 p-1 dark:border-slate-700"><button type="button" disabled={loteCargando || intento} aria-pressed={modo === "individual"} onClick={() => setModo("individual")} className={`rounded px-3 py-1 text-xs font-bold ${modo === "individual" ? "bg-blue-600 text-white" : "text-slate-500"}`}>Individual</button><button type="button" disabled={loteCargando || intento} aria-pressed={modo === "lote"} onClick={() => setModo("lote")} className={`rounded px-3 py-1 text-xs font-bold ${modo === "lote" ? "bg-blue-600 text-white" : "text-slate-500"}`}>Por lote</button></div>
+        <div role="group" aria-label="Modo de publicacion" className="inline-flex rounded-md border border-slate-300 p-1 dark:border-slate-700"><button type="button" disabled={loteCargando || intento || generando} aria-pressed={modo === "individual"} onClick={() => setModo("individual")} className={`rounded px-3 py-1 text-xs font-bold ${modo === "individual" ? "bg-blue-600 text-white" : "text-slate-500"}`}>Individual</button><button type="button" disabled={loteCargando || intento || generando} aria-pressed={modo === "lote"} onClick={() => setModo("lote")} className={`rounded px-3 py-1 text-xs font-bold ${modo === "lote" ? "bg-blue-600 text-white" : "text-slate-500"}`}>Por lote</button></div>
         {modo === "individual" && <div className="space-y-1">
           <label htmlFor="nombre-copia" className="block text-xs font-bold">{review.userProductId ? "Nombre de familia" : "Titulo"}</label>
           <input id="nombre-copia" value={nombre} maxLength={60} disabled={intento || generando} onChange={(event) => setNombre(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" />
           <p className={`text-right text-xs ${nombre.length > 60 ? "text-red-500" : "text-slate-500"}`}>{nombre.length}/60</p>
         </div>}
-        {modo === "lote" && !lote && <div className="space-y-2"><label htmlFor="titulos-lote" className="block text-xs font-bold">Titulos, uno por linea</label><textarea id="titulos-lote" value={titulosLote} onChange={(event) => setTitulosLote(event.target.value)} disabled={loteCargando} rows={6} className="w-full rounded-md border border-slate-300 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-950" /><p className="text-xs text-slate-500">{titulos.length}/20 titulos</p><div className="max-h-32 space-y-1 overflow-auto text-xs">{titulos.map((line, index) => <p key={index} className={line.length > 60 ? "text-red-500" : "text-slate-500"}>{index + 1}. {line} <span className="font-bold">{line.length}/60</span></p>)}</div>{titulos.length > 0 && !titulosValidos && <p role="alert" className="text-xs text-red-500">Revisa el limite de 20 titulos, los 60 caracteres y los titulos repetidos.</p>}</div>}
-        <div className="space-y-2">
+        {modo === "lote" && !lote && <div className="space-y-2"><label htmlFor="titulos-lote" className="block text-xs font-bold">Titulos, uno por linea</label><textarea id="titulos-lote" value={titulosLote} onChange={(event) => setTitulosLote(event.target.value)} disabled={loteCargando || generando} rows={6} className="w-full rounded-md border border-slate-300 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-950" /><p className="text-xs text-slate-500">{titulos.length}/20 titulos</p><div className="max-h-32 space-y-1 overflow-auto text-xs">{titulos.map((line, index) => <p key={index} className={line.length > 60 ? "text-red-500" : "text-slate-500"}>{index + 1}. {line} <span className="font-bold">{line.length}/60</span></p>)}</div>{titulos.length > 0 && !titulosValidos && <p role="alert" className="text-xs text-red-500">Revisa el limite de 20 titulos, los 60 caracteres y los titulos repetidos.</p>}</div>}
+        {modo === "lote" && !lote && <div role="group" aria-label="Descripcion del lote" className="inline-flex rounded-md border border-slate-300 p-1 dark:border-slate-700"><button type="button" disabled={generando} aria-pressed={descripcionPorTitulo} onClick={() => setDescripcionPorTitulo(true)} className={`rounded px-3 py-1 text-xs font-bold ${descripcionPorTitulo ? "bg-blue-600 text-white" : "text-slate-500"}`}>Por titulo</button><button type="button" disabled={generando} aria-pressed={!descripcionPorTitulo} onClick={() => setDescripcionPorTitulo(false)} className={`rounded px-3 py-1 text-xs font-bold ${!descripcionPorTitulo ? "bg-blue-600 text-white" : "text-slate-500"}`}>Comun</button></div>}
+        {modo === "lote" && !lote && descripcionPorTitulo && <div className="space-y-3"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold">Descripciones por titulo</p><button type="button" onClick={() => void generarDescripcionesLote()} disabled={!titulosValidos || generando || descripcionesCompletas} className="rounded-md border border-blue-500 px-3 py-2 text-xs font-bold text-blue-600 disabled:opacity-50 dark:text-blue-300">{generando ? `Generando ${progresoDescripcion}` : "Generar con ChatGPT"}</button></div>{titulos.map((titulo, index) => <div key={titulo} className="space-y-1"><label htmlFor={`descripcion-lote-${index}`} className="block text-xs font-bold">{index + 1}. {titulo}</label><textarea id={`descripcion-lote-${index}`} rows={4} maxLength={50000} disabled={generando} value={descripcionesLote[titulo] ?? ""} onChange={(event) => setDescripcionesLote((actual) => ({ ...actual, [titulo]: event.target.value }))} className="w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-950" /></div>)}</div>}
+        {(modo === "individual" || (modo === "lote" && ((!lote && !descripcionPorTitulo) || (lote && lote.items.every((item) => item.descripcion === null))))) && <div className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2"><label htmlFor="descripcion-copia" className="text-xs font-bold">{modo === "lote" ? "Descripcion para todas" : "Descripcion"}</label><button type="button" onClick={() => void generar()} disabled={!tituloValido || generando || intento || loteCargando || (modo === "lote" && !!lote)} className="rounded-md border border-blue-500 px-3 py-2 text-xs font-bold text-blue-600 disabled:opacity-50 dark:text-blue-300">{generando ? "Generando..." : "Generar con ChatGPT"}</button></div>
           <textarea id="descripcion-copia" value={modo === "lote" && lote ? lote.descripcion : descripcion} maxLength={50000} disabled={intento || generando || loteCargando || (modo === "lote" && !!lote)} onChange={(event) => setDescripcion(event.target.value)} rows={7} className="w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
           {review.descripcionDisponible === null && <p className="text-amber-700 dark:text-amber-300">No se pudo consultar la descripcion original.</p>}
-        </div>
+        </div>}
         {modo === "individual" && <button type="button" onClick={() => setConfirmando(true)} disabled={!tituloValido || intento || generando} className="rounded-md bg-blue-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{intento && !resultado ? "Publicando..." : "Publicar copia"}</button>}
         {modo === "lote" && !historialListo && <p className="text-xs text-amber-600">Es necesario consultar el ultimo lote antes de publicar. Si hubo un error, vuelve a abrir esta opcion.</p>}
-        {modo === "lote" && !lote && <button type="button" onClick={() => setConfirmandoLote(true)} disabled={!historialListo || !titulosValidos || generando || loteCargando} className="rounded-md bg-blue-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Publicar lote</button>}
+        {modo === "lote" && !lote && <button type="button" onClick={() => setConfirmandoLote(true)} disabled={!historialListo || !titulosValidos || (descripcionPorTitulo && !descripcionesCompletas) || generando || loteCargando} className="rounded-md bg-blue-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Publicar lote</button>}
         {modo === "lote" && lote && <div role="status" className="space-y-3 border-t border-slate-300 pt-3 dark:border-slate-700"><p className="font-bold">Ultimo lote {loteCargando ? "- Publicando..." : ""}</p><p className="text-xs">Origen: {links?.find((link) => link.id === lote.publicacion)?.itemId || "No disponible"}</p><div className="max-h-64 space-y-2 overflow-auto">{lote.items.map((item) => <div key={item.posicion} className="border-b border-slate-200 pb-2 text-xs dark:border-slate-800"><p className="font-bold">{item.posicion + 1}. {item.titulo}</p><p>{item.estado}{item.resultado?.publicacion ? ` - ${item.resultado.publicacion}` : ""}</p>{item.resultado?.mensaje && <p>{item.resultado.mensaje}</p>}{item.resultado?.descripcionEstado && <p>Descripcion: {item.resultado.descripcionEstado}</p>}{item.resultado?.compatibilidades && <p>{resumenCompatibilidad(item.resultado.compatibilidades)}</p>}{item.resultado?.respuesta != null && <pre className="whitespace-pre-wrap break-all">{JSON.stringify(item.resultado.respuesta, null, 2)}</pre>}</div>)}</div>
           {lote.items.some((item) => item.estado === "EJECUTANDO" || item.estado === "INCIERTO") && <p className="text-amber-600 dark:text-amber-300">Hay un resultado sin confirmar. Revisa Mercado Libre antes de crear otro lote; no se continuara automaticamente.</p>}
           {!loteCargando && lote.items.some((item) => item.estado === "PENDIENTE") && !lote.items.some((item) => item.estado === "EJECUTANDO" || item.estado === "INCIERTO") && <button type="button" onClick={() => void continuarLote()} className="rounded-md border border-blue-500 px-3 py-2 text-xs font-bold text-blue-600">Continuar pendientes</button>}
-          {!loteCargando && lote.items.every((item) => item.estado === "CREADA" || item.estado === "RECHAZADA") && <button type="button" onClick={() => { setLote(null); setTitulosLote(""); }} className="rounded-md border border-slate-500 px-3 py-2 text-xs font-bold">Crear otro lote</button>}
+          {lote.items.some((item) => item.descripcion !== null) && <details><summary className="cursor-pointer text-xs font-bold">Ver descripciones guardadas</summary>{lote.items.map((item) => <div key={item.posicion} className="mt-2 text-xs"><p className="font-bold">{item.titulo}</p><p className="whitespace-pre-wrap">{item.descripcion ?? lote.descripcion}</p></div>)}</details>}
+          {!loteCargando && lote.items.every((item) => item.estado === "CREADA" || item.estado === "RECHAZADA") && <button type="button" onClick={() => { setLote(null); setTitulosLote(""); setDescripcionesLote({}); }} className="rounded-md border border-slate-500 px-3 py-2 text-xs font-bold">Crear otro lote</button>}
         </div>}
         {modo === "individual" && !intento && <details className="border-t border-slate-200 pt-3 dark:border-slate-800"><summary className="cursor-pointer text-xs font-bold">Copiar compatibilidades a una publicacion existente</summary><p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Comprueba el destino: la copia puede afectar otras publicaciones que compartan su producto.</p><div className="mt-3 flex flex-wrap gap-2"><input aria-label="ID de publicacion de destino" placeholder="MLA..." value={destino} onChange={(event) => { setDestino(event.target.value.toUpperCase()); setCopia(null); }} className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" /><button type="button" onClick={() => void copiarExistente()} disabled={!/^MLA\d+$/.test(destino.trim()) || copiando} className="rounded-md border border-blue-500 px-3 text-xs font-bold text-blue-600 disabled:opacity-50 dark:text-blue-300">{copiando ? "Copiando..." : "Copiar compatibilidades"}</button></div>{copia && <p role="status" className="mt-2">{resumenCompatibilidad(copia)}</p>}</details>}
         {resultado && <div role="status" className="space-y-1">
