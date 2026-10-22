@@ -19,6 +19,7 @@ import { BulkLabelPrinter } from "@/components/products/BulkLabelPrinter";
 import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
 import { MassEditItemsModal } from "@/components/products/MassEditItemsModal";
 import { ReviewPublicationModal, resumenCompatibilidad, type ResultadoPublicacion } from "@/components/products/ReviewPublicationModal";
+import { resumirLote, type ItemResumenLote } from "@/lib/resumen-lote-publicacion";
 
 interface Props {
   products: ItemListadoUnificado[];
@@ -95,6 +96,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const optionsMenuRef = useRef<HTMLDivElement | null>(null);
   const [reviewPublicationProduct, setReviewPublicationProduct] = useState<ItemListadoUnificado | null>(null);
   const [publicacionCreada, setPublicacionCreada] = useState<ResultadoPublicacion | null>(null);
+  const [loteTerminado, setLoteTerminado] = useState<ItemResumenLote[] | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [activityState, setActivityState] = useState<{ key: string; activities: ProductActivity[]; loading: boolean }>({
     key: "",
@@ -376,6 +378,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     <>
       <div className="flex min-h-screen flex-col bg-slate-50 p-3 transition-colors duration-200 dark:bg-slate-950 md:p-4">
         <div className="w-full space-y-3">
+          {loteTerminado && (() => {
+            const resumen = resumirLote(loteTerminado);
+            return <section role="status" className="border border-blue-500/40 bg-blue-500/5 p-4 text-sm text-slate-800 dark:text-slate-200">
+              <div className="flex flex-wrap items-start justify-between gap-3"><div className="space-y-1"><p className="font-bold">Lote finalizado: {resumen.creadas} publicaciones creadas</p><p>Compatibilidades consultadas: {resumen.totalDestinos} en {resumen.destinosConsultados} publicaciones. Los totales pueden incluir compatibilidades compartidas.</p><p>{resumen.rechazadas} publicaciones rechazadas | {resumen.sinVerificar} compatibilidades sin verificar | {resumen.descripcionesConProblemas} descripciones sin confirmar</p><p className="text-xs text-slate-500">Las copias solicitadas pueden demorar. No incluyen compatibilidades de catalogo o con reclamos.</p></div><button type="button" onClick={() => setLoteTerminado(null)} className="rounded-md border border-slate-400 px-3 py-2 text-xs font-bold">Cerrar</button></div>
+              <details className="mt-3"><summary className="cursor-pointer text-xs font-bold">Ver detalle por publicacion</summary><div className="mt-2 max-h-72 space-y-2 overflow-auto">{loteTerminado.map((item) => <div key={item.posicion} className="border-t border-slate-300 pt-2 text-xs dark:border-slate-700"><p className="font-bold">{item.titulo}</p><p>{item.estado}{item.resultado?.publicacion ? ` - ${item.resultado.publicacion}` : ""}{item.resultado?.status ? ` - HTTP ${item.resultado.status}` : ""}</p>{item.resultado?.mensaje && <p>{item.resultado.mensaje}</p>}{item.estado === "CREADA" && <><p>Descripcion: {item.resultado?.descripcionEstado || "Sin confirmar"}</p><p>{resumenCompatibilidad(item.resultado?.compatibilidades)}</p></>}{item.resultado?.respuesta != null && <pre className="whitespace-pre-wrap break-all">{JSON.stringify(item.resultado.respuesta, null, 2)}</pre>}</div>)}</div></details>
+            </section>;
+          })()}
           {publicacionCreada && <section role="status" className="border border-emerald-500/40 bg-emerald-500/5 p-4 text-sm text-slate-800 dark:text-slate-200">
             <div className="flex flex-wrap items-start justify-between gap-3"><div className="space-y-1"><p className="font-bold">Publicacion creada: {publicacionCreada.publicacion}</p><p>{publicacionCreada.titulo || "Sin titulo informado"} | Estado: {publicacionCreada.estado || "Sin dato"}</p><p>{publicacionCreada.descripcionEstado === "GUARDADA" ? "Descripcion guardada." : publicacionCreada.descripcionEstado === "SIN_DESCRIPCION" ? "Sin descripcion." : "No se confirmo el guardado de la descripcion; revisa la publicacion."}</p><p>{resumenCompatibilidad(publicacionCreada.compatibilidades)}</p></div><button type="button" onClick={() => setPublicacionCreada(null)} className="rounded-md border border-slate-400 px-3 py-2 text-xs font-bold">Cerrar</button></div>
           </section>}
@@ -1214,7 +1223,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         </div>, document.body,
       )}
 
-      {reviewPublicationProduct && <ReviewPublicationModal product={reviewPublicationProduct} onClose={() => setReviewPublicationProduct(null)} onPublished={(result) => { setPublicacionCreada(result); setReviewPublicationProduct(null); }} />}
+      {reviewPublicationProduct && <ReviewPublicationModal product={reviewPublicationProduct} onClose={() => setReviewPublicationProduct(null)} onPublished={(result) => { setLoteTerminado(null); setPublicacionCreada(result); setReviewPublicationProduct(null); }} onLoteTerminado={(items) => { setPublicacionCreada(null); setLoteTerminado(items); setReviewPublicationProduct(null); router.refresh(); }} />}
 
       <ConfirmDeleteModal
         open={canManage && !!deletingProduct}

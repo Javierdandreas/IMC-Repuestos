@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { loteBloqueado, validarTitulosLote } from "@/lib/mercadolibre-lote-validacion";
+import { loteFinalizado, type ItemResumenLote } from "@/lib/resumen-lote-publicacion";
 
 type Link = { id: number; itemId: string; titulo: string; estado: string };
 type Review = {
@@ -22,7 +23,7 @@ export function resumenCompatibilidad(value?: CompatibilidadResultado) {
   return `No se pudieron copiar o verificar las compatibilidades.${value.status ? ` HTTP ${value.status}.` : ""}${value.detalle ? ` ${value.detalle}` : ""}`;
 }
 
-export function ReviewPublicationModal({ product, onClose, onPublished }: { product: { id: number; tipo: "ITEM" | "KIT"; descripcion: string }; onClose: () => void; onPublished: (result: ResultadoPublicacion) => void }) {
+export function ReviewPublicationModal({ product, onClose, onPublished, onLoteTerminado }: { product: { id: number; tipo: "ITEM" | "KIT"; descripcion: string }; onClose: () => void; onPublished: (result: ResultadoPublicacion) => void; onLoteTerminado: (items: ItemResumenLote[]) => void }) {
   const [links, setLinks] = useState<Link[] | null>(null);
   const [selected, setSelected] = useState("");
   const [review, setReview] = useState<Review | null>(null);
@@ -90,6 +91,7 @@ export function ReviewPublicationModal({ product, onClose, onPublished }: { prod
       actual = data as Lote;
       if (montado.current) setLote(actual);
     }
+    if (montado.current && loteFinalizado(actual.items)) onLoteTerminado(actual.items);
   };
 
   const iniciarLote = async () => {
@@ -244,6 +246,7 @@ export function ReviewPublicationModal({ product, onClose, onPublished }: { prod
           {lote.items.some((item) => item.estado === "EJECUTANDO" || item.estado === "INCIERTO") && <p className="text-amber-600 dark:text-amber-300">Hay un resultado sin confirmar. Revisa Mercado Libre antes de crear otro lote; no se continuara automaticamente.</p>}
           {!loteCargando && lote.items.some((item) => item.estado === "PENDIENTE") && !lote.items.some((item) => item.estado === "EJECUTANDO" || item.estado === "INCIERTO") && <button type="button" onClick={() => void continuarLote()} className="rounded-md border border-blue-500 px-3 py-2 text-xs font-bold text-blue-600">Continuar pendientes</button>}
           {lote.items.some((item) => item.descripcion !== null) && <details><summary className="cursor-pointer text-xs font-bold">Ver descripciones guardadas</summary>{lote.items.map((item) => <div key={item.posicion} className="mt-2 text-xs"><p className="font-bold">{item.titulo}</p><p className="whitespace-pre-wrap">{item.descripcion ?? lote.descripcion}</p></div>)}</details>}
+          {!loteCargando && loteFinalizado(lote.items) && <button type="button" onClick={() => onLoteTerminado(lote.items)} className="mr-2 rounded-md border border-blue-500 px-3 py-2 text-xs font-bold text-blue-600">Volver al listado con resumen</button>}
           {!loteCargando && lote.items.every((item) => item.estado === "CREADA" || item.estado === "RECHAZADA") && <button type="button" onClick={() => { setLote(null); setTitulosLote(""); setDescripcionesLote({}); }} className="rounded-md border border-slate-500 px-3 py-2 text-xs font-bold">Crear otro lote</button>}
         </div>}
         {modo === "individual" && !intento && <details className="border-t border-slate-200 pt-3 dark:border-slate-800"><summary className="cursor-pointer text-xs font-bold">Copiar compatibilidades a una publicacion existente</summary><p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Comprueba el destino: la copia puede afectar otras publicaciones que compartan su producto.</p><div className="mt-3 flex flex-wrap gap-2"><input aria-label="ID de publicacion de destino" placeholder="MLA..." value={destino} onChange={(event) => { setDestino(event.target.value.toUpperCase()); setCopia(null); }} className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" /><button type="button" onClick={() => void copiarExistente()} disabled={!/^MLA\d+$/.test(destino.trim()) || copiando} className="rounded-md border border-blue-500 px-3 text-xs font-bold text-blue-600 disabled:opacity-50 dark:text-blue-300">{copiando ? "Copiando..." : "Copiar compatibilidades"}</button></div>{copia && <p role="status" className="mt-2">{resumenCompatibilidad(copia)}</p>}</details>}
