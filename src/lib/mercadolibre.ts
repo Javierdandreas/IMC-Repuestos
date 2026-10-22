@@ -331,10 +331,16 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
   if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
   const safePage = Math.max(1, page);
   const { rows } = await query(
-    `SELECT id, venta_id, fecha, estado, comprador, total, moneda, envio, retiro_en_persona,
-            NULLIF(datos #>> '{shipping,id}', '') AS numero_envio, items, sincronizada_at
-     FROM public.mercadolibre_venta WHERE id_cuenta = $1
-     ORDER BY fecha DESC NULLS LAST, id DESC LIMIT $2 OFFSET $3`,
+    `SELECT venta.id, venta.venta_id, venta.fecha, venta.estado, venta.comprador, venta.total, venta.moneda, venta.envio, venta.retiro_en_persona,
+            NULLIF(venta.datos #>> '{shipping,id}', '') AS numero_envio, venta.items, venta.sincronizada_at,
+            COALESCE(mensaje.estado, evento.estado) AS mensaje_estado,
+            COALESCE(mensaje.detalle, evento.detalle) AS mensaje_detalle
+     FROM public.mercadolibre_venta venta
+     LEFT JOIN public.mercadolibre_mensaje_prueba mensaje ON mensaje.id_cuenta = venta.id_cuenta
+       AND mensaje.pack_id = COALESCE(NULLIF(venta.datos->>'pack_id', ''), venta.venta_id)
+     LEFT JOIN public.mercadolibre_mensaje_automatico_evento evento ON evento.id_cuenta = venta.id_cuenta AND evento.venta_id = venta.venta_id
+     WHERE venta.id_cuenta = $1
+     ORDER BY venta.fecha DESC NULLS LAST, venta.id DESC LIMIT $2 OFFSET $3`,
     [idCuenta, limit, (safePage - 1) * limit],
   );
   return {
@@ -343,6 +349,8 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
       estado: String(row.estado), comprador: row.comprador ? String(row.comprador) : null,
       total: row.total === null ? null : Number(row.total), moneda: row.moneda ? String(row.moneda) : null,
       envio: row.envio ? String(row.envio) : null, retiroEnPersona: Boolean(row.retiro_en_persona),
+      mensajeEstado: row.mensaje_estado ? String(row.mensaje_estado) : null,
+      mensajeDetalle: row.mensaje_detalle ? String(row.mensaje_detalle) : null,
       numeroEnvio: row.numero_envio ? String(row.numero_envio) : null,
       items: Array.isArray(row.items) ? row.items.map((item: Record<string, unknown>) => ({ itemId: item.itemId ? String(item.itemId) : null, titulo: String(item.titulo || "Sin titulo"), cantidad: Number(item.cantidad || 0), sku: item.sku ? String(item.sku) : null })) : [],
       sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
@@ -922,11 +930,6 @@ async function prepararMensajeVenta(idCuenta: number, ventaId: string) {
   const { disponible, limite } = opcionMensajePersonalizado(guide);
   const previous = await query<{ estado: string; detalle: string | null }>("SELECT estado, detalle FROM public.mercadolibre_mensaje_prueba WHERE id_cuenta = $1 AND pack_id = $2", [idCuenta, packId]);
   return { accessToken, packId, disponible, limite, anterior: previous.rows[0] || null };
-}
-
-export async function consultarMensajeVenta(idCuenta: number, ventaId: string) {
-  const { packId, disponible, limite, anterior } = await prepararMensajeVenta(idCuenta, ventaId);
-  return { ventaId, packId, disponible, limite, anterior };
 }
 
 export async function enviarMensajeVentaPrueba(idCuenta: number, ventaId: string, texto: string) {

@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { opcionMensajePersonalizado, ventaAptaParaMensaje } = require('../src/lib/mercadolibre-mensajes-prueba.ts');
+const { opcionMensajePersonalizado, ventaAptaParaMensaje, estadoMensajeVenta } = require('../src/lib/mercadolibre-mensajes-prueba.ts');
 
 test('permite solo la opcion OTHER habilitada con cupo disponible', () => {
   const option = { id: 'OTHER', enabled: true, actionable: true, cap_available: 1, char_limit: 200 };
@@ -11,6 +11,16 @@ test('permite solo la opcion OTHER habilitada con cupo disponible', () => {
   assert.equal(opcionMensajePersonalizado({ options: [] }).disponible, false);
   assert.equal(opcionMensajePersonalizado(null).disponible, false);
   assert.equal(opcionMensajePersonalizado({ options: [{ ...option, char_limit: 500 }] }).limite, 350);
+});
+
+test('distingue disponible, rechazado, incierto y ausencia de registro', () => {
+  assert.equal(estadoMensajeVenta(null, null).tipo, 'SIN_REGISTRO');
+  assert.equal(estadoMensajeVenta('RECIBIDO', 'Estado en Mercado Libre: available.').tipo, 'DISPONIBLE');
+  assert.equal(estadoMensajeVenta('RECIBIDO', 'Estado en Mercado Libre: rejected.').tipo, 'ERROR');
+  assert.equal(estadoMensajeVenta('RECIBIDO', 'Estado en Mercado Libre: pending.').tipo, 'INCIERTO');
+  assert.equal(estadoMensajeVenta('RECIBIDO', null).tipo, 'INCIERTO');
+  assert.equal(estadoMensajeVenta('INCIERTO', null).tipo, 'INCIERTO');
+  assert.equal(estadoMensajeVenta('ERROR', 'No se pudo enviar').tipo, 'ERROR');
 });
 
 test('solo incluye ventas pagadas a partir de la activacion', () => {

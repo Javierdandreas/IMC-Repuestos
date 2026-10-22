@@ -91,6 +91,8 @@ export type MercadoLibreVentaListado = {
   envio: string | null;
   numeroEnvio: string | null;
   retiroEnPersona: boolean;
+  mensajeEstado: string | null;
+  mensajeDetalle: string | null;
   items: Array<{ itemId: string | null; titulo: string; cantidad: number; sku: string | null }>;
   sincronizadaAt: string;
 };

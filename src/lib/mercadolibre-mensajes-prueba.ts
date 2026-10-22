@@ -15,3 +15,14 @@ export function ventaAptaParaMensaje(estado: unknown, fechaVenta: unknown, activ
   const activacion = new Date(activadoAt).getTime();
   return Number.isFinite(fecha) && Number.isFinite(activacion) && fecha >= activacion;
 }
+
+export function estadoMensajeVenta(estado: string | null, detalle: string | null) {
+  if (!estado) return { tipo: "SIN_REGISTRO", texto: "Sin envio registrado en IMC" };
+  if (estado === "RECIBIDO") {
+    if (/estado en mercado libre:\s*available\b/i.test(detalle || "")) return { tipo: "DISPONIBLE", texto: "Mensaje disponible en Mercado Libre" };
+    if (/estado en mercado libre:\s*rejected\b/i.test(detalle || "")) return { tipo: "ERROR", texto: "Mensaje rechazado por Mercado Libre" };
+    return { tipo: "INCIERTO", texto: "Mercado Libre recibio la solicitud; entrega no confirmada" };
+  }
+  if (estado === "INCIERTO") return { tipo: "INCIERTO", texto: "Resultado incierto; revisar Mercado Libre" };
+  return { tipo: "ERROR", texto: "No se pudo confirmar el envio" };
+}
