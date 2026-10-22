@@ -30,6 +30,7 @@ export function ReviewPublicationModal({ product, onClose, onPublished, onLoteTe
   const [nombre, setNombre] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [loading, setLoading] = useState(false);
+  const [intentoRevision, setIntentoRevision] = useState(0);
   const [generando, setGenerando] = useState(false);
   const [intento, setIntento] = useState(false);
   const [resultado, setResultado] = useState<ResultadoPublicacion | null>(null);
@@ -62,10 +63,29 @@ export function ReviewPublicationModal({ product, onClose, onPublished, onLoteTe
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || "No se pudieron consultar las publicaciones.");
-        setLinks(data as Link[]);
+        if (controller.signal.aborted) return;
+        const vinculos = data as Link[];
+        setLinks(vinculos);
+        setSelected(vinculos.length === 1 ? String(vinculos[0].id) : "");
       }).catch((err) => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "No se pudieron consultar las publicaciones."); });
     return () => controller.abort();
   }, [product.id, product.tipo]);
+
+  useEffect(() => {
+    if (!selected) { setLoading(false); setReview(null); return; }
+    const controller = new AbortController();
+    setLoading(true); setError(""); setReview(null);
+    const params = new URLSearchParams({ tipo: product.tipo, id: String(product.id), publicacion: selected });
+    fetch(`/api/integraciones/mercadolibre/publicaciones/revisar-duplicacion?${params}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "No se pudo revisar la publicacion.");
+        if (!controller.signal.aborted) { setReview(data); setNombre(data.titulo || ""); setDescripcion(data.descripcionTexto || ""); }
+      })
+      .catch((err) => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "No se pudo revisar la publicacion."); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [selected, product.tipo, product.id, intentoRevision]);
 
   useEffect(() => {
     if (modo !== "lote") return;
@@ -115,18 +135,6 @@ export function ReviewPublicationModal({ product, onClose, onPublished, onLoteTe
     try { await procesarLote(lote); }
     catch (err) { setError(`${err instanceof Error ? err.message : "No se pudo confirmar el resultado."} Revisa Mercado Libre antes de continuar.`); }
     finally { bloqueoLote.current = false; setLoteCargando(false); }
-  };
-
-  const check = async () => {
-    setLoading(true); setError(""); setReview(null);
-    try {
-      const params = new URLSearchParams({ tipo: product.tipo, id: String(product.id), publicacion: selected });
-      const response = await fetch(`/api/integraciones/mercadolibre/publicaciones/revisar-duplicacion?${params}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "No se pudo revisar la publicacion.");
-      setReview(data); setNombre(data.titulo || ""); setDescripcion(data.descripcionTexto || "");
-    } catch (err) { setError(err instanceof Error ? err.message : "No se pudo revisar la publicacion."); }
-    finally { setLoading(false); }
   };
 
   const generar = async () => {
@@ -216,11 +224,12 @@ export function ReviewPublicationModal({ product, onClose, onPublished, onLoteTe
       {links?.length === 0 && <p>No hay publicaciones de Mercado Libre vinculadas.</p>}
       {links && links.length > 0 && <div className="space-y-2">
         <label htmlFor="publicacion-origen" className="block text-xs font-bold">Publicacion de origen</label>
-        <select id="publicacion-origen" value={selected} disabled={intento || loading || generando || loteCargando} onChange={(event) => { setSelected(event.target.value); setReview(null); setDescripcionesLote({}); setError(""); }} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950">
+        <select id="publicacion-origen" value={selected} disabled={intento || generando || loteCargando} onChange={(event) => { setSelected(event.target.value); setReview(null); setDescripcionesLote({}); setError(""); }} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950">
           <option value="">Seleccionar publicacion</option>
           {links.map((link) => <option key={link.id} value={link.id}>{link.itemId} - {link.titulo} ({link.estado})</option>)}
         </select>
-        <button type="button" onClick={() => void check()} disabled={!selected || loading || intento || generando || loteCargando} className="h-9 rounded-md bg-blue-600 px-3 text-xs font-bold text-white disabled:opacity-50">{loading ? "Consultando..." : "Revisar publicacion"}</button>
+        {loading && <p role="status" className="text-xs text-slate-500">Consultando publicacion...</p>}
+        {!loading && selected && !review && error && <button type="button" onClick={() => setIntentoRevision((value) => value + 1)} className="h-9 rounded-md border border-blue-500 px-3 text-xs font-bold text-blue-600 dark:text-blue-300">Reintentar consulta</button>}
       </div>}
       {error && <p role="alert" className="text-red-600 dark:text-red-300">{error}</p>}
       {review && <div className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-800">
