@@ -80,6 +80,8 @@ export function PiezaImageSection({
         <ImageUpload 
           value={imagen_medida_url} 
           onChange={onImagenMedidaChange} 
+          bucket="piezas"
+          folder="medidas"
           disabled={disabled}
         />
       </div>
