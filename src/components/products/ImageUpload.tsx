@@ -64,7 +64,10 @@ export function ImageUpload({
         await deleteImageFromStorage(value);
       }
     } catch (error: any) {
-      toast.error("Error al subir imagen: " + (error.message || "Error desconocido"));
+      const message = error?.message || "Error desconocido";
+      toast.error(/failed to fetch|networkerror|load failed/i.test(message)
+        ? "No se pudo conectar al almacenamiento de imagenes. Revisa la conexion y la configuracion de Supabase."
+        : "Error al subir imagen: " + message);
       console.error(error);
     } finally {
       setIsUploading(false);
@@ -138,6 +141,7 @@ export function ImageUpload({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (file) processFile(file);
   };
 

@@ -8,3 +8,10 @@ export function opcionMensajePersonalizado(guide: unknown) {
   const limite = Number.isInteger(option.char_limit) && option.char_limit > 0 ? Math.min(option.char_limit, 350) : 350;
   return { disponible, limite };
 }
+
+export function ventaAptaParaMensaje(estado: unknown, fechaVenta: unknown, activadoAt: Date | string | null) {
+  if (estado !== "paid" || typeof fechaVenta !== "string" || !activadoAt) return false;
+  const fecha = Date.parse(fechaVenta);
+  const activacion = new Date(activadoAt).getTime();
+  return Number.isFinite(fecha) && Number.isFinite(activacion) && fecha >= activacion;
+}

@@ -6,7 +6,7 @@ import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
 import { interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico } from "@/lib/mercadolibre-validacion-publicacion";
 import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
 import { dominiosCompatibles, planCopiaCompatibilidades, solicitudCopiaUserProduct, totalCompatibilidades, totalResumen } from "@/lib/mercadolibre-copia-compatibilidades";
-import { opcionMensajePersonalizado } from "@/lib/mercadolibre-mensajes-prueba";
+import { opcionMensajePersonalizado, ventaAptaParaMensaje } from "@/lib/mercadolibre-mensajes-prueba";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -954,6 +954,55 @@ export async function enviarMensajeVentaPrueba(idCuenta: number, ventaId: string
   return { estado, detalle };
 }
 
+const MENSAJE_COMPATIBILIDAD_DEFAULT = "Gracias por tu compra!\nPara confirmar que este sea el producto correcto nos puedes indicar numero de chasis, modelo, año, version y motorizacion!\nEstamos atentos!";
+type ConfigMensajeAutomatico = { activo: boolean; texto: string; activado_at: Date | string | null };
+
+export async function obtenerMensajesAutomaticos(idCuenta: number) {
+  const config = await query<ConfigMensajeAutomatico>("SELECT activo, texto, activado_at FROM public.mercadolibre_mensaje_automatico_config WHERE id_cuenta = $1", [idCuenta]);
+  const eventos = await query<{ venta_id: string; estado: string; detalle: string | null; updated_at: Date }>(
+    "SELECT venta_id, estado, detalle, updated_at FROM public.mercadolibre_mensaje_automatico_evento WHERE id_cuenta = $1 ORDER BY updated_at DESC LIMIT 20", [idCuenta],
+  );
+  return { config: config.rows[0] || { activo: false, texto: MENSAJE_COMPATIBILIDAD_DEFAULT, activado_at: null }, eventos: eventos.rows };
+}
+
+export async function configurarMensajesAutomaticos(idCuenta: number, activo: boolean, texto: string) {
+  const cuentas = await query("SELECT 1 FROM public.mercadolibre_cuenta WHERE id = $1 AND conectada = TRUE", [idCuenta]);
+  if (!cuentas.rowCount) throw new AppError("La cuenta no esta conectada.", 404);
+  await query(`INSERT INTO public.mercadolibre_mensaje_automatico_config (id_cuenta, activo, texto, activado_at)
+    VALUES ($1, $2, $3, CASE WHEN $2 THEN NOW() ELSE NULL END)
+    ON CONFLICT (id_cuenta) DO UPDATE SET activo = EXCLUDED.activo, texto = EXCLUDED.texto,
+      activado_at = CASE WHEN EXCLUDED.activo AND NOT mercadolibre_mensaje_automatico_config.activo THEN NOW() ELSE mercadolibre_mensaje_automatico_config.activado_at END,
+      updated_at = NOW()`, [idCuenta, activo, texto]);
+  return obtenerMensajesAutomaticos(idCuenta);
+}
+
+async function obtenerConfigMensajeAutomatico(idCuenta: number) {
+  const result = await query<ConfigMensajeAutomatico>("SELECT activo, texto, activado_at FROM public.mercadolibre_mensaje_automatico_config WHERE id_cuenta = $1 AND activo = TRUE", [idCuenta]);
+  return result.rows[0] || null;
+}
+
+async function procesarMensajeAutomatico(idCuenta: number, venta: MeliOrder, config: ConfigMensajeAutomatico | null) {
+  if (!config?.activo || !config.activado_at || venta.status !== "paid" || !venta.id || !venta.date_created) return;
+  if (!ventaAptaParaMensaje(venta.status, venta.date_created, config.activado_at)) return;
+  config = await obtenerConfigMensajeAutomatico(idCuenta);
+  if (!config?.activo || !config.activado_at) return;
+  if (typeof venta.id === "number" && !Number.isSafeInteger(venta.id)) return;
+  if (!ventaAptaParaMensaje(venta.status, venta.date_created, config.activado_at)) return;
+  const ventaId = String(venta.id);
+  const previo = await query("SELECT 1 FROM public.mercadolibre_mensaje_prueba WHERE id_cuenta = $1 AND venta_id = $2", [idCuenta, ventaId]);
+  if (previo.rowCount) return;
+  let estado = "ERROR", detalle = "No se pudo consultar o enviar el mensaje.";
+  try {
+    const result = await enviarMensajeVentaPrueba(idCuenta, ventaId, config.texto);
+    estado = result.estado; detalle = result.detalle;
+  } catch (error) {
+    detalle = error instanceof AppError ? error.message : "No se pudo consultar o enviar el mensaje.";
+  }
+  await query(`INSERT INTO public.mercadolibre_mensaje_automatico_evento (id_cuenta, venta_id, estado, detalle)
+    VALUES ($1, $2, $3, $4) ON CONFLICT (id_cuenta, venta_id) DO UPDATE SET estado = EXCLUDED.estado, detalle = EXCLUDED.detalle, updated_at = NOW()
+    WHERE EXCLUDED.estado <> 'ERROR' OR mercadolibre_mensaje_automatico_evento.estado = 'ERROR'`, [idCuenta, ventaId, estado, detalle]);
+}
+
 export async function reintentarCompatibilidades(idPublicacion: number, tipo: "ITEM" | "KIT", id: number, destino: string) {
   const column = tipo === "KIT" ? "id_kit" : "id_producto";
   const result = await query<{ id_cuenta: number; item_id: string }>(
@@ -1577,6 +1626,8 @@ async function getPagedMeliResults<T>(path: string, idCuenta: number, accessToke
 
 async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
   const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&order.status=paid&sort=date_desc`, idCuenta, accessToken, 1000, 50);
+  let configMensaje: ConfigMensajeAutomatico | null = null;
+  try { configMensaje = await obtenerConfigMensajeAutomatico(idCuenta); } catch (error) { console.error("[MENSAJES ML] No se pudo consultar la configuracion:", error); }
   for (const venta of ventas) {
     if (!venta.id) continue;
     const items = (venta.order_items || []).map((linea) => ({
@@ -1599,6 +1650,9 @@ async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number,
         Number.isFinite(Number(venta.total_amount)) ? Number(venta.total_amount) : null, venta.currency_id || null,
         envio, Boolean(shipping?.pickup_id), JSON.stringify(items), JSON.stringify(venta)],
     );
+    if (configMensaje) {
+      try { await procesarMensajeAutomatico(idCuenta, venta, configMensaje); } catch (error) { console.error("[MENSAJES ML] No se pudo procesar una venta:", error); }
+    }
   }
   return ventas.length;
 }
@@ -1809,7 +1863,12 @@ async function procesarEventoMercadoLibreReclamado(row: MeliWebhookEventRow) {
     return;
   }
   const resource = await meliGet(row.recurso, row.id_cuenta, accessToken);
-  if (row.topic === "orders_v2") await guardarVentaMercadoLibre(row.id_cuenta, resource as MeliOrder);
+  if (row.topic === "orders_v2") {
+    const venta = resource as MeliOrder;
+    await guardarVentaMercadoLibre(row.id_cuenta, venta);
+    try { await procesarMensajeAutomatico(row.id_cuenta, venta, await obtenerConfigMensajeAutomatico(row.id_cuenta)); }
+    catch (error) { console.error("[MENSAJES ML] No se pudo procesar una venta:", error); }
+  }
   if (row.topic === "questions") await guardarPreguntaMercadoLibre(row.id_cuenta, resource as MeliQuestion, { notificar: true });
   if (row.topic === "items") await guardarPublicacionDesdeWebhook(row.id_cuenta, resource as MeliItem);
   await query(

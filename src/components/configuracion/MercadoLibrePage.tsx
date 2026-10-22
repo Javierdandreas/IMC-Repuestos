@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { PushNotificationsControl } from "@/components/notificaciones/PushNotificationsControl";
 import { MercadoLibreMensajePrueba } from "@/components/configuracion/MercadoLibreMensajePrueba";
+import { MercadoLibreMensajeAutomatico } from "@/components/configuracion/MercadoLibreMensajeAutomatico";
 
 import type {
   MercadoLibreCuentaEstado,
@@ -493,7 +494,7 @@ export function MercadoLibrePage({ canManage }: Props) {
       </div>}
       {tab === "VENTAS" && salesSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{salesSyncError}</p>}
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
-      {tab === "VENTAS" && selectedAccountId && canManage && <MercadoLibreMensajePrueba key={selectedAccountId} idCuenta={selectedAccountId} />}
+      {tab === "VENTAS" && selectedAccountId && canManage && <><MercadoLibreMensajeAutomatico key={`automatico-${selectedAccountId}`} idCuenta={selectedAccountId} /><MercadoLibreMensajePrueba key={selectedAccountId} idCuenta={selectedAccountId} /></>}
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}
       {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} canManage={canManage} onChanged={refreshPublicaciones} />}
       {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} calculatingPage={calculatingCostPage} costSync={costSync} massSyncing={massCostSyncing} onCalculate={calculateCost} onCalculatePage={calculateCostPage} onUpdateAll={() => void updateAllActiveCosts()} />}
