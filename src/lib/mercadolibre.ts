@@ -6,6 +6,7 @@ import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
 import { interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico } from "@/lib/mercadolibre-validacion-publicacion";
 import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
 import { dominiosCompatibles, planCopiaCompatibilidades, solicitudCopiaUserProduct, totalCompatibilidades, totalResumen } from "@/lib/mercadolibre-copia-compatibilidades";
+import { opcionMensajePersonalizado } from "@/lib/mercadolibre-mensajes-prueba";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -906,6 +907,51 @@ async function copiarCompatibilidadesDePublicacion(sourceId: string, sourceUp: u
       return totalActualizado === null ? { estado: "SOLICITADA_SIN_VERIFICAR", origen, destino: null } : { estado: "SOLICITADA", origen, destino: totalActualizado };
     } catch { return { estado: "SOLICITADA_SIN_VERIFICAR", origen, destino: null }; }
   } catch (error) { return { estado: "NO_VERIFICADA", origen: null, destino: null, detalle: etapa === "copia" ? "No se recibio respuesta de la copia. Revisa el destino antes de reintentar." : error instanceof AppError ? error.message : "No se pudo consultar origen o destino." }; }
+}
+
+async function prepararMensajeVenta(idCuenta: number, ventaId: string) {
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  const order = await meliGet(`/orders/${encodeURIComponent(ventaId)}`, idCuenta, accessToken) as Record<string, unknown>;
+  const seller = order.seller as { id?: unknown } | undefined;
+  if (Number(seller?.id) !== sellerId) throw new AppError("La venta no pertenece a la cuenta conectada.", 403);
+  if (order.status !== "paid") throw new AppError("La venta no figura como pagada; no se enviara el mensaje.", 400);
+  const rawPack = order.pack_id ?? ventaId;
+  if ((typeof rawPack === "number" && !Number.isSafeInteger(rawPack)) || !/^\d+$/.test(String(rawPack))) throw new AppError("No se pudo identificar el paquete de forma segura.", 400);
+  const packId = String(rawPack);
+  const guide = await meliGet(`/messages/action_guide/packs/${encodeURIComponent(packId)}?tag=post_sale`, idCuenta, accessToken);
+  const { disponible, limite } = opcionMensajePersonalizado(guide);
+  const previous = await query<{ estado: string; detalle: string | null }>("SELECT estado, detalle FROM public.mercadolibre_mensaje_prueba WHERE id_cuenta = $1 AND pack_id = $2", [idCuenta, packId]);
+  return { accessToken, packId, disponible, limite, anterior: previous.rows[0] || null };
+}
+
+export async function consultarMensajeVenta(idCuenta: number, ventaId: string) {
+  const { packId, disponible, limite, anterior } = await prepararMensajeVenta(idCuenta, ventaId);
+  return { ventaId, packId, disponible, limite, anterior };
+}
+
+export async function enviarMensajeVentaPrueba(idCuenta: number, ventaId: string, texto: string) {
+  const { accessToken, packId, disponible, limite, anterior } = await prepararMensajeVenta(idCuenta, ventaId);
+  if (anterior) throw new AppError(`Ya existe un intento para este paquete (${anterior.estado}). Revisa los mensajes en Mercado Libre.`, 409);
+  if (!disponible) throw new AppError("Mercado Libre no habilito un mensaje personalizado para esta venta.", 400);
+  if (Array.from(texto).length > limite) throw new AppError(`El mensaje supera el limite permitido de ${limite} caracteres.`, 400);
+  const reserved = await query<{ id: string }>(`INSERT INTO public.mercadolibre_mensaje_prueba (id_cuenta, pack_id, venta_id, texto, estado)
+    VALUES ($1, $2, $3, $4, 'INCIERTO') ON CONFLICT (id_cuenta, pack_id) DO NOTHING RETURNING id`, [idCuenta, packId, ventaId, texto]);
+  if (!reserved.rows.length) throw new AppError("Ya existe un intento para este paquete. Revisa los mensajes en Mercado Libre.", 409);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/messages/action_guide/packs/${encodeURIComponent(packId)}/option?tag=post_sale`, {
+      method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ option_id: "OTHER", text: texto }), cache: "no-store", signal: AbortSignal.timeout(20000),
+    });
+  } catch {
+    return { estado: "INCIERTO", detalle: "No se recibio respuesta. Revisa Mercado Libre antes de volver a enviar." };
+  }
+  const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+  const estado = response.ok ? "RECIBIDO" : response.status >= 500 ? "INCIERTO" : "RECHAZADO";
+  const rawDetalle = response.ok ? `Estado en Mercado Libre: ${typeof body?.status === "string" ? body.status : "sin informar"}.` : typeof body?.message === "string" ? body.message : `HTTP ${response.status}`;
+  const detalle = String(protegerDiagnostico(rawDetalle, [accessToken]));
+  await query("UPDATE public.mercadolibre_mensaje_prueba SET estado = $2, detalle = $3, mensaje_id = $4, updated_at = NOW() WHERE id = $1", [reserved.rows[0].id, estado, detalle, typeof body?.id === "string" ? body.id : null]);
+  return { estado, detalle };
 }
 
 export async function reintentarCompatibilidades(idPublicacion: number, tipo: "ITEM" | "KIT", id: number, destino: string) {
