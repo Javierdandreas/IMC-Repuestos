@@ -217,6 +217,18 @@ export function ReviewPublicationModal({ product, onClose, onPublished, onLoteTe
       <div className="flex justify-end gap-2"><button type="button" onClick={() => setConfirmando(false)} className="rounded-md border border-slate-500 px-4 py-2 text-xs font-bold">Cancelar</button><button type="button" onClick={() => void publicar()} className="rounded-md bg-blue-600 px-4 py-2 text-xs font-bold text-white">Confirmar publicacion</button></div>
     </div>
   </Modal>;
+  if (loteCargando) {
+    const items = lote?.items ?? titulos.map((titulo, posicion) => ({ posicion, titulo, estado: "PENDIENTE", resultado: null, descripcion: descripcionPorTitulo ? descripcionesLote[titulo] : null }));
+    const finalizadas = items.filter((item) => item.estado === "CREADA" || item.estado === "RECHAZADA").length;
+    const origen = lote ? links?.find((link) => link.id === lote.publicacion)?.itemId : review?.itemId;
+    return <Modal title="Publicando lote" open onClose={() => {}} hideClose width="w-[min(96vw,680px)]">
+      <div className="space-y-4 p-6 text-sm text-slate-700 dark:text-slate-200">
+        <div role="status"><p className="font-bold">{lote ? "Publicando..." : "Preparando lote..."}</p><p className="mt-1 text-xs text-slate-500">{finalizadas} de {items.length} procesadas</p><p className="mt-2 text-xs">Origen: {origen || "No disponible"}</p></div>
+        <div className="max-h-[50vh] space-y-2 overflow-y-auto">{items.map((item) => <div key={item.posicion} className="border-b border-slate-200 pb-2 text-xs dark:border-slate-800"><p className="font-bold">{item.posicion + 1}. {item.titulo}</p><p>{item.estado}{item.resultado?.publicacion ? ` - ${item.resultado.publicacion}` : ""}</p>{item.resultado?.mensaje && <p>{item.resultado.mensaje}</p>}{item.resultado?.descripcionEstado && <p>Descripcion: {item.resultado.descripcionEstado}</p>}{item.resultado?.compatibilidades && <p>{resumenCompatibilidad(item.resultado.compatibilidades)}</p>}</div>)}</div>
+        {items.some((item) => item.descripcion != null) && <details><summary className="cursor-pointer text-xs font-bold">Ver descripciones</summary>{items.map((item) => <div key={item.posicion} className="mt-2 text-xs"><p className="font-bold">{item.titulo}</p><p className="whitespace-pre-wrap">{item.descripcion ?? lote?.descripcion}</p></div>)}</details>}
+      </div>
+    </Modal>;
+  }
   return <Modal title="Duplicar publicacion" open onClose={() => { if (!loteCargando && (!intento || resultado)) onClose(); }} width="w-[min(96vw,680px)]">
     <div className="space-y-4 p-6 text-sm text-slate-700 dark:text-slate-200">
       <p className="font-bold">{product.descripcion}</p>

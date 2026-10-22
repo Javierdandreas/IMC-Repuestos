@@ -11,9 +11,10 @@ type Props = {
   headerActions?: ReactNode;
   width?: string;
   hideHeaderBorder?: boolean;
+  hideClose?: boolean;
 };
 
-export function Modal({ title, open, onClose, children, headerExtra, headerActions, width = "w-[min(96vw,1280px)]", hideHeaderBorder = false }: Props) {
+export function Modal({ title, open, onClose, children, headerExtra, headerActions, width = "w-[min(96vw,1280px)]", hideHeaderBorder = false, hideClose = false }: Props) {
   useEffect(() => {
     if (!open) return;
 
@@ -44,7 +45,7 @@ export function Modal({ title, open, onClose, children, headerExtra, headerActio
 
           <div className="flex items-center gap-4">
             {headerActions}
-            <button
+            {!hideClose && <button
               type="button"
               onClick={onClose}
               className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
@@ -53,7 +54,7 @@ export function Modal({ title, open, onClose, children, headerExtra, headerActio
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
               </svg>
-            </button>
+            </button>}
           </div>
         </div>
 
