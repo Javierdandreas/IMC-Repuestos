@@ -89,6 +89,7 @@ const navGroups: NavGroup[] = [
       { href: "/configuracion/multimoneda", label: "Multimoneda" },
       { href: "/configuracion/enriquecimiento", label: "Enriquecimiento" },
       { href: "/configuracion/compatibilidades", label: "Compatibilidades" },
+      { href: "/configuracion/usuarios", label: "Usuarios" },
       { href: "/importaciones", label: "Importaciones" },
       { href: "/marcas", label: "Marcas" },
       { href: "/categorias", label: "Categorias" },
@@ -206,7 +207,7 @@ export const Sidebar = () => {
       {activeGroup && (
         <nav className="border-t border-slate-100 bg-slate-50 dark:border-slate-900 dark:bg-slate-950/80" aria-label={`Opciones de ${activeGroup.label}`}>
           <div className="mx-auto flex max-w-[1600px] items-center gap-1 overflow-x-auto px-4 py-2 md:px-6">
-            {activeGroup.links.map((link) => {
+            {activeGroup.links.filter((link) => link.href !== "/configuracion/usuarios" || user?.rol?.toLowerCase() === "admin").map((link) => {
               const className = `whitespace-nowrap rounded-md px-3 py-2 text-xs font-bold transition-colors ${isLinkActive(link.href) ? "bg-white text-blue-600 shadow-sm dark:bg-slate-900 dark:text-blue-300" : "text-slate-500 hover:bg-white hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white"}`;
               if (link.disabled) return <span key={link.label} className="whitespace-nowrap px-3 py-2 text-xs font-bold text-slate-400 dark:text-slate-600" title="Proximamente">{link.label}</span>;
               if (link.external && link.href) return <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" className={className}>{link.label}</a>;

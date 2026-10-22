@@ -53,3 +53,8 @@ export function permisoValido(apartado: string, accion: string): boolean {
   const encontrado = CATALOGO_PERMISOS.find((entry) => entry.id === apartado);
   return Boolean(encontrado?.acciones.some((a) => a === accion));
 }
+
+export function asignacionesValidas(permisos: Array<{ apartado: string; accion: string }>): boolean {
+  const keys = new Set(permisos.map((p) => `${p.apartado}:${p.accion}`));
+  return keys.size === permisos.length && permisos.every((p) => permisoValido(p.apartado, p.accion) && (p.accion === "leer" || keys.has(`${p.apartado}:leer`)));
+}
