@@ -14,6 +14,7 @@ import {
 } from "@/lib/repos/proveedor-reglas-costo";
 import {
   type ReglaCostoProveedor,
+  ALCANCES_REGLA_COSTO,
   validarReglaCostoProveedor,
 } from "@/lib/reglas-costo-proveedor";
 
@@ -42,7 +43,8 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     }
 
     const reglas = body.reglas.map((raw: Partial<ReglaCostoProveedor>, index: number): ReglaCostoProveedor => {
-      const alcance = raw.alcance === "MARCA" ? "MARCA" : "GENERAL";
+      const alcance = raw.alcance ?? "GENERAL";
+      if (!ALCANCES_REGLA_COSTO.includes(alcance)) throw new AppError("El alcance de una capa no es valido", 400);
       const marcasRaw = Array.isArray(raw.id_marcas) ? raw.id_marcas : [raw.id_marca];
       const idMarcas = [...new Set(
         marcasRaw

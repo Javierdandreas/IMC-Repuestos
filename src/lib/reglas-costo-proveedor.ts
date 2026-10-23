@@ -1,4 +1,4 @@
-export const ALCANCES_REGLA_COSTO = ["GENERAL", "MARCA"] as const;
+export const ALCANCES_REGLA_COSTO = ["GENERAL", "MARCA", "SIN_MARCA_STOCK"] as const;
 export const TIPOS_AJUSTE_COSTO = [
   "COEFICIENTE",
   "QUITAR_IVA",
@@ -47,7 +47,7 @@ export function reglaCostoAplica(
   stockTexto?: string | null,
 ) {
   const idMarcaRegla = regla.id_marca ?? regla.id_marcas?.[0] ?? null;
-  const marcaAplica = regla.alcance === "GENERAL" || Number(idMarcaRegla) === Number(idMarca);
+  const marcaAplica = regla.alcance === "GENERAL" || regla.alcance === "SIN_MARCA_STOCK" || Number(idMarcaRegla) === Number(idMarca);
   if (!marcaAplica) return false;
 
   if (!regla.condicion_tipo || regla.condicion_tipo === "SIEMPRE") return true;
@@ -67,7 +67,16 @@ export function calcularCostoConReglasProveedor(
   if (!Number.isFinite(costo) || costo < 0) return null;
 
   const reglasAplicables = reglas
-    .filter((regla) => regla.activo && reglaCostoAplica(regla, idMarca, stockTexto))
+    .filter((regla) => {
+      if (!regla.activo || !reglaCostoAplica(regla, idMarca, stockTexto)) return false;
+      if (regla.alcance !== "SIN_MARCA_STOCK") return true;
+      if (!Number.isInteger(idMarca) || Number(idMarca) <= 0 || regla.condicion_tipo !== "STOCK_TEXTO") return false;
+      const condicion = normalizarTexto(regla.condicion_valor);
+      return !reglas.some((especifica) => especifica.activo && especifica.alcance === "MARCA"
+        && especifica.condicion_tipo === "STOCK_TEXTO"
+        && normalizarTexto(especifica.condicion_valor) === condicion
+        && reglaCostoAplica(especifica, idMarca, stockTexto));
+    })
     .sort((a, b) => a.orden - b.orden || (a.id ?? 0) - (b.id ?? 0));
 
   for (const regla of reglasAplicables) {
@@ -116,13 +125,14 @@ export function validarReglaCostoProveedor(regla: ReglaCostoProveedor) {
   if (!ALCANCES_REGLA_COSTO.includes(alcance)) return "El alcance de una capa no es valido";
   if (!TIPOS_AJUSTE_COSTO.includes(tipo)) return "El tipo de ajuste no es valido";
   if (alcance === "MARCA" && (idMarcas.length !== 1 || idMarcas.some((id) => !Number.isInteger(id) || id <= 0))) return "Selecciona una sola marca para cada capa por marca";
-  if (alcance === "GENERAL" && idMarca !== null) return "Una capa general no puede tener una marca asignada";
+  if (alcance !== "MARCA" && (idMarca !== null || idMarcas.length > 0)) return "Esta capa no puede tener una marca asignada";
   if (!Number.isFinite(valor) || valor < 0 || valor > 100000000) return "El valor de una capa no es valido";
   if (["COEFICIENTE", "QUITAR_IVA"].includes(tipo) && valor <= 0) return "El coeficiente y el IVA deben ser mayores a cero";
   if (["DESCUENTO_PORCENTUAL", "RECARGO_PORCENTUAL"].includes(tipo) && valor > 100) return "Los ajustes porcentuales no pueden superar 100%";
   if (!TIPOS_CONDICION_COSTO.includes(condicionTipo)) return "La condicion de una capa no es valida";
   if (!OPERADORES_CONDICION_COSTO.includes(condicionOperador)) return "El operador de condicion no es valido";
   if (condicionTipo === "STOCK_TEXTO" && !condicionValor) return "Indica el texto de stock que debe activar la capa";
+  if (alcance === "SIN_MARCA_STOCK" && condicionTipo !== "STOCK_TEXTO") return "La capa para marcas sin condicion especifica requiere texto de stock";
 
   return null;
 }

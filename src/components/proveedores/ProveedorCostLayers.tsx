@@ -63,6 +63,7 @@ function validateRules(rules: EditableRule[]) {
   for (const rule of rules) {
     if (!rule.nombre.trim()) return "Cada capa necesita un nombre";
     if (rule.alcance === "MARCA" && getRuleBrandId(rule) === null) return "Selecciona una marca para cada capa por marca";
+    if (rule.alcance === "SIN_MARCA_STOCK" && rule.condicion_tipo !== "STOCK_TEXTO") return "La capa para marcas sin stock especifico necesita una condicion de stock";
     if (rule.condicion_tipo === "STOCK_TEXTO" && !String(rule.condicion_valor ?? "").trim()) {
       return "Indica el texto de stock que debe activar la capa";
     }
@@ -182,8 +183,8 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
       </div>
 
       <div className="overflow-x-auto">
-        <div className="min-w-[1240px]">
-          <div className="grid grid-cols-[54px_minmax(160px,1fr)_110px_minmax(180px,1fr)_minmax(280px,1.5fr)_155px_95px_100px] gap-2 border-b border-slate-800 bg-slate-950/60 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
+        <div className="min-w-[1320px]">
+          <div className="grid grid-cols-[54px_minmax(160px,1fr)_190px_minmax(180px,1fr)_minmax(280px,1.5fr)_155px_95px_100px] gap-2 border-b border-slate-800 bg-slate-950/60 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
             <span>Usar</span>
             <span>Capa</span>
             <span>Alcance</span>
@@ -199,7 +200,7 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
           ) : rules.length === 0 ? (
             <div className="px-4 py-8 text-center text-xs font-bold text-slate-500">Sin capas. El costo usa directamente el precio de lista.</div>
           ) : rules.map((rule, index) => (
-            <div key={rule.key} className={`grid grid-cols-[54px_minmax(160px,1fr)_110px_minmax(180px,1fr)_minmax(280px,1.5fr)_155px_95px_100px] items-center gap-2 border-b border-slate-800 px-4 py-2 last:border-b-0 ${rule.activo ? "" : "opacity-50"}`}>
+            <div key={rule.key} className={`grid grid-cols-[54px_minmax(160px,1fr)_190px_minmax(180px,1fr)_minmax(280px,1.5fr)_155px_95px_100px] items-center gap-2 border-b border-slate-800 px-4 py-2 last:border-b-0 ${rule.activo ? "" : "opacity-50"}`}>
               <label className="flex cursor-pointer items-center gap-2 text-[10px] font-black uppercase text-slate-400">
                 <input
                   type="checkbox"
@@ -223,12 +224,14 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
                     alcance,
                     id_marca: idMarca,
                     id_marcas: idMarca ? [idMarca] : [],
+                    ...(alcance === "SIN_MARCA_STOCK" ? { condicion_tipo: "STOCK_TEXTO" as const } : {}),
                   });
                 }}
                 className="h-9 rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500"
               >
                 <option value="GENERAL">Todas las marcas</option>
                 <option value="MARCA">Una marca</option>
+                <option value="SIN_MARCA_STOCK">Sin capa de marca para este stock</option>
               </select>
               {rule.alcance === "MARCA" ? (
                 <select
@@ -246,7 +249,7 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
                   <option value="">Seleccionar marca...</option>
                   {marcas.map((marca) => <option key={marca.id} value={marca.id}>{marca.descripcion}</option>)}
                 </select>
-              ) : <span className="px-2 text-[10px] font-bold text-slate-600">Todas las marcas</span>}
+              ) : <span className="px-2 text-[10px] font-bold text-slate-500">{rule.alcance === "SIN_MARCA_STOCK" ? "Sin capa especifica" : "Todas las marcas"}</span>}
               <div className={`grid min-w-0 items-center gap-1 ${rule.condicion_tipo === "STOCK_TEXTO" ? "grid-cols-[144px_minmax(0,1fr)]" : "grid-cols-1"}`}>
                 <select
                   value={rule.condicion_tipo ?? "SIEMPRE"}
@@ -258,7 +261,7 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
                   className="h-9 w-full min-w-0 rounded-lg border border-slate-800 bg-slate-950 px-2 text-[10px] font-black text-white outline-none focus:border-blue-500"
                   aria-label="Condicion de la capa"
                 >
-                  <option value="SIEMPRE">Siempre</option>
+                  <option value="SIEMPRE" disabled={rule.alcance === "SIN_MARCA_STOCK"}>Siempre</option>
                   <option value="STOCK_TEXTO">Por texto de stock</option>
                 </select>
                 {rule.condicion_tipo === "STOCK_TEXTO" ? (

@@ -217,6 +217,13 @@ export function ReviewPublicationModal({ product, onClose, onPublished, onLoteTe
       <div className="flex justify-end gap-2"><button type="button" onClick={() => setConfirmando(false)} className="rounded-md border border-slate-500 px-4 py-2 text-xs font-bold">Cancelar</button><button type="button" onClick={() => void publicar()} className="rounded-md bg-blue-600 px-4 py-2 text-xs font-bold text-white">Confirmar publicacion</button></div>
     </div>
   </Modal>;
+  if (intento && !resultado && review) return <Modal title="Publicando copia" open onClose={() => {}} hideClose width="w-[min(96vw,560px)]">
+    <div role="status" className="space-y-3 p-6 text-sm text-slate-700 dark:text-slate-200">
+      <p className="font-bold">Publicando...</p>
+      <p className="text-xs text-slate-500">Origen: {review.itemId}</p>
+      <p className="break-words font-bold">{nombre}</p>
+    </div>
+  </Modal>;
   if (loteCargando) {
     const items = lote?.items ?? titulos.map((titulo, posicion) => ({ posicion, titulo, estado: "PENDIENTE", resultado: null, descripcion: descripcionPorTitulo ? descripcionesLote[titulo] : null }));
     const finalizadas = items.filter((item) => item.estado === "CREADA" || item.estado === "RECHAZADA").length;
