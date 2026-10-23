@@ -193,6 +193,9 @@ export function MercadoLibrePage({ canManage }: Props) {
     }
   }, [loadTab, markAccountSynced, pages.VENTAS]);
 
+  const inboxCallbacks = useRef({ loadTab, refreshSalesInbox, refreshQuestionInbox, pages });
+  inboxCallbacks.current = { loadTab, refreshSalesInbox, refreshQuestionInbox, pages };
+
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!selectedAccountId || tab === "SINCRONIZACION" || tab === "PREGUNTAS" || tab === "VENTAS") return;
@@ -202,35 +205,57 @@ export function MercadoLibrePage({ canManage }: Props) {
     return () => window.clearInterval(interval);
   }, [deferredSearch, loadTab, pages, publicationDateFilter, publicationLinkFilter, selectedAccountId, tab]);
   useEffect(() => {
-    if (!selectedAccountId || tab !== "VENTAS") return;
+    if (!selectedAccountId || (tab !== "VENTAS" && tab !== "PREGUNTAS")) return;
+    const accountId = selectedAccountId;
+    const inbox = tab;
+    const setSyncError = inbox === "VENTAS" ? setSalesSyncError : setQuestionSyncError;
+    let revision: string | null = null;
+    let lastSync = 0;
+    let checking = false;
+    let cancelled = false;
+    let syncFailed = false;
+
     const update = async () => {
-      if (document.visibilityState !== "visible") return;
+      if (cancelled || checking || document.visibilityState !== "visible") return;
+      checking = true;
       try {
-        await refreshSalesInbox(selectedAccountId);
-        setSalesSyncError(null);
+        if (Date.now() - lastSync >= 10 * 60_000) {
+          try {
+            const refresh = inbox === "VENTAS" ? inboxCallbacks.current.refreshSalesInbox : inboxCallbacks.current.refreshQuestionInbox;
+            await refresh(accountId);
+            lastSync = Date.now();
+            syncFailed = false;
+            if (!cancelled) setSyncError(null);
+          } catch (requestError) {
+            syncFailed = true;
+            if (!cancelled) setSyncError(requestError instanceof Error ? requestError.message : "No se pudo sincronizar Mercado Libre.");
+          }
+        }
+        const params = new URLSearchParams({ idCuenta: String(accountId), tipo: inbox });
+        const response = await fetch(`/api/integraciones/mercadolibre/cambios?${params}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("No se pudieron consultar los cambios de Mercado Libre.");
+        const data = await response.json() as { revision: string };
+        if (!cancelled && (revision === null || revision !== data.revision)) {
+          await inboxCallbacks.current.loadTab(accountId, inbox, inboxCallbacks.current.pages[inbox]);
+          revision = data.revision;
+        }
+        if (!cancelled && !syncFailed) setSyncError(null);
       } catch (requestError) {
-        setSalesSyncError(requestError instanceof Error ? requestError.message : "No se pudieron consultar las ventas nuevas.");
+        if (!cancelled) setSyncError(requestError instanceof Error ? requestError.message : "No se pudieron consultar los cambios de Mercado Libre.");
+      } finally {
+        checking = false;
       }
     };
     void update();
-    const interval = window.setInterval(() => { void update(); }, 20_000);
-    return () => window.clearInterval(interval);
-  }, [refreshSalesInbox, selectedAccountId, tab]);
-  useEffect(() => {
-    if (!selectedAccountId || tab !== "PREGUNTAS") return;
-    const update = async () => {
-      if (document.visibilityState !== "visible") return;
-      try {
-        await refreshQuestionInbox(selectedAccountId);
-        setQuestionSyncError(null);
-      } catch (requestError) {
-        setQuestionSyncError(requestError instanceof Error ? requestError.message : "No se pudieron consultar las preguntas nuevas.");
-      }
+    const interval = window.setInterval(() => { void update(); }, 30_000);
+    const onVisibilityChange = () => { void update(); };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-    void update();
-    const interval = window.setInterval(() => { void update(); }, 20_000);
-    return () => window.clearInterval(interval);
-  }, [refreshQuestionInbox, selectedAccountId, tab]);
+  }, [selectedAccountId, tab]);
   useEffect(() => {
     if (!selectedAccountId || tab !== "PREGUNTAS") return;
     void loadQuickReplies(selectedAccountId).catch(() => setQuickReplies([]));
