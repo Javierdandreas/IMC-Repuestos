@@ -23,13 +23,17 @@ export function prepararValidacionPublicacion(item: Record<string, unknown>, nom
   if (Array.isArray(item.attributes)) {
     payload.attributes = item.attributes.flatMap((attribute: Record<string, unknown>) => {
       if (typeof attribute?.id !== "string") return [];
-      if (["CATALOG_TITLE", "HAS_COMPATIBILITIES", "SELLER_PACKAGE_DATA_SOURCE", "SYI_PYMES_ID"].includes(attribute.id)) return [];
+      if ([
+        "CATALOG_TITLE", "HAS_COMPATIBILITIES", "SELLER_PACKAGE_DATA_SOURCE", "SYI_PYMES_ID",
+        "GTIN", "PACKAGE_HEIGHT", "PACKAGE_LENGTH", "PACKAGE_WEIGHT", "PACKAGE_WIDTH",
+        "PRODUCT_FEATURES", "SHIPMENT_PACKING",
+      ].includes(attribute.id)) return [];
       const valueName = typeof attribute.value_name === "string" ? attribute.value_name.trim() : "";
-      // Mercado Libre rejects MATERIAL when the source only contains an obsolete value_id.
-      // It is safer to omit it than to create a publication with an invented material.
-      if (attribute.id === "MATERIAL" && !valueName) return [];
+      // Mercado Libre rejects these attributes when the source only contains an obsolete value_id.
+      // It is safer to omit them than to create a publication with invented product data.
+      if (["MATERIAL", "CORE_MATERIAL", "ORIGIN"].includes(attribute.id) && !valueName) return [];
       const result: Record<string, unknown> = { id: attribute.id };
-      if (attribute.id === "MATERIAL") result.value_name = valueName;
+      if (["MATERIAL", "CORE_MATERIAL", "ORIGIN"].includes(attribute.id)) result.value_name = valueName;
       else if (attribute.value_id) result.value_id = attribute.value_id;
       else if (valueName) result.value_name = valueName;
       else return [];

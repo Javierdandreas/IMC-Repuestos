@@ -31,6 +31,10 @@ test('omite atributos no modificables y material sin un nombre valido', () => {
       { id: 'SELLER_PACKAGE_DATA_SOURCE', value_name: 'source' },
       { id: 'SYI_PYMES_ID', value_name: '123' },
       { id: 'MATERIAL', value_id: 'legacy-material', value_name: null },
+      { id: 'CORE_MATERIAL', value_id: 'legacy-core', value_name: null },
+      { id: 'ORIGIN', value_id: 'legacy-origin', value_name: null },
+      { id: 'GTIN', value_name: '7791234567890' },
+      { id: 'PACKAGE_WEIGHT', value_name: '500 g' },
       { id: 'BRAND', value_id: '123', value_name: 'Marca' },
     ],
   }, 'Titulo nuevo');
