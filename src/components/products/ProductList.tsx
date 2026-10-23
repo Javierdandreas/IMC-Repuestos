@@ -91,20 +91,13 @@ function SearchSpeedometer() {
         <path d="M 47.7 144.3 A 74 74 0 0 1 47.7 39.7" fill="none" stroke="#ffdc15" strokeWidth="22" />
         <path d="M 52 35 A 74 74 0 0 1 148 35" fill="none" stroke="#ff9d18" strokeWidth="22" />
         <path d="M 152.3 39.7 A 74 74 0 0 1 152.3 144.3" fill="none" stroke="#f83d37" strokeWidth="22" />
-        <path d="M 52.2 131 A 57 57 0 1 1 156 111" fill="none" stroke="#a9b8c5" strokeWidth="10" />
-        <g transform="translate(100 100)">
-          <motion.g
-            style={{ transformBox: "view-box", transformOrigin: "0px 0px" }}
-            initial={{ rotate: reducedMotion ? 0 : -230 }}
-            animate={{ rotate: 0 }}
-            exit={{ rotate: 0, transition: { duration: 0.2 } }}
-            transition={{ duration: reducedMotion ? 0 : 8, ease: [0.12, 0.65, 0.2, 1] }}
-          >
-            <path d="M 0 -7 L 48 12 L 0 8 Z" fill="#303b43" />
-          </motion.g>
-          <circle r="8" fill="#303b43" />
-          <circle r="2.6" fill="white" />
+        <path d="M 58.3 133.7 A 59 59 0 1 1 158.1 102.2 L 142.3 99.5 C 146 68 126 44 100 43 C 68 43 50 64 47 92 C 45 112 50 127 58.3 133.7 Z" fill="#a9b8c5" />
+        <g>
+          <path d="M 100 84 L 139 102 L 100 100 Z" fill="#303b43" stroke="white" strokeWidth="0.8" strokeLinejoin="round" />
+          {!reducedMotion && <animateTransform attributeName="transform" type="rotate" from="-230 100 92" to="0 100 92" dur="8s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.12 0.65 0.2 1" />}
         </g>
+        <circle cx="100" cy="92" r="8" fill="#303b43" />
+        <circle cx="100" cy="92" r="2.6" fill="white" />
       </svg>
       <span className="sr-only">Buscando productos...</span>
     </motion.div>,
