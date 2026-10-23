@@ -504,9 +504,13 @@ export async function crearPiezaDesdeItems(input: {
 
     await client.query(`
       UPDATE public.productos
-      SET id_pieza = $1, palabra_clave = NULL
-      WHERE id = ANY($2::int[])
-    `, [pieza.id, ids]);
+      SET id_pieza = $1,
+          descripcion = $2,
+          id_subcategoria = $3,
+          palabra_clave = NULL
+      WHERE id = ANY($4::int[])
+        AND id_pieza IS NULL
+    `, [pieza.id, pieza.descripcion, rows[0].id_subcategoria, ids]);
 
     revalidateTag("meta");
     return { pieza, cantidad: ids.length, originales, equivalentes, sustitutos };
