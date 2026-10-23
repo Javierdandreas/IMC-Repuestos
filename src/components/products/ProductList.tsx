@@ -77,34 +77,38 @@ function getStockStatus(stockValue: number, stockMinimoValue: number) {
 
 function SearchSpeedometer() {
   const reducedMotion = useReducedMotion();
-  return (
+  return createPortal(
     <motion.div
       role="status"
       aria-live="polite"
-      className="flex items-center justify-center gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900"
+      className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-center"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
     >
-      <svg viewBox="0 0 200 165" className="h-12 w-16 shrink-0" aria-hidden="true">
+      <svg viewBox="0 0 200 165" className="h-auto w-32 shrink-0 sm:w-40" aria-hidden="true">
         <path d="M 47.7 144.3 A 74 74 0 0 1 47.7 39.7" fill="none" stroke="#ffdc15" strokeWidth="22" />
         <path d="M 52 35 A 74 74 0 0 1 148 35" fill="none" stroke="#ff9d18" strokeWidth="22" />
         <path d="M 152.3 39.7 A 74 74 0 0 1 152.3 144.3" fill="none" stroke="#f83d37" strokeWidth="22" />
-        <path d="M 61 126 A 57 57 0 1 1 155 111 L 133 102 A 34 34 0 1 0 61 126 Z" fill="#a9b8c5" />
-        <motion.g
-          style={{ transformBox: "view-box", transformOrigin: "100px 100px" }}
-          initial={{ rotate: reducedMotion ? 0 : -230 }}
-          animate={{ rotate: 0 }}
-          exit={{ rotate: 0, transition: { duration: 0.2 } }}
-          transition={{ duration: reducedMotion ? 0 : 8, ease: [0.12, 0.65, 0.2, 1] }}
-        >
-          <path d="M 101 92 L 157 113 L 100 108 A 8 8 0 1 1 101 92 Z" fill="#303b43" />
-          <circle cx="100" cy="100" r="2.6" fill="white" />
-        </motion.g>
+        <path d="M 52.2 131 A 57 57 0 1 1 156 111" fill="none" stroke="#a9b8c5" strokeWidth="10" />
+        <g transform="translate(100 100)">
+          <motion.g
+            style={{ transformBox: "view-box", transformOrigin: "0px 0px" }}
+            initial={{ rotate: reducedMotion ? 0 : -230 }}
+            animate={{ rotate: 0 }}
+            exit={{ rotate: 0, transition: { duration: 0.2 } }}
+            transition={{ duration: reducedMotion ? 0 : 8, ease: [0.12, 0.65, 0.2, 1] }}
+          >
+            <path d="M 0 -7 L 48 12 L 0 8 Z" fill="#303b43" />
+          </motion.g>
+          <circle r="8" fill="#303b43" />
+          <circle r="2.6" fill="white" />
+        </g>
       </svg>
-      <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Buscando productos...</span>
-    </motion.div>
+      <span className="sr-only">Buscando productos...</span>
+    </motion.div>,
+    document.body,
   );
 }
 
