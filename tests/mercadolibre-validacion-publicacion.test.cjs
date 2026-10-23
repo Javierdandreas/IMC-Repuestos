@@ -25,6 +25,18 @@ test('no supone configuracion para otros modos de envio', () => {
   assert.equal(prepararValidacionPublicacion({ shipping: { mode: 'custom' } }, 'Nombre').shipping, undefined);
 });
 
+test('omite atributos no modificables y material sin un nombre valido', () => {
+  const result = prepararValidacionPublicacion({
+    attributes: [
+      { id: 'SELLER_PACKAGE_DATA_SOURCE', value_name: 'source' },
+      { id: 'SYI_PYMES_ID', value_name: '123' },
+      { id: 'MATERIAL', value_id: 'legacy-material', value_name: null },
+      { id: 'BRAND', value_id: '123', value_name: 'Marca' },
+    ],
+  }, 'Titulo nuevo');
+  assert.deepEqual(result.attributes, [{ id: 'BRAND', value_id: '123' }]);
+});
+
 test('usa titulo en el modelo anterior y no descarta valores numericos cero', () => {
   const result = prepararValidacionPublicacion({ price: 0, available_quantity: 0 }, 'Titulo nuevo');
   assert.equal(result.title, 'Titulo nuevo');

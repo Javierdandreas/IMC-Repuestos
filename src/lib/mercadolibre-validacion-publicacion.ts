@@ -23,10 +23,15 @@ export function prepararValidacionPublicacion(item: Record<string, unknown>, nom
   if (Array.isArray(item.attributes)) {
     payload.attributes = item.attributes.flatMap((attribute: Record<string, unknown>) => {
       if (typeof attribute?.id !== "string") return [];
-      if (attribute.id === "CATALOG_TITLE" || attribute.id === "HAS_COMPATIBILITIES") return [];
+      if (["CATALOG_TITLE", "HAS_COMPATIBILITIES", "SELLER_PACKAGE_DATA_SOURCE", "SYI_PYMES_ID"].includes(attribute.id)) return [];
+      const valueName = typeof attribute.value_name === "string" ? attribute.value_name.trim() : "";
+      // Mercado Libre rejects MATERIAL when the source only contains an obsolete value_id.
+      // It is safer to omit it than to create a publication with an invented material.
+      if (attribute.id === "MATERIAL" && !valueName) return [];
       const result: Record<string, unknown> = { id: attribute.id };
-      if (attribute.value_id) result.value_id = attribute.value_id;
-      else if (attribute.value_name) result.value_name = attribute.value_name;
+      if (attribute.id === "MATERIAL") result.value_name = valueName;
+      else if (attribute.value_id) result.value_id = attribute.value_id;
+      else if (valueName) result.value_name = valueName;
       else return [];
       return [result];
     });
