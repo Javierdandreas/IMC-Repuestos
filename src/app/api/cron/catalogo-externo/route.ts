@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
       groups: result.preview.groups,
       errorCount: result.preview.errorCount,
       imported: result.imported,
+      updatedExisting: result.existing,
       batchLimit: result.batchLimit,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

@@ -939,7 +939,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
       <Modal title="Actualizar palabras clave existentes" open={confirmingKeywordsUpdate} onClose={updatingKeywords ? () => {} : () => setConfirmingKeywordsUpdate(false)} width="max-w-lg">
         <div className="space-y-4 p-6">
           <p className="text-sm font-medium leading-6 text-slate-600 dark:text-slate-300">
-            Se actualizaran las palabras clave de los items existentes que coincidan por codigo con esta consulta externa.
+            Se actualizaran las palabras clave de los items existentes sin numero de pieza que coincidan por codigo con esta consulta externa.
           </p>
           <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs font-semibold leading-5 text-violet-800 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-200">
             Solo se usa una palabra clave externa con contenido. No se modificaran piezas, precios, stock, descripcion, marca ni clasificacion local.
