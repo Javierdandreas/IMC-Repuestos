@@ -11,6 +11,7 @@ import {
   ATRIBUTOS_VEHICULO_ML,
   DOMINIO_VEHICULOS_ML,
   esAtributoVehiculo,
+  guardarEstadoAtributosVehiculo,
   guardarValoresCatalogoVehiculos,
   type AtributoVehiculoId,
   type ValorVehiculo,
@@ -732,16 +733,42 @@ async function consultarTopValuesVehiculos(idCuenta: number, token: string, attr
     .filter((value) => value.id && value.name);
 }
 
+function atributosDesdeDominio(payload: unknown) {
+  const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+  const candidates = Array.isArray(payload) ? payload : Array.isArray(record?.attributes) ? record.attributes : [];
+  return new Set(candidates
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    .map((entry) => typeof entry.id === "string" ? entry.id : "")
+    .filter(Boolean));
+}
+
+async function atributosDisponiblesVehiculos(idCuenta: number, token: string) {
+  const payload = await meliGet(`/catalog_domains/${DOMINIO_VEHICULOS_ML}`, idCuenta, token);
+  const found = atributosDesdeDominio(payload);
+  // Si ML cambia el formato de esta respuesta, el endpoint top_values sigue
+  // siendo la autoridad y los atributos rechazados se desactivan abajo.
+  return found.size ? found : new Set(ATRIBUTOS_VEHICULO_ML.map((attribute) => attribute.id));
+}
+
+function atributoNoPerteneceAlDominio(error: unknown) {
+  return error instanceof Error && /does not belong to the domain/i.test(error.message);
+}
+
 export async function consultarValoresVehiculoMercadoLibre(attributeId: unknown, known: ValorVehiculo[]) {
   if (!esAtributoVehiculo(attributeId)) throw new AppError("El atributo de vehiculo indicado no es valido.", 400);
   const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
   const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const available = await atributosDisponiblesVehiculos(idCuenta, accessToken);
+  await guardarEstadoAtributosVehiculo(available);
+  if (!available.has(attributeId)) throw new AppError(`${attributeId} no esta disponible actualmente para vehiculos de Mercado Libre Argentina.`, 422);
   return consultarTopValuesVehiculos(idCuenta, accessToken, attributeId, known);
 }
 
 export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false) {
   const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
   const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const available = await atributosDisponiblesVehiculos(idCuenta, accessToken);
+  await guardarEstadoAtributosVehiculo(available);
   const previous = await query<{ siguiente_marca: number; estado: string }>(`
     SELECT siguiente_marca, estado
     FROM public.mercadolibre_catalogo_vehiculo_sincronizacion
@@ -751,8 +778,16 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
   // Primero se guardan los valores globales de los 14 atributos. Los detalles
   // por vehiculo se siguen ampliando desde el selector de cada pieza.
   for (const attribute of ATRIBUTOS_VEHICULO_ML) {
-    await consultarTopValuesVehiculos(idCuenta, accessToken, attribute.id, []);
+    if (!available.has(attribute.id)) continue;
+    try {
+      await consultarTopValuesVehiculos(idCuenta, accessToken, attribute.id, []);
+    } catch (error) {
+      if (!atributoNoPerteneceAlDominio(error)) throw error;
+      available.delete(attribute.id);
+      await guardarEstadoAtributosVehiculo(available);
+    }
   }
+  if (!available.has("BRAND")) throw new AppError("Mercado Libre no informo el atributo BRAND para el dominio de vehiculos.", 502);
   const brands = await consultarTopValuesVehiculos(idCuenta, accessToken, "BRAND", []);
   const offset = reiniciar || previous.rows[0]?.estado === "COMPLETADA" ? 0 : Number(previous.rows[0]?.siguiente_marca ?? 0);
   const batchSize = 35;

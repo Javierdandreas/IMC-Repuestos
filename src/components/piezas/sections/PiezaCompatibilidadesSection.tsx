@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { ATRIBUTOS_VEHICULO_ML, type ValorVehiculo } from "@/lib/catalogo-vehiculos-atributos";
 import { toast } from "sonner";
@@ -29,6 +29,20 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
   const [selected, setSelected] = useState<Partial<Record<AttributeId, ValorVehiculo>>>({});
   const [options, setOptions] = useState<Partial<Record<AttributeId, Option[]>>>({});
   const [loading, setLoading] = useState<AttributeId | null>(null);
+  const [available, setAvailable] = useState<Set<string> | null>(null);
+
+  useEffect(() => {
+    fetch("/api/compatibilidades", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (Array.isArray(data?.atributos)) {
+          setAvailable(new Set(data.atributos
+            .filter((attribute: { habilitado?: boolean }) => attribute.habilitado !== false)
+            .map((attribute: { id: string }) => attribute.id)));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const load = async (attribute: AttributeId) => {
     if (!canUse(attribute, selected) || loading === attribute) return;
@@ -74,6 +88,7 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
   };
 
   const renderField = (attribute: AttributeId) => {
+    if (available && !available.has(attribute)) return null;
     const enabled = canUse(attribute, selected);
     const current = selected[attribute];
     return <label key={attribute} className="block min-w-0"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-500">{labels.get(attribute)}</span><div className="relative"><select value={current?.valueId ?? ""} onFocus={() => void load(attribute)} onChange={(event) => choose(attribute, event.target.value)} disabled={disabled || !enabled} className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="">{enabled ? `Seleccionar ${labels.get(attribute)?.toLowerCase()}` : "Completa marca y modelo"}</option>{options[attribute]?.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select>{loading === attribute && <LoaderCircle className="pointer-events-none absolute right-3 top-3 h-4 w-4 animate-spin text-blue-500" />}</div></label>;

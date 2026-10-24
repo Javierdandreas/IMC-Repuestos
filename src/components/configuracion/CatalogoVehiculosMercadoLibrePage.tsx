@@ -9,7 +9,7 @@ type Estado = {
   siguiente_marca: number;
   total_marcas: number;
   ultimo_error: string | null;
-  atributos: Array<{ id: string; nombre: string; grupo: string; total: number }>;
+  atributos: Array<{ id: string; nombre: string; grupo: string; total: number; habilitado: boolean }>;
 };
 
 export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: boolean }) {
@@ -75,7 +75,7 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     <section className="border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800"><h2 className="text-sm font-black text-slate-900 dark:text-white">Valores guardados por atributo</h2></div>
       <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4 dark:divide-slate-800">
-        {loading ? <p className="col-span-full p-8 text-center text-sm text-slate-500">Cargando catalogo...</p> : data?.atributos.map((attribute) => <div key={attribute.id} className="p-4"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{attribute.grupo}</p><p className="mt-1 text-sm font-bold text-slate-900 dark:text-white">{attribute.nombre}</p><p className="mt-2 font-mono text-xl font-black text-blue-600 dark:text-blue-300">{attribute.total.toLocaleString("es-AR")}</p></div>)}
+        {loading ? <p className="col-span-full p-8 text-center text-sm text-slate-500">Cargando catalogo...</p> : data?.atributos.filter((attribute) => attribute.habilitado).map((attribute) => <div key={attribute.id} className="p-4"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{attribute.grupo}</p><p className="mt-1 text-sm font-bold text-slate-900 dark:text-white">{attribute.nombre}</p><p className="mt-2 font-mono text-xl font-black text-blue-600 dark:text-blue-300">{attribute.total.toLocaleString("es-AR")}</p></div>)}
       </div>
     </section>
   </div>;

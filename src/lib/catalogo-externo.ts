@@ -189,11 +189,13 @@ function parseRow(row: RawRow): Item | null {
   if (rawType !== "PRODUCTO" && rawType !== "GRUPO") return null;
   const code = normalize(pick(data, ["codigoInterno", "codigo_interno"]) || row.codigo_interno);
   const title = pick(data, ["titulo"]) || clean(row.titulo);
+  const sourceDescription = pick(data, ["descripcion"]);
   return {
     sourceId: String(row.id),
     code,
     title,
-    description: pick(data, ["descripcion"]) || title || code,
+    // GESU mantiene el titulo como la denominacion comercial del item.
+    description: title || sourceDescription || code,
     brand: pick(data, ["marca"]) || clean(row.marca),
     category: pick(data, ["categoria", "categoría"]),
     subcategory: pick(data, ["subCategoria", "subcategoria", "subCategoría"]),

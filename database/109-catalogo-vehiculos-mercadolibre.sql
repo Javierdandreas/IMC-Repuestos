@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS public.mercadolibre_catalogo_vehiculo_valor (
 CREATE INDEX IF NOT EXISTS idx_ml_catalogo_vehiculo_valor_busqueda
   ON public.mercadolibre_catalogo_vehiculo_valor (dominio_id, atributo_id, contexto_clave, valor_nombre);
 
+CREATE TABLE IF NOT EXISTS public.mercadolibre_catalogo_vehiculo_atributo (
+  dominio_id text NOT NULL DEFAULT 'MLA-CARS_AND_VANS',
+  atributo_id text NOT NULL,
+  habilitado boolean NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (dominio_id, atributo_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.mercadolibre_catalogo_vehiculo_sincronizacion (
   dominio_id text PRIMARY KEY DEFAULT 'MLA-CARS_AND_VANS',
   estado text NOT NULL DEFAULT 'PENDIENTE' CHECK (estado IN ('PENDIENTE', 'EN_PROCESO', 'COMPLETADA', 'ERROR')),

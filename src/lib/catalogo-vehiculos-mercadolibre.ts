@@ -10,6 +10,20 @@ import {
 
 export * from "@/lib/catalogo-vehiculos-atributos";
 
+export async function guardarEstadoAtributosVehiculo(enabledIds: ReadonlySet<string>) {
+  await query(`
+    INSERT INTO public.mercadolibre_catalogo_vehiculo_atributo (dominio_id, atributo_id, habilitado, updated_at)
+    SELECT $1, source.atributo_id, source.habilitado, NOW()
+    FROM UNNEST($2::text[], $3::boolean[]) AS source(atributo_id, habilitado)
+    ON CONFLICT (dominio_id, atributo_id)
+    DO UPDATE SET habilitado = EXCLUDED.habilitado, updated_at = NOW()
+  `, [
+    DOMINIO_VEHICULOS_ML,
+    ATRIBUTOS_VEHICULO_ML.map((attribute) => attribute.id),
+    ATRIBUTOS_VEHICULO_ML.map((attribute) => enabledIds.has(attribute.id)),
+  ]);
+}
+
 export async function guardarValoresCatalogoVehiculos(attributeId: AtributoVehiculoId, known: ValorVehiculo[], values: Array<{ id: unknown; name: unknown }>) {
   const normalizedKnown = normalizarAtributosVehiculo(known);
   const context = contextoVehiculo(normalizedKnown);
@@ -49,7 +63,7 @@ export async function obtenerValoresCatalogoVehiculos(attributeId: AtributoVehic
 }
 
 export async function estadoCatalogoVehiculosMercadoLibre() {
-  const [state, counts] = await Promise.all([
+  const [state, counts, attributesState] = await Promise.all([
     query<{ estado: string; siguiente_marca: number; total_marcas: number; ultimo_error: string | null; iniciada_at: string | null; finalizada_at: string | null }>(`
       SELECT estado, siguiente_marca, total_marcas, ultimo_error, iniciada_at, finalizada_at
       FROM public.mercadolibre_catalogo_vehiculo_sincronizacion
@@ -61,6 +75,10 @@ export async function estadoCatalogoVehiculosMercadoLibre() {
       WHERE dominio_id = $1
       GROUP BY atributo_id
     `, [DOMINIO_VEHICULOS_ML]),
+    query<{ atributo_id: string; habilitado: boolean }>(`
+      SELECT atributo_id, habilitado FROM public.mercadolibre_catalogo_vehiculo_atributo
+      WHERE dominio_id = $1
+    `, [DOMINIO_VEHICULOS_ML]),
   ]);
   const current = state.rows[0] || { estado: "PENDIENTE", siguiente_marca: 0, total_marcas: 0, ultimo_error: null, iniciada_at: null, finalizada_at: null };
   return {
@@ -68,6 +86,7 @@ export async function estadoCatalogoVehiculosMercadoLibre() {
     atributos: ATRIBUTOS_VEHICULO_ML.map((attribute) => ({
       ...attribute,
       total: Number(counts.rows.find((row) => row.atributo_id === attribute.id)?.total ?? 0),
+      habilitado: attributesState.rows.find((row) => row.atributo_id === attribute.id)?.habilitado ?? true,
     })),
   };
 }
