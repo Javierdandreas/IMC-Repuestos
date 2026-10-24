@@ -10,7 +10,8 @@ export type CampoCambioMasivo =
   | "UBICACION"
   | "STOCK_MINIMO"
   | "OBSERVACION"
-  | "PALABRAS_CLAVE";
+  | "PALABRAS_CLAVE"
+  | "PIEZA";
 
 export type CambioMasivoItemsInput = {
   items: Array<{ id: number; tipo: TipoItemMasivo }>;
@@ -20,6 +21,7 @@ export type CambioMasivoItemsInput = {
   idMarca?: number;
   idProveedor?: number;
   idUbicacion?: number;
+  idPieza?: number;
   stockMinimo?: number;
   texto?: string;
   usuarioId?: number | null;
@@ -182,10 +184,29 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
       );
     }
 
+    if (input.campo === "PIEZA") {
+      if (!input.idPieza) throw new AppError("Selecciona un numero de pieza", 400);
+      const pieza = await client.query<{ id: number; codigo_pieza: number; descripcion: string; id_subcategoria: number }>(
+        "SELECT id, codigo_pieza, descripcion, id_subcategoria FROM public.pieza WHERE id = $1",
+        [input.idPieza],
+      );
+      const seleccionada = pieza.rows[0];
+      if (!seleccionada) throw new AppError("El numero de pieza seleccionado ya no existe", 404);
+      await actualizarProductos(
+        `UPDATE public.productos
+         SET id_pieza = $1, descripcion = $2, id_subcategoria = $3, palabra_clave = NULL
+         WHERE id = ANY($4::int[])
+         RETURNING id, cod_unico`,
+        [seleccionada.id, seleccionada.descripcion, seleccionada.id_subcategoria, itemIds],
+        "Numero de pieza asignado masivamente",
+        `Asignado al numero de pieza ${seleccionada.codigo_pieza} desde el listado general`,
+      );
+    }
+
     return {
       itemsActualizados: productosActualizados.length,
       kitsActualizados,
-      kitsOmitidos: ["PROVEEDOR", "UBICACION", "PALABRAS_CLAVE"].includes(input.campo) ? kitIds.length : 0,
+      kitsOmitidos: ["PROVEEDOR", "UBICACION", "PALABRAS_CLAVE", "PIEZA"].includes(input.campo) ? kitIds.length : 0,
     };
   });
 }
