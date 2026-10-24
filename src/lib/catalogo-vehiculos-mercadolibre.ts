@@ -62,6 +62,93 @@ export async function obtenerValoresCatalogoVehiculos(attributeId: AtributoVehic
   return result.rows.map((row) => ({ id: row.value_id, name: row.value_name }));
 }
 
+export type CatalogoVehiculoValor = {
+  atributoId: AtributoVehiculoId;
+  valorId: string;
+  valorNombre: string;
+  contexto: ValorVehiculo[];
+  sincronizadoAt: string;
+};
+
+export type CatalogoVehiculosExploracion = {
+  data: CatalogoVehiculoValor[];
+  marcas: Array<{ id: string; nombre: string }>;
+  page: number;
+  totalPages: number;
+  totalCount: number;
+};
+
+export async function explorarCatalogoVehiculos({
+  search = "",
+  attributeId,
+  brandId = "",
+  page = 1,
+  limit = 50,
+}: {
+  search?: string;
+  attributeId?: AtributoVehiculoId;
+  brandId?: string;
+  page?: number;
+  limit?: number;
+} = {}): Promise<CatalogoVehiculosExploracion> {
+  const clauses = ["dominio_id = $1"];
+  const params: unknown[] = [DOMINIO_VEHICULOS_ML];
+  const term = search.trim().slice(0, 100);
+  const safeBrandId = brandId.trim().slice(0, 100);
+
+  if (attributeId) {
+    params.push(attributeId);
+    clauses.push(`atributo_id = $${params.length}`);
+  }
+  if (term) {
+    params.push(`%${term}%`);
+    clauses.push(`(valor_nombre ILIKE $${params.length} OR valor_id ILIKE $${params.length} OR atributos_conocidos::text ILIKE $${params.length})`);
+  }
+  if (safeBrandId) {
+    params.push(safeBrandId);
+    clauses.push(`(
+      (atributo_id = 'BRAND' AND valor_id = $${params.length})
+      OR atributos_conocidos @> jsonb_build_array(jsonb_build_object('id', 'BRAND', 'valueId', $${params.length}))
+    )`);
+  }
+
+  const where = clauses.join(" AND ");
+  const safeLimit = Math.min(100, Math.max(10, Math.floor(limit)));
+  const safePage = Math.max(1, Math.floor(page));
+  const [countResult, valuesResult, brandsResult] = await Promise.all([
+    query<{ total: string }>(`SELECT COUNT(*)::text AS total FROM public.mercadolibre_catalogo_vehiculo_valor WHERE ${where}`, params),
+    query<{ atributo_id: AtributoVehiculoId; valor_id: string; valor_nombre: string; atributos_conocidos: unknown; sincronizado_at: string }>(`
+      SELECT atributo_id, valor_id, valor_nombre, atributos_conocidos, sincronizado_at
+      FROM public.mercadolibre_catalogo_vehiculo_valor
+      WHERE ${where}
+      ORDER BY array_position($${params.length + 1}::text[], atributo_id), valor_nombre
+      LIMIT $${params.length + 2} OFFSET $${params.length + 3}
+    `, [...params, ATRIBUTOS_VEHICULO_ML.map((attribute) => attribute.id), safeLimit, (safePage - 1) * safeLimit]),
+    query<{ valor_id: string; valor_nombre: string }>(`
+      SELECT valor_id, valor_nombre
+      FROM public.mercadolibre_catalogo_vehiculo_valor
+      WHERE dominio_id = $1 AND atributo_id = 'BRAND' AND contexto_clave = ''
+      ORDER BY valor_nombre
+    `, [DOMINIO_VEHICULOS_ML]),
+  ]);
+  const totalCount = Number(countResult.rows[0]?.total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(totalCount / safeLimit));
+
+  return {
+    data: valuesResult.rows.map((row) => ({
+      atributoId: row.atributo_id,
+      valorId: row.valor_id,
+      valorNombre: row.valor_nombre,
+      contexto: normalizarAtributosVehiculo(row.atributos_conocidos),
+      sincronizadoAt: row.sincronizado_at,
+    })),
+    marcas: brandsResult.rows.map((row) => ({ id: row.valor_id, nombre: row.valor_nombre })),
+    page: Math.min(safePage, totalPages),
+    totalPages,
+    totalCount,
+  };
+}
+
 export async function estadoCatalogoVehiculosMercadoLibre() {
   const [state, counts, attributesState] = await Promise.all([
     query<{ estado: string; siguiente_marca: number; total_marcas: number; ultimo_error: string | null; iniciada_at: string | null; finalizada_at: string | null }>(`
