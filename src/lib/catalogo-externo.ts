@@ -853,10 +853,10 @@ export async function updateExternalCatalogExistingKeywords(snapshotId: number):
 }
 
 /**
- * GESU remains the operational source for items that have not been enriched
- * with a piece number. Enriched items are intentionally never modified here.
+ * GESU remains the source of stock for all non-serialized items. Product data
+ * other than stock stays protected once an item has a piece number assigned.
  */
-async function updateExternalCatalogExistingUnenriched(snapshotId: number): Promise<CatalogExistingUpdateResult> {
+async function updateExternalCatalogExistingItems(snapshotId: number): Promise<CatalogExistingUpdateResult> {
   const result = await withTransaction(async (db) => {
     const snapshot = await db.query<{ id: number }>(
       "SELECT id FROM public.catalogo_externo_sincronizacion WHERE id = $1 AND origen = $2 FOR SHARE",
@@ -893,7 +893,6 @@ async function updateExternalCatalogExistingUnenriched(snapshotId: number): Prom
          WHERE item.id_sincronizacion = $1
            AND item.tipo = 'PRODUCTO'
            AND item.existe_local = TRUE
-           AND producto.id_pieza IS NULL
            AND COALESCE(producto.usa_numero_serie, FALSE) = FALSE
        ), target AS (
          SELECT source.*, ubicacion.id AS id_ubicacion
@@ -902,18 +901,20 @@ async function updateExternalCatalogExistingUnenriched(snapshotId: number): Prom
        )
        UPDATE public.productos AS producto
        SET stock = target.stock,
-           descripcion = COALESCE(LEFT(target.descripcion, 150), producto.descripcion),
-           palabra_clave = COALESCE(target.palabra_clave, producto.palabra_clave),
-           id_subcategoria = COALESCE(target.id_subcategoria, producto.id_subcategoria),
-           id_ubicacion = COALESCE(target.id_ubicacion, producto.id_ubicacion)
+           descripcion = CASE WHEN producto.id_pieza IS NULL THEN COALESCE(LEFT(target.descripcion, 150), producto.descripcion) ELSE producto.descripcion END,
+           palabra_clave = CASE WHEN producto.id_pieza IS NULL THEN COALESCE(target.palabra_clave, producto.palabra_clave) ELSE producto.palabra_clave END,
+           id_subcategoria = CASE WHEN producto.id_pieza IS NULL THEN COALESCE(target.id_subcategoria, producto.id_subcategoria) ELSE producto.id_subcategoria END,
+           id_ubicacion = CASE WHEN producto.id_pieza IS NULL THEN COALESCE(target.id_ubicacion, producto.id_ubicacion) ELSE producto.id_ubicacion END
        FROM target
        WHERE producto.id = target.id_producto
          AND (
            producto.stock IS DISTINCT FROM target.stock
-           OR producto.descripcion IS DISTINCT FROM COALESCE(LEFT(target.descripcion, 150), producto.descripcion)
-           OR producto.palabra_clave IS DISTINCT FROM COALESCE(target.palabra_clave, producto.palabra_clave)
-           OR producto.id_subcategoria IS DISTINCT FROM COALESCE(target.id_subcategoria, producto.id_subcategoria)
-           OR producto.id_ubicacion IS DISTINCT FROM COALESCE(target.id_ubicacion, producto.id_ubicacion)
+           OR (producto.id_pieza IS NULL AND (
+             producto.descripcion IS DISTINCT FROM COALESCE(LEFT(target.descripcion, 150), producto.descripcion)
+             OR producto.palabra_clave IS DISTINCT FROM COALESCE(target.palabra_clave, producto.palabra_clave)
+             OR producto.id_subcategoria IS DISTINCT FROM COALESCE(target.id_subcategoria, producto.id_subcategoria)
+             OR producto.id_ubicacion IS DISTINCT FROM COALESCE(target.id_ubicacion, producto.id_ubicacion)
+           ))
          )
        RETURNING producto.id`,
       [snapshotId],
@@ -924,15 +925,13 @@ async function updateExternalCatalogExistingUnenriched(snapshotId: number): Prom
     await db.query(
       `WITH source AS (
          SELECT producto.id AS id_producto, GREATEST(item.stock, 0) AS stock,
-           COALESCE(ubicacion.id, producto.id_ubicacion, sin_ubicacion.id) AS id_ubicacion
+           COALESCE(producto.id_ubicacion, sin_ubicacion.id) AS id_ubicacion
          FROM public.catalogo_externo_item AS item
          JOIN public.productos AS producto ON producto.id = item.id_producto_local
-         LEFT JOIN public.ubicaciones AS ubicacion ON UPPER(BTRIM(ubicacion.descripcion)) = UPPER(NULLIF(BTRIM(item.ubicacion), ''))
          CROSS JOIN LATERAL (SELECT id FROM public.ubicaciones WHERE descripcion = 'SIN UBICACION' LIMIT 1) AS sin_ubicacion
          WHERE item.id_sincronizacion = $1
            AND item.tipo = 'PRODUCTO'
            AND item.existe_local = TRUE
-           AND producto.id_pieza IS NULL
            AND COALESCE(producto.usa_numero_serie, FALSE) = FALSE
        )
        UPDATE public.producto_stock_ubicacion AS stock_ubicacion
@@ -945,15 +944,13 @@ async function updateExternalCatalogExistingUnenriched(snapshotId: number): Prom
     await db.query(
       `WITH source AS (
          SELECT producto.id AS id_producto, GREATEST(item.stock, 0) AS stock,
-           COALESCE(ubicacion.id, producto.id_ubicacion, sin_ubicacion.id) AS id_ubicacion
+           COALESCE(producto.id_ubicacion, sin_ubicacion.id) AS id_ubicacion
          FROM public.catalogo_externo_item AS item
          JOIN public.productos AS producto ON producto.id = item.id_producto_local
-         LEFT JOIN public.ubicaciones AS ubicacion ON UPPER(BTRIM(ubicacion.descripcion)) = UPPER(NULLIF(BTRIM(item.ubicacion), ''))
          CROSS JOIN LATERAL (SELECT id FROM public.ubicaciones WHERE descripcion = 'SIN UBICACION' LIMIT 1) AS sin_ubicacion
          WHERE item.id_sincronizacion = $1
            AND item.tipo = 'PRODUCTO'
            AND item.existe_local = TRUE
-           AND producto.id_pieza IS NULL
            AND COALESCE(producto.usa_numero_serie, FALSE) = FALSE
        )
        INSERT INTO public.producto_stock_ubicacion (id_producto, id_ubicacion, cantidad)
@@ -990,7 +987,7 @@ async function readyExternalItemIds(snapshotId: number, type: "PRODUCTO" | "GRUP
  */
 export async function syncExternalCatalogAutomatically() {
   const staged = await refreshExternalCatalogPreview();
-  const existing = await updateExternalCatalogExistingUnenriched(staged.snapshotId);
+  const existing = await updateExternalCatalogExistingItems(staged.snapshotId);
   const productIds = await readyExternalItemIds(staged.snapshotId, "PRODUCTO");
   const products = productIds.length
     ? await importExternalCatalogProducts(staged.snapshotId, productIds, null)

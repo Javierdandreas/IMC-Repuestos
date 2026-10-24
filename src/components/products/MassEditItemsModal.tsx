@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { HiCheck, HiRefresh, HiSearch } from "react-icons/hi";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/Modal";
@@ -55,6 +56,7 @@ export function MassEditItemsModal({
   const [resultadosPieza, setResultadosPieza] = useState<PiezaBusqueda[]>([]);
   const [piezaSeleccionada, setPiezaSeleccionada] = useState<PiezaBusqueda | null>(null);
   const [buscandoPieza, setBuscandoPieza] = useState(false);
+  const [confirmingPieza, setConfirmingPieza] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const totalItems = items.filter((item) => item.tipo === "ITEM").length;
@@ -76,6 +78,7 @@ export function MassEditItemsModal({
     setBusquedaPieza("");
     setResultadosPieza([]);
     setPiezaSeleccionada(null);
+    setConfirmingPieza(false);
   }, [open]);
 
   useEffect(() => {
@@ -116,9 +119,15 @@ export function MassEditItemsModal({
       toast.error("Busca y selecciona un numero de pieza");
       return;
     }
-    const advertenciaPieza = campo === "PIEZA" ? " La descripcion y clasificacion se reemplazaran por las de la pieza, incluso si el item ya tenia otra asignada." : "";
-    if (!window.confirm(`Se aplicara ${labelCampo} a ${items.length} seleccionados.${soloItems && totalKits > 0 ? ` ${totalKits} kit(s) no se modificaran.` : ""}${advertenciaPieza}\n\nContinuar?`)) return;
+    if (campo === "PIEZA") {
+      setConfirmingPieza(true);
+      return;
+    }
+    if (!window.confirm(`Se aplicara ${labelCampo} a ${items.length} seleccionados.${soloItems && totalKits > 0 ? ` ${totalKits} kit(s) no se modificaran.` : ""}\n\nContinuar?`)) return;
+    await applyChange();
+  };
 
+  const applyChange = async () => {
     try {
       setSaving(true);
       const response = await fetch("/api/items/cambio-masivo", {
@@ -140,6 +149,7 @@ export function MassEditItemsModal({
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudo aplicar el cambio");
       toast.success("Cambio masivo aplicado");
+      setConfirmingPieza(false);
       onSuccess();
       onClose();
     } catch (error) {
@@ -201,6 +211,25 @@ export function MassEditItemsModal({
           </button>
         </div>
       </div>
+      {confirmingPieza && createPortal(<Modal open onClose={saving ? () => {} : () => setConfirmingPieza(false)} title="Asignar numero de pieza" width="w-full max-w-md" hideClose={saving}>
+        <div className="space-y-5 p-5">
+          <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Se asignara esta pieza a {totalItems} item{totalItems === 1 ? "" : "s"} seleccionado{totalItems === 1 ? "" : "s"}.</p>
+          {piezaSeleccionada && <div className="border-l-4 border-blue-600 bg-slate-50 px-4 py-3 dark:bg-slate-900">
+            <p className="font-mono text-xs font-black text-blue-700 dark:text-blue-300">PIEZA {piezaSeleccionada.codigo_pieza}</p>
+            <p className="mt-1 text-sm font-bold text-slate-900 dark:text-white">{piezaSeleccionada.descripcion}</p>
+            <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">{piezaSeleccionada.categoria} / {piezaSeleccionada.subcategoria}</p>
+          </div>}
+          <div className="border-y border-slate-200 py-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
+            <p>Se reemplazaran la pieza actual, la descripcion y la clasificacion.</p>
+            <p className="mt-1">Tambien se eliminaran las palabras clave de esos items.</p>
+          </div>
+          {totalKits > 0 && <p className="text-xs font-medium text-amber-700 dark:text-amber-300">{totalKits} kit{totalKits === 1 ? "" : "s"} seleccionado{totalKits === 1 ? "" : "s"} no se modificara{totalKits === 1 ? "" : "n"}.</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setConfirmingPieza(false)} disabled={saving} className="h-10 px-4 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800">Volver</button>
+            <button type="button" onClick={() => void applyChange()} disabled={saving} className="inline-flex h-10 items-center gap-2 bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-60">{saving && <HiRefresh className="h-4 w-4 animate-spin" />}Asignar pieza</button>
+          </div>
+        </div>
+      </Modal>, document.body)}
     </Modal>
   );
 }
