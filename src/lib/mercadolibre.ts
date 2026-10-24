@@ -7,6 +7,14 @@ import { interpretarValidacionPublicacion, prepararValidacionPublicacion, proteg
 import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
 import { dominiosCompatibles, planCopiaCompatibilidades, solicitudCopiaUserProduct, totalCompatibilidades, totalResumen } from "@/lib/mercadolibre-copia-compatibilidades";
 import { opcionMensajePersonalizado, ventaAptaParaMensaje } from "@/lib/mercadolibre-mensajes-prueba";
+import {
+  ATRIBUTOS_VEHICULO_ML,
+  DOMINIO_VEHICULOS_ML,
+  esAtributoVehiculo,
+  guardarValoresCatalogoVehiculos,
+  type AtributoVehiculoId,
+  type ValorVehiculo,
+} from "@/lib/catalogo-vehiculos-mercadolibre";
 import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
@@ -688,6 +696,100 @@ async function accessTokenForCuenta(idCuenta: number, forceRefresh = false) {
     );
     return { accessToken: renewed.access_token, sellerId: Number(cuenta.seller_id) };
   });
+}
+
+type MeliTopValue = { id: unknown; name: unknown };
+
+function valuesFromTopValues(payload: unknown): MeliTopValue[] {
+  if (!Array.isArray(payload)) return [];
+  return payload.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    .map((entry) => ({ id: entry.id, name: entry.name }));
+}
+
+async function cuentaConectadaParaCatalogoVehiculos() {
+  const result = await query<{ id: number }>(`
+    SELECT id FROM public.mercadolibre_cuenta
+    WHERE conectada = TRUE AND site_id = 'MLA'
+    ORDER BY updated_at DESC, id DESC
+    LIMIT 1
+  `);
+  const idCuenta = result.rows[0] ? Number(result.rows[0].id) : 0;
+  if (!idCuenta) throw new AppError("Conecta primero una cuenta de Mercado Libre Argentina para consultar el catalogo de vehiculos.", 422);
+  return idCuenta;
+}
+
+async function consultarTopValuesVehiculos(idCuenta: number, token: string, attributeId: AtributoVehiculoId, known: ValorVehiculo[]) {
+  const payload = await meliPost(
+    `/catalog_domains/${DOMINIO_VEHICULOS_ML}/attributes/${attributeId}/top_values?limit=1000`,
+    idCuenta,
+    token,
+    { known_attributes: known.map((attribute) => ({ id: attribute.id, value_id: attribute.valueId })) },
+  );
+  const values = valuesFromTopValues(payload);
+  await guardarValoresCatalogoVehiculos(attributeId, known, values);
+  return values
+    .map((value) => ({ id: String(value.id ?? "").trim(), name: String(value.name ?? "").trim() }))
+    .filter((value) => value.id && value.name);
+}
+
+export async function consultarValoresVehiculoMercadoLibre(attributeId: unknown, known: ValorVehiculo[]) {
+  if (!esAtributoVehiculo(attributeId)) throw new AppError("El atributo de vehiculo indicado no es valido.", 400);
+  const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
+  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  return consultarTopValuesVehiculos(idCuenta, accessToken, attributeId, known);
+}
+
+export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false) {
+  const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
+  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const previous = await query<{ siguiente_marca: number; estado: string }>(`
+    SELECT siguiente_marca, estado
+    FROM public.mercadolibre_catalogo_vehiculo_sincronizacion
+    WHERE dominio_id = $1
+  `, [DOMINIO_VEHICULOS_ML]);
+
+  // Primero se guardan los valores globales de los 14 atributos. Los detalles
+  // por vehiculo se siguen ampliando desde el selector de cada pieza.
+  for (const attribute of ATRIBUTOS_VEHICULO_ML) {
+    await consultarTopValuesVehiculos(idCuenta, accessToken, attribute.id, []);
+  }
+  const brands = await consultarTopValuesVehiculos(idCuenta, accessToken, "BRAND", []);
+  const offset = reiniciar || previous.rows[0]?.estado === "COMPLETADA" ? 0 : Number(previous.rows[0]?.siguiente_marca ?? 0);
+  const batchSize = 35;
+  const batch = brands.slice(offset, offset + batchSize);
+
+  await query(`
+    INSERT INTO public.mercadolibre_catalogo_vehiculo_sincronizacion
+      (dominio_id, estado, siguiente_marca, total_marcas, ultimo_error, iniciada_at, finalizada_at, updated_at)
+    VALUES ($1, 'EN_PROCESO', $2, $3, NULL, NOW(), NULL, NOW())
+    ON CONFLICT (dominio_id) DO UPDATE
+      SET estado = 'EN_PROCESO', siguiente_marca = EXCLUDED.siguiente_marca,
+          total_marcas = EXCLUDED.total_marcas, ultimo_error = NULL,
+          iniciada_at = COALESCE(mercadolibre_catalogo_vehiculo_sincronizacion.iniciada_at, NOW()), updated_at = NOW()
+  `, [DOMINIO_VEHICULOS_ML, offset, brands.length]);
+
+  try {
+    for (const brand of batch) {
+      await consultarTopValuesVehiculos(idCuenta, accessToken, "MODEL", [{ id: "BRAND", valueId: brand.id, valueName: brand.name }]);
+      // 35 consultas mas las globales quedan por debajo del limite de 100 RPM de ML.
+      await new Promise((resolve) => setTimeout(resolve, 650));
+    }
+    const next = offset + batch.length;
+    const completed = next >= brands.length;
+    await query(`
+      UPDATE public.mercadolibre_catalogo_vehiculo_sincronizacion
+      SET estado = $2, siguiente_marca = $3, total_marcas = $4,
+          finalizada_at = CASE WHEN $2 = 'COMPLETADA' THEN NOW() ELSE NULL END,
+          updated_at = NOW()
+      WHERE dominio_id = $1
+    `, [DOMINIO_VEHICULOS_ML, completed ? "COMPLETADA" : "EN_PROCESO", next, brands.length]);
+    return { consultadas: batch.length, siguienteMarca: next, totalMarcas: brands.length, completada: completed };
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 1_000) : "No se pudo continuar la sincronizacion.";
+    await query(`UPDATE public.mercadolibre_catalogo_vehiculo_sincronizacion
+      SET estado = 'ERROR', ultimo_error = $2, updated_at = NOW() WHERE dominio_id = $1`, [DOMINIO_VEHICULOS_ML, message]);
+    throw error;
+  }
 }
 
 async function meliGet(path: string, idCuenta: number, token: string) {

@@ -27,6 +27,10 @@ export type Pieza = {
   equivalentes: string[];
   sustitutos: string[];
   medida: string | null;
+  compatibilidades?: Array<{
+    id?: number;
+    atributos: Array<{ id: string; valueId: string; valueName: string }>;
+  }>;
 };
 
 export type PiezaListado = {

@@ -10,6 +10,7 @@ import { splitCodes, codesToText } from "@/utils/text";
 import { PiezaBasicInfoSection } from "./sections/PiezaBasicInfoSection";
 import { PiezaDescriptionSection, PiezaImageSection } from "./sections/PiezaDetailsSection";
 import { PiezaCodesSection } from "./sections/PiezaCodesSection";
+import { PiezaCompatibilidadesSection } from "./sections/PiezaCompatibilidadesSection";
 import { QuickAddModal, QuickAddType } from "../products/QuickAddModal";
 
 type Props = {
@@ -52,6 +53,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
     equivalentes: initialPieza?.equivalentes ?? [],
     sustitutos: initialPieza?.sustitutos ?? [],
     medida: initialPieza?.medida ?? null,
+    compatibilidades: initialPieza?.compatibilidades ?? [],
   });
 
   const [originalesTexto, setOriginalesTexto] = useState(codesToText(initialPieza?.originales));
@@ -102,6 +104,7 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
       originales: splitCodes(originalesTexto),
       equivalentes: splitCodes(equivalentesTexto),
       sustitutos: splitCodes(sustitutosTexto),
+      compatibilidades: pieza.compatibilidades ?? [],
     });
   };
 
@@ -155,6 +158,12 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
             onSustitutosChange={setSustitutosTexto}
           />
         </div>
+
+        <PiezaCompatibilidadesSection
+          value={pieza.compatibilidades ?? []}
+          onChange={(compatibilidades) => setPieza((current) => ({ ...current, compatibilidades }))}
+          disabled={loading}
+        />
 
         <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-8 dark:border-slate-800">
           {onCancel && (

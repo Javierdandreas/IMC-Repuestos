@@ -5,6 +5,14 @@ import {
   validateWithSchema 
 } from "./common";
 
+const compatibilidadVehiculoSchema = z.object({
+  atributos: z.array(z.object({
+    id: z.string().trim(),
+    valueId: z.string().trim(),
+    valueName: z.string().trim(),
+  })).max(14),
+});
+
 /**
  * Esquema de validación para items asociados
  */
@@ -16,6 +24,7 @@ export const piezaPayloadSchema = z.object({
   equivalentes: z.array(z.string().trim().toUpperCase()).optional().default([]),
   sustitutos: z.array(z.string().trim().toUpperCase()).optional().default([]),
   medida: z.string().trim().optional().nullish(),
+  compatibilidades: z.array(compatibilidadVehiculoSchema).max(500).optional().default([]),
 });
 
 export type PiezaPayload = z.infer<typeof piezaPayloadSchema>;

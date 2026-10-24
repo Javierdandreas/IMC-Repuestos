@@ -5,6 +5,7 @@ import type { Pieza, PiezaListado } from "@/interfaces/piezas";
 import type { PiezaBusqueda } from "@/interfaces/productos";
 import { sanitizeUppercaseString as sanitizeText, sanitizeCodes } from "@/utils/sanitization";
 import { deleteFileFromStorage } from "@/lib/storage-cleanup";
+import { firmaCompatibilidadVehiculo, normalizarAtributosVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
 export type ConflictRow = {
   codigo: string;
   codigo_pieza: number;
@@ -19,6 +20,7 @@ type PiezaInput = {
   originales?: string[];
   equivalentes?: string[];
   sustitutos?: string[];
+  compatibilidades?: Array<{ atributos: unknown }>;
 };
 
 type PiezaImportMapping = Record<string, { csvHeader?: string }>;
@@ -54,6 +56,9 @@ function sanitizePiezaInput(input: PiezaInput) {
     originales: sanitizeCodes(input.originales),
     equivalentes: sanitizeCodes(input.equivalentes),
     sustitutos: sanitizeCodes(input.sustitutos),
+    compatibilidades: (input.compatibilidades || [])
+      .map((compatibilidad) => normalizarAtributosVehiculo(compatibilidad.atributos))
+      .filter((attributes) => attributes.some((attribute) => attribute.id === "BRAND") && attributes.some((attribute) => attribute.id === "MODEL")),
   };
 }
 
@@ -61,6 +66,18 @@ function validatePiezaInput(payload: ReturnType<typeof sanitizePiezaInput>) {
   if (!payload.descripcion) throw new Error("La descripción es obligatoria");
   if (!Number.isInteger(payload.idSubcategoria) || payload.idSubcategoria <= 0) {
     throw new Error("La subcategoría es obligatoria");
+  }
+}
+
+async function replacePiezaCompatibilidades(client: DbClient, pieceId: number, compatibilidades: ReturnType<typeof sanitizePiezaInput>["compatibilidades"]) {
+  const unique = new Map<string, ReturnType<typeof normalizarAtributosVehiculo>>();
+  for (const attributes of compatibilidades) unique.set(firmaCompatibilidadVehiculo(attributes), attributes);
+  await client.query(`DELETE FROM public.mercadolibre_pieza_compatibilidad WHERE id_pieza = $1`, [pieceId]);
+  for (const [firma, attributes] of unique) {
+    await client.query(`
+      INSERT INTO public.mercadolibre_pieza_compatibilidad (id_pieza, atributos, firma)
+      VALUES ($1, $2::jsonb, $3)
+    `, [pieceId, JSON.stringify(attributes), firma]);
   }
 }
 
@@ -643,9 +660,13 @@ export async function getPiezaById(id: string | number): Promise<Pieza | null> {
     ORDER BY pcr.tipo, cr.codigo
   `;
 
-  const [piezaRes, codigosRes] = await Promise.all([
+  const [piezaRes, codigosRes, compatibilidadesRes] = await Promise.all([
     query(piezaQuery, [id]),
     query(codigosQuery, [id]),
+    query<{ id: number; atributos: unknown }>(`
+      SELECT id, atributos FROM public.mercadolibre_pieza_compatibilidad
+      WHERE id_pieza = $1 ORDER BY id
+    `, [id]),
   ]);
 
   if (piezaRes.rows.length === 0) return null;
@@ -658,6 +679,7 @@ export async function getPiezaById(id: string | number): Promise<Pieza | null> {
     originales: codigos.filter((row) => row.tipo === "ORIGINAL").map((row) => row.codigo),
     equivalentes: codigos.filter((row) => row.tipo === "EQUIVALENTE").map((row) => row.codigo),
     sustitutos: codigos.filter((row) => row.tipo === "SUSTITUTO").map((row) => row.codigo),
+    compatibilidades: compatibilidadesRes.rows.map((row) => ({ id: Number(row.id), atributos: normalizarAtributosVehiculo(row.atributos) })),
   } as Pieza;
 }
 
@@ -690,6 +712,7 @@ export async function createPieza(input: PiezaInput) {
     await attachCodigosToPieza(client, pieza.id, "ORIGINAL", payload.originales);
     await attachCodigosToPieza(client, pieza.id, "EQUIVALENTE", payload.equivalentes);
     await attachCodigosToPieza(client, pieza.id, "SUSTITUTO", payload.sustitutos);
+    await replacePiezaCompatibilidades(client, Number(pieza.id), payload.compatibilidades);
 
     revalidateTag("meta");
 
@@ -742,6 +765,7 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
     }
 
     await replacePiezaCodigos(client, id, payload.originales, payload.equivalentes, payload.sustitutos);
+    await replacePiezaCompatibilidades(client, numericId, payload.compatibilidades);
     
     // Limpieza de códigos huérfanos
     await cleanupOrphanedCodes(client);
