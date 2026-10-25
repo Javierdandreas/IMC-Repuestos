@@ -82,12 +82,14 @@ export async function explorarCatalogoVehiculos({
   search = "",
   attributeId,
   brandId = "",
+  filters = [],
   page = 1,
   limit = 50,
 }: {
   search?: string;
   attributeId?: AtributoVehiculoId;
   brandId?: string;
+  filters?: ValorVehiculo[];
   page?: number;
   limit?: number;
 } = {}): Promise<CatalogoVehiculosExploracion> {
@@ -109,6 +111,15 @@ export async function explorarCatalogoVehiculos({
     clauses.push(`(
       (atributo_id = 'BRAND' AND valor_id = $${params.length})
       OR atributos_conocidos @> jsonb_build_array(jsonb_build_object('id', 'BRAND', 'valueId', $${params.length}))
+    )`);
+  }
+  for (const filter of normalizarAtributosVehiculo(filters)) {
+    params.push(filter.id, filter.valueId);
+    const attributeParam = params.length - 1;
+    const valueParam = params.length;
+    clauses.push(`(
+      (atributo_id = $${attributeParam} AND valor_id = $${valueParam})
+      OR atributos_conocidos @> jsonb_build_array(jsonb_build_object('id', $${attributeParam}, 'valueId', $${valueParam}))
     )`);
   }
 
