@@ -13,6 +13,8 @@ import {
   esAtributoVehiculo,
   guardarEstadoAtributosVehiculo,
   guardarValoresCatalogoVehiculos,
+  normalizarAtributosVehiculo,
+  obtenerValoresCatalogoVehiculos,
   type AtributoVehiculoId,
   type ValorVehiculo,
 } from "@/lib/catalogo-vehiculos-mercadolibre";
@@ -756,12 +758,36 @@ function atributoNoPerteneceAlDominio(error: unknown) {
 
 export async function consultarValoresVehiculoMercadoLibre(attributeId: unknown, known: ValorVehiculo[]) {
   if (!esAtributoVehiculo(attributeId)) throw new AppError("El atributo de vehiculo indicado no es valido.", 400);
+  const cached = await obtenerValoresCatalogoVehiculos(attributeId, known);
+  if (cached.length) return cached;
   const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
   const { accessToken } = await accessTokenForCuenta(idCuenta);
   const available = await atributosDisponiblesVehiculos(idCuenta, accessToken);
   await guardarEstadoAtributosVehiculo(available);
   if (!available.has(attributeId)) throw new AppError(`${attributeId} no esta disponible actualmente para vehiculos de Mercado Libre Argentina.`, 422);
   return consultarTopValuesVehiculos(idCuenta, accessToken, attributeId, known);
+}
+
+export async function consultarValoresVehiculoMercadoLibreParaContextos(attributeId: unknown, known: ValorVehiculo[]) {
+  if (!esAtributoVehiculo(attributeId)) throw new AppError("El atributo de vehiculo indicado no es valido.", 400);
+  const byAttribute = new Map<AtributoVehiculoId, ValorVehiculo[]>();
+  for (const entry of known.flatMap((value) => normalizarAtributosVehiculo([value])).filter((value) => value.id !== attributeId)) {
+    const values = byAttribute.get(entry.id) ?? [];
+    if (!values.some((value) => value.valueId === entry.valueId)) values.push(entry);
+    byAttribute.set(entry.id, values);
+  }
+
+  let contexts: ValorVehiculo[][] = [[]];
+  for (const attribute of ATRIBUTOS_VEHICULO_ML.map((item) => item.id)) {
+    const values = byAttribute.get(attribute);
+    if (!values?.length) continue;
+    contexts = contexts.flatMap((context) => values.map((value) => [...context, value]));
+    if (contexts.length > 25) throw new AppError("Selecciona hasta 25 combinaciones de filtros antes de cargar otra lista.", 422);
+  }
+  const values = await Promise.all(contexts.map((context) => consultarValoresVehiculoMercadoLibre(attributeId, context)));
+  const unique = new Map<string, { id: string; name: string }>();
+  for (const entry of values.flat()) unique.set(entry.id, entry);
+  return [...unique.values()].sort((left, right) => left.name.localeCompare(right.name, "es-AR"));
 }
 
 export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false) {

@@ -62,16 +62,10 @@ export async function obtenerValoresCatalogoVehiculos(attributeId: AtributoVehic
   return result.rows.map((row) => ({ id: row.value_id, name: row.value_name }));
 }
 
-export type CatalogoVehiculoValor = {
-  atributoId: AtributoVehiculoId;
-  valorId: string;
-  valorNombre: string;
-  contexto: ValorVehiculo[];
-  sincronizadoAt: string;
-};
+export type CatalogoVehiculoFila = { atributos: ValorVehiculo[] };
 
 export type CatalogoVehiculosExploracion = {
-  data: CatalogoVehiculoValor[];
+  data: CatalogoVehiculoFila[];
   marcas: Array<{ id: string; nombre: string }>;
   page: number;
   totalPages: number;
@@ -113,13 +107,23 @@ export async function explorarCatalogoVehiculos({
       OR atributos_conocidos @> jsonb_build_array(jsonb_build_object('id', 'BRAND', 'valueId', $${params.length}))
     )`);
   }
-  for (const filter of normalizarAtributosVehiculo(filters)) {
-    params.push(filter.id, filter.valueId);
+  const groupedFilters = new Map<AtributoVehiculoId, string[]>();
+  for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
+    const values = groupedFilters.get(filter.id) ?? [];
+    if (!values.includes(filter.valueId)) values.push(filter.valueId);
+    groupedFilters.set(filter.id, values);
+  }
+  for (const [filterId, valueIds] of groupedFilters) {
+    params.push(filterId, valueIds);
     const attributeParam = params.length - 1;
-    const valueParam = params.length;
+    const valuesParam = params.length;
     clauses.push(`(
-      (atributo_id = $${attributeParam} AND valor_id = $${valueParam})
-      OR atributos_conocidos @> jsonb_build_array(jsonb_build_object('id', $${attributeParam}, 'valueId', $${valueParam}))
+      (atributo_id = $${attributeParam} AND valor_id = ANY($${valuesParam}::text[]))
+      OR EXISTS (
+        SELECT 1 FROM jsonb_array_elements(atributos_conocidos) AS known_attribute
+        WHERE known_attribute->>'id' = $${attributeParam}
+          AND known_attribute->>'valueId' = ANY($${valuesParam}::text[])
+      )
     )`);
   }
 
@@ -147,11 +151,10 @@ export async function explorarCatalogoVehiculos({
 
   return {
     data: valuesResult.rows.map((row) => ({
-      atributoId: row.atributo_id,
-      valorId: row.valor_id,
-      valorNombre: row.valor_nombre,
-      contexto: normalizarAtributosVehiculo(row.atributos_conocidos),
-      sincronizadoAt: row.sincronizado_at,
+      atributos: normalizarAtributosVehiculo([
+        ...normalizarAtributosVehiculo(row.atributos_conocidos),
+        { id: row.atributo_id, valueId: row.valor_id, valueName: row.valor_nombre },
+      ]),
     })),
     marcas: brandsResult.rows.map((row) => ({ id: row.valor_id, nombre: row.valor_nombre })),
     page: Math.min(safePage, totalPages),

@@ -14,7 +14,9 @@ function positiveInteger(value: string | null, fallback: number) {
 function parseFilters(value: string | null) {
   if (!value) return [];
   try {
-    return normalizarAtributosVehiculo(JSON.parse(value));
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry) => normalizarAtributosVehiculo([entry])).slice(0, 100);
   } catch {
     return [];
   }
