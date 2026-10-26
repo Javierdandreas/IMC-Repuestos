@@ -29,6 +29,7 @@ export type Pieza = {
   medida: string | null;
   compatibilidades?: Array<{
     id?: number;
+    id_vehiculo?: number | null;
     atributos: Array<{ id: string; valueId: string; valueName: string }>;
   }>;
 };

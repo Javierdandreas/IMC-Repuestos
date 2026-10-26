@@ -13,6 +13,7 @@ type Estado = {
   siguiente_marca: number;
   total_marcas: number;
   total_modelos: number;
+  total_vehiculos: number;
   ultimo_error: string | null;
   atributos: Array<{ id: string; nombre: string; grupo: string; total: number; habilitado: boolean }>;
 };
@@ -233,6 +234,6 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
       {results && <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3 dark:border-slate-800"><span className="text-xs font-semibold text-slate-500">Pagina {results.page} de {results.totalPages}</span><div className="flex gap-2"><button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={loadingResults || results.page <= 1} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-500 disabled:opacity-40 dark:border-slate-700" title="Pagina anterior"><ChevronLeft className="h-4 w-4" /></button><button type="button" onClick={() => setPage((current) => Math.min(results.totalPages, current + 1))} disabled={loadingResults || results.page >= results.totalPages} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-500 disabled:opacity-40 dark:border-slate-700" title="Pagina siguiente"><ChevronRight className="h-4 w-4" /></button></div></div>}
     </section>
 
-    <section className="border border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">{loadingState ? <p className="text-sm text-slate-500">Cargando catalogo...</p> : <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">En la base de IMC tenemos <span className="font-mono text-lg font-black text-blue-600 dark:text-blue-300">{(state?.total_modelos ?? 0).toLocaleString("es-AR")}</span> modelos cargados de Mercado Libre.</p>}</section>
+    <section className="border border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">{loadingState ? <p className="text-sm text-slate-500">Cargando catalogo...</p> : <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">En la base de IMC tenemos <span className="font-mono text-lg font-black text-blue-600 dark:text-blue-300">{(state?.total_vehiculos ?? 0).toLocaleString("es-AR")}</span> vehiculos con ID IMC y <span className="font-mono font-black text-blue-600 dark:text-blue-300">{(state?.total_modelos ?? 0).toLocaleString("es-AR")}</span> modelos de Mercado Libre.</p>}</section>
   </div>;
 }

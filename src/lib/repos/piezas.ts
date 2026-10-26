@@ -5,7 +5,7 @@ import type { Pieza, PiezaListado } from "@/interfaces/piezas";
 import type { PiezaBusqueda } from "@/interfaces/productos";
 import { sanitizeUppercaseString as sanitizeText, sanitizeCodes } from "@/utils/sanitization";
 import { deleteFileFromStorage } from "@/lib/storage-cleanup";
-import { firmaCompatibilidadVehiculo, normalizarAtributosVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
+import { firmaCompatibilidadVehiculo, guardarVehiculosCanonicos, normalizarAtributosVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
 export type ConflictRow = {
   codigo: string;
   codigo_pieza: number;
@@ -72,12 +72,13 @@ function validatePiezaInput(payload: ReturnType<typeof sanitizePiezaInput>) {
 async function replacePiezaCompatibilidades(client: DbClient, pieceId: number, compatibilidades: ReturnType<typeof sanitizePiezaInput>["compatibilidades"]) {
   const unique = new Map<string, ReturnType<typeof normalizarAtributosVehiculo>>();
   for (const attributes of compatibilidades) unique.set(firmaCompatibilidadVehiculo(attributes), attributes);
+  const vehicleIds = await guardarVehiculosCanonicos(client, [...unique.values()]);
   await client.query(`DELETE FROM public.mercadolibre_pieza_compatibilidad WHERE id_pieza = $1`, [pieceId]);
   for (const [firma, attributes] of unique) {
     await client.query(`
-      INSERT INTO public.mercadolibre_pieza_compatibilidad (id_pieza, atributos, firma)
-      VALUES ($1, $2::jsonb, $3)
-    `, [pieceId, JSON.stringify(attributes), firma]);
+      INSERT INTO public.mercadolibre_pieza_compatibilidad (id_pieza, atributos, firma, id_vehiculo)
+      VALUES ($1, $2::jsonb, $3, $4)
+    `, [pieceId, JSON.stringify(attributes), firma, vehicleIds.get(firma) ?? null]);
   }
 }
 
@@ -663,8 +664,8 @@ export async function getPiezaById(id: string | number): Promise<Pieza | null> {
   const [piezaRes, codigosRes, compatibilidadesRes] = await Promise.all([
     query(piezaQuery, [id]),
     query(codigosQuery, [id]),
-    query<{ id: number; atributos: unknown }>(`
-      SELECT id, atributos FROM public.mercadolibre_pieza_compatibilidad
+    query<{ id: number; id_vehiculo: number | null; atributos: unknown }>(`
+      SELECT id, id_vehiculo, atributos FROM public.mercadolibre_pieza_compatibilidad
       WHERE id_pieza = $1 ORDER BY id
     `, [id]),
   ]);
@@ -679,7 +680,7 @@ export async function getPiezaById(id: string | number): Promise<Pieza | null> {
     originales: codigos.filter((row) => row.tipo === "ORIGINAL").map((row) => row.codigo),
     equivalentes: codigos.filter((row) => row.tipo === "EQUIVALENTE").map((row) => row.codigo),
     sustitutos: codigos.filter((row) => row.tipo === "SUSTITUTO").map((row) => row.codigo),
-    compatibilidades: compatibilidadesRes.rows.map((row) => ({ id: Number(row.id), atributos: normalizarAtributosVehiculo(row.atributos) })),
+    compatibilidades: compatibilidadesRes.rows.map((row) => ({ id: Number(row.id), id_vehiculo: row.id_vehiculo === null ? null : Number(row.id_vehiculo), atributos: normalizarAtributosVehiculo(row.atributos) })),
   } as Pieza;
 }
 

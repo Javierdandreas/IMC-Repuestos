@@ -1,8 +1,9 @@
-import { query } from "@/lib/db-utils";
+import { query, type DbClient } from "@/lib/db-utils";
 import {
   ATRIBUTOS_VEHICULO_ML,
   contextoVehiculo,
   DOMINIO_VEHICULOS_ML,
+  firmaCompatibilidadVehiculo,
   normalizarAtributosVehiculo,
   type AtributoVehiculoId,
   type ValorVehiculo,
@@ -63,6 +64,73 @@ export async function obtenerValoresCatalogoVehiculos(attributeId: AtributoVehic
 }
 
 export type CatalogoVehiculoFila = { atributos: ValorVehiculo[] };
+
+type VehiculoCanonico = {
+  id: number;
+  firma: string;
+};
+
+function atributoVehiculo(attributes: ValorVehiculo[], id: AtributoVehiculoId) {
+  return attributes.find((attribute) => attribute.id === id) ?? null;
+}
+
+export function esVehiculoCanonico(attributes: ValorVehiculo[]) {
+  const normalized = normalizarAtributosVehiculo(attributes);
+  return ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE"].every((id) =>
+    normalized.some((attribute) => attribute.id === id)
+  );
+}
+
+/**
+ * Conserva un identificador IMC por configuracion confirmada. No se crean filas
+ * con filtros generales (por ejemplo, solo marca y modelo), porque no son un vehiculo.
+ */
+export async function guardarVehiculosCanonicos(client: DbClient, entries: ValorVehiculo[][]) {
+  const uniques = new Map<string, ValorVehiculo[]>();
+  for (const entry of entries) {
+    const attributes = normalizarAtributosVehiculo(entry);
+    if (esVehiculoCanonico(attributes)) uniques.set(firmaCompatibilidadVehiculo(attributes), attributes);
+  }
+
+  const saved = new Map<string, number>();
+  for (const [firma, attributes] of uniques) {
+    const brand = atributoVehiculo(attributes, "BRAND")!;
+    const model = atributoVehiculo(attributes, "MODEL")!;
+    const year = atributoVehiculo(attributes, "VEHICLE_YEAR")!;
+    const engine = atributoVehiculo(attributes, "ENGINE")!;
+    const power = atributoVehiculo(attributes, "POWER");
+    const result = await client.query<VehiculoCanonico>(`
+      INSERT INTO public.mercadolibre_catalogo_vehiculo (
+        dominio_id, firma, atributos,
+        marca_id, modelo_id, anio_id, motor_id, potencia_id,
+        marca_nombre, modelo_nombre, anio_nombre, motor_nombre, potencia_nombre,
+        origen, activa, sincronizado_at
+      ) VALUES (
+        $1, $2, $3::jsonb,
+        $4, $5, $6, $7, $8,
+        $9, $10, $11, $12, $13,
+        'COMPATIBILIDAD', TRUE, NOW()
+      )
+      ON CONFLICT (dominio_id, firma) DO UPDATE
+      SET atributos = EXCLUDED.atributos,
+          marca_nombre = EXCLUDED.marca_nombre,
+          modelo_nombre = EXCLUDED.modelo_nombre,
+          anio_nombre = EXCLUDED.anio_nombre,
+          motor_nombre = EXCLUDED.motor_nombre,
+          potencia_nombre = EXCLUDED.potencia_nombre,
+          activa = TRUE,
+          sincronizado_at = NOW()
+      RETURNING id, firma
+    `, [
+      DOMINIO_VEHICULOS_ML, firma, JSON.stringify(attributes),
+      brand.valueId, model.valueId, year.valueId, engine.valueId, power?.valueId ?? null,
+      brand.valueName, model.valueName, year.valueName, engine.valueName, power?.valueName ?? null,
+    ]);
+    const vehicle = result.rows[0];
+    if (vehicle) saved.set(vehicle.firma, Number(vehicle.id));
+  }
+  return saved;
+}
 
 export type CatalogoVehiculosExploracion = {
   data: CatalogoVehiculoFila[];
@@ -164,7 +232,7 @@ export async function explorarCatalogoVehiculos({
 }
 
 export async function estadoCatalogoVehiculosMercadoLibre() {
-  const [state, counts, attributesState] = await Promise.all([
+  const [state, counts, attributesState, canonicalCount] = await Promise.all([
     query<{ estado: string; siguiente_marca: number; total_marcas: number; ultimo_error: string | null; iniciada_at: string | null; finalizada_at: string | null }>(`
       SELECT estado, siguiente_marca, total_marcas, ultimo_error, iniciada_at, finalizada_at
       FROM public.mercadolibre_catalogo_vehiculo_sincronizacion
@@ -180,11 +248,17 @@ export async function estadoCatalogoVehiculosMercadoLibre() {
       SELECT atributo_id, habilitado FROM public.mercadolibre_catalogo_vehiculo_atributo
       WHERE dominio_id = $1
     `, [DOMINIO_VEHICULOS_ML]),
+    query<{ total: string }>(`
+      SELECT COUNT(*)::text AS total
+      FROM public.mercadolibre_catalogo_vehiculo
+      WHERE dominio_id = $1 AND activa = TRUE
+    `, [DOMINIO_VEHICULOS_ML]),
   ]);
   const current = state.rows[0] || { estado: "PENDIENTE", siguiente_marca: 0, total_marcas: 0, ultimo_error: null, iniciada_at: null, finalizada_at: null };
   return {
     ...current,
     total_modelos: Number(counts.rows.find((row) => row.atributo_id === "MODEL")?.total ?? 0),
+    total_vehiculos: Number(canonicalCount.rows[0]?.total ?? 0),
     atributos: ATRIBUTOS_VEHICULO_ML.map((attribute) => ({
       ...attribute,
       total: Number(counts.rows.find((row) => row.atributo_id === attribute.id)?.total ?? 0),

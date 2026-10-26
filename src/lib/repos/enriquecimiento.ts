@@ -2,7 +2,7 @@ import { query, withTransaction, type DbClient } from "@/lib/db-utils";
 import { revalidateTag } from "next/cache";
 import { buildConflictMessage, findCodeConflicts, findOrCreateCodigo } from "@/lib/repos/piezas";
 import { sanitizeCodes, sanitizeRequiredString } from "@/utils/sanitization";
-import { firmaCompatibilidadVehiculo, normalizarAtributosVehiculo, type ValorVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
+import { firmaCompatibilidadVehiculo, guardarVehiculosCanonicos, normalizarAtributosVehiculo, type ValorVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
 
 export type EstadoEnriquecimiento = "PENDIENTES" | "ENRIQUECIDOS" | "TODOS";
 
@@ -515,11 +515,12 @@ export async function crearPiezaDesdeItems(input: {
 
     const compatibilidadesUnicas = new Map<string, ValorVehiculo[]>();
     for (const attributes of compatibilidades) compatibilidadesUnicas.set(firmaCompatibilidadVehiculo(attributes), attributes);
+    const vehicleIds = await guardarVehiculosCanonicos(client, [...compatibilidadesUnicas.values()]);
     for (const [firma, attributes] of compatibilidadesUnicas) {
       await client.query(`
-        INSERT INTO public.mercadolibre_pieza_compatibilidad (id_pieza, atributos, firma)
-        VALUES ($1, $2::jsonb, $3)
-      `, [pieza.id, JSON.stringify(attributes), firma]);
+        INSERT INTO public.mercadolibre_pieza_compatibilidad (id_pieza, atributos, firma, id_vehiculo)
+        VALUES ($1, $2::jsonb, $3, $4)
+      `, [pieza.id, JSON.stringify(attributes), firma, vehicleIds.get(firma) ?? null]);
     }
 
     await client.query(`

@@ -5,7 +5,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, LoaderCircle, Plus, Search, Tra
 import { ATRIBUTOS_VEHICULO_ML, type ValorVehiculo } from "@/lib/catalogo-vehiculos-atributos";
 import { toast } from "sonner";
 
-type Compatibility = { id?: number; atributos: Array<{ id: string; valueId: string; valueName: string }> };
+type Compatibility = { id?: number; id_vehiculo?: number | null; atributos: Array<{ id: string; valueId: string; valueName: string }> };
 type Props = { value: Compatibility[]; onChange: (value: Compatibility[]) => void; disabled?: boolean };
 type Option = { id: string; name: string };
 type AttributeId = ValorVehiculo["id"];
