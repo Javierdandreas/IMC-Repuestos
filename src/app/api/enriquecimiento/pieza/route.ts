@@ -11,6 +11,8 @@ export async function POST(request: NextRequest) {
       ids: body?.ids,
       id_descripcion: body?.id_descripcion,
       descripcion: body?.descripcion,
+      medida: body?.medida,
+      imagen_medida_url: body?.imagen_medida_url,
       originales: body?.originales,
       equivalentes: body?.equivalentes,
       sustitutos: body?.sustitutos,

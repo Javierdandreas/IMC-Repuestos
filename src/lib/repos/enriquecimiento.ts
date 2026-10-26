@@ -425,6 +425,8 @@ export async function crearPiezaDesdeItems(input: {
   ids: unknown;
   id_descripcion: unknown;
   descripcion?: unknown;
+  medida?: unknown;
+  imagen_medida_url?: unknown;
   originales?: unknown;
   equivalentes?: unknown;
   sustitutos?: unknown;
@@ -443,6 +445,8 @@ export async function crearPiezaDesdeItems(input: {
   const originales = sanitizeCodes(Array.isArray(input.originales) ? input.originales : []);
   const equivalentes = sanitizeCodes(Array.isArray(input.equivalentes) ? input.equivalentes : []);
   const sustitutos = sanitizeCodes(Array.isArray(input.sustitutos) ? input.sustitutos : []);
+  const medida = String(input.medida ?? "").trim().toUpperCase() || null;
+  const imagenMedidaUrl = String(input.imagen_medida_url ?? "").trim() || null;
 
   return withTransaction(async (client) => {
     const { rows } = await client.query<{
@@ -474,10 +478,10 @@ export async function crearPiezaDesdeItems(input: {
     if (!descripcion) throw new Error("La descripcion seleccionada no es valida.");
 
     const piezaResult = await client.query<{ id: number; codigo_pieza: number; descripcion: string }>(`
-      INSERT INTO public.pieza (descripcion, id_subcategoria)
-      VALUES ($1, $2)
+      INSERT INTO public.pieza (descripcion, medida, imagen_medida_url, id_subcategoria)
+      VALUES ($1, $2, $3, $4)
       RETURNING id, codigo_pieza, descripcion
-    `, [descripcion, rows[0].id_subcategoria]);
+    `, [descripcion, medida, imagenMedidaUrl, rows[0].id_subcategoria]);
     const pieza = piezaResult.rows[0];
 
     const originalConflicts = await findCodeConflicts(client, originales, "ORIGINAL");

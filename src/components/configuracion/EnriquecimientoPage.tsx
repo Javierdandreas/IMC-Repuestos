@@ -14,6 +14,7 @@ import {
   HiX,
 } from "react-icons/hi";
 import { toast } from "sonner";
+import { ImageUpload } from "@/components/products/ImageUpload";
 
 type Estado = "PENDIENTES" | "ENRIQUECIDOS" | "TODOS";
 type Vista = "ITEMS" | "GRUPOS";
@@ -78,6 +79,49 @@ const initialDatos: Datos = {
 };
 const initialDatosGrupos: DatosGrupos = { data: [], totalCount: 0, totalPages: 0, page: 1 };
 
+type CreatePiezaModalProps = {
+  items: Item[];
+  idDescripcion: number | null;
+  descripcion: string;
+  medida: string;
+  imagenMedidaUrl: string | null;
+  originales: string;
+  equivalentes: string;
+  sustitutos: string;
+  saving: boolean;
+  onClose: () => void;
+  onSelectDescription: (item: Item) => void;
+  onDescripcionChange: (value: string) => void;
+  onMedidaChange: (value: string) => void;
+  onImagenChange: (value: string | null) => void;
+  onOriginalesChange: (value: string) => void;
+  onEquivalentesChange: (value: string) => void;
+  onSustitutosChange: (value: string) => void;
+  onSubmit: () => void;
+};
+
+function CreatePiezaModal({
+  items, idDescripcion, descripcion, medida, imagenMedidaUrl, originales, equivalentes, sustitutos, saving,
+  onClose, onSelectDescription, onDescripcionChange, onMedidaChange, onImagenChange,
+  onOriginalesChange, onEquivalentesChange, onSustitutosChange, onSubmit,
+}: CreatePiezaModalProps) {
+  return <div role="dialog" aria-modal="true" aria-labelledby="crear-pieza-title" className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
+    <section className="w-full max-w-4xl rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-900">
+      <header className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-800"><div><h2 id="crear-pieza-title" className="text-lg font-black text-slate-900 dark:text-white">Crear numero de pieza</h2><p className="mt-1 text-sm font-medium text-slate-500">Definí los datos comunes que se aplicarán a todos los items seleccionados.</p></div><button type="button" onClick={onClose} disabled={saving} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-500 hover:text-red-500 disabled:opacity-50 dark:border-slate-700" title="Cerrar"><HiX className="h-4 w-4" /></button></header>
+      <div className="max-h-[65vh] space-y-5 overflow-auto p-5">
+        <div className="rounded-lg border border-blue-500/25 bg-blue-500/5 p-3 text-xs font-bold text-blue-700 dark:text-blue-200">{items.length} items se vincularan a la pieza nueva. Los codigos de proveedor están precargados como equivalencias y se pueden editar.</div>
+        <div className="space-y-2">{items.map((item) => <label key={item.id} className={"flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition " + (idDescripcion === item.id ? "border-blue-500 bg-blue-500/5" : "border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700")}><input type="radio" name="descripcion-pieza" checked={idDescripcion === item.id} onChange={() => onSelectDescription(item)} className="mt-0.5 h-4 w-4 accent-blue-600" /><span className="min-w-0"><span className="block text-xs font-black text-slate-900 dark:text-white">{item.descripcion}</span><span className="mt-1 block text-[11px] font-bold text-slate-500">{item.cod_unico} - {item.marca ?? "Sin marca"}</span></span></label>)}</div>
+        <label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Descripcion de la pieza</span><textarea value={descripcion} onChange={(event) => onDescripcionChange(event.target.value)} rows={3} className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label>
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,.8fr)]">
+          <div className="space-y-5"><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Texto de medidas</span><input value={medida} onChange={(event) => onMedidaChange(event.target.value.toUpperCase())} placeholder="Ej: A 288 MM, B 215 MM, H 34 MM" className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold uppercase text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><div className="grid gap-3 md:grid-cols-3"><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Numeros originales</span><textarea value={originales} onChange={(event) => onOriginalesChange(event.target.value)} rows={6} placeholder="Uno por linea" className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Equivalentes</span><textarea value={equivalentes} onChange={(event) => onEquivalentesChange(event.target.value)} rows={6} placeholder="Uno por linea" className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Reemplazos</span><textarea value={sustitutos} onChange={(event) => onSustitutosChange(event.target.value)} rows={6} placeholder="Uno por linea" className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label></div></div>
+          <div><p className="mb-1.5 text-[10px] font-black uppercase tracking-wide text-slate-500">Imagen de medidas</p><ImageUpload value={imagenMedidaUrl} onChange={onImagenChange} bucket="piezas" folder="medidas" disabled={saving} /></div>
+        </div>
+      </div>
+      <footer className="flex justify-end gap-2 border-t border-slate-200 p-4 dark:border-slate-800"><button type="button" onClick={onClose} disabled={saving} className="h-10 rounded-lg border border-slate-300 px-4 text-[10px] font-black uppercase tracking-wide text-slate-600 transition hover:border-slate-400 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300">Cancelar</button><button type="button" onClick={onSubmit} disabled={!idDescripcion || !descripcion.trim() || saving} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-[10px] font-black uppercase tracking-wide text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><HiPlus className="h-4 w-4" />{saving ? "Creando" : "Crear y asignar"}</button></footer>
+    </section>
+  </div>;
+}
+
 export function EnriquecimientoPage({ canManage }: Props) {
   const [vista, setVista] = useState<Vista>("ITEMS");
   const [estado, setEstado] = useState<Estado>("PENDIENTES");
@@ -103,6 +147,8 @@ export function EnriquecimientoPage({ canManage }: Props) {
   const [showCreatePieza, setShowCreatePieza] = useState(false);
   const [idDescripcion, setIdDescripcion] = useState<number | null>(null);
   const [descripcionPieza, setDescripcionPieza] = useState("");
+  const [medidaPieza, setMedidaPieza] = useState("");
+  const [imagenMedidaUrl, setImagenMedidaUrl] = useState<string | null>(null);
   const [creatingPieza, setCreatingPieza] = useState(false);
   const [originales, setOriginales] = useState("");
   const [equivalentes, setEquivalentes] = useState("");
@@ -239,6 +285,8 @@ export function EnriquecimientoPage({ canManage }: Props) {
     setItemsParaPieza(items);
     setIdDescripcion(items[0].id);
     setDescripcionPieza(items[0].descripcion);
+    setMedidaPieza("");
+    setImagenMedidaUrl(null);
     setOriginales("");
     setEquivalentes(Array.from(new Set(items.flatMap((item) => item.codigos_proveedor ?? []))).join("\n"));
     setSustitutos("");
@@ -280,6 +328,8 @@ export function EnriquecimientoPage({ canManage }: Props) {
           ids: itemsParaPieza.map((item) => item.id),
           id_descripcion: idDescripcion,
           descripcion: descripcionPieza,
+          medida: medidaPieza,
+          imagen_medida_url: imagenMedidaUrl,
           originales: splitCodes(originales),
           equivalentes: splitCodes(equivalentes),
           sustitutos: splitCodes(sustitutos),
@@ -354,7 +404,26 @@ export function EnriquecimientoPage({ canManage }: Props) {
           <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 dark:border-slate-800"><span className="text-xs font-bold text-slate-500">Pagina {datos.page} de {Math.max(datos.totalPages, 1)}</span><div className="flex gap-2"><button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={loading || page <= 1} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition hover:border-blue-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"><HiChevronLeft className="h-4 w-4" /></button><button type="button" onClick={() => setPage((current) => Math.min(Math.max(datos.totalPages, 1), current + 1))} disabled={loading || page >= datos.totalPages} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition hover:border-blue-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"><HiChevronRight className="h-4 w-4" /></button></div></div>
         </section> : <InformeAgrupado grupos={grupos} loading={loadingGrupos} canManage={canManage} onCreatePieza={openCreatePiezaFromGrupo} onPageChange={setPage} />}
 
-        {showCreatePieza && <div role="dialog" aria-modal="true" aria-labelledby="crear-pieza-title" className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4"><section className="w-full max-w-3xl rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-900"><header className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-800"><div><h2 id="crear-pieza-title" className="text-lg font-black text-slate-900 dark:text-white">Crear numero de pieza</h2><p className="mt-1 text-sm font-medium text-slate-500">Elegí la descripcion y completá los codigos de referencia.</p></div><button type="button" onClick={() => setShowCreatePieza(false)} disabled={creatingPieza} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-500 hover:text-red-500 disabled:opacity-50 dark:border-slate-700" title="Cerrar"><HiX className="h-4 w-4" /></button></header><div className="max-h-[65vh] space-y-5 overflow-auto p-5"><div className="rounded-lg border border-blue-500/25 bg-blue-500/5 p-3 text-xs font-bold text-blue-700 dark:text-blue-200">{selectedItems.length} items se vincularan a la pieza nueva. Los codigos de proveedor estan precargados como equivalencias y se pueden editar.</div><div className="space-y-2">{selectedItems.map((item) => <label key={item.id} className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition ${idDescripcion === item.id ? "border-blue-500 bg-blue-500/5" : "border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700"}`}><input type="radio" name="descripcion-pieza" checked={idDescripcion === item.id} onChange={() => { setIdDescripcion(item.id); setDescripcionPieza(item.descripcion); }} className="mt-0.5 h-4 w-4 accent-blue-600" /><span className="min-w-0"><span className="block text-xs font-black text-slate-900 dark:text-white">{item.descripcion}</span><span className="mt-1 block text-[11px] font-bold text-slate-500">{item.cod_unico} · {item.marca ?? "Sin marca"}</span></span></label>)}</div><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Descripcion de la pieza</span><textarea value={descripcionPieza} onChange={(event) => setDescripcionPieza(event.target.value)} rows={3} className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><div className="grid gap-3 md:grid-cols-3"><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Numeros originales</span><textarea value={originales} onChange={(event) => setOriginales(event.target.value)} rows={6} placeholder="Uno por linea" className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Equivalentes</span><textarea value={equivalentes} onChange={(event) => setEquivalentes(event.target.value)} rows={6} placeholder="Uno por linea" className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Reemplazos</span><textarea value={sustitutos} onChange={(event) => setSustitutos(event.target.value)} rows={6} placeholder="Uno por linea" className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label></div></div><footer className="flex justify-end gap-2 border-t border-slate-200 p-4 dark:border-slate-800"><button type="button" onClick={() => setShowCreatePieza(false)} disabled={creatingPieza} className="h-10 rounded-lg border border-slate-300 px-4 text-[10px] font-black uppercase tracking-wide text-slate-600 transition hover:border-slate-400 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300">Cancelar</button><button type="button" onClick={() => void createPieza()} disabled={!idDescripcion || !descripcionPieza.trim() || creatingPieza} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-[10px] font-black uppercase tracking-wide text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><HiPlus className="h-4 w-4" /> {creatingPieza ? "Creando" : "Crear y asignar"}</button></footer></section></div>}
+        {showCreatePieza && <CreatePiezaModal
+                  items={selectedItems}
+                  idDescripcion={idDescripcion}
+                  descripcion={descripcionPieza}
+                  medida={medidaPieza}
+                  imagenMedidaUrl={imagenMedidaUrl}
+                  originales={originales}
+                  equivalentes={equivalentes}
+                  sustitutos={sustitutos}
+                  saving={creatingPieza}
+                  onClose={() => setShowCreatePieza(false)}
+                  onSelectDescription={(item) => { setIdDescripcion(item.id); setDescripcionPieza(item.descripcion); }}
+                  onDescripcionChange={setDescripcionPieza}
+                  onMedidaChange={setMedidaPieza}
+                  onImagenChange={setImagenMedidaUrl}
+                  onOriginalesChange={setOriginales}
+                  onEquivalentesChange={setEquivalentes}
+                  onSustitutosChange={setSustitutos}
+                  onSubmit={() => void createPieza()}
+                />}
       </div>
     </main>
   );
