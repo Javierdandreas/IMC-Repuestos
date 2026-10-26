@@ -3,7 +3,7 @@ export const DOMINIO_VEHICULOS_ML = "MLA-CARS_AND_VANS";
 export const ATRIBUTOS_VEHICULO_ML = [
   { id: "BRAND", nombre: "Marca", grupo: "Principal" },
   { id: "MODEL", nombre: "Modelo", grupo: "Principal" },
-  { id: "VEHICLE_YEAR", nombre: "Ano", grupo: "Principal" },
+  { id: "VEHICLE_YEAR", nombre: "Año", grupo: "Principal" },
   { id: "SHORT_VERSION", nombre: "Version", grupo: "Principal" },
   { id: "ENGINE", nombre: "Motor", grupo: "Principal" },
   { id: "FUEL_TYPE", nombre: "Combustible", grupo: "Secundario" },
