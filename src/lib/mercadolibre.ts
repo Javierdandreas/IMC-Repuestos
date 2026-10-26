@@ -770,7 +770,7 @@ export async function consultarValoresVehiculoMercadoLibre(attributeId: unknown,
   return consultarTopValuesVehiculos(idCuenta, accessToken, attributeId, known);
 }
 
-function contextosVehiculo(known: ValorVehiculo[], excludedAttribute?: AtributoVehiculoId, maxContexts = 25) {
+function contextosVehiculo(known: ValorVehiculo[], excludedAttribute?: AtributoVehiculoId, maxContexts = 100) {
   const byAttribute = new Map<AtributoVehiculoId, ValorVehiculo[]>();
   for (const entry of known.flatMap((value) => normalizarAtributosVehiculo([value])).filter((value) => value.id !== excludedAttribute)) {
     const values = byAttribute.get(entry.id) ?? [];
@@ -791,7 +791,11 @@ function contextosVehiculo(known: ValorVehiculo[], excludedAttribute?: AtributoV
 export async function consultarValoresVehiculoMercadoLibreParaContextos(attributeId: unknown, known: ValorVehiculo[]) {
   if (!esAtributoVehiculo(attributeId)) throw new AppError("El atributo de vehiculo indicado no es valido.", 400);
   const contexts = contextosVehiculo(known, attributeId);
-  const values = await Promise.all(contexts.map((context) => consultarValoresVehiculoMercadoLibre(attributeId, context)));
+  const values: Array<Array<{ id: string; name: string }>> = [];
+  // Evita saturar la API de Mercado Libre cuando el usuario combina modelos y años.
+  for (let start = 0; start < contexts.length; start += 5) {
+    values.push(...await Promise.all(contexts.slice(start, start + 5).map((context) => consultarValoresVehiculoMercadoLibre(attributeId, context))));
+  }
   const unique = new Map<string, { id: string; name: string }>();
   for (const entry of values.flat()) unique.set(entry.id, entry);
   return [...unique.values()].sort((left, right) => left.name.localeCompare(right.name, "es-AR"));

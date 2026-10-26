@@ -24,6 +24,9 @@ function firma(attributes: Array<{ id: string; valueId: string; valueName: strin
 function canUse(attribute: AttributeId, selected: Selected) {
   if (attribute === "BRAND") return true;
   if (attribute === "MODEL") return Boolean(selected.BRAND?.length);
+  if (attribute === "VEHICLE_YEAR") return Boolean(selected.BRAND?.length && selected.MODEL?.length);
+  if (attribute === "ENGINE") return Boolean(selected.BRAND?.length && selected.MODEL?.length && selected.VEHICLE_YEAR?.length);
+  if (attribute === "POWER") return Boolean(selected.BRAND?.length && selected.MODEL?.length && selected.VEHICLE_YEAR?.length && selected.ENGINE?.length);
   return Boolean(selected.BRAND?.length && selected.MODEL?.length);
 }
 
@@ -207,9 +210,16 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
 
   return <section className="border-t border-slate-200 pt-8 dark:border-slate-800">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-black text-slate-900 dark:text-white">Compatibilidades de vehículos</h2><p className="mt-1 text-sm text-slate-500">Buscá aplicaciones, seleccioná cuáles corresponden y guardalas en este número de pieza.</p></div><span className="rounded-md bg-blue-500/10 px-2 py-1 text-xs font-black text-blue-700 dark:text-blue-300">{value.length} cargadas</span></div>
-    <div className="relative mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">{principales.map(renderField)}</div>
+    <div className="relative mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {renderField("BRAND")}
+      {renderField("MODEL")}
+      <div className="flex min-w-0 items-end gap-2">
+        <div className="min-w-0 flex-1">{renderField("VEHICLE_YEAR")}</div>
+        {years.length > 0 && <div className="flex shrink-0 items-end gap-1 rounded-md border border-slate-200 p-1.5 dark:border-slate-800"><label className="block"><span className="mb-1 block text-[9px] font-black uppercase tracking-wide text-slate-500">Desde</span><select value={yearFrom} onChange={(event) => setYearFrom(event.target.value)} className="h-8 max-w-16 rounded border border-slate-300 bg-white px-1 text-xs font-semibold dark:border-slate-700 dark:bg-slate-950"><option value="">Año</option>{years.map((year) => <option key={year.id} value={year.name}>{year.name}</option>)}</select></label><label className="block"><span className="mb-1 block text-[9px] font-black uppercase tracking-wide text-slate-500">Hasta</span><select value={yearTo} onChange={(event) => setYearTo(event.target.value)} className="h-8 max-w-16 rounded border border-slate-300 bg-white px-1 text-xs font-semibold dark:border-slate-700 dark:bg-slate-950"><option value="">Año</option>{years.map((year) => <option key={year.id} value={year.name}>{year.name}</option>)}</select></label><button type="button" onClick={applyYearRange} disabled={disabled} className="h-8 rounded border border-blue-500 px-2 text-[10px] font-bold text-blue-600 disabled:opacity-50 dark:text-blue-300">Aplicar</button></div>}
+      </div>
+      {renderField("ENGINE")}
+    </div>
     <div className="mt-3 flex flex-wrap items-end gap-3">
-      {years.length > 0 && <div className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 p-2 dark:border-slate-800"><label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-500">Desde</span><select value={yearFrom} onChange={(event) => setYearFrom(event.target.value)} className="h-8 rounded border border-slate-300 bg-white px-2 text-xs font-semibold dark:border-slate-700 dark:bg-slate-950"><option value="">Año</option>{years.map((year) => <option key={year.id} value={year.name}>{year.name}</option>)}</select></label><label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-500">Hasta</span><select value={yearTo} onChange={(event) => setYearTo(event.target.value)} className="h-8 rounded border border-slate-300 bg-white px-2 text-xs font-semibold dark:border-slate-700 dark:bg-slate-950"><option value="">Año</option>{years.map((year) => <option key={year.id} value={year.name}>{year.name}</option>)}</select></label><button type="button" onClick={applyYearRange} disabled={disabled} className="h-8 rounded border border-blue-500 px-3 text-xs font-bold text-blue-600 disabled:opacity-50 dark:text-blue-300">Aplicar rango</button></div>}
       <details className="min-w-[210px]"><summary className="cursor-pointer text-xs font-black text-slate-600 dark:text-slate-300">Especificaciones técnicas opcionales</summary><div className="relative z-20 mt-3 grid gap-3 rounded-md border border-slate-200 bg-white p-3 sm:grid-cols-2 xl:grid-cols-3 dark:border-slate-800 dark:bg-slate-900">{opcionales.map(renderField)}</div></details>
       <button type="button" onClick={searchMatches} disabled={disabled || !selected.BRAND?.length || !selected.MODEL?.length} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Search className="h-4 w-4" />Buscar aplicaciones</button>
     </div>
