@@ -15,6 +15,7 @@ import {
 } from "react-icons/hi";
 import { toast } from "sonner";
 import { ImageUpload } from "@/components/products/ImageUpload";
+import { PiezaCompatibilidadesSection } from "@/components/piezas/sections/PiezaCompatibilidadesSection";
 
 type Estado = "PENDIENTES" | "ENRIQUECIDOS" | "TODOS";
 type Vista = "ITEMS" | "GRUPOS";
@@ -88,6 +89,7 @@ type CreatePiezaModalProps = {
   originales: string;
   equivalentes: string;
   sustitutos: string;
+  compatibilidades: Array<{ id?: number; atributos: Array<{ id: string; valueId: string; valueName: string }> }>;
   saving: boolean;
   onClose: () => void;
   onSelectDescription: (item: Item) => void;
@@ -97,13 +99,14 @@ type CreatePiezaModalProps = {
   onOriginalesChange: (value: string) => void;
   onEquivalentesChange: (value: string) => void;
   onSustitutosChange: (value: string) => void;
+  onCompatibilidadesChange: (value: Array<{ id?: number; atributos: Array<{ id: string; valueId: string; valueName: string }> }>) => void;
   onSubmit: () => void;
 };
 
 function CreatePiezaModal({
-  items, idDescripcion, descripcion, medida, imagenMedidaUrl, originales, equivalentes, sustitutos, saving,
+  items, idDescripcion, descripcion, medida, imagenMedidaUrl, originales, equivalentes, sustitutos, compatibilidades, saving,
   onClose, onSelectDescription, onDescripcionChange, onMedidaChange, onImagenChange,
-  onOriginalesChange, onEquivalentesChange, onSustitutosChange, onSubmit,
+  onOriginalesChange, onEquivalentesChange, onSustitutosChange, onCompatibilidadesChange, onSubmit,
 }: CreatePiezaModalProps) {
   return <div role="dialog" aria-modal="true" aria-labelledby="crear-pieza-title" className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
     <section className="w-full max-w-4xl rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-900">
@@ -116,6 +119,7 @@ function CreatePiezaModal({
           <div className="space-y-5"><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Texto de medidas</span><input value={medida} onChange={(event) => onMedidaChange(event.target.value.toUpperCase())} placeholder="Ej: A 288 MM, B 215 MM, H 34 MM" className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold uppercase text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><div className="grid gap-3 md:grid-cols-3"><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Numeros originales</span><textarea value={originales} onChange={(event) => onOriginalesChange(event.target.value)} rows={6} placeholder="Uno por linea" className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Equivalentes</span><textarea value={equivalentes} onChange={(event) => onEquivalentesChange(event.target.value)} rows={6} placeholder="Uno por linea" className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Reemplazos</span><textarea value={sustitutos} onChange={(event) => onSustitutosChange(event.target.value)} rows={6} placeholder="Uno por linea" className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label></div></div>
           <div><p className="mb-1.5 text-[10px] font-black uppercase tracking-wide text-slate-500">Imagen de medidas</p><ImageUpload value={imagenMedidaUrl} onChange={onImagenChange} bucket="piezas" folder="medidas" disabled={saving} /></div>
         </div>
+        <PiezaCompatibilidadesSection value={compatibilidades} onChange={onCompatibilidadesChange} disabled={saving} />
       </div>
       <footer className="flex justify-end gap-2 border-t border-slate-200 p-4 dark:border-slate-800"><button type="button" onClick={onClose} disabled={saving} className="h-10 rounded-lg border border-slate-300 px-4 text-[10px] font-black uppercase tracking-wide text-slate-600 transition hover:border-slate-400 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300">Cancelar</button><button type="button" onClick={onSubmit} disabled={!idDescripcion || !descripcion.trim() || saving} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-[10px] font-black uppercase tracking-wide text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><HiPlus className="h-4 w-4" />{saving ? "Creando" : "Crear y asignar"}</button></footer>
     </section>
@@ -153,6 +157,7 @@ export function EnriquecimientoPage({ canManage }: Props) {
   const [originales, setOriginales] = useState("");
   const [equivalentes, setEquivalentes] = useState("");
   const [sustitutos, setSustitutos] = useState("");
+  const [compatibilidadesPieza, setCompatibilidadesPieza] = useState<Array<{ id?: number; atributos: Array<{ id: string; valueId: string; valueName: string }> }>>([]);
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams({ estado, page: String(page) });
@@ -290,6 +295,7 @@ export function EnriquecimientoPage({ canManage }: Props) {
     setOriginales("");
     setEquivalentes(Array.from(new Set(items.flatMap((item) => item.codigos_proveedor ?? []))).join("\n"));
     setSustitutos("");
+    setCompatibilidadesPieza([]);
     setShowCreatePieza(true);
   };
 
@@ -333,6 +339,7 @@ export function EnriquecimientoPage({ canManage }: Props) {
           originales: splitCodes(originales),
           equivalentes: splitCodes(equivalentes),
           sustitutos: splitCodes(sustitutos),
+          compatibilidades: compatibilidadesPieza,
         }),
       });
       const body = await response.json().catch(() => ({}));
@@ -413,6 +420,7 @@ export function EnriquecimientoPage({ canManage }: Props) {
                   originales={originales}
                   equivalentes={equivalentes}
                   sustitutos={sustitutos}
+                  compatibilidades={compatibilidadesPieza}
                   saving={creatingPieza}
                   onClose={() => setShowCreatePieza(false)}
                   onSelectDescription={(item) => { setIdDescripcion(item.id); setDescripcionPieza(item.descripcion); }}
@@ -422,6 +430,7 @@ export function EnriquecimientoPage({ canManage }: Props) {
                   onOriginalesChange={setOriginales}
                   onEquivalentesChange={setEquivalentes}
                   onSustitutosChange={setSustitutos}
+                  onCompatibilidadesChange={setCompatibilidadesPieza}
                   onSubmit={() => void createPieza()}
                 />}
       </div>

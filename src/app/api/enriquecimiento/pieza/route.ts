@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
       originales: body?.originales,
       equivalentes: body?.equivalentes,
       sustitutos: body?.sustitutos,
+      compatibilidades: body?.compatibilidades,
     }));
   } catch (error: unknown) {
     return jsonError(error, "No se pudo crear el numero de pieza.");

@@ -1,7 +1,8 @@
-import { query, withTransaction } from "@/lib/db-utils";
+import { query, withTransaction, type DbClient } from "@/lib/db-utils";
 import { revalidateTag } from "next/cache";
 import { buildConflictMessage, findCodeConflicts, findOrCreateCodigo } from "@/lib/repos/piezas";
 import { sanitizeCodes, sanitizeRequiredString } from "@/utils/sanitization";
+import { firmaCompatibilidadVehiculo, normalizarAtributosVehiculo, type ValorVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
 
 export type EstadoEnriquecimiento = "PENDIENTES" | "ENRIQUECIDOS" | "TODOS";
 
@@ -430,6 +431,7 @@ export async function crearPiezaDesdeItems(input: {
   originales?: unknown;
   equivalentes?: unknown;
   sustitutos?: unknown;
+  compatibilidades?: unknown;
 }) {
   const ids = Array.from(new Set(
     (Array.isArray(input.ids) ? input.ids : [])
@@ -447,6 +449,11 @@ export async function crearPiezaDesdeItems(input: {
   const sustitutos = sanitizeCodes(Array.isArray(input.sustitutos) ? input.sustitutos : []);
   const medida = String(input.medida ?? "").trim().toUpperCase() || null;
   const imagenMedidaUrl = String(input.imagen_medida_url ?? "").trim() || null;
+  const compatibilidades = (Array.isArray(input.compatibilidades) ? input.compatibilidades : [])
+    .flatMap((compatibilidad) => compatibilidad && typeof compatibilidad === "object"
+      ? [normalizarAtributosVehiculo((compatibilidad as { atributos?: unknown }).atributos)]
+      : [])
+    .filter((attributes) => attributes.some((attribute) => attribute.id === "BRAND") && attributes.some((attribute) => attribute.id === "MODEL"));
 
   return withTransaction(async (client) => {
     const { rows } = await client.query<{
@@ -506,6 +513,15 @@ export async function crearPiezaDesdeItems(input: {
       }
     }
 
+    const compatibilidadesUnicas = new Map<string, ValorVehiculo[]>();
+    for (const attributes of compatibilidades) compatibilidadesUnicas.set(firmaCompatibilidadVehiculo(attributes), attributes);
+    for (const [firma, attributes] of compatibilidadesUnicas) {
+      await client.query(`
+        INSERT INTO public.mercadolibre_pieza_compatibilidad (id_pieza, atributos, firma)
+        VALUES ($1, $2::jsonb, $3)
+      `, [pieza.id, JSON.stringify(attributes), firma]);
+    }
+
     await client.query(`
       UPDATE public.productos
       SET id_pieza = $1,
@@ -517,6 +533,6 @@ export async function crearPiezaDesdeItems(input: {
     `, [pieza.id, pieza.descripcion, rows[0].id_subcategoria, ids]);
 
     revalidateTag("meta");
-    return { pieza, cantidad: ids.length, originales, equivalentes, sustitutos };
+    return { pieza, cantidad: ids.length, originales, equivalentes, sustitutos, compatibilidades: compatibilidadesUnicas.size };
   });
 }
