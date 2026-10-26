@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Database, LoaderCircle, Plus, RefreshCw, Search, X } from "lucide-react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Papa from "papaparse";
+import { ChevronDown, ChevronLeft, ChevronRight, Database, FileUp, LoaderCircle, Plus, RefreshCw, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { ATRIBUTOS_VEHICULO_ML, type AtributoVehiculoId, type ValorVehiculo } from "@/lib/catalogo-vehiculos-atributos";
 
@@ -27,6 +28,30 @@ type Exploracion = {
 const principales: AttributeId[] = ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE", "POWER"];
 const adicionales: AttributeId[] = ["SHORT_VERSION", "FUEL_TYPE", "VEHICLE_BODY_TYPE", "TRANSMISSION_CONTROL_TYPE", "GEAR_NUMBER", "DOORS", "STEERING", "TRACTION_CONTROL", "VALVES_PER_CYLINDER"];
 const labels = new Map(ATRIBUTOS_VEHICULO_ML.map((attribute) => [attribute.id, attribute.nombre]));
+const importAliases: Record<AttributeId, string[]> = {
+  BRAND: ["BRAND", "MARCA"],
+  MODEL: ["MODEL", "MODELO"],
+  VEHICLE_YEAR: ["VEHICLE_YEAR", "YEAR", "ANIO", "ANO"],
+  SHORT_VERSION: ["SHORT_VERSION", "VERSION"],
+  ENGINE: ["ENGINE", "MOTOR", "MOTORIZACION"],
+  FUEL_TYPE: ["FUEL_TYPE", "COMBUSTIBLE"],
+  POWER: ["POWER", "POTENCIA"],
+  VEHICLE_BODY_TYPE: ["VEHICLE_BODY_TYPE", "CARROCERIA"],
+  TRANSMISSION_CONTROL_TYPE: ["TRANSMISSION_CONTROL_TYPE", "TRANSMISION", "TIPO_DE_TRANSMISION"],
+  GEAR_NUMBER: ["GEAR_NUMBER", "MARCHAS"],
+  DOORS: ["DOORS", "PUERTAS"],
+  STEERING: ["STEERING", "DIRECCION"],
+  TRACTION_CONTROL: ["TRACTION_CONTROL", "TRACCION"],
+  VALVES_PER_CYLINDER: ["VALVES_PER_CYLINDER", "VALVULAS_POR_CILINDRO"],
+};
+
+function importKey(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
+function importedValueId(attribute: AttributeId, name: string) {
+  return `IMC-${attribute}-${importKey(name)}`.slice(0, 200);
+}
 
 function canUse(attribute: AttributeId, selected: Selected) {
   if (attribute === "BRAND") return true;
@@ -53,6 +78,8 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
   const [results, setResults] = useState<Exploracion | null>(null);
   const [loadingResults, setLoadingResults] = useState(false);
   const [page, setPage] = useState(1);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const loadState = useCallback(async () => {
     try {
@@ -78,7 +105,7 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     }
     try {
       setLoadingResults(true);
-      const params = new URLSearchParams({ page: String(requestedPage), completo: "1", filters: JSON.stringify(filters) });
+      const params = new URLSearchParams({ page: String(requestedPage), vehiculos: "1", filters: JSON.stringify(filters) });
       const response = await fetch("/api/compatibilidades/catalogo?" + params.toString(), { cache: "no-store" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudo explorar el catalogo.");
@@ -171,6 +198,49 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     }
   };
 
+  const importBatch = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || importing) return;
+    try {
+      setImporting(true);
+      const parsed = Papa.parse<Record<string, unknown>>(await file.text(), { header: true, skipEmptyLines: "greedy" });
+      if (parsed.errors.length) throw new Error("El archivo CSV tiene un formato invalido.");
+      if (!parsed.data.length) throw new Error("El archivo no contiene filas.");
+      if (parsed.data.length > 1_000) throw new Error("Cada archivo puede contener hasta 1.000 filas.");
+
+      const vehicles = parsed.data.map((row, index) => {
+        const values = new Map(Object.entries(row).map(([key, value]) => [importKey(key), String(value ?? "").trim()]));
+        const attributes = ATRIBUTOS_VEHICULO_ML.flatMap((attribute) => {
+          const names = importAliases[attribute.id];
+          const name = names.map((key) => values.get(key) || "").find(Boolean) || "";
+          if (!name) return [];
+          const valueId = names.flatMap((key) => [`${key}_ID`, `ID_${key}`]).map((key) => values.get(key) || "").find(Boolean) || importedValueId(attribute.id, name);
+          return [{ id: attribute.id, valueId, valueName: name }];
+        });
+        const required = ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE"];
+        if (!required.every((attribute) => attributes.some((item) => item.id === attribute))) {
+          throw new Error(`La fila ${index + 2} necesita marca, modelo, año y motor.`);
+        }
+        return { atributos: attributes };
+      });
+
+      const response = await fetch("/api/compatibilidades/catalogo/importar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicles }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo importar el lote.");
+      toast.success(`${result.imported ?? result.processed} vehiculos importados.`);
+      await loadState();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo importar el lote.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const progress = state?.total_marcas ? Math.min(100, Math.round((state.siguiente_marca / state.total_marcas) * 100)) : 0;
   const visibleExtras = useMemo(() => extraFields.filter((attribute) => !available || available.has(attribute)), [available, extraFields]);
   const addableExtras = adicionales.filter((attribute) => !extraFields.includes(attribute) && (!available || available.has(attribute)));
@@ -216,7 +286,7 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     <section className="border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300"><Database className="h-5 w-5" /></span><div><h1 className="text-lg font-black text-slate-900 dark:text-white">Catalogo de vehiculos de Mercado Libre</h1><p className="mt-1 text-sm text-slate-500">Argentina - MLA-CARS_AND_VANS.</p></div></div>
-        {canManage && <button type="button" onClick={() => void sync()} disabled={syncing} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={"h-4 w-4 " + (syncing ? "animate-spin" : "")} />{syncing ? "Consultando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar carga" : "Actualizar catalogo"}</button>}
+        {canManage && <div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importBatch(event)} /><button type="button" onClick={() => importInputRef.current?.click()} disabled={importing} className="inline-flex h-10 items-center gap-2 rounded-md border border-blue-500 px-4 text-xs font-black text-blue-600 hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300"><FileUp className={"h-4 w-4 " + (importing ? "animate-pulse" : "")} />{importing ? "Importando..." : "Importar lote"}</button><button type="button" onClick={() => void sync()} disabled={syncing} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={"h-4 w-4 " + (syncing ? "animate-spin" : "")} />{syncing ? "Consultando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar carga" : "Actualizar catalogo"}</button></div>}
       </div>
       <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800"><div className="flex items-center justify-between gap-3 text-xs font-bold"><span>Marcas y modelos: {state?.siguiente_marca ?? 0} de {state?.total_marcas ?? 0}</span><span>{progress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full bg-blue-600 transition-all" style={{ width: progress + "%" }} /></div>{state?.ultimo_error && <p className="mt-3 text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
     </section>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { jsonError } from "@/lib/api-errors";
 import { requireApiReadSession } from "@/lib/api-auth";
-import { esAtributoVehiculo, explorarCatalogoVehiculos, normalizarAtributosVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
+import { esAtributoVehiculo, explorarCatalogoVehiculos, explorarVehiculosCanonicos, normalizarAtributosVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
 import { detallarVehiculosMercadoLibre } from "@/lib/mercadolibre";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +29,13 @@ export async function GET(request: NextRequest) {
     await requireApiReadSession(request);
     const searchParams = request.nextUrl.searchParams;
     const filters = parseFilters(searchParams.get("filters"));
+    if (searchParams.get("vehiculos") === "1") {
+      return NextResponse.json(await explorarVehiculosCanonicos({
+        filters,
+        page: positiveInteger(searchParams.get("page"), 1),
+        limit: 50,
+      }), { headers: { "Cache-Control": "no-store" } });
+    }
     if (searchParams.get("completo") === "1") {
       const data = await detallarVehiculosMercadoLibre(filters);
       return NextResponse.json({ data, page: 1, totalPages: 1, totalCount: data.length }, { headers: { "Cache-Control": "no-store" } });

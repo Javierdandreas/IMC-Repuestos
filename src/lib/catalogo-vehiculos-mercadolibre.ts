@@ -85,7 +85,11 @@ export function esVehiculoCanonico(attributes: ValorVehiculo[]) {
  * Conserva un identificador IMC por configuracion confirmada. No se crean filas
  * con filtros generales (por ejemplo, solo marca y modelo), porque no son un vehiculo.
  */
-export async function guardarVehiculosCanonicos(client: DbClient, entries: ValorVehiculo[][]) {
+export async function guardarVehiculosCanonicos(
+  client: DbClient,
+  entries: ValorVehiculo[][],
+  origin: "COMPATIBILIDAD" | "IMPORTACION" = "COMPATIBILIDAD"
+) {
   const uniques = new Map<string, ValorVehiculo[]>();
   for (const entry of entries) {
     const attributes = normalizarAtributosVehiculo(entry);
@@ -109,7 +113,7 @@ export async function guardarVehiculosCanonicos(client: DbClient, entries: Valor
         $1, $2, $3::jsonb,
         $4, $5, $6, $7, $8,
         $9, $10, $11, $12, $13,
-        'COMPATIBILIDAD', TRUE, NOW()
+        $14, TRUE, NOW()
       )
       ON CONFLICT (dominio_id, firma) DO UPDATE
       SET atributos = EXCLUDED.atributos,
@@ -125,6 +129,7 @@ export async function guardarVehiculosCanonicos(client: DbClient, entries: Valor
       DOMINIO_VEHICULOS_ML, firma, JSON.stringify(attributes),
       brand.valueId, model.valueId, year.valueId, engine.valueId, power?.valueId ?? null,
       brand.valueName, model.valueName, year.valueName, engine.valueName, power?.valueName ?? null,
+      origin,
     ]);
     const vehicle = result.rows[0];
     if (vehicle) saved.set(vehicle.firma, Number(vehicle.id));
@@ -139,6 +144,65 @@ export type CatalogoVehiculosExploracion = {
   totalPages: number;
   totalCount: number;
 };
+
+export async function explorarVehiculosCanonicos({
+  filters = [],
+  page = 1,
+  limit = 50,
+}: {
+  filters?: ValorVehiculo[];
+  page?: number;
+  limit?: number;
+} = {}): Promise<CatalogoVehiculosExploracion> {
+  const clauses = ["dominio_id = $1", "activa = TRUE"];
+  const params: unknown[] = [DOMINIO_VEHICULOS_ML];
+  const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
+  for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
+    const values = groupedFilters.get(filter.id) ?? [];
+    if (!values.some((value) => value.valueId === filter.valueId)) values.push(filter);
+    groupedFilters.set(filter.id, values);
+  }
+  for (const [attributeId, values] of groupedFilters) {
+    params.push(attributeId, values.map((value) => value.valueId), values.map((value) => value.valueName));
+    const attributeParam = params.length - 2;
+    const idsParam = params.length - 1;
+    const namesParam = params.length;
+    clauses.push(`EXISTS (
+      SELECT 1 FROM jsonb_array_elements(atributos) AS attribute
+      WHERE attribute->>'id' = $${attributeParam}
+        AND (attribute->>'valueId' = ANY($${idsParam}::text[]) OR attribute->>'valueName' = ANY($${namesParam}::text[]))
+    )`);
+  }
+
+  const where = clauses.join(" AND ");
+  const safeLimit = Math.min(100, Math.max(10, Math.floor(limit)));
+  const safePage = Math.max(1, Math.floor(page));
+  const [countResult, dataResult, brandsResult] = await Promise.all([
+    query<{ total: string }>(`SELECT COUNT(*)::text AS total FROM public.mercadolibre_catalogo_vehiculo WHERE ${where}`, params),
+    query<{ atributos: unknown }>(`
+      SELECT atributos
+      FROM public.mercadolibre_catalogo_vehiculo
+      WHERE ${where}
+      ORDER BY marca_nombre, modelo_nombre, anio_nombre DESC, motor_nombre, potencia_nombre NULLS LAST, id
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `, [...params, safeLimit, (safePage - 1) * safeLimit]),
+    query<{ valor_id: string; valor_nombre: string }>(`
+      SELECT DISTINCT marca_id AS valor_id, marca_nombre AS valor_nombre
+      FROM public.mercadolibre_catalogo_vehiculo
+      WHERE dominio_id = $1 AND activa = TRUE
+      ORDER BY marca_nombre
+    `, [DOMINIO_VEHICULOS_ML]),
+  ]);
+  const totalCount = Number(countResult.rows[0]?.total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(totalCount / safeLimit));
+  return {
+    data: dataResult.rows.map((row) => ({ atributos: normalizarAtributosVehiculo(row.atributos) })),
+    marcas: brandsResult.rows.map((row) => ({ id: row.valor_id, nombre: row.valor_nombre })),
+    page: Math.min(safePage, totalPages),
+    totalPages,
+    totalCount,
+  };
+}
 
 export async function explorarCatalogoVehiculos({
   search = "",
