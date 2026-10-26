@@ -11,9 +11,8 @@ type Option = { id: string; name: string };
 type AttributeId = ValorVehiculo["id"];
 type Selected = Partial<Record<AttributeId, ValorVehiculo[]>>;
 
-const principales: AttributeId[] = ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE"];
-const opcionales: AttributeId[] = ["POWER", "SHORT_VERSION", "FUEL_TYPE", "VEHICLE_BODY_TYPE", "TRANSMISSION_CONTROL_TYPE", "GEAR_NUMBER", "DOORS", "STEERING", "TRACTION_CONTROL", "VALVES_PER_CYLINDER"];
-const ordenAtributos = [...principales, ...opcionales];
+const principales: AttributeId[] = ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE", "POWER"];
+const opcionales: AttributeId[] = ["SHORT_VERSION", "FUEL_TYPE", "VEHICLE_BODY_TYPE", "TRANSMISSION_CONTROL_TYPE", "GEAR_NUMBER", "DOORS", "STEERING", "TRACTION_CONTROL", "VALVES_PER_CYLINDER"];
 const labels: Map<string, string> = new Map(ATRIBUTOS_VEHICULO_ML.map((attribute) => [attribute.id, attribute.nombre]));
 const PAGE_SIZE = 20;
 
@@ -34,17 +33,6 @@ function selectedValues(selected: Selected) {
   return Object.values(selected).flatMap((values) => values ?? []);
 }
 
-function combinarAplicaciones(selected: Selected) {
-  let contexts: ValorVehiculo[][] = [[]];
-  for (const attribute of ordenAtributos) {
-    const values = selected[attribute];
-    if (!values?.length) continue;
-    contexts = contexts.flatMap((context) => values.map((value) => [...context, value]));
-    if (contexts.length > 200) return null;
-  }
-  return contexts;
-}
-
 function PaginationControls({ page, total, onPageChange }: { page: number; total: number; onPageChange: (page: number) => void }) {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   if (total <= PAGE_SIZE) return null;
@@ -62,12 +50,11 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
   const [loading, setLoading] = useState<AttributeId | null>(null);
   const [available, setAvailable] = useState<Set<string> | null>(null);
   const [openField, setOpenField] = useState<AttributeId | null>(null);
-  const [yearFrom, setYearFrom] = useState("");
-  const [yearTo, setYearTo] = useState("");
-  const [matches, setMatches] = useState<ValorVehiculo[][]>([]);
+  const [matches, setMatches] = useState<Compatibility[]>([]);
   const [selectedMatches, setSelectedMatches] = useState<Set<string>>(new Set());
   const [matchesPage, setMatchesPage] = useState(1);
   const [savedPage, setSavedPage] = useState(1);
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     fetch("/api/compatibilidades", { cache: "no-store" })
@@ -124,51 +111,35 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
     setMatchesPage(1);
   };
 
-  const applyYearRange = () => {
-    const years = [...(options.VEHICLE_YEAR ?? [])].sort((left, right) => Number(left.name) - Number(right.name));
-    const from = Number(yearFrom);
-    const to = Number(yearTo);
-    if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) {
-      toast.error("Selecciona un rango de años válido.");
-      return;
-    }
-    const values = years.filter((year) => {
-      const number = Number(year.name);
-      return Number.isFinite(number) && number >= from && number <= to;
-    }).map((year) => ({ id: "VEHICLE_YEAR" as const, valueId: year.id, valueName: year.name }));
-    if (!values.length) {
-      toast.error("No hay años disponibles dentro de ese rango.");
-      return;
-    }
-    setSelected((current) => clearDependent({ ...current, VEHICLE_YEAR: values }, "VEHICLE_YEAR"));
-    setMatches([]);
-    setSelectedMatches(new Set());
-    setMatchesPage(1);
-  };
-
-  const searchMatches = () => {
+  const searchMatches = async () => {
     if (!selected.BRAND?.length || !selected.MODEL?.length) {
       toast.error("Selecciona al menos marca y modelo.");
       return;
     }
-    const contexts = combinarAplicaciones(selected);
-    if (!contexts) {
-      toast.error("La búsqueda supera 200 combinaciones. Reduce años, motores u opciones.");
-      return;
+    try {
+      setSearching(true);
+      const params = new URLSearchParams({ completo: "1", filters: JSON.stringify(selectedValues(selected)) });
+      const response = await fetch("/api/compatibilidades/catalogo?" + params.toString(), { cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudieron buscar las aplicaciones.");
+      setMatches(Array.isArray(result.data) ? result.data as Compatibility[] : []);
+      setSelectedMatches(new Set());
+      setMatchesPage(1);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudieron buscar las aplicaciones.");
+    } finally {
+      setSearching(false);
     }
-    setMatches(contexts);
-    setSelectedMatches(new Set());
-    setMatchesPage(1);
   };
 
   const addSelectedMatches = () => {
     const existing = new Set(value.map((compatibility) => firma(compatibility.atributos)));
-    const next = matches.filter((match) => selectedMatches.has(firma(match)) && !existing.has(firma(match)));
+    const next = matches.filter((match) => selectedMatches.has(firma(match.atributos)) && !existing.has(firma(match.atributos)));
     if (!next.length) {
       toast.error("Selecciona al menos una aplicación que no esté cargada.");
       return;
     }
-    onChange([...value, ...next.map((atributos) => ({ atributos }))]);
+    onChange([...value, ...next.map((match) => ({ atributos: match.atributos }))]);
     setSelectedMatches(new Set());
     setSavedPage(Math.max(1, Math.ceil((value.length + next.length) / PAGE_SIZE)));
     toast.success(`${next.length} compatibilidades agregadas.`);
@@ -201,7 +172,6 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
     </div>;
   };
 
-  const years = [...(options.VEHICLE_YEAR ?? [])].filter((option) => /^\d{4}$/.test(option.name)).sort((left, right) => Number(left.name) - Number(right.name));
   const matchStart = (matchesPage - 1) * PAGE_SIZE;
   const savedStart = (savedPage - 1) * PAGE_SIZE;
   const visibleMatches = matches.slice(matchStart, matchStart + PAGE_SIZE);
@@ -210,20 +180,16 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
 
   return <section className="border-t border-slate-200 pt-8 dark:border-slate-800">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-black text-slate-900 dark:text-white">Compatibilidades de vehículos</h2><p className="mt-1 text-sm text-slate-500">Buscá aplicaciones, seleccioná cuáles corresponden y guardalas en este número de pieza.</p></div><span className="rounded-md bg-blue-500/10 px-2 py-1 text-xs font-black text-blue-700 dark:text-blue-300">{value.length} cargadas</span></div>
-    <div className="relative mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-      {renderField("BRAND")}
-      {renderField("MODEL")}
-      <div className="flex min-w-0 items-end gap-2">
-        <div className="min-w-0 flex-1">{renderField("VEHICLE_YEAR")}</div>
-        {years.length > 0 && <div className="flex shrink-0 items-end gap-1 rounded-md border border-slate-200 p-1.5 dark:border-slate-800"><label className="block"><span className="mb-1 block text-[9px] font-black uppercase tracking-wide text-slate-500">Desde</span><select value={yearFrom} onChange={(event) => setYearFrom(event.target.value)} className="h-8 max-w-16 rounded border border-slate-300 bg-white px-1 text-xs font-semibold dark:border-slate-700 dark:bg-slate-950"><option value="">Año</option>{years.map((year) => <option key={year.id} value={year.name}>{year.name}</option>)}</select></label><label className="block"><span className="mb-1 block text-[9px] font-black uppercase tracking-wide text-slate-500">Hasta</span><select value={yearTo} onChange={(event) => setYearTo(event.target.value)} className="h-8 max-w-16 rounded border border-slate-300 bg-white px-1 text-xs font-semibold dark:border-slate-700 dark:bg-slate-950"><option value="">Año</option>{years.map((year) => <option key={year.id} value={year.name}>{year.name}</option>)}</select></label><button type="button" onClick={applyYearRange} disabled={disabled} className="h-8 rounded border border-blue-500 px-2 text-[10px] font-bold text-blue-600 disabled:opacity-50 dark:text-blue-300">Aplicar</button></div>}
-      </div>
-      {renderField("ENGINE")}
-    </div>
+    <div className="relative mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">{principales.map(renderField)}</div>
     <div className="mt-3 flex flex-wrap items-end gap-3">
       <details className="min-w-[210px]"><summary className="cursor-pointer text-xs font-black text-slate-600 dark:text-slate-300">Especificaciones técnicas opcionales</summary><div className="relative z-20 mt-3 grid gap-3 rounded-md border border-slate-200 bg-white p-3 sm:grid-cols-2 xl:grid-cols-3 dark:border-slate-800 dark:bg-slate-900">{opcionales.map(renderField)}</div></details>
-      <button type="button" onClick={searchMatches} disabled={disabled || !selected.BRAND?.length || !selected.MODEL?.length} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Search className="h-4 w-4" />Buscar aplicaciones</button>
+      <button type="button" onClick={() => void searchMatches()} disabled={disabled || searching || !selected.BRAND?.length || !selected.MODEL?.length} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">{searching ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}{searching ? "Buscando..." : "Buscar aplicaciones"}</button>
     </div>
-    {matches.length > 0 && <div className="mt-5 overflow-hidden rounded-md border border-slate-200 dark:border-slate-800"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3 py-2 dark:border-slate-800"><p className="text-xs font-black text-slate-900 dark:text-white">{matches.length} aplicaciones encontradas</p><button type="button" onClick={addSelectedMatches} disabled={disabled || selectedCount === 0} className="inline-flex h-8 items-center gap-2 rounded-md border border-blue-500 px-3 text-xs font-black text-blue-600 disabled:opacity-50 dark:text-blue-300"><Plus className="h-4 w-4" />Agregar seleccionadas ({selectedCount})</button></div><div className="max-h-80 overflow-auto"><table className="w-full min-w-[700px] text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-950"><tr><th className="w-12 px-3 py-2" /><th className="px-3 py-2">Aplicación</th></tr></thead><tbody>{visibleMatches.map((match) => { const key = firma(match); const exists = value.some((compatibility) => firma(compatibility.atributos) === key); return <tr key={key} className="border-t border-slate-200 dark:border-slate-800"><td className="px-3 py-2"><input type="checkbox" checked={selectedMatches.has(key)} disabled={disabled || exists} onChange={() => setSelectedMatches((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; })} className="h-4 w-4 accent-blue-600" /></td><td className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-200">{match.map((attribute) => `${labels.get(attribute.id) || attribute.id}: ${attribute.valueName}`).join(" · ")}{exists && <span className="ml-2 text-[10px] font-black text-emerald-600 dark:text-emerald-300">CARGADA</span>}</td></tr>; })}</tbody></table></div><PaginationControls page={matchesPage} total={matches.length} onPageChange={setMatchesPage} /></div>}
+    {matches.length > 0 && <div className="mt-5 overflow-hidden rounded-md border border-slate-200 dark:border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3 py-2 dark:border-slate-800"><p className="text-xs font-black text-slate-900 dark:text-white">{matches.length} aplicaciones encontradas</p><button type="button" onClick={addSelectedMatches} disabled={disabled || selectedCount === 0} className="inline-flex h-8 items-center gap-2 rounded-md border border-blue-500 px-3 text-xs font-black text-blue-600 disabled:opacity-50 dark:text-blue-300"><Plus className="h-4 w-4" />Agregar seleccionadas ({selectedCount})</button></div>
+      <div className="max-h-[32rem] overflow-auto"><table className="w-full min-w-[1380px] table-fixed text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-[9px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-950"><tr><th className="w-11 px-2 py-2" />{ATRIBUTOS_VEHICULO_ML.map((attribute) => <th key={attribute.id} className="w-24 px-2 py-2 leading-tight">{attribute.nombre}</th>)}</tr></thead><tbody>{visibleMatches.map((match, index) => { const key = firma(match.atributos); const exists = value.some((compatibility) => firma(compatibility.atributos) === key); const attributes = new Map(match.atributos.map((attribute) => [attribute.id, attribute])); return <tr key={`${key}-${matchStart + index}`} className="border-t border-slate-200 align-top dark:border-slate-800"><td className="px-2 py-2"><input type="checkbox" checked={selectedMatches.has(key)} disabled={disabled || exists} onChange={() => setSelectedMatches((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; })} className="h-4 w-4 accent-blue-600" /></td>{ATRIBUTOS_VEHICULO_ML.map((attribute) => { const item = attributes.get(attribute.id); return <td key={attribute.id} className="px-2 py-2 text-[11px] leading-tight"><span title={item?.valueName} className="block break-words font-semibold text-slate-700 dark:text-slate-200">{item?.valueName ?? "-"}</span></td>; })}</tr>; })}</tbody></table></div>
+      <PaginationControls page={matchesPage} total={matches.length} onPageChange={setMatchesPage} />
+    </div>}
     {value.length > 0 && <div className="mt-5 overflow-hidden rounded-md border border-slate-200 dark:border-slate-800"><div className="border-b border-slate-200 px-3 py-2 text-xs font-black text-slate-900 dark:border-slate-800 dark:text-white">Compatibilidades guardadas</div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-950"><tr><th className="px-3 py-2">Aplicación</th><th className="w-12 px-3 py-2" /></tr></thead><tbody>{visibleSaved.map((compatibility, index) => <tr key={`${compatibility.id ?? "new"}-${savedStart + index}`} className="border-t border-slate-200 dark:border-slate-800"><td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-200">{compatibility.atributos.map((attribute) => `${labels.get(attribute.id) || attribute.id}: ${attribute.valueName}`).join(" · ")}</td><td className="px-3 py-2 text-right"><button type="button" onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== savedStart + index))} disabled={disabled} title="Quitar compatibilidad" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:border-red-900"><Trash2 className="h-4 w-4" /></button></td></tr>)}</tbody></table></div><PaginationControls page={savedPage} total={value.length} onPageChange={setSavedPage} /></div>}
   </section>;
 }

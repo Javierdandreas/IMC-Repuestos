@@ -802,7 +802,7 @@ export async function consultarValoresVehiculoMercadoLibreParaContextos(attribut
 }
 
 export async function detallarVehiculosMercadoLibre(filters: ValorVehiculo[]) {
-  const contexts = contextosVehiculo(filters, undefined, 5);
+  const contexts = contextosVehiculo(filters, undefined, 100);
   const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
   const { accessToken } = await accessTokenForCuenta(idCuenta);
   const available = await atributosDisponiblesVehiculos(idCuenta, accessToken);
