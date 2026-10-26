@@ -1305,6 +1305,10 @@ async function meliPost(path: string, idCuenta: number, token: string, body: Rec
     const renewed = await accessTokenForCuenta(idCuenta, true);
     response = await request(renewed.accessToken);
   }
+  if (!response.ok && path.includes("/top_values") && [500, 502, 503, 504].includes(response.status)) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    response = await request(token);
+  }
   if (!response.ok) {
     const details = await response.json().catch(() => null) as { message?: unknown } | null;
     const message = typeof details?.message === "string" ? ` ${details.message}` : "";

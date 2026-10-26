@@ -13,7 +13,7 @@ export default async function NuevaPiezaPage() {
 
   return (
     <div className="min-h-screen bg-white p-4 dark:bg-slate-950 md:p-6">
-      <div className="mx-auto w-full max-w-[1500px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="mx-auto w-full max-w-[1500px] overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <PiezaForm
           categorias={categorias}
           subcategorias={subcategorias}
