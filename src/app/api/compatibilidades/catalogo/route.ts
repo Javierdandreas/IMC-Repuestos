@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsonError } from "@/lib/api-errors";
 import { requireApiReadSession } from "@/lib/api-auth";
 import { esAtributoVehiculo, explorarCatalogoVehiculos, normalizarAtributosVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
+import { detallarVehiculosMercadoLibre } from "@/lib/mercadolibre";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function positiveInteger(value: string | null, fallback: number) {
   const parsed = Number(value);
@@ -26,12 +28,17 @@ export async function GET(request: NextRequest) {
   try {
     await requireApiReadSession(request);
     const searchParams = request.nextUrl.searchParams;
+    const filters = parseFilters(searchParams.get("filters"));
+    if (searchParams.get("completo") === "1") {
+      const data = await detallarVehiculosMercadoLibre(filters);
+      return NextResponse.json({ data, page: 1, totalPages: 1, totalCount: data.length }, { headers: { "Cache-Control": "no-store" } });
+    }
     const requestedAttribute = searchParams.get("attribute") || "";
     return NextResponse.json(await explorarCatalogoVehiculos({
       search: searchParams.get("q") || "",
       attributeId: esAtributoVehiculo(requestedAttribute) ? requestedAttribute : undefined,
       brandId: searchParams.get("brand") || "",
-      filters: parseFilters(searchParams.get("filters")),
+      filters,
       page: positiveInteger(searchParams.get("page"), 1),
       limit: 50,
     }), { headers: { "Cache-Control": "no-store" } });

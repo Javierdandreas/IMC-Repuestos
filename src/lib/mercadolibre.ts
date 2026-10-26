@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
 import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
-import { interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico } from "@/lib/mercadolibre-validacion-publicacion";
+import { atributosObligatoriosFaltantes, interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico, type AtributoCategoriaPublicacion } from "@/lib/mercadolibre-validacion-publicacion";
 import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
 import { dominiosCompatibles, planCopiaCompatibilidades, solicitudCopiaUserProduct, totalCompatibilidades, totalResumen } from "@/lib/mercadolibre-copia-compatibilidades";
 import { opcionMensajePersonalizado, ventaAptaParaMensaje } from "@/lib/mercadolibre-mensajes-prueba";
@@ -36,6 +36,8 @@ const AUTH_BASE_URL = "https://auth.mercadolibre.com.ar/authorization";
 const REFRESH_MARGIN_MS = 60_000;
 const ITEM_BATCH_SIZE = 20;
 const MAX_SYNC_ITEMS = 25_000;
+const CATEGORY_ATTRIBUTES_CACHE_MS = 10 * 60_000;
+const categoryAttributesCache = new Map<string, { expiresAt: number; values: AtributoCategoriaPublicacion[] }>();
 
 type MercadoLibreConfig = {
   clientId: string;
@@ -768,10 +770,9 @@ export async function consultarValoresVehiculoMercadoLibre(attributeId: unknown,
   return consultarTopValuesVehiculos(idCuenta, accessToken, attributeId, known);
 }
 
-export async function consultarValoresVehiculoMercadoLibreParaContextos(attributeId: unknown, known: ValorVehiculo[]) {
-  if (!esAtributoVehiculo(attributeId)) throw new AppError("El atributo de vehiculo indicado no es valido.", 400);
+function contextosVehiculo(known: ValorVehiculo[], excludedAttribute?: AtributoVehiculoId, maxContexts = 25) {
   const byAttribute = new Map<AtributoVehiculoId, ValorVehiculo[]>();
-  for (const entry of known.flatMap((value) => normalizarAtributosVehiculo([value])).filter((value) => value.id !== attributeId)) {
+  for (const entry of known.flatMap((value) => normalizarAtributosVehiculo([value])).filter((value) => value.id !== excludedAttribute)) {
     const values = byAttribute.get(entry.id) ?? [];
     if (!values.some((value) => value.valueId === entry.valueId)) values.push(entry);
     byAttribute.set(entry.id, values);
@@ -782,12 +783,53 @@ export async function consultarValoresVehiculoMercadoLibreParaContextos(attribut
     const values = byAttribute.get(attribute);
     if (!values?.length) continue;
     contexts = contexts.flatMap((context) => values.map((value) => [...context, value]));
-    if (contexts.length > 25) throw new AppError("Selecciona hasta 25 combinaciones de filtros antes de cargar otra lista.", 422);
+    if (contexts.length > maxContexts) throw new AppError(`Selecciona hasta ${maxContexts} combinaciones de filtros antes de cargar otra lista.`, 422);
   }
+  return contexts;
+}
+
+export async function consultarValoresVehiculoMercadoLibreParaContextos(attributeId: unknown, known: ValorVehiculo[]) {
+  if (!esAtributoVehiculo(attributeId)) throw new AppError("El atributo de vehiculo indicado no es valido.", 400);
+  const contexts = contextosVehiculo(known, attributeId);
   const values = await Promise.all(contexts.map((context) => consultarValoresVehiculoMercadoLibre(attributeId, context)));
   const unique = new Map<string, { id: string; name: string }>();
   for (const entry of values.flat()) unique.set(entry.id, entry);
   return [...unique.values()].sort((left, right) => left.name.localeCompare(right.name, "es-AR"));
+}
+
+export async function detallarVehiculosMercadoLibre(filters: ValorVehiculo[]) {
+  const contexts = contextosVehiculo(filters, undefined, 5);
+  const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
+  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const available = await atributosDisponiblesVehiculos(idCuenta, accessToken);
+  await guardarEstadoAtributosVehiculo(available);
+  const consultarDetalle = async (attributeId: AtributoVehiculoId, context: ValorVehiculo[]) => {
+    const cached = await obtenerValoresCatalogoVehiculos(attributeId, context);
+    if (cached.length || !available.has(attributeId)) return cached;
+    return consultarTopValuesVehiculos(idCuenta, accessToken, attributeId, context);
+  };
+  const rows: Array<{ atributos: ValorVehiculo[] }> = [];
+  for (const context of contexts) {
+    const byAttribute = new Map(context.map((value) => [value.id, value]));
+    const completed = await Promise.all(ATRIBUTOS_VEHICULO_ML.map(async (attribute) => {
+      const selected = byAttribute.get(attribute.id);
+      if (selected) return selected;
+      try {
+        const values = await consultarDetalle(attribute.id, context);
+        if (!values.length) return null;
+        return {
+          id: attribute.id,
+          valueId: values.map((value) => value.id).join(","),
+          valueName: values.map((value) => value.name).join(" / "),
+        } satisfies ValorVehiculo;
+      } catch {
+        // Un atributo no disponible no impide mostrar los demas datos del vehiculo.
+        return null;
+      }
+    }));
+    rows.push({ atributos: completed.filter((value): value is ValorVehiculo => value !== null) });
+  }
+  return rows;
 }
 
 export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false) {
@@ -927,6 +969,62 @@ export async function revisarPublicacionParaDuplicar(idPublicacion: number, tipo
   };
 }
 
+function textAttribute(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizarAtributosCategoriaPublicacion(payload: unknown): AtributoCategoriaPublicacion[] {
+  if (!Array.isArray(payload)) return [];
+  return payload.flatMap((value): AtributoCategoriaPublicacion[] => {
+    if (!value || typeof value !== "object") return [];
+    const source = value as Record<string, unknown>;
+    const id = textAttribute(source.id);
+    if (!id) return [];
+    const tags = source.tags && typeof source.tags === "object" ? source.tags as Record<string, unknown> : {};
+    const values = Array.isArray(source.values) ? source.values.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const candidate = item as Record<string, unknown>;
+      const valueId = textAttribute(candidate.id);
+      const valueName = textAttribute(candidate.name);
+      return valueId && valueName ? [{ id: valueId, nombre: valueName }] : [];
+    }) : [];
+    const unidadesPermitidas = Array.isArray(source.allowed_units) ? source.allowed_units.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const candidate = item as Record<string, unknown>;
+      const id = textAttribute(candidate.id);
+      const name = textAttribute(candidate.name);
+      return [id, name].filter(Boolean);
+    }) : [];
+    const maxLength = Number(source.value_max_length);
+    return [{
+      id,
+      nombre: textAttribute(source.name) || id,
+      requerido: tags.required === true || tags.new_required === true,
+      soloLectura: tags.read_only === true,
+      inferido: tags.inferred === true,
+      tipoValor: textAttribute(source.value_type),
+      longitudMaxima: Number.isFinite(maxLength) && maxLength > 0 ? maxLength : null,
+      valores: values,
+      unidadesPermitidas: [...new Set(unidadesPermitidas)],
+    }];
+  });
+}
+
+async function atributosCategoriaPublicacion(categoryId: unknown, idCuenta: number, token: string) {
+  const id = textAttribute(categoryId);
+  if (!id) return [];
+  const cached = categoryAttributesCache.get(id);
+  if (cached && cached.expiresAt > Date.now()) return cached.values;
+  try {
+    const values = normalizarAtributosCategoriaPublicacion(await meliGet(`/categories/${encodeURIComponent(id)}/attributes`, idCuenta, token));
+    categoryAttributesCache.set(id, { values, expiresAt: Date.now() + CATEGORY_ATTRIBUTES_CACHE_MS });
+    return values;
+  } catch {
+    // Nunca se bloquea una duplicacion solo porque no se pudo leer la ficha de la categoria.
+    return [];
+  }
+}
+
 export async function validarPublicacionParaDuplicar(idPublicacion: number, tipo: "ITEM" | "KIT", id: number, nombre: string) {
   const column = tipo === "KIT" ? "id_kit" : "id_producto";
   const result = await query<{ id_cuenta: number; item_id: string }>(
@@ -940,7 +1038,8 @@ export async function validarPublicacionParaDuplicar(idPublicacion: number, tipo
   const item = await meliGet(`/items/${encodeURIComponent(publication.item_id)}`, idCuenta, accessToken) as Record<string, unknown>;
   if (Number(item.seller_id) !== sellerId) throw new AppError("La publicacion no pertenece a la cuenta conectada.", 403);
   let body: Record<string, unknown>;
-  try { body = prepararValidacionPublicacion(item, nombre); }
+  const atributosCategoria = await atributosCategoriaPublicacion(item.category_id, idCuenta, accessToken);
+  try { body = prepararValidacionPublicacion(item, nombre, atributosCategoria); }
   catch (error) { throw new AppError(error instanceof Error ? error.message : "No se pudo preparar la validacion.", 400); }
   const request = (token: string) => fetch(`${API_BASE_URL}/items/validate`, {
     method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
@@ -962,6 +1061,7 @@ export async function validarPublicacionParaDuplicar(idPublicacion: number, tipo
   const safeData = protegerDiagnostico(data, tokens);
   return {
     ...interpretarValidacionPublicacion(response.status, safeData),
+    atributosObligatoriosFaltantes: atributosObligatoriosFaltantes(atributosCategoria, body),
     diagnostico: { metodo: "POST", recurso: "/items/validate", publicacionOrigen: publication.item_id,
       solicitud: protegerDiagnostico(body, tokens), estadoHttp: response.status, respuesta: safeData },
   };
@@ -979,7 +1079,8 @@ export async function probarCreacionPublicacion(idPublicacion: number, tipo: "IT
   const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
   const item = await meliGet(`/items/${encodeURIComponent(publication.item_id)}`, idCuenta, accessToken) as Record<string, unknown>;
   if (Number(item.seller_id) !== sellerId) throw new AppError("La publicacion no pertenece a la cuenta conectada.", 403);
-  const body = prepararValidacionPublicacion(item, nombre);
+  const atributosCategoria = await atributosCategoriaPublicacion(item.category_id, idCuenta, accessToken);
+  const body = prepararValidacionPublicacion(item, nombre, atributosCategoria);
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}/items`, {

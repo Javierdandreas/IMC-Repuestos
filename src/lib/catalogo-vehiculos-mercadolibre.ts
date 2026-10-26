@@ -184,6 +184,7 @@ export async function estadoCatalogoVehiculosMercadoLibre() {
   const current = state.rows[0] || { estado: "PENDIENTE", siguiente_marca: 0, total_marcas: 0, ultimo_error: null, iniciada_at: null, finalizada_at: null };
   return {
     ...current,
+    total_modelos: Number(counts.rows.find((row) => row.atributo_id === "MODEL")?.total ?? 0),
     atributos: ATRIBUTOS_VEHICULO_ML.map((attribute) => ({
       ...attribute,
       total: Number(counts.rows.find((row) => row.atributo_id === attribute.id)?.total ?? 0),

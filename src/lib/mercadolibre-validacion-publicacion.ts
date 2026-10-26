@@ -1,4 +1,43 @@
-export function prepararValidacionPublicacion(item: Record<string, unknown>, nombre: string) {
+export type AtributoCategoriaPublicacion = {
+  id: string;
+  nombre: string;
+  requerido: boolean;
+  soloLectura: boolean;
+  inferido: boolean;
+  tipoValor: string;
+  longitudMaxima: number | null;
+  valores: Array<{ id: string; nombre: string }>;
+  unidadesPermitidas: string[];
+};
+
+const ATTRIBUTOS_OMITIDOS = new Set([
+  "CATALOG_TITLE", "HAS_COMPATIBILITIES", "SELLER_PACKAGE_DATA_SOURCE", "SYI_PYMES_ID", "PACKAGE_DATA_SOURCE",
+  "GTIN", "PACKAGE_HEIGHT", "PACKAGE_LENGTH", "PACKAGE_WEIGHT", "PACKAGE_WIDTH", "PRODUCT_FEATURES", "SHIPMENT_PACKING",
+]);
+const ATTRIBUTOS_SOLO_TEXTO = new Set([
+  "MATERIAL", "CORE_MATERIAL", "ORIGIN", "CONFIGURATION", "GRADE_TYPE", "O_RING_MATERIAL",
+  "CYLINDER_BORE_DIAMETER", "O_RING_OUTSIDE_DIAMETER", "O_RING_THICKNESS",
+]);
+
+function text(value: unknown, maxLength: number | null = null) {
+  const result = typeof value === "string" ? value.trim() : "";
+  return maxLength && maxLength > 0 ? result.slice(0, maxLength) : result;
+}
+
+function valueStruct(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  const number = typeof source.number === "number" ? source.number : Number(source.number);
+  if (!Number.isFinite(number)) return null;
+  const unit = text(source.unit);
+  return unit ? { number, unit } : { number };
+}
+
+function sameText(left: string, right: string) {
+  return left.localeCompare(right, "es", { sensitivity: "accent" }) === 0;
+}
+
+export function prepararValidacionPublicacion(item: Record<string, unknown>, nombre: string, atributosCategoria: AtributoCategoriaPublicacion[] = []) {
   if (Array.isArray(item.variations) && item.variations.length) {
     throw new Error("La validacion de publicaciones con variaciones todavia no esta disponible.");
   }
@@ -21,33 +60,44 @@ export function prepararValidacionPublicacion(item: Record<string, unknown>, nom
       typeof picture?.id === "string" ? [{ id: picture.id }] : []);
   }
   if (Array.isArray(item.attributes)) {
-    payload.attributes = item.attributes.flatMap((attribute: Record<string, unknown>) => {
-      if (typeof attribute?.id !== "string") return [];
-      if ([
-        "CATALOG_TITLE", "HAS_COMPATIBILITIES", "SELLER_PACKAGE_DATA_SOURCE", "SYI_PYMES_ID",
-        "PACKAGE_DATA_SOURCE",
-        "GTIN", "PACKAGE_HEIGHT", "PACKAGE_LENGTH", "PACKAGE_WEIGHT", "PACKAGE_WIDTH",
-        "PRODUCT_FEATURES", "SHIPMENT_PACKING",
-      ].includes(attribute.id)) return [];
-      const valueName = typeof attribute.value_name === "string" ? attribute.value_name.trim() : "";
-      const valueId = typeof attribute.value_id === "string" ? attribute.value_id.trim() : "";
-      const hasUsableValueId = Boolean(valueId) && !/^(null|undefined)$/i.test(valueId);
-      // Mercado Libre rejects these attributes when the source only contains an obsolete value_id.
-      // It is safer to omit them than to create a publication with invented product data.
-      const textOnlyAttributes = [
-        "MATERIAL", "CORE_MATERIAL", "ORIGIN", "CONFIGURATION", "GRADE_TYPE", "O_RING_MATERIAL",
-        "CYLINDER_BORE_DIAMETER", "O_RING_OUTSIDE_DIAMETER", "O_RING_THICKNESS",
-      ];
-      if (textOnlyAttributes.includes(attribute.id) && !valueName) return [];
-      const result: Record<string, unknown> = { id: attribute.id };
-      if (textOnlyAttributes.includes(attribute.id)) result.value_name = valueName;
-      else if (hasUsableValueId) result.value_id = valueId;
-      else if (valueName) result.value_name = valueName;
-      else return [];
-      return [result];
+    const definiciones = new Map(atributosCategoria.map((attribute) => [attribute.id, attribute]));
+    payload.attributes = item.attributes.flatMap<Record<string, unknown>>((attribute: Record<string, unknown>) => {
+      const id = text(attribute?.id);
+      if (!id || ATTRIBUTOS_OMITIDOS.has(id)) return [];
+      const definition = definiciones.get(id);
+      // La ficha actual de la categoria decide que atributos siguen siendo aceptados por ML.
+      if (definiciones.size && (!definition || definition.soloLectura || definition.inferido)) return [];
+
+      const valueName = text(attribute.value_name, definition?.longitudMaxima ?? null);
+      const valueId = text(attribute.value_id);
+      const struct = valueStruct(attribute.value_struct);
+      const matchingValue = definition?.valores.find((value) => value.id === valueId || (valueName && sameText(value.nombre, valueName)));
+
+      if (ATTRIBUTOS_SOLO_TEXTO.has(id)) return valueName ? [{ id, value_name: valueName }] : [];
+      if (definition?.tipoValor === "list" && definition.valores.length && !matchingValue) return [];
+      if (definition?.tipoValor === "number_unit" && struct) {
+        if (definition.unidadesPermitidas.length && struct.unit && !definition.unidadesPermitidas.includes(struct.unit)) return [];
+        return [{ id, value_struct: struct }];
+      }
+      if (definition?.tipoValor === "number" && struct) return [{ id, value_struct: { number: struct.number } }];
+      if (matchingValue) return [{ id, value_id: matchingValue.id }];
+      if (valueName) return [{ id, value_name: valueName }];
+      if (valueId && !/^(null|undefined)$/i.test(valueId)) return [{ id, value_id: valueId }];
+      return [];
     });
   }
   return payload;
+}
+
+export function atributosObligatoriosFaltantes(atributosCategoria: AtributoCategoriaPublicacion[], payload: Record<string, unknown>) {
+  const enviados = new Set(Array.isArray(payload.attributes)
+    ? payload.attributes.flatMap((attribute) => attribute && typeof attribute === "object" && typeof (attribute as Record<string, unknown>).id === "string"
+      ? [(attribute as Record<string, unknown>).id as string]
+      : [])
+    : []);
+  return atributosCategoria
+    .filter((attribute) => attribute.requerido && !attribute.soloLectura && !attribute.inferido && !enviados.has(attribute.id))
+    .map((attribute) => ({ id: attribute.id, nombre: attribute.nombre }));
 }
 
 export function interpretarValidacionPublicacion(status: number, data: unknown) {
