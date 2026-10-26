@@ -389,6 +389,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       }
 
       router.refresh();
+      setDeletingProduct(null);
       toast.success(`${deletingProduct.tipo === "KIT" ? "Kit" : "Item"} borrado correctamente`);
     } catch (error) {
       showError(error, "No se pudo borrar el item");
@@ -412,7 +413,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
           {loteTerminado && (() => {
             const resumen = resumirLote(loteTerminado);
             return <section role="status" className="border border-blue-500/40 bg-blue-500/5 p-4 text-sm text-slate-800 dark:text-slate-200">
-              <div className="flex flex-wrap items-start justify-between gap-3"><div className="space-y-1"><p className="font-bold">Lote finalizado: {resumen.creadas} publicaciones creadas</p><p>Compatibilidades consultadas: {resumen.totalDestinos} en {resumen.destinosConsultados} publicaciones. Los totales pueden incluir compatibilidades compartidas.</p><p>{resumen.rechazadas} publicaciones rechazadas | {resumen.sinVerificar} compatibilidades sin verificar | {resumen.descripcionesConProblemas} descripciones sin confirmar</p><p className="text-xs text-slate-500">Las copias solicitadas pueden demorar. No incluyen compatibilidades de catalogo o con reclamos.</p></div><button type="button" onClick={() => setLoteTerminado(null)} className="rounded-md border border-slate-400 px-3 py-2 text-xs font-bold">Cerrar</button></div>
+              <div className="flex flex-wrap items-start justify-between gap-3"><div className="space-y-1"><p className="font-bold">Lote finalizado: {resumen.creadas} publicaciones creadas</p><p>Compatibilidades consultadas: {resumen.totalDestinos} en {resumen.destinosConsultados} publicaciones. Los totales pueden incluir compatibilidades compartidas.</p><p>{resumen.rechazadas} publicaciones rechazadas | {resumen.sinVerificar} compatibilidades sin verificar | {resumen.descripcionesConProblemas} descripciones sin confirmar</p></div><button type="button" onClick={() => setLoteTerminado(null)} className="rounded-md border border-slate-400 px-3 py-2 text-xs font-bold">Cerrar</button></div>
               <details className="mt-3"><summary className="cursor-pointer text-xs font-bold">Ver detalle por publicacion</summary><div className="mt-2 max-h-72 space-y-2 overflow-auto">{loteTerminado.map((item) => <div key={item.posicion} className="border-t border-slate-300 pt-2 text-xs dark:border-slate-700"><p className="font-bold">{item.titulo}</p><p>{item.estado}{item.resultado?.publicacion ? ` - ${item.resultado.publicacion}` : ""}{item.resultado?.status ? ` - HTTP ${item.resultado.status}` : ""}</p>{item.resultado?.mensaje && <p>{item.resultado.mensaje}</p>}{item.estado === "CREADA" && <><p>Descripcion: {item.resultado?.descripcionEstado || "Sin confirmar"}</p><p>{resumenCompatibilidad(item.resultado?.compatibilidades)}</p></>}{item.resultado?.respuesta != null && <pre className="whitespace-pre-wrap break-all">{JSON.stringify(item.resultado.respuesta, null, 2)}</pre>}</div>)}</div></details>
             </section>;
           })()}

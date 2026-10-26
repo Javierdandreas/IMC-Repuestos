@@ -25,16 +25,23 @@ export function prepararValidacionPublicacion(item: Record<string, unknown>, nom
       if (typeof attribute?.id !== "string") return [];
       if ([
         "CATALOG_TITLE", "HAS_COMPATIBILITIES", "SELLER_PACKAGE_DATA_SOURCE", "SYI_PYMES_ID",
+        "PACKAGE_DATA_SOURCE",
         "GTIN", "PACKAGE_HEIGHT", "PACKAGE_LENGTH", "PACKAGE_WEIGHT", "PACKAGE_WIDTH",
         "PRODUCT_FEATURES", "SHIPMENT_PACKING",
       ].includes(attribute.id)) return [];
       const valueName = typeof attribute.value_name === "string" ? attribute.value_name.trim() : "";
+      const valueId = typeof attribute.value_id === "string" ? attribute.value_id.trim() : "";
+      const hasUsableValueId = Boolean(valueId) && !/^(null|undefined)$/i.test(valueId);
       // Mercado Libre rejects these attributes when the source only contains an obsolete value_id.
       // It is safer to omit them than to create a publication with invented product data.
-      if (["MATERIAL", "CORE_MATERIAL", "ORIGIN"].includes(attribute.id) && !valueName) return [];
+      const textOnlyAttributes = [
+        "MATERIAL", "CORE_MATERIAL", "ORIGIN", "CONFIGURATION", "GRADE_TYPE", "O_RING_MATERIAL",
+        "CYLINDER_BORE_DIAMETER", "O_RING_OUTSIDE_DIAMETER", "O_RING_THICKNESS",
+      ];
+      if (textOnlyAttributes.includes(attribute.id) && !valueName) return [];
       const result: Record<string, unknown> = { id: attribute.id };
-      if (["MATERIAL", "CORE_MATERIAL", "ORIGIN"].includes(attribute.id)) result.value_name = valueName;
-      else if (attribute.value_id) result.value_id = attribute.value_id;
+      if (textOnlyAttributes.includes(attribute.id)) result.value_name = valueName;
+      else if (hasUsableValueId) result.value_id = valueId;
       else if (valueName) result.value_name = valueName;
       else return [];
       return [result];
