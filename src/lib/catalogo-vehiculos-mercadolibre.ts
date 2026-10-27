@@ -336,7 +336,7 @@ export async function explorarCatalogoVehiculos({
 }
 
 export async function estadoCatalogoVehiculosMercadoLibre() {
-  const [state, counts, attributesState, canonicalCount, apiCount, queue, targetBrands] = await Promise.all([
+  const [state, counts, attributesState, canonicalCount, apiCount, queue, enrichmentQueue, targetBrands] = await Promise.all([
     query<{ estado: string; siguiente_marca: number; total_marcas: number; ultimo_error: string | null; iniciada_at: string | null; finalizada_at: string | null }>(`
       SELECT estado, siguiente_marca, total_marcas, ultimo_error, iniciada_at, finalizada_at
       FROM public.mercadolibre_catalogo_vehiculo_sincronizacion
@@ -370,6 +370,14 @@ export async function estadoCatalogoVehiculosMercadoLibre() {
       FROM public.mercadolibre_catalogo_vehiculo_cola
       WHERE dominio_id = $1
     `, [DOMINIO_VEHICULOS_ML]),
+    query<{ pendientes: string; procesando: string; errores: string }>(`
+      SELECT
+        COUNT(*) FILTER (WHERE estado = 'PENDIENTE')::text AS pendientes,
+        COUNT(*) FILTER (WHERE estado = 'PROCESANDO')::text AS procesando,
+        COUNT(*) FILTER (WHERE estado = 'ERROR')::text AS errores
+      FROM public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola
+      WHERE dominio_id = $1
+    `, [DOMINIO_VEHICULOS_ML]),
     query<{ total: string }>(`
       SELECT COUNT(*)::text AS total
       FROM public.mercadolibre_catalogo_vehiculo_marca_objetivo
@@ -385,6 +393,9 @@ export async function estadoCatalogoVehiculosMercadoLibre() {
     tareas_pendientes: Number(queue.rows[0]?.pendientes ?? 0),
     tareas_procesando: Number(queue.rows[0]?.procesando ?? 0),
     tareas_error: Number(queue.rows[0]?.errores ?? 0),
+    tareas_enriquecimiento_pendientes: Number(enrichmentQueue.rows[0]?.pendientes ?? 0),
+    tareas_enriquecimiento_procesando: Number(enrichmentQueue.rows[0]?.procesando ?? 0),
+    tareas_enriquecimiento_error: Number(enrichmentQueue.rows[0]?.errores ?? 0),
     marcas_objetivo: Number(targetBrands.rows[0]?.total ?? 0),
     atributos: ATRIBUTOS_VEHICULO_ML.map((attribute) => ({
       ...attribute,

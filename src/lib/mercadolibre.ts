@@ -887,6 +887,7 @@ export async function detallarVehiculosMercadoLibre(filters: ValorVehiculo[]) {
 
 type TareaCargaVehiculo = {
   id: number;
+  id_vehiculo_base?: number | null;
   atributos: unknown;
   siguiente_atributo_id: AtributoVehiculoId | "SAVE";
   prioridad: number;
@@ -894,11 +895,13 @@ type TareaCargaVehiculo = {
 
 const LIMITE_RUTAS_POR_CARGA = 50;
 const LIMITE_VEHICULOS_POR_CARGA = 65;
-const SECUENCIA_CARGA_VEHICULOS: AtributoVehiculoId[] = [
+const SECUENCIA_CARGA_BASE: AtributoVehiculoId[] = [
   "MODEL",
   "VEHICLE_YEAR",
   "ENGINE",
   "POWER",
+];
+const SECUENCIA_ENRIQUECIMIENTO_VEHICULOS: AtributoVehiculoId[] = [
   "SHORT_VERSION",
   "FUEL_TYPE",
   "VEHICLE_BODY_TYPE",
@@ -911,8 +914,13 @@ const SECUENCIA_CARGA_VEHICULOS: AtributoVehiculoId[] = [
 ];
 
 function proximoAtributoCarga(attributeId: TareaCargaVehiculo["siguiente_atributo_id"]): TareaCargaVehiculo["siguiente_atributo_id"] {
-  const index = SECUENCIA_CARGA_VEHICULOS.indexOf(attributeId as AtributoVehiculoId);
-  return index < 0 ? "SAVE" : SECUENCIA_CARGA_VEHICULOS[index + 1] ?? "SAVE";
+  const index = SECUENCIA_CARGA_BASE.indexOf(attributeId as AtributoVehiculoId);
+  return index < 0 ? "SAVE" : SECUENCIA_CARGA_BASE[index + 1] ?? "SAVE";
+}
+
+function proximoAtributoEnriquecimiento(attributeId: TareaCargaVehiculo["siguiente_atributo_id"]): TareaCargaVehiculo["siguiente_atributo_id"] {
+  const index = SECUENCIA_ENRIQUECIMIENTO_VEHICULOS.indexOf(attributeId as AtributoVehiculoId);
+  return index < 0 ? "SAVE" : SECUENCIA_ENRIQUECIMIENTO_VEHICULOS[index + 1] ?? "SAVE";
 }
 
 async function encolarCargaVehiculos(entries: Array<{
@@ -949,6 +957,36 @@ async function encolarCargaVehiculos(entries: Array<{
   `, [DOMINIO_VEHICULOS_ML, JSON.stringify(normalized)]);
 }
 
+async function encolarEnriquecimientoVehiculos(entries: Array<{
+  idVehiculo: number;
+  atributos: ValorVehiculo[];
+  siguienteAtributo: TareaCargaVehiculo["siguiente_atributo_id"];
+  prioridad: number;
+}>) {
+  const normalized = entries
+    .map((entry) => ({
+      idVehiculo: entry.idVehiculo,
+      atributos: normalizarAtributosVehiculo(entry.atributos),
+      siguienteAtributo: entry.siguienteAtributo,
+      prioridad: entry.prioridad,
+    }))
+    .filter((entry) => entry.idVehiculo > 0 && entry.atributos.length)
+    .map((entry) => ({ ...entry, firma: firmaCompatibilidadVehiculo(entry.atributos) }));
+  if (!normalized.length) return;
+
+  await query(`
+    INSERT INTO public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola AS cola
+      (dominio_id, id_vehiculo_base, atributos, firma, siguiente_atributo_id, prioridad, estado, updated_at)
+    SELECT $1, (value->>'idVehiculo')::bigint, value->'atributos', value->>'firma', value->>'siguienteAtributo',
+           (value->>'prioridad')::smallint, 'PENDIENTE', NOW()
+    FROM jsonb_array_elements($2::jsonb) AS value
+    ON CONFLICT (dominio_id, firma, siguiente_atributo_id) DO UPDATE
+    SET estado = CASE WHEN cola.estado = 'ERROR' THEN 'PENDIENTE' ELSE cola.estado END,
+        ultimo_error = CASE WHEN cola.estado = 'ERROR' THEN NULL ELSE cola.ultimo_error END,
+        updated_at = NOW()
+  `, [DOMINIO_VEHICULOS_ML, JSON.stringify(normalized)]);
+}
+
 async function tomarTareaCargaVehiculo() {
   return withTransaction(async (db) => {
     const result = await db.query<TareaCargaVehiculo>(`
@@ -964,7 +1002,7 @@ async function tomarTareaCargaVehiculo() {
       SET estado = 'PROCESANDO', intentos = intentos + 1, updated_at = NOW()
       FROM siguiente
       WHERE cola.id = siguiente.id
-      RETURNING cola.id, cola.atributos, cola.siguiente_atributo_id, cola.prioridad
+      RETURNING cola.id, NULL::bigint AS id_vehiculo_base, cola.atributos, cola.siguiente_atributo_id, cola.prioridad
     `, [DOMINIO_VEHICULOS_ML]);
     return result.rows[0] ?? null;
   });
@@ -977,6 +1015,62 @@ async function finalizarTareaCargaVehiculo(id: number, error?: unknown) {
     SET estado = $2, ultimo_error = $3, updated_at = NOW()
     WHERE id = $1
   `, [id, message ? "ERROR" : "COMPLETADA", message]);
+}
+
+async function tomarTareaEnriquecimientoVehiculo() {
+  return withTransaction(async (db) => {
+    const result = await db.query<TareaCargaVehiculo>(`
+      WITH siguiente AS (
+        SELECT id
+        FROM public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola
+        WHERE dominio_id = $1 AND estado = 'PENDIENTE'
+        ORDER BY prioridad DESC, id DESC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola cola
+      SET estado = 'PROCESANDO', intentos = intentos + 1, updated_at = NOW()
+      FROM siguiente
+      WHERE cola.id = siguiente.id
+      RETURNING cola.id, cola.id_vehiculo_base, cola.atributos, cola.siguiente_atributo_id, cola.prioridad
+    `, [DOMINIO_VEHICULOS_ML]);
+    return result.rows[0] ?? null;
+  });
+}
+
+async function finalizarTareaEnriquecimientoVehiculo(id: number, error?: unknown) {
+  const message = error instanceof Error ? error.message.slice(0, 1_000) : null;
+  await query(`
+    UPDATE public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola
+    SET estado = $2, ultimo_error = $3, updated_at = NOW()
+    WHERE id = $1
+  `, [id, message ? "ERROR" : "COMPLETADA", message]);
+}
+
+async function estadoEnriquecimientoVehiculos() {
+  const result = await query<{ pendientes: string; procesando: string; errores: string }>(`
+    SELECT
+      COUNT(*) FILTER (WHERE estado = 'PENDIENTE')::text AS pendientes,
+      COUNT(*) FILTER (WHERE estado = 'PROCESANDO')::text AS procesando,
+      COUNT(*) FILTER (WHERE estado = 'ERROR')::text AS errores
+    FROM public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola
+    WHERE dominio_id = $1
+  `, [DOMINIO_VEHICULOS_ML]);
+  const current = result.rows[0] ?? { pendientes: "0", procesando: "0", errores: "0" };
+  const pendientes = Number(current.pendientes);
+  const procesando = Number(current.procesando);
+  const errores = Number(current.errores);
+  return { pendientes, procesando, errores, completada: !pendientes && !procesando && !errores };
+}
+
+async function actualizarEstadoCatalogoVehiculos(ids: Iterable<number>, estado: "BASE" | "DETALLADO") {
+  const uniqueIds = [...new Set([...ids].filter((id) => Number.isInteger(id) && id > 0))];
+  if (!uniqueIds.length) return;
+  await query(`
+    UPDATE public.mercadolibre_catalogo_vehiculo
+    SET estado = $2, sincronizado_at = NOW()
+    WHERE id = ANY($1::bigint[])
+  `, [uniqueIds, estado]);
 }
 
 async function estadoCargaVehiculos(totalMarcas: number, ultimoError: string | null = null) {
@@ -1090,6 +1184,13 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
         const attributes = normalizarAtributosVehiculo(task.atributos);
         if (task.siguiente_atributo_id === "SAVE") {
           const saved = await withTransaction((db) => guardarVehiculosCanonicos(db, [attributes], "API"));
+          await actualizarEstadoCatalogoVehiculos(saved.values(), "BASE");
+          await encolarEnriquecimientoVehiculos([...saved.entries()].map(([, idVehiculo]) => ({
+            idVehiculo,
+            atributos: attributes,
+            siguienteAtributo: "SHORT_VERSION",
+            prioridad: 1,
+          })));
           vehiculosGenerados += saved.size;
           tareasProcesadas += 1;
           await finalizarTareaCargaVehiculo(task.id);
@@ -1149,6 +1250,84 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 1_000) : "No se pudo continuar la carga incremental.";
     await estadoCargaVehiculos(targetBrands.length, message);
+    throw error;
+  }
+}
+
+export async function enriquecerCatalogoVehiculosMercadoLibre() {
+  const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
+  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const available = await atributosDisponiblesVehiculos(idCuenta, accessToken);
+  await guardarEstadoAtributosVehiculo(available);
+  await query(`
+    UPDATE public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola
+    SET estado = 'PENDIENTE', updated_at = NOW()
+    WHERE dominio_id = $1
+      AND ((estado = 'PROCESANDO' AND updated_at < NOW() - INTERVAL '10 minutes')
+        OR (estado = 'ERROR' AND intentos < 3))
+  `, [DOMINIO_VEHICULOS_ML]);
+
+  let rutasConsultadas = 0;
+  let tareasProcesadas = 0;
+  let vehiculosGenerados = 0;
+  try {
+    while (rutasConsultadas < LIMITE_RUTAS_POR_CARGA && vehiculosGenerados < LIMITE_VEHICULOS_POR_CARGA) {
+      const task = await tomarTareaEnriquecimientoVehiculo();
+      if (!task) break;
+      try {
+        const attributes = normalizarAtributosVehiculo(task.atributos);
+        if (task.siguiente_atributo_id === "SAVE") {
+          const saved = await withTransaction((db) => guardarVehiculosCanonicos(db, [attributes], "API"));
+          await actualizarEstadoCatalogoVehiculos(saved.values(), "DETALLADO");
+          vehiculosGenerados += saved.size;
+          tareasProcesadas += 1;
+          await finalizarTareaEnriquecimientoVehiculo(task.id);
+          continue;
+        }
+
+        const currentAttribute = task.siguiente_atributo_id;
+        const nextAttribute = proximoAtributoEnriquecimiento(currentAttribute);
+        const idVehiculoBase = Number(task.id_vehiculo_base ?? 0);
+        if (!idVehiculoBase) throw new AppError("La tarea de enriquecimiento no tiene un vehiculo base.", 500);
+        if (!available.has(currentAttribute)) {
+          await encolarEnriquecimientoVehiculos([{ idVehiculo: idVehiculoBase, atributos: attributes, siguienteAtributo: nextAttribute, prioridad: task.prioridad + 1 }]);
+          tareasProcesadas += 1;
+          await finalizarTareaEnriquecimientoVehiculo(task.id);
+          continue;
+        }
+
+        let values: Array<{ id: string; name: string }>;
+        try {
+          values = await consultarTopValuesVehiculos(idCuenta, accessToken, currentAttribute, attributes);
+        } catch (error) {
+          if (!atributoNoPerteneceAlDominio(error)) throw error;
+          available.delete(currentAttribute);
+          await guardarEstadoAtributosVehiculo(available);
+          await encolarEnriquecimientoVehiculos([{ idVehiculo: idVehiculoBase, atributos: attributes, siguienteAtributo: nextAttribute, prioridad: task.prioridad + 1 }]);
+          tareasProcesadas += 1;
+          await finalizarTareaEnriquecimientoVehiculo(task.id);
+          continue;
+        }
+        rutasConsultadas += 1;
+        const children = values.map((value) => ({
+          idVehiculo: idVehiculoBase,
+          atributos: [...attributes, { id: currentAttribute, valueId: value.id, valueName: value.name }],
+          siguienteAtributo: nextAttribute,
+          prioridad: task.prioridad + 1,
+        }));
+        if (!children.length) children.push({ idVehiculo: idVehiculoBase, atributos: attributes, siguienteAtributo: nextAttribute, prioridad: task.prioridad + 1 });
+        await encolarEnriquecimientoVehiculos(children);
+        tareasProcesadas += 1;
+        await finalizarTareaEnriquecimientoVehiculo(task.id);
+        await new Promise((resolve) => setTimeout(resolve, 650));
+      } catch (error) {
+        await finalizarTareaEnriquecimientoVehiculo(task.id, error);
+        throw error;
+      }
+    }
+    const status = await estadoEnriquecimientoVehiculos();
+    return { rutasConsultadas, tareasProcesadas, vehiculosGenerados, ...status };
+  } catch (error) {
     throw error;
   }
 }

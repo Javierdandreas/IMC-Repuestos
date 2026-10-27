@@ -17,6 +17,9 @@ type Estado = {
   tareas_pendientes: number;
   tareas_procesando: number;
   tareas_error: number;
+  tareas_enriquecimiento_pendientes: number;
+  tareas_enriquecimiento_procesando: number;
+  tareas_enriquecimiento_error: number;
   ultimo_error: string | null;
   atributos: Array<{ id: string; habilitado: boolean }>;
 };
@@ -166,20 +169,21 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     setPage(1);
   };
 
-  const runSync = async (reiniciar: boolean, announce = true): Promise<ResultadoCarga | null> => {
+  const runSync = async (reiniciar: boolean, announce = true, modo: "BASE" | "ENRIQUECER" = "BASE"): Promise<ResultadoCarga | null> => {
     try {
       setSyncing(true);
       const response = await fetch("/api/compatibilidades", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reiniciar }),
+        body: JSON.stringify({ reiniciar, modo }),
       });
       const result = await response.json().catch(() => ({})) as ResultadoCarga;
       if (!response.ok) throw new Error(result.message || "No se pudo actualizar el catalogo.");
       if (announce) {
+        const nombre = modo === "ENRIQUECER" ? "Enriquecimiento" : "Carga base";
         toast.success(result.completada
-          ? "Carga incremental completada."
-          : `Se procesaron ${result.tareasProcesadas ?? 0} ramas y se guardaron ${result.vehiculosGenerados ?? 0} vehiculos. Continua para seguir.`);
+          ? `${nombre} completado.`
+          : `${nombre}: ${result.tareasProcesadas ?? 0} ramas procesadas y ${result.vehiculosGenerados ?? 0} vehiculos guardados.`);
       }
       await loadState();
       return result;
@@ -193,6 +197,10 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
 
   const sync = async () => {
     await runSync(state?.estado === "COMPLETADA");
+  };
+
+  const enrich = async () => {
+    await runSync(false, true, "ENRIQUECER");
   };
 
   const runContinuous = async () => {
@@ -271,9 +279,9 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     <section className="border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300"><Database className="h-5 w-5" /></span><div><h1 className="text-lg font-black text-slate-900 dark:text-white">Catalogo de vehiculos de Mercado Libre</h1><p className="mt-1 text-sm text-slate-500">Argentina - MLA-CARS_AND_VANS.</p></div></div>
-        {canManage && <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void sync()} disabled={syncing || continuous} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />{syncing ? "Cargando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar carga" : "Actualizar catalogo"}</button><button type="button" onClick={() => void runContinuous()} disabled={syncing && !continuous} className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-xs font-black disabled:opacity-50 ${continuous ? "border border-red-500 text-red-600 hover:bg-red-500/10 dark:text-red-300" : "border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"}`}><span title={continuous ? "Detener carga continua" : "Procesar diez lotes consecutivos"}>{continuous ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</span>{continuous ? `Detener (${continuousBatch}/10)` : "Carga continua (10)"}</button></div>}
+        {canManage && <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void sync()} disabled={syncing || continuous} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />{syncing ? "Cargando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar base" : "Cargar base"}</button><button type="button" onClick={() => void runContinuous()} disabled={syncing && !continuous} className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-xs font-black disabled:opacity-50 ${continuous ? "border border-red-500 text-red-600 hover:bg-red-500/10 dark:text-red-300" : "border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"}`}><span title={continuous ? "Detener carga continua" : "Procesar diez lotes base consecutivos"}>{continuous ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</span>{continuous ? `Detener (${continuousBatch}/10)` : "Base continua (10)"}</button><button type="button" onClick={() => void enrich()} disabled={syncing || continuous || !(state?.tareas_enriquecimiento_pendientes || state?.tareas_enriquecimiento_error)} className="inline-flex h-10 items-center gap-2 rounded-md border border-emerald-500 px-4 text-xs font-black text-emerald-700 hover:bg-emerald-500/10 disabled:opacity-50 dark:text-emerald-300"><RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />Enriquecer lote</button></div>}
       </div>
-      <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-200 pt-4 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300"><span>{state?.marcas_objetivo ?? 0} marcas seleccionadas</span><span>Carga completa: 14 columnas</span><span>{(state?.tareas_pendientes ?? 0).toLocaleString("es-AR")} ramas pendientes</span>{continuous && <span className="text-blue-600 dark:text-blue-300">Carga continua: lote {continuousBatch} de 10</span>}{Boolean(state?.tareas_procesando) && <span>{state?.tareas_procesando} en proceso</span>}{Boolean(state?.tareas_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_error} con error</span>}{state?.ultimo_error && <p className="basis-full text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
+      <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-200 pt-4 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300"><span>{state?.marcas_objetivo ?? 0} marcas seleccionadas</span><span>Carga base: marca, modelo, Año, motor y potencia</span><span>{(state?.tareas_pendientes ?? 0).toLocaleString("es-AR")} ramas base pendientes</span><span>{(state?.tareas_enriquecimiento_pendientes ?? 0).toLocaleString("es-AR")} ramas para enriquecer</span>{continuous && <span className="text-blue-600 dark:text-blue-300">Carga base continua: lote {continuousBatch} de 10</span>}{Boolean(state?.tareas_procesando) && <span>{state?.tareas_procesando} base en proceso</span>}{Boolean(state?.tareas_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_error} base con error</span>}{Boolean(state?.tareas_enriquecimiento_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_enriquecimiento_error} de enriquecimiento con error</span>}{state?.ultimo_error && <p className="basis-full text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
     </section>
 
     <MlaCompatibilityLookup />
