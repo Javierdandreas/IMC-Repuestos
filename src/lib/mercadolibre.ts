@@ -753,6 +753,17 @@ export async function consultarCompatibilidadesPublicacionMercadoLibre(itemId: s
   };
 }
 
+export async function consultarProductoCatalogoMercadoLibre(catalogProductId: string) {
+  const normalizedCatalogProductId = catalogProductId.trim().toUpperCase();
+  if (!/^MLA\d+$/.test(normalizedCatalogProductId)) throw new AppError("El identificador de vehiculo de Mercado Libre no es valido.", 422);
+
+  const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
+  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const payload = await meliGet(`/products/${encodeURIComponent(normalizedCatalogProductId)}`, idCuenta, accessToken);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new AppError("Mercado Libre devolvio una ficha de vehiculo invalida.", 502);
+  return payload as Record<string, unknown>;
+}
+
 async function consultarTopValuesVehiculos(idCuenta: number, token: string, attributeId: AtributoVehiculoId, known: ValorVehiculo[]) {
   try {
     const payload = await meliPost(

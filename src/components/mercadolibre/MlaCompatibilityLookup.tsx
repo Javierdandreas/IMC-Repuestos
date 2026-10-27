@@ -26,6 +26,8 @@ export function MlaCompatibilityLookup() {
   const [data, setData] = useState<CompatibilityResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [vehicleDetails, setVehicleDetails] = useState<Record<string, Record<string, unknown>>>({});
+  const [loadingVehicle, setLoadingVehicle] = useState<string | null>(null);
 
   const load = async (requestedPage: number) => {
     const normalized = itemId.trim().toUpperCase();
@@ -54,6 +56,21 @@ export function MlaCompatibilityLookup() {
     void load(1);
   };
 
+  const loadVehicle = async (catalogProductId: string) => {
+    if (vehicleDetails[catalogProductId] || loadingVehicle) return;
+    try {
+      setLoadingVehicle(catalogProductId);
+      const response = await fetch(`/api/compatibilidades/vehiculo?${new URLSearchParams({ catalogProductId }).toString()}`, { cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo consultar la ficha del vehiculo.");
+      setVehicleDetails((current) => ({ ...current, [catalogProductId]: result }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo consultar la ficha del vehiculo.");
+    } finally {
+      setLoadingVehicle(null);
+    }
+  };
+
   const totalPages = data?.paging.total == null ? 1 : Math.max(1, Math.ceil(data.paging.total / data.paging.limit));
 
   return <section className="overflow-hidden border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -71,9 +88,13 @@ export function MlaCompatibilityLookup() {
         {data.products.map((product, index) => {
           const attributes = Array.isArray(product.attributes) ? product.attributes : [];
           const fields = Object.entries(product).filter(([key]) => key !== "attributes");
+          const catalogProductId = typeof product.catalog_product_id === "string" ? product.catalog_product_id : null;
+          const vehicle = catalogProductId ? vehicleDetails[catalogProductId] : null;
+          const vehicleAttributes = Array.isArray(vehicle?.attributes) ? vehicle.attributes : [];
           return <article key={`${product.id ?? product.catalog_product_id ?? product.catalog_product_name ?? "compatibilidad"}-${index}`} className="px-5 py-4">
             <div className="grid gap-x-5 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">{fields.map(([key, value]) => <div key={key} className="min-w-0"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{label(key)}</p><p className="mt-1 break-words text-xs font-bold text-slate-800 dark:text-slate-100">{valueText(value)}</p></div>)}</div>
             {attributes.length > 0 && <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Atributos del vehiculo</p><div className="mt-2 grid gap-x-5 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">{attributes.map((attribute, attributeIndex) => { const item: Record<string, unknown> = attribute && typeof attribute === "object" && !Array.isArray(attribute) ? attribute as Record<string, unknown> : { value: attribute }; return <div key={`${String(item.id ?? "atributo")}-${attributeIndex}`} className="min-w-0"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{valueText(item.name ?? item.id ?? "Atributo")}</p><p className="mt-1 break-words text-xs font-bold text-slate-800 dark:text-slate-100">{valueText(item.value_name ?? item.value_id ?? item.value)}</p></div>; })}</div></div>}
+            {catalogProductId && <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800"><button type="button" onClick={() => void loadVehicle(catalogProductId)} disabled={loadingVehicle !== null} className="inline-flex h-9 items-center gap-2 rounded-md border border-blue-500 px-3 text-xs font-bold text-blue-600 hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300">{loadingVehicle === catalogProductId && <LoaderCircle className="h-4 w-4 animate-spin" />}{vehicle ? "Ficha del vehiculo cargada" : "Ver ficha del vehiculo"}</button>{vehicle && <div className="mt-3"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Atributos de la ficha del vehiculo</p>{vehicleAttributes.length > 0 ? <div className="mt-2 grid gap-x-5 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">{vehicleAttributes.map((attribute, attributeIndex) => { const item: Record<string, unknown> = attribute && typeof attribute === "object" && !Array.isArray(attribute) ? attribute as Record<string, unknown> : { value: attribute }; return <div key={`${String(item.id ?? "atributo")}-${attributeIndex}`} className="min-w-0"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{valueText(item.name ?? item.id ?? "Atributo")}</p><p className="mt-1 break-words text-xs font-bold text-slate-800 dark:text-slate-100">{valueText(item.value_name ?? item.value_id ?? item.value)}</p></div>; })}</div> : <p className="mt-2 text-xs font-semibold text-slate-500">La ficha no incluyo atributos estructurados.</p>}<details className="mt-3"><summary className="cursor-pointer text-xs font-bold text-blue-600 dark:text-blue-300">Ver ficha completa del vehiculo</summary><pre className="mt-2 max-h-72 overflow-auto border border-slate-200 bg-slate-50 p-3 text-[11px] leading-5 text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">{JSON.stringify(vehicle, null, 2)}</pre></details></div>}</div>}
             <details className="mt-4"><summary className="cursor-pointer text-xs font-bold text-blue-600 dark:text-blue-300">Ver respuesta completa</summary><pre className="mt-2 max-h-72 overflow-auto border border-slate-200 bg-slate-50 p-3 text-[11px] leading-5 text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">{JSON.stringify(product, null, 2)}</pre></details>
           </article>;
         })}
