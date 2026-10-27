@@ -18,7 +18,7 @@ export function resumenCompatibilidad(value?: CompatibilidadResultado) {
   if (!value) return "No se pudo comprobar la copia de compatibilidades.";
   if (value.estado === "COMPARTIDAS") return "La publicacion comparte el producto y sus compatibilidades.";
   if (value.estado === "SIN_ORIGEN") return "La publicacion original no informa compatibilidades.";
-  if (value.estado === "SOLICITADA") return `Copia solicitada. Origen: ${value.origen ?? "sin dato"}; destino consultado: ${value.destino ?? "sin dato"}.`;
+  if (value.estado === "SOLICITADA") return "COMPATIBILIDADES: COPIADAS";
   if (value.estado === "SOLICITADA_SIN_VERIFICAR") return "Copia solicitada, pero no se pudo verificar el destino.";
   return `No se pudieron copiar o verificar las compatibilidades.${value.status ? ` HTTP ${value.status}.` : ""}${value.detalle ? ` ${value.detalle}` : ""}`;
 }
