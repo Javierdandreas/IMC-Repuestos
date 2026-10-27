@@ -888,18 +888,31 @@ export async function detallarVehiculosMercadoLibre(filters: ValorVehiculo[]) {
 type TareaCargaVehiculo = {
   id: number;
   atributos: unknown;
-  siguiente_atributo_id: "MODEL" | "VEHICLE_YEAR" | "ENGINE" | "POWER" | "SAVE";
+  siguiente_atributo_id: AtributoVehiculoId | "SAVE";
   prioridad: number;
 };
 
 const LIMITE_RUTAS_POR_CARGA = 50;
 const LIMITE_VEHICULOS_POR_CARGA = 65;
+const SECUENCIA_CARGA_VEHICULOS: AtributoVehiculoId[] = [
+  "MODEL",
+  "VEHICLE_YEAR",
+  "ENGINE",
+  "POWER",
+  "SHORT_VERSION",
+  "FUEL_TYPE",
+  "VEHICLE_BODY_TYPE",
+  "TRANSMISSION_CONTROL_TYPE",
+  "GEAR_NUMBER",
+  "DOORS",
+  "STEERING",
+  "TRACTION_CONTROL",
+  "VALVES_PER_CYLINDER",
+];
 
-function proximoAtributoCarga(attributeId: TareaCargaVehiculo["siguiente_atributo_id"]) {
-  if (attributeId === "MODEL") return "VEHICLE_YEAR" as const;
-  if (attributeId === "VEHICLE_YEAR") return "ENGINE" as const;
-  if (attributeId === "ENGINE") return "POWER" as const;
-  return "SAVE" as const;
+function proximoAtributoCarga(attributeId: TareaCargaVehiculo["siguiente_atributo_id"]): TareaCargaVehiculo["siguiente_atributo_id"] {
+  const index = SECUENCIA_CARGA_VEHICULOS.indexOf(attributeId as AtributoVehiculoId);
+  return index < 0 ? "SAVE" : SECUENCIA_CARGA_VEHICULOS[index + 1] ?? "SAVE";
 }
 
 async function encolarCargaVehiculos(entries: Array<{
@@ -1085,15 +1098,32 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
 
         const currentAttribute = task.siguiente_atributo_id;
         if (!available.has(currentAttribute)) {
-          if (currentAttribute === "POWER") {
-            await encolarCargaVehiculos([{ atributos: attributes, siguienteAtributo: "SAVE", prioridad: task.prioridad + 1 }]);
-          }
+          await encolarCargaVehiculos([{
+            atributos: attributes,
+            siguienteAtributo: proximoAtributoCarga(currentAttribute),
+            prioridad: task.prioridad + 1,
+          }]);
           tareasProcesadas += 1;
           await finalizarTareaCargaVehiculo(task.id);
           continue;
         }
 
-        const values = await consultarTopValuesVehiculos(idCuenta, accessToken, currentAttribute, attributes);
+        let values: Array<{ id: string; name: string }>;
+        try {
+          values = await consultarTopValuesVehiculos(idCuenta, accessToken, currentAttribute, attributes);
+        } catch (error) {
+          if (!atributoNoPerteneceAlDominio(error)) throw error;
+          available.delete(currentAttribute);
+          await guardarEstadoAtributosVehiculo(available);
+          await encolarCargaVehiculos([{
+            atributos: attributes,
+            siguienteAtributo: proximoAtributoCarga(currentAttribute),
+            prioridad: task.prioridad + 1,
+          }]);
+          tareasProcesadas += 1;
+          await finalizarTareaCargaVehiculo(task.id);
+          continue;
+        }
         rutasConsultadas += 1;
         const nextAttribute = proximoAtributoCarga(currentAttribute);
         const children = values.map((value) => ({
@@ -1101,8 +1131,8 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
           siguienteAtributo: nextAttribute,
           prioridad: task.prioridad + 1,
         }));
-        if (currentAttribute === "POWER" && !children.length) {
-          children.push({ atributos: attributes, siguienteAtributo: "SAVE", prioridad: task.prioridad + 1 });
+        if (!children.length) {
+          children.push({ atributos: attributes, siguienteAtributo: nextAttribute, prioridad: task.prioridad + 1 });
         }
         await encolarCargaVehiculos(children);
         tareasProcesadas += 1;

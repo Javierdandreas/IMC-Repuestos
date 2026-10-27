@@ -74,6 +74,11 @@ function atributoVehiculo(attributes: ValorVehiculo[], id: AtributoVehiculoId) {
   return attributes.find((attribute) => attribute.id === id) ?? null;
 }
 
+function valorVehiculo(attributes: ValorVehiculo[], id: AtributoVehiculoId) {
+  const attribute = atributoVehiculo(attributes, id);
+  return [attribute?.valueId ?? null, attribute?.valueName ?? null] as const;
+}
+
 export function esVehiculoCanonico(attributes: ValorVehiculo[]) {
   const normalized = normalizarAtributosVehiculo(attributes);
   return ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE"].every((id) =>
@@ -102,18 +107,33 @@ export async function guardarVehiculosCanonicos(
     const model = atributoVehiculo(attributes, "MODEL")!;
     const year = atributoVehiculo(attributes, "VEHICLE_YEAR")!;
     const engine = atributoVehiculo(attributes, "ENGINE")!;
-    const power = atributoVehiculo(attributes, "POWER");
+    const [powerId, powerName] = valorVehiculo(attributes, "POWER");
+    const [versionId, versionName] = valorVehiculo(attributes, "SHORT_VERSION");
+    const [fuelId, fuelName] = valorVehiculo(attributes, "FUEL_TYPE");
+    const [bodyTypeId, bodyTypeName] = valorVehiculo(attributes, "VEHICLE_BODY_TYPE");
+    const [transmissionId, transmissionName] = valorVehiculo(attributes, "TRANSMISSION_CONTROL_TYPE");
+    const [gearNumberId, gearNumberName] = valorVehiculo(attributes, "GEAR_NUMBER");
+    const [doorsId, doorsName] = valorVehiculo(attributes, "DOORS");
+    const [steeringId, steeringName] = valorVehiculo(attributes, "STEERING");
+    const [tractionId, tractionName] = valorVehiculo(attributes, "TRACTION_CONTROL");
+    const [valvesId, valvesName] = valorVehiculo(attributes, "VALVES_PER_CYLINDER");
     const result = await client.query<VehiculoCanonico>(`
       INSERT INTO public.mercadolibre_catalogo_vehiculo (
         dominio_id, firma, atributos,
         marca_id, modelo_id, anio_id, motor_id, potencia_id,
         marca_nombre, modelo_nombre, anio_nombre, motor_nombre, potencia_nombre,
+        version_id, combustible_id, carroceria_id, transmision_id, marchas_id,
+        puertas_id, direccion_id, traccion_id, valvulas_por_cilindro_id,
+        version_nombre, combustible_nombre, carroceria_nombre, transmision_nombre, marchas_nombre,
+        puertas_nombre, direccion_nombre, traccion_nombre, valvulas_por_cilindro_nombre,
         origen, activa, sincronizado_at
       ) VALUES (
         $1, $2, $3::jsonb,
         $4, $5, $6, $7, $8,
         $9, $10, $11, $12, $13,
-        $14, TRUE, NOW()
+        $14, $15, $16, $17, $18, $19, $20, $21, $22,
+        $23, $24, $25, $26, $27, $28, $29, $30, $31,
+        $32, TRUE, NOW()
       )
       ON CONFLICT (dominio_id, firma) DO UPDATE
       SET atributos = EXCLUDED.atributos,
@@ -122,13 +142,33 @@ export async function guardarVehiculosCanonicos(
           anio_nombre = EXCLUDED.anio_nombre,
           motor_nombre = EXCLUDED.motor_nombre,
           potencia_nombre = EXCLUDED.potencia_nombre,
+          version_id = EXCLUDED.version_id,
+          combustible_id = EXCLUDED.combustible_id,
+          carroceria_id = EXCLUDED.carroceria_id,
+          transmision_id = EXCLUDED.transmision_id,
+          marchas_id = EXCLUDED.marchas_id,
+          puertas_id = EXCLUDED.puertas_id,
+          direccion_id = EXCLUDED.direccion_id,
+          traccion_id = EXCLUDED.traccion_id,
+          valvulas_por_cilindro_id = EXCLUDED.valvulas_por_cilindro_id,
+          version_nombre = EXCLUDED.version_nombre,
+          combustible_nombre = EXCLUDED.combustible_nombre,
+          carroceria_nombre = EXCLUDED.carroceria_nombre,
+          transmision_nombre = EXCLUDED.transmision_nombre,
+          marchas_nombre = EXCLUDED.marchas_nombre,
+          puertas_nombre = EXCLUDED.puertas_nombre,
+          direccion_nombre = EXCLUDED.direccion_nombre,
+          traccion_nombre = EXCLUDED.traccion_nombre,
+          valvulas_por_cilindro_nombre = EXCLUDED.valvulas_por_cilindro_nombre,
           activa = TRUE,
           sincronizado_at = NOW()
       RETURNING id, firma
     `, [
       DOMINIO_VEHICULOS_ML, firma, JSON.stringify(attributes),
-      brand.valueId, model.valueId, year.valueId, engine.valueId, power?.valueId ?? null,
-      brand.valueName, model.valueName, year.valueName, engine.valueName, power?.valueName ?? null,
+      brand.valueId, model.valueId, year.valueId, engine.valueId, powerId,
+      brand.valueName, model.valueName, year.valueName, engine.valueName, powerName,
+      versionId, fuelId, bodyTypeId, transmissionId, gearNumberId, doorsId, steeringId, tractionId, valvesId,
+      versionName, fuelName, bodyTypeName, transmissionName, gearNumberName, doorsName, steeringName, tractionName, valvesName,
       origin,
     ]);
     const vehicle = result.rows[0];

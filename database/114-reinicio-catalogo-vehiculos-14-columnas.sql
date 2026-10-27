@@ -1,0 +1,126 @@
+BEGIN;
+
+-- El catalogo anterior se genero solo hasta potencia. Se reinicia la cache y
+-- la cola para reconstruir filas completas a partir de las marcas elegidas.
+ALTER TABLE public.mercadolibre_catalogo_vehiculo
+  ADD COLUMN IF NOT EXISTS version_id text,
+  ADD COLUMN IF NOT EXISTS combustible_id text,
+  ADD COLUMN IF NOT EXISTS carroceria_id text,
+  ADD COLUMN IF NOT EXISTS transmision_id text,
+  ADD COLUMN IF NOT EXISTS marchas_id text,
+  ADD COLUMN IF NOT EXISTS puertas_id text,
+  ADD COLUMN IF NOT EXISTS direccion_id text,
+  ADD COLUMN IF NOT EXISTS traccion_id text,
+  ADD COLUMN IF NOT EXISTS valvulas_por_cilindro_id text,
+  ADD COLUMN IF NOT EXISTS version_nombre text,
+  ADD COLUMN IF NOT EXISTS combustible_nombre text,
+  ADD COLUMN IF NOT EXISTS carroceria_nombre text,
+  ADD COLUMN IF NOT EXISTS transmision_nombre text,
+  ADD COLUMN IF NOT EXISTS marchas_nombre text,
+  ADD COLUMN IF NOT EXISTS puertas_nombre text,
+  ADD COLUMN IF NOT EXISTS direccion_nombre text,
+  ADD COLUMN IF NOT EXISTS traccion_nombre text,
+  ADD COLUMN IF NOT EXISTS valvulas_por_cilindro_nombre text,
+  ADD COLUMN IF NOT EXISTS catalog_product_id text,
+  ADD COLUMN IF NOT EXISTS ficha_mercadolibre jsonb,
+  ADD COLUMN IF NOT EXISTS estado text NOT NULL DEFAULT 'IMPORTADO_POR_ATRIBUTOS';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ml_catalogo_vehiculo_catalog_product
+  ON public.mercadolibre_catalogo_vehiculo (catalog_product_id)
+  WHERE catalog_product_id IS NOT NULL;
+
+ALTER TABLE public.mercadolibre_catalogo_vehiculo_cola
+  DROP CONSTRAINT IF EXISTS mercadolibre_catalogo_vehiculo_cola_siguiente_atributo_id_check;
+
+ALTER TABLE public.mercadolibre_catalogo_vehiculo_cola
+  ADD CONSTRAINT mercadolibre_catalogo_vehiculo_cola_siguiente_atributo_id_check
+  CHECK (siguiente_atributo_id IN (
+    'MODEL', 'VEHICLE_YEAR', 'ENGINE', 'POWER', 'SHORT_VERSION', 'FUEL_TYPE',
+    'VEHICLE_BODY_TYPE', 'TRANSMISSION_CONTROL_TYPE', 'GEAR_NUMBER', 'DOORS',
+    'STEERING', 'TRACTION_CONTROL', 'VALVES_PER_CYLINDER', 'SAVE'
+  ));
+
+DELETE FROM public.mercadolibre_catalogo_vehiculo_cola
+WHERE dominio_id = 'MLA-CARS_AND_VANS';
+
+DELETE FROM public.mercadolibre_catalogo_vehiculo_valor
+WHERE dominio_id = 'MLA-CARS_AND_VANS';
+
+DELETE FROM public.mercadolibre_catalogo_vehiculo_atributo
+WHERE dominio_id = 'MLA-CARS_AND_VANS';
+
+-- Las compatibilidades de piezas se conservan; su id_vehiculo pasa a NULL por
+-- la FK hasta que el nuevo catalogo complete la misma firma.
+DELETE FROM public.mercadolibre_catalogo_vehiculo
+WHERE dominio_id = 'MLA-CARS_AND_VANS';
+
+DELETE FROM public.mercadolibre_catalogo_vehiculo_marca_objetivo
+WHERE dominio_id = 'MLA-CARS_AND_VANS';
+
+INSERT INTO public.mercadolibre_catalogo_vehiculo_marca_objetivo (dominio_id, marca_nombre)
+VALUES
+  ('MLA-CARS_AND_VANS', 'Alfa Romeo'),
+  ('MLA-CARS_AND_VANS', 'Aston Martin'),
+  ('MLA-CARS_AND_VANS', 'Audi'),
+  ('MLA-CARS_AND_VANS', 'BAIC'),
+  ('MLA-CARS_AND_VANS', 'BMW'),
+  ('MLA-CARS_AND_VANS', 'BYD'),
+  ('MLA-CARS_AND_VANS', 'Chery'),
+  ('MLA-CARS_AND_VANS', 'Chevrolet'),
+  ('MLA-CARS_AND_VANS', 'Chrysler'),
+  ('MLA-CARS_AND_VANS', U&'Citro\00EBn'),
+  ('MLA-CARS_AND_VANS', 'D.S.'),
+  ('MLA-CARS_AND_VANS', U&'D\00B7S'),
+  ('MLA-CARS_AND_VANS', 'Dacia'),
+  ('MLA-CARS_AND_VANS', 'Daewoo'),
+  ('MLA-CARS_AND_VANS', 'Daihatsu'),
+  ('MLA-CARS_AND_VANS', 'Dodge'),
+  ('MLA-CARS_AND_VANS', 'Fiat'),
+  ('MLA-CARS_AND_VANS', 'Ford'),
+  ('MLA-CARS_AND_VANS', 'Foton'),
+  ('MLA-CARS_AND_VANS', 'GWM'),
+  ('MLA-CARS_AND_VANS', 'Honda'),
+  ('MLA-CARS_AND_VANS', 'Hyundai'),
+  ('MLA-CARS_AND_VANS', 'Isuzu'),
+  ('MLA-CARS_AND_VANS', 'Iveco'),
+  ('MLA-CARS_AND_VANS', 'Jaguar'),
+  ('MLA-CARS_AND_VANS', 'Jeep'),
+  ('MLA-CARS_AND_VANS', 'Kia'),
+  ('MLA-CARS_AND_VANS', 'Lancia'),
+  ('MLA-CARS_AND_VANS', 'Land'),
+  ('MLA-CARS_AND_VANS', 'Land Rover'),
+  ('MLA-CARS_AND_VANS', 'Mercedes-Benz'),
+  ('MLA-CARS_AND_VANS', 'MINI'),
+  ('MLA-CARS_AND_VANS', 'Mitsubishi'),
+  ('MLA-CARS_AND_VANS', 'Nissan'),
+  ('MLA-CARS_AND_VANS', 'Opel'),
+  ('MLA-CARS_AND_VANS', 'Peugeot'),
+  ('MLA-CARS_AND_VANS', 'Porsche'),
+  ('MLA-CARS_AND_VANS', 'Proton'),
+  ('MLA-CARS_AND_VANS', 'RAM'),
+  ('MLA-CARS_AND_VANS', 'Renault'),
+  ('MLA-CARS_AND_VANS', 'Rolls-Royce'),
+  ('MLA-CARS_AND_VANS', 'Rover'),
+  ('MLA-CARS_AND_VANS', 'Santana'),
+  ('MLA-CARS_AND_VANS', 'Seat'),
+  ('MLA-CARS_AND_VANS', 'Skoda'),
+  ('MLA-CARS_AND_VANS', 'Smart'),
+  ('MLA-CARS_AND_VANS', 'Subaru'),
+  ('MLA-CARS_AND_VANS', 'Suzuki'),
+  ('MLA-CARS_AND_VANS', 'Toyota'),
+  ('MLA-CARS_AND_VANS', 'Volkswagen'),
+  ('MLA-CARS_AND_VANS', 'Volvo');
+
+INSERT INTO public.mercadolibre_catalogo_vehiculo_sincronizacion
+  (dominio_id, estado, siguiente_marca, total_marcas, ultimo_error, iniciada_at, finalizada_at, updated_at)
+VALUES ('MLA-CARS_AND_VANS', 'PENDIENTE', 0, 51, NULL, NULL, NULL, NOW())
+ON CONFLICT (dominio_id) DO UPDATE
+SET estado = 'PENDIENTE',
+    siguiente_marca = 0,
+    total_marcas = 51,
+    ultimo_error = NULL,
+    iniciada_at = NULL,
+    finalizada_at = NULL,
+    updated_at = NOW();
+
+COMMIT;
