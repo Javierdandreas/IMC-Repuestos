@@ -93,7 +93,7 @@ type MeliItem = {
 
 function requiredEnv(name: string) {
   const value = process.env[name]?.trim();
-  if (!value) throw new AppError(`Falta configurar ${name} en Vercel.`, 503);
+  if (!value) throw new AppError(`Falta configurar ${name} en las variables de entorno.`, 503);
   return value;
 }
 
