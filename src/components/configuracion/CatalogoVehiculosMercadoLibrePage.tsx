@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
-import { ChevronDown, ChevronLeft, ChevronRight, Database, FileUp, LoaderCircle, Plus, RefreshCw, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Database, FileUp, LoaderCircle, Pause, Play, Plus, RefreshCw, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { ATRIBUTOS_VEHICULO_ML, type AtributoVehiculoId, type ValorVehiculo } from "@/lib/catalogo-vehiculos-atributos";
 
@@ -27,6 +27,11 @@ type Exploracion = {
   page: number;
   totalPages: number;
   totalCount: number;
+};
+type ResultadoCarga = {
+  completada?: boolean;
+  tareasProcesadas?: number;
+  vehiculosGenerados?: number;
 };
 
 const principales: AttributeId[] = ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE", "POWER"];
@@ -83,7 +88,10 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
   const [loadingResults, setLoadingResults] = useState(false);
   const [page, setPage] = useState(1);
   const [importing, setImporting] = useState(false);
+  const [continuous, setContinuous] = useState(false);
+  const [continuousBatch, setContinuousBatch] = useState(0);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const stopContinuousRef = useRef(false);
 
   const loadState = useCallback(async () => {
     try {
@@ -183,26 +191,68 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     setPage(1);
   };
 
-  const sync = async () => {
+  const runSync = async (reiniciar: boolean, announce = true): Promise<ResultadoCarga | null> => {
     try {
       setSyncing(true);
       const response = await fetch("/api/compatibilidades", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reiniciar: state?.estado === "COMPLETADA" }),
+        body: JSON.stringify({ reiniciar }),
       });
-      const result = await response.json().catch(() => ({}));
+      const result = await response.json().catch(() => ({})) as ResultadoCarga & { message?: string };
       if (!response.ok) throw new Error(result.message || "No se pudo actualizar el catalogo.");
-      toast.success(result.completada
-        ? "Carga incremental completada."
-        : `Se procesaron ${result.tareasProcesadas ?? 0} ramas y se guardaron ${result.vehiculosGenerados ?? 0} vehiculos. Continua para seguir.`);
+      if (announce) {
+        toast.success(result.completada
+          ? "Carga incremental completada."
+          : `Se procesaron ${result.tareasProcesadas ?? 0} ramas y se guardaron ${result.vehiculosGenerados ?? 0} vehiculos. Continua para seguir.`);
+      }
       await loadState();
+      return result;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo actualizar el catalogo.");
+      return null;
     } finally {
       setSyncing(false);
     }
   };
+
+  const sync = async () => {
+    await runSync(state?.estado === "COMPLETADA");
+  };
+
+  const runContinuous = async () => {
+    if (continuous) {
+      stopContinuousRef.current = true;
+      return;
+    }
+    stopContinuousRef.current = false;
+    setContinuous(true);
+    setContinuousBatch(0);
+    let completed = false;
+    let batchesCompleted = 0;
+    try {
+      for (let batch = 1; batch <= 10 && !stopContinuousRef.current; batch += 1) {
+        setContinuousBatch(batch);
+        const result = await runSync(batch === 1 && state?.estado === "COMPLETADA", false);
+        if (!result) break;
+        batchesCompleted = batch;
+        if (result.completada) {
+          completed = true;
+          break;
+        }
+        if (!stopContinuousRef.current) await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      if (completed) toast.success("Carga incremental completada.");
+      else if (stopContinuousRef.current) toast.message(`Carga continua detenida despues de ${batchesCompleted} lotes.`);
+      else if (batchesCompleted) toast.success(`Carga continua: ${batchesCompleted} lotes completados.`);
+    } finally {
+      stopContinuousRef.current = false;
+      setContinuous(false);
+      setContinuousBatch(0);
+    }
+  };
+
+  useEffect(() => () => { stopContinuousRef.current = true; }, []);
 
   const importBatch = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -291,9 +341,9 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     <section className="border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300"><Database className="h-5 w-5" /></span><div><h1 className="text-lg font-black text-slate-900 dark:text-white">Catalogo de vehiculos de Mercado Libre</h1><p className="mt-1 text-sm text-slate-500">Argentina - MLA-CARS_AND_VANS.</p></div></div>
-        {canManage && <div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importBatch(event)} /><button type="button" onClick={() => importInputRef.current?.click()} disabled={importing} className="inline-flex h-10 items-center gap-2 rounded-md border border-blue-500 px-4 text-xs font-black text-blue-600 hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300"><FileUp className={"h-4 w-4 " + (importing ? "animate-pulse" : "")} />{importing ? "Importando..." : "Importar lote"}</button><button type="button" onClick={() => void sync()} disabled={syncing} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={"h-4 w-4 " + (syncing ? "animate-spin" : "")} />{syncing ? "Cargando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar carga" : "Actualizar catalogo"}</button></div>}
+        {canManage && <div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importBatch(event)} /><button type="button" onClick={() => importInputRef.current?.click()} disabled={importing || continuous} className="inline-flex h-10 items-center gap-2 rounded-md border border-blue-500 px-4 text-xs font-black text-blue-600 hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300"><FileUp className={"h-4 w-4 " + (importing ? "animate-pulse" : "")} />{importing ? "Importando..." : "Importar lote"}</button><button type="button" onClick={() => void sync()} disabled={syncing || continuous} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={"h-4 w-4 " + (syncing ? "animate-spin" : "")} />{syncing ? "Cargando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar carga" : "Actualizar catalogo"}</button><button type="button" onClick={() => void runContinuous()} disabled={syncing && !continuous} className={"inline-flex h-10 items-center gap-2 rounded-md px-4 text-xs font-black disabled:opacity-50 " + (continuous ? "border border-red-500 text-red-600 hover:bg-red-500/10 dark:text-red-300" : "border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800")}><span title={continuous ? "Detener carga continua" : "Procesar diez lotes consecutivos"}>{continuous ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</span>{continuous ? `Detener (${continuousBatch}/10)` : "Carga continua (10)"}</button></div>}
       </div>
-      <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-200 pt-4 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300"><span>{state?.total_marcas ?? 0} marcas detectadas</span><span>{(state?.tareas_pendientes ?? 0).toLocaleString("es-AR")} ramas pendientes</span>{Boolean(state?.tareas_procesando) && <span>{state?.tareas_procesando} en proceso</span>}{Boolean(state?.tareas_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_error} con error</span>}{state?.ultimo_error && <p className="basis-full text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
+      <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-200 pt-4 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300"><span>{state?.total_marcas ?? 0} marcas detectadas</span><span>{(state?.tareas_pendientes ?? 0).toLocaleString("es-AR")} ramas pendientes</span>{continuous && <span className="text-blue-600 dark:text-blue-300">Carga continua: lote {continuousBatch} de 10</span>}{Boolean(state?.tareas_procesando) && <span>{state?.tareas_procesando} en proceso</span>}{Boolean(state?.tareas_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_error} con error</span>}{state?.ultimo_error && <p className="basis-full text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
     </section>
 
     <section className="relative overflow-visible rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
