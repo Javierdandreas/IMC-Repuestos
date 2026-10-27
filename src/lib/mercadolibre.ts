@@ -726,17 +726,25 @@ async function cuentaConectadaParaCatalogoVehiculos() {
 }
 
 async function consultarTopValuesVehiculos(idCuenta: number, token: string, attributeId: AtributoVehiculoId, known: ValorVehiculo[]) {
-  const payload = await meliPost(
-    `/catalog_domains/${DOMINIO_VEHICULOS_ML}/attributes/${attributeId}/top_values?limit=1000`,
-    idCuenta,
-    token,
-    { known_attributes: known.map((attribute) => ({ id: attribute.id, value_id: attribute.valueId })) },
-  );
-  const values = valuesFromTopValues(payload);
-  await guardarValoresCatalogoVehiculos(attributeId, known, values);
-  return values
-    .map((value) => ({ id: String(value.id ?? "").trim(), name: String(value.name ?? "").trim() }))
-    .filter((value) => value.id && value.name);
+  try {
+    const payload = await meliPost(
+      `/catalog_domains/${DOMINIO_VEHICULOS_ML}/attributes/${attributeId}/top_values?limit=1000`,
+      idCuenta,
+      token,
+      { known_attributes: known.map((attribute) => ({ id: attribute.id, value_id: attribute.valueId })) },
+    );
+    const values = valuesFromTopValues(payload);
+    await guardarValoresCatalogoVehiculos(attributeId, known, values);
+    return values
+      .map((value) => ({ id: String(value.id ?? "").trim(), name: String(value.name ?? "").trim() }))
+      .filter((value) => value.id && value.name);
+  } catch (error) {
+    // ML responde intermitentemente 500 en top_values. Los contextos que ya
+    // fueron obtenidos siguen siendo validos y permiten continuar la cola.
+    const cached = await obtenerValoresCatalogoVehiculos(attributeId, known);
+    if (cached.length) return cached;
+    throw error;
+  }
 }
 
 function atributosDesdeDominio(payload: unknown) {
@@ -1441,14 +1449,25 @@ async function meliPost(path: string, idCuenta: number, token: string, body: Rec
     body: JSON.stringify(body),
     cache: "no-store",
   });
-  let response = await request(token);
+  let accessToken = token;
+  let response = await request(accessToken);
   if (response.status === 401) {
     const renewed = await accessTokenForCuenta(idCuenta, true);
-    response = await request(renewed.accessToken);
+    accessToken = renewed.accessToken;
+    response = await request(accessToken);
   }
-  if (!response.ok && path.includes("/top_values") && [500, 502, 503, 504].includes(response.status)) {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    response = await request(token);
+  if (path.includes("/top_values")) {
+    const retryDelays = [1_000, 2_500, 5_000];
+    for (const delay of retryDelays) {
+      if (response.ok || ![500, 502, 503, 504].includes(response.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      response = await request(accessToken);
+      if (response.status === 401) {
+        const renewed = await accessTokenForCuenta(idCuenta, true);
+        accessToken = renewed.accessToken;
+        response = await request(accessToken);
+      }
+    }
   }
   if (!response.ok) {
     const details = await response.json().catch(() => null) as { message?: unknown } | null;
