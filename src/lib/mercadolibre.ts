@@ -11,7 +11,9 @@ import {
   ATRIBUTOS_VEHICULO_ML,
   DOMINIO_VEHICULOS_ML,
   esAtributoVehiculo,
+  firmaCompatibilidadVehiculo,
   guardarEstadoAtributosVehiculo,
+  guardarVehiculosCanonicos,
   guardarValoresCatalogoVehiculos,
   normalizarAtributosVehiculo,
   obtenerValoresCatalogoVehiculos,
@@ -836,65 +838,204 @@ export async function detallarVehiculosMercadoLibre(filters: ValorVehiculo[]) {
   return rows;
 }
 
+type TareaCargaVehiculo = {
+  id: number;
+  atributos: unknown;
+  siguiente_atributo_id: "MODEL" | "VEHICLE_YEAR" | "ENGINE" | "POWER" | "SAVE";
+  prioridad: number;
+};
+
+const LIMITE_RUTAS_POR_CARGA = 50;
+const LIMITE_VEHICULOS_POR_CARGA = 65;
+
+function proximoAtributoCarga(attributeId: TareaCargaVehiculo["siguiente_atributo_id"]) {
+  if (attributeId === "MODEL") return "VEHICLE_YEAR" as const;
+  if (attributeId === "VEHICLE_YEAR") return "ENGINE" as const;
+  if (attributeId === "ENGINE") return "POWER" as const;
+  return "SAVE" as const;
+}
+
+async function encolarCargaVehiculos(entries: Array<{
+  atributos: ValorVehiculo[];
+  siguienteAtributo: TareaCargaVehiculo["siguiente_atributo_id"];
+  prioridad: number;
+}>) {
+  const normalized = entries
+    .map((entry) => ({
+      atributos: normalizarAtributosVehiculo(entry.atributos),
+      siguienteAtributo: entry.siguienteAtributo,
+      prioridad: entry.prioridad,
+    }))
+    .filter((entry) => entry.atributos.length)
+    .map((entry) => ({ ...entry, firma: firmaCompatibilidadVehiculo(entry.atributos) }));
+  if (!normalized.length) return;
+
+  await query(`
+    INSERT INTO public.mercadolibre_catalogo_vehiculo_cola AS cola
+      (dominio_id, atributos, firma, siguiente_atributo_id, prioridad, estado, updated_at)
+    SELECT $1, value->'atributos', value->>'firma', value->>'siguienteAtributo',
+           (value->>'prioridad')::smallint, 'PENDIENTE', NOW()
+    FROM jsonb_array_elements($2::jsonb) AS value
+    ON CONFLICT (dominio_id, firma, siguiente_atributo_id) DO UPDATE
+    SET estado = CASE
+          WHEN cola.estado = 'ERROR' THEN 'PENDIENTE'
+          ELSE cola.estado
+        END,
+        ultimo_error = CASE
+          WHEN cola.estado = 'ERROR' THEN NULL
+          ELSE cola.ultimo_error
+        END,
+        updated_at = NOW()
+  `, [DOMINIO_VEHICULOS_ML, JSON.stringify(normalized)]);
+}
+
+async function tomarTareaCargaVehiculo() {
+  return withTransaction(async (db) => {
+    const result = await db.query<TareaCargaVehiculo>(`
+      WITH siguiente AS (
+        SELECT id
+        FROM public.mercadolibre_catalogo_vehiculo_cola
+        WHERE dominio_id = $1 AND estado = 'PENDIENTE'
+        ORDER BY prioridad DESC, id DESC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE public.mercadolibre_catalogo_vehiculo_cola cola
+      SET estado = 'PROCESANDO', intentos = intentos + 1, updated_at = NOW()
+      FROM siguiente
+      WHERE cola.id = siguiente.id
+      RETURNING cola.id, cola.atributos, cola.siguiente_atributo_id, cola.prioridad
+    `, [DOMINIO_VEHICULOS_ML]);
+    return result.rows[0] ?? null;
+  });
+}
+
+async function finalizarTareaCargaVehiculo(id: number, error?: unknown) {
+  const message = error instanceof Error ? error.message.slice(0, 1_000) : null;
+  await query(`
+    UPDATE public.mercadolibre_catalogo_vehiculo_cola
+    SET estado = $2, ultimo_error = $3, updated_at = NOW()
+    WHERE id = $1
+  `, [id, message ? "ERROR" : "COMPLETADA", message]);
+}
+
+async function estadoCargaVehiculos(totalMarcas: number, ultimoError: string | null = null) {
+  const queue = await query<{ pendientes: string; procesando: string; errores: string }>(`
+    SELECT
+      COUNT(*) FILTER (WHERE estado = 'PENDIENTE')::text AS pendientes,
+      COUNT(*) FILTER (WHERE estado = 'PROCESANDO')::text AS procesando,
+      COUNT(*) FILTER (WHERE estado = 'ERROR')::text AS errores
+    FROM public.mercadolibre_catalogo_vehiculo_cola
+    WHERE dominio_id = $1
+  `, [DOMINIO_VEHICULOS_ML]);
+  const current = queue.rows[0] ?? { pendientes: "0", procesando: "0", errores: "0" };
+  const pendientes = Number(current.pendientes);
+  const procesando = Number(current.procesando);
+  const errores = Number(current.errores);
+  const estado = pendientes || procesando ? "EN_PROCESO" : errores ? "ERROR" : "COMPLETADA";
+  await query(`
+    INSERT INTO public.mercadolibre_catalogo_vehiculo_sincronizacion
+      (dominio_id, estado, siguiente_marca, total_marcas, ultimo_error, iniciada_at, finalizada_at, updated_at)
+    VALUES ($1, $2, $3, $3, $4, NOW(), CASE WHEN $2 = 'COMPLETADA' THEN NOW() ELSE NULL END, NOW())
+    ON CONFLICT (dominio_id) DO UPDATE
+    SET estado = EXCLUDED.estado,
+        siguiente_marca = EXCLUDED.siguiente_marca,
+        total_marcas = EXCLUDED.total_marcas,
+        ultimo_error = EXCLUDED.ultimo_error,
+        iniciada_at = CASE WHEN EXCLUDED.estado = 'EN_PROCESO' THEN COALESCE(mercadolibre_catalogo_vehiculo_sincronizacion.iniciada_at, NOW()) ELSE mercadolibre_catalogo_vehiculo_sincronizacion.iniciada_at END,
+        finalizada_at = CASE WHEN EXCLUDED.estado = 'COMPLETADA' THEN NOW() ELSE NULL END,
+        updated_at = NOW()
+  `, [DOMINIO_VEHICULOS_ML, estado, totalMarcas, ultimoError]);
+  return { pendientes, procesando, errores, completada: estado === "COMPLETADA" };
+}
+
 export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false) {
   const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
   const { accessToken } = await accessTokenForCuenta(idCuenta);
   const available = await atributosDisponiblesVehiculos(idCuenta, accessToken);
   await guardarEstadoAtributosVehiculo(available);
-  const previous = await query<{ siguiente_marca: number; estado: string }>(`
-    SELECT siguiente_marca, estado
-    FROM public.mercadolibre_catalogo_vehiculo_sincronizacion
+  if (!available.has("BRAND")) throw new AppError("Mercado Libre no informo el atributo BRAND para el dominio de vehiculos.", 502);
+
+  // Recupera tareas que Vercel pudo interrumpir y permite reintentar fallas
+  // transitorias en la siguiente pulsacion, sin repetir las ya completas.
+  await query(`
+    UPDATE public.mercadolibre_catalogo_vehiculo_cola
+    SET estado = 'PENDIENTE', updated_at = NOW()
+    WHERE dominio_id = $1
+      AND ((estado = 'PROCESANDO' AND updated_at < NOW() - INTERVAL '10 minutes')
+        OR (estado = 'ERROR' AND intentos < 3))
+  `, [DOMINIO_VEHICULOS_ML]);
+  if (reiniciar) {
+    await query("DELETE FROM public.mercadolibre_catalogo_vehiculo_cola WHERE dominio_id = $1", [DOMINIO_VEHICULOS_ML]);
+  }
+
+  const brands = await consultarTopValuesVehiculos(idCuenta, accessToken, "BRAND", []);
+  const existing = await query<{ total: string }>(`
+    SELECT COUNT(*)::text AS total
+    FROM public.mercadolibre_catalogo_vehiculo_cola
     WHERE dominio_id = $1
   `, [DOMINIO_VEHICULOS_ML]);
-
-  // Primero se guardan los valores globales de los 14 atributos. Los detalles
-  // por vehiculo se siguen ampliando desde el selector de cada pieza.
-  for (const attribute of ATRIBUTOS_VEHICULO_ML) {
-    if (!available.has(attribute.id)) continue;
-    try {
-      await consultarTopValuesVehiculos(idCuenta, accessToken, attribute.id, []);
-    } catch (error) {
-      if (!atributoNoPerteneceAlDominio(error)) throw error;
-      available.delete(attribute.id);
-      await guardarEstadoAtributosVehiculo(available);
-    }
+  if (!Number(existing.rows[0]?.total ?? 0)) {
+    await encolarCargaVehiculos(brands.map((brand) => ({
+      atributos: [{ id: "BRAND" as const, valueId: brand.id, valueName: brand.name }],
+      siguienteAtributo: "MODEL" as const,
+      prioridad: 1,
+    })));
   }
-  if (!available.has("BRAND")) throw new AppError("Mercado Libre no informo el atributo BRAND para el dominio de vehiculos.", 502);
-  const brands = await consultarTopValuesVehiculos(idCuenta, accessToken, "BRAND", []);
-  const offset = reiniciar || previous.rows[0]?.estado === "COMPLETADA" ? 0 : Number(previous.rows[0]?.siguiente_marca ?? 0);
-  const batchSize = 35;
-  const batch = brands.slice(offset, offset + batchSize);
 
-  await query(`
-    INSERT INTO public.mercadolibre_catalogo_vehiculo_sincronizacion
-      (dominio_id, estado, siguiente_marca, total_marcas, ultimo_error, iniciada_at, finalizada_at, updated_at)
-    VALUES ($1, 'EN_PROCESO', $2, $3, NULL, NOW(), NULL, NOW())
-    ON CONFLICT (dominio_id) DO UPDATE
-      SET estado = 'EN_PROCESO', siguiente_marca = EXCLUDED.siguiente_marca,
-          total_marcas = EXCLUDED.total_marcas, ultimo_error = NULL,
-          iniciada_at = COALESCE(mercadolibre_catalogo_vehiculo_sincronizacion.iniciada_at, NOW()), updated_at = NOW()
-  `, [DOMINIO_VEHICULOS_ML, offset, brands.length]);
-
+  let rutasConsultadas = 0;
+  let tareasProcesadas = 0;
+  let vehiculosGenerados = 0;
   try {
-    for (const brand of batch) {
-      await consultarTopValuesVehiculos(idCuenta, accessToken, "MODEL", [{ id: "BRAND", valueId: brand.id, valueName: brand.name }]);
-      // 35 consultas mas las globales quedan por debajo del limite de 100 RPM de ML.
-      await new Promise((resolve) => setTimeout(resolve, 650));
+    while (rutasConsultadas < LIMITE_RUTAS_POR_CARGA && vehiculosGenerados < LIMITE_VEHICULOS_POR_CARGA) {
+      const task = await tomarTareaCargaVehiculo();
+      if (!task) break;
+      try {
+        const attributes = normalizarAtributosVehiculo(task.atributos);
+        if (task.siguiente_atributo_id === "SAVE") {
+          const saved = await withTransaction((db) => guardarVehiculosCanonicos(db, [attributes], "API"));
+          vehiculosGenerados += saved.size;
+          tareasProcesadas += 1;
+          await finalizarTareaCargaVehiculo(task.id);
+          continue;
+        }
+
+        const currentAttribute = task.siguiente_atributo_id;
+        if (!available.has(currentAttribute)) {
+          if (currentAttribute === "POWER") {
+            await encolarCargaVehiculos([{ atributos: attributes, siguienteAtributo: "SAVE", prioridad: task.prioridad + 1 }]);
+          }
+          tareasProcesadas += 1;
+          await finalizarTareaCargaVehiculo(task.id);
+          continue;
+        }
+
+        const values = await consultarTopValuesVehiculos(idCuenta, accessToken, currentAttribute, attributes);
+        rutasConsultadas += 1;
+        const nextAttribute = proximoAtributoCarga(currentAttribute);
+        const children = values.map((value) => ({
+          atributos: [...attributes, { id: currentAttribute, valueId: value.id, valueName: value.name }],
+          siguienteAtributo: nextAttribute,
+          prioridad: task.prioridad + 1,
+        }));
+        if (currentAttribute === "POWER" && !children.length) {
+          children.push({ atributos: attributes, siguienteAtributo: "SAVE", prioridad: task.prioridad + 1 });
+        }
+        await encolarCargaVehiculos(children);
+        tareasProcesadas += 1;
+        await finalizarTareaCargaVehiculo(task.id);
+        // Mantiene el lote por debajo de las 100 solicitudes por minuto de ML.
+        await new Promise((resolve) => setTimeout(resolve, 650));
+      } catch (error) {
+        await finalizarTareaCargaVehiculo(task.id, error);
+        throw error;
+      }
     }
-    const next = offset + batch.length;
-    const completed = next >= brands.length;
-    await query(`
-      UPDATE public.mercadolibre_catalogo_vehiculo_sincronizacion
-      SET estado = $2, siguiente_marca = $3, total_marcas = $4,
-          finalizada_at = CASE WHEN $2 = 'COMPLETADA' THEN NOW() ELSE NULL END,
-          updated_at = NOW()
-      WHERE dominio_id = $1
-    `, [DOMINIO_VEHICULOS_ML, completed ? "COMPLETADA" : "EN_PROCESO", next, brands.length]);
-    return { consultadas: batch.length, siguienteMarca: next, totalMarcas: brands.length, completada: completed };
+    const status = await estadoCargaVehiculos(brands.length);
+    return { rutasConsultadas, tareasProcesadas, vehiculosGenerados, totalMarcas: brands.length, ...status };
   } catch (error) {
-    const message = error instanceof Error ? error.message.slice(0, 1_000) : "No se pudo continuar la sincronizacion.";
-    await query(`UPDATE public.mercadolibre_catalogo_vehiculo_sincronizacion
-      SET estado = 'ERROR', ultimo_error = $2, updated_at = NOW() WHERE dominio_id = $1`, [DOMINIO_VEHICULOS_ML, message]);
+    const message = error instanceof Error ? error.message.slice(0, 1_000) : "No se pudo continuar la carga incremental.";
+    await estadoCargaVehiculos(brands.length, message);
     throw error;
   }
 }

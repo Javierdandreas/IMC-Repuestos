@@ -88,7 +88,7 @@ export function esVehiculoCanonico(attributes: ValorVehiculo[]) {
 export async function guardarVehiculosCanonicos(
   client: DbClient,
   entries: ValorVehiculo[][],
-  origin: "COMPATIBILIDAD" | "IMPORTACION" = "COMPATIBILIDAD"
+  origin: "COMPATIBILIDAD" | "IMPORTACION" | "API" = "COMPATIBILIDAD"
 ) {
   const uniques = new Map<string, ValorVehiculo[]>();
   for (const entry of entries) {
@@ -296,7 +296,7 @@ export async function explorarCatalogoVehiculos({
 }
 
 export async function estadoCatalogoVehiculosMercadoLibre() {
-  const [state, counts, attributesState, canonicalCount] = await Promise.all([
+  const [state, counts, attributesState, canonicalCount, apiCount, queue] = await Promise.all([
     query<{ estado: string; siguiente_marca: number; total_marcas: number; ultimo_error: string | null; iniciada_at: string | null; finalizada_at: string | null }>(`
       SELECT estado, siguiente_marca, total_marcas, ultimo_error, iniciada_at, finalizada_at
       FROM public.mercadolibre_catalogo_vehiculo_sincronizacion
@@ -317,12 +317,29 @@ export async function estadoCatalogoVehiculosMercadoLibre() {
       FROM public.mercadolibre_catalogo_vehiculo
       WHERE dominio_id = $1 AND activa = TRUE
     `, [DOMINIO_VEHICULOS_ML]),
+    query<{ total: string }>(`
+      SELECT COUNT(*)::text AS total
+      FROM public.mercadolibre_catalogo_vehiculo
+      WHERE dominio_id = $1 AND activa = TRUE AND origen = 'API'
+    `, [DOMINIO_VEHICULOS_ML]),
+    query<{ pendientes: string; procesando: string; errores: string }>(`
+      SELECT
+        COUNT(*) FILTER (WHERE estado = 'PENDIENTE')::text AS pendientes,
+        COUNT(*) FILTER (WHERE estado = 'PROCESANDO')::text AS procesando,
+        COUNT(*) FILTER (WHERE estado = 'ERROR')::text AS errores
+      FROM public.mercadolibre_catalogo_vehiculo_cola
+      WHERE dominio_id = $1
+    `, [DOMINIO_VEHICULOS_ML]),
   ]);
   const current = state.rows[0] || { estado: "PENDIENTE", siguiente_marca: 0, total_marcas: 0, ultimo_error: null, iniciada_at: null, finalizada_at: null };
   return {
     ...current,
     total_modelos: Number(counts.rows.find((row) => row.atributo_id === "MODEL")?.total ?? 0),
     total_vehiculos: Number(canonicalCount.rows[0]?.total ?? 0),
+    total_vehiculos_api: Number(apiCount.rows[0]?.total ?? 0),
+    tareas_pendientes: Number(queue.rows[0]?.pendientes ?? 0),
+    tareas_procesando: Number(queue.rows[0]?.procesando ?? 0),
+    tareas_error: Number(queue.rows[0]?.errores ?? 0),
     atributos: ATRIBUTOS_VEHICULO_ML.map((attribute) => ({
       ...attribute,
       total: Number(counts.rows.find((row) => row.atributo_id === attribute.id)?.total ?? 0),

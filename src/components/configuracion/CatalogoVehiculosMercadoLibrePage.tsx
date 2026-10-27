@@ -15,6 +15,10 @@ type Estado = {
   total_marcas: number;
   total_modelos: number;
   total_vehiculos: number;
+  total_vehiculos_api: number;
+  tareas_pendientes: number;
+  tareas_procesando: number;
+  tareas_error: number;
   ultimo_error: string | null;
   atributos: Array<{ id: string; nombre: string; grupo: string; total: number; habilitado: boolean }>;
 };
@@ -189,7 +193,9 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudo actualizar el catalogo.");
-      toast.success(result.completada ? "Catalogo de marcas y modelos actualizado." : "Se guardaron modelos de " + result.consultadas + " marcas. Continua para seguir.");
+      toast.success(result.completada
+        ? "Carga incremental completada."
+        : `Se procesaron ${result.tareasProcesadas ?? 0} ramas y se guardaron ${result.vehiculosGenerados ?? 0} vehiculos. Continua para seguir.`);
       await loadState();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo actualizar el catalogo.");
@@ -241,7 +247,6 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     }
   };
 
-  const progress = state?.total_marcas ? Math.min(100, Math.round((state.siguiente_marca / state.total_marcas) * 100)) : 0;
   const visibleExtras = useMemo(() => extraFields.filter((attribute) => !available || available.has(attribute)), [available, extraFields]);
   const addableExtras = adicionales.filter((attribute) => !extraFields.includes(attribute) && (!available || available.has(attribute)));
 
@@ -286,9 +291,9 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     <section className="border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300"><Database className="h-5 w-5" /></span><div><h1 className="text-lg font-black text-slate-900 dark:text-white">Catalogo de vehiculos de Mercado Libre</h1><p className="mt-1 text-sm text-slate-500">Argentina - MLA-CARS_AND_VANS.</p></div></div>
-        {canManage && <div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importBatch(event)} /><button type="button" onClick={() => importInputRef.current?.click()} disabled={importing} className="inline-flex h-10 items-center gap-2 rounded-md border border-blue-500 px-4 text-xs font-black text-blue-600 hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300"><FileUp className={"h-4 w-4 " + (importing ? "animate-pulse" : "")} />{importing ? "Importando..." : "Importar lote"}</button><button type="button" onClick={() => void sync()} disabled={syncing} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={"h-4 w-4 " + (syncing ? "animate-spin" : "")} />{syncing ? "Consultando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar carga" : "Actualizar catalogo"}</button></div>}
+        {canManage && <div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importBatch(event)} /><button type="button" onClick={() => importInputRef.current?.click()} disabled={importing} className="inline-flex h-10 items-center gap-2 rounded-md border border-blue-500 px-4 text-xs font-black text-blue-600 hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300"><FileUp className={"h-4 w-4 " + (importing ? "animate-pulse" : "")} />{importing ? "Importando..." : "Importar lote"}</button><button type="button" onClick={() => void sync()} disabled={syncing} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={"h-4 w-4 " + (syncing ? "animate-spin" : "")} />{syncing ? "Cargando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar carga" : "Actualizar catalogo"}</button></div>}
       </div>
-      <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800"><div className="flex items-center justify-between gap-3 text-xs font-bold"><span>Marcas y modelos: {state?.siguiente_marca ?? 0} de {state?.total_marcas ?? 0}</span><span>{progress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full bg-blue-600 transition-all" style={{ width: progress + "%" }} /></div>{state?.ultimo_error && <p className="mt-3 text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
+      <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-200 pt-4 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300"><span>{state?.total_marcas ?? 0} marcas detectadas</span><span>{(state?.tareas_pendientes ?? 0).toLocaleString("es-AR")} ramas pendientes</span>{Boolean(state?.tareas_procesando) && <span>{state?.tareas_procesando} en proceso</span>}{Boolean(state?.tareas_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_error} con error</span>}{state?.ultimo_error && <p className="basis-full text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
     </section>
 
     <section className="relative overflow-visible rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -304,6 +309,6 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
       {results && <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3 dark:border-slate-800"><span className="text-xs font-semibold text-slate-500">Pagina {results.page} de {results.totalPages}</span><div className="flex gap-2"><button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={loadingResults || results.page <= 1} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-500 disabled:opacity-40 dark:border-slate-700" title="Pagina anterior"><ChevronLeft className="h-4 w-4" /></button><button type="button" onClick={() => setPage((current) => Math.min(results.totalPages, current + 1))} disabled={loadingResults || results.page >= results.totalPages} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-500 disabled:opacity-40 dark:border-slate-700" title="Pagina siguiente"><ChevronRight className="h-4 w-4" /></button></div></div>}
     </section>
 
-    <section className="border border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">{loadingState ? <p className="text-sm text-slate-500">Cargando catalogo...</p> : <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">En la base de IMC tenemos <span className="font-mono text-lg font-black text-blue-600 dark:text-blue-300">{(state?.total_vehiculos ?? 0).toLocaleString("es-AR")}</span> vehiculos con ID IMC y <span className="font-mono font-black text-blue-600 dark:text-blue-300">{(state?.total_modelos ?? 0).toLocaleString("es-AR")}</span> modelos de Mercado Libre.</p>}</section>
+    <section className="border border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">{loadingState ? <p className="text-sm text-slate-500">Cargando catalogo...</p> : <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">En la base de IMC tenemos <span className="font-mono text-lg font-black text-blue-600 dark:text-blue-300">{(state?.total_vehiculos ?? 0).toLocaleString("es-AR")}</span> vehiculos con ID IMC, de los cuales <span className="font-mono font-black text-blue-600 dark:text-blue-300">{(state?.total_vehiculos_api ?? 0).toLocaleString("es-AR")}</span> fueron generados desde la API.</p>}</section>
   </div>;
 }
