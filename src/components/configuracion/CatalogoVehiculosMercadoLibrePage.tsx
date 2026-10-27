@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { ChevronDown, ChevronLeft, ChevronRight, Database, LoaderCircle, Pause, Play, Plus, RefreshCw, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { ATRIBUTOS_VEHICULO_ML, type ValorVehiculo } from "@/lib/catalogo-vehiculos-atributos";
+import { MlaCompatibilityLookup } from "@/components/mercadolibre/MlaCompatibilityLookup";
 
 type AttributeId = ValorVehiculo["id"];
 type Selected = Partial<Record<AttributeId, ValorVehiculo[]>>;
@@ -274,6 +275,8 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
       </div>
       <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-200 pt-4 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300"><span>{state?.marcas_objetivo ?? 0} marcas seleccionadas</span><span>{(state?.tareas_pendientes ?? 0).toLocaleString("es-AR")} ramas pendientes</span>{continuous && <span className="text-blue-600 dark:text-blue-300">Carga continua: lote {continuousBatch} de 10</span>}{Boolean(state?.tareas_procesando) && <span>{state?.tareas_procesando} en proceso</span>}{Boolean(state?.tareas_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_error} con error</span>}{state?.ultimo_error && <p className="basis-full text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
     </section>
+
+    <MlaCompatibilityLookup />
 
     <section className="relative overflow-visible rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <form onSubmit={submitSearch}>

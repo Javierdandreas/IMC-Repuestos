@@ -725,6 +725,34 @@ async function cuentaConectadaParaCatalogoVehiculos() {
   return idCuenta;
 }
 
+export async function consultarCompatibilidadesPublicacionMercadoLibre(itemId: string, page = 1) {
+  const normalizedItemId = itemId.trim().toUpperCase();
+  if (!/^MLA\d+$/.test(normalizedItemId)) throw new AppError("Ingresa un identificador MLA valido.", 422);
+
+  const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
+  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const limit = 50;
+  const offset = (Math.max(1, page) - 1) * limit;
+  const payload = await meliGet(`/items/${encodeURIComponent(normalizedItemId)}/compatibilities?extended=true&limit=${limit}&offset=${offset}`, idCuenta, accessToken);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new AppError("Mercado Libre devolvio una respuesta de compatibilidades invalida.", 502);
+
+  const response = payload as Record<string, unknown>;
+  const paging = response.paging && typeof response.paging === "object" && !Array.isArray(response.paging)
+    ? response.paging as Record<string, unknown>
+    : {};
+  const total = typeof paging.total === "number" ? paging.total : null;
+  return {
+    itemId: normalizedItemId,
+    products: Array.isArray(response.products) ? response.products : [],
+    paging: {
+      total,
+      limit: typeof paging.limit === "number" ? paging.limit : limit,
+      offset: typeof paging.offset === "number" ? paging.offset : offset,
+    },
+    universal: response.universal ?? null,
+  };
+}
+
 async function consultarTopValuesVehiculos(idCuenta: number, token: string, attributeId: AtributoVehiculoId, known: ValorVehiculo[]) {
   try {
     const payload = await meliPost(
