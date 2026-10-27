@@ -957,6 +957,35 @@ async function estadoCargaVehiculos(totalMarcas: number, ultimoError: string | n
   return { pendientes, procesando, errores, completada: estado === "COMPLETADA" };
 }
 
+type MarcaObjetivoVehiculo = {
+  marca_nombre: string;
+};
+
+function claveMarcaObjetivo(value: string) {
+  return value.trim().toLocaleLowerCase("es-AR");
+}
+
+async function marcasObjetivoVehiculos() {
+  const result = await query<MarcaObjetivoVehiculo>(`
+    SELECT marca_nombre
+    FROM public.mercadolibre_catalogo_vehiculo_marca_objetivo
+    WHERE dominio_id = $1 AND activa = TRUE
+    ORDER BY marca_nombre
+  `, [DOMINIO_VEHICULOS_ML]);
+  return result.rows.map((row) => row.marca_nombre);
+}
+
+async function actualizarIdsMarcasObjetivo(brands: Array<{ id: string; name: string }>) {
+  if (!brands.length) return;
+  await query(`
+    UPDATE public.mercadolibre_catalogo_vehiculo_marca_objetivo AS destino
+    SET marca_id = origen.id, updated_at = NOW()
+    FROM jsonb_to_recordset($2::jsonb) AS origen(id text, name text)
+    WHERE destino.dominio_id = $1
+      AND lower(trim(destino.marca_nombre)) = lower(trim(origen.name))
+  `, [DOMINIO_VEHICULOS_ML, JSON.stringify(brands)]);
+}
+
 export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false) {
   const idCuenta = await cuentaConectadaParaCatalogoVehiculos();
   const { accessToken } = await accessTokenForCuenta(idCuenta);
@@ -978,13 +1007,20 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
   }
 
   const brands = await consultarTopValuesVehiculos(idCuenta, accessToken, "BRAND", []);
+  const targetNames = await marcasObjetivoVehiculos();
+  if (!targetNames.length) throw new AppError("No hay marcas seleccionadas para cargar el catalogo de vehiculos.", 422);
+  const targets = new Set(targetNames.map(claveMarcaObjetivo));
+  const targetBrands = brands.filter((brand) => targets.has(claveMarcaObjetivo(brand.name)));
+  const missingBrands = targetNames.filter((name) => !targetBrands.some((brand) => claveMarcaObjetivo(brand.name) === claveMarcaObjetivo(name)));
+  if (!targetBrands.length) throw new AppError("Mercado Libre no devolvio ninguna de las marcas seleccionadas.", 502);
+  await actualizarIdsMarcasObjetivo(targetBrands);
   const existing = await query<{ total: string }>(`
     SELECT COUNT(*)::text AS total
     FROM public.mercadolibre_catalogo_vehiculo_cola
     WHERE dominio_id = $1
   `, [DOMINIO_VEHICULOS_ML]);
   if (!Number(existing.rows[0]?.total ?? 0)) {
-    await encolarCargaVehiculos(brands.map((brand) => ({
+    await encolarCargaVehiculos(targetBrands.map((brand) => ({
       atributos: [{ id: "BRAND" as const, valueId: brand.id, valueName: brand.name }],
       siguienteAtributo: "MODEL" as const,
       prioridad: 1,
@@ -1039,11 +1075,11 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
         throw error;
       }
     }
-    const status = await estadoCargaVehiculos(brands.length);
-    return { rutasConsultadas, tareasProcesadas, vehiculosGenerados, totalMarcas: brands.length, ...status };
+    const status = await estadoCargaVehiculos(targetBrands.length);
+    return { rutasConsultadas, tareasProcesadas, vehiculosGenerados, totalMarcas: targetBrands.length, marcasNoEncontradas: missingBrands, ...status };
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 1_000) : "No se pudo continuar la carga incremental.";
-    await estadoCargaVehiculos(brands.length, message);
+    await estadoCargaVehiculos(targetBrands.length, message);
     throw error;
   }
 }

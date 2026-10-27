@@ -1,26 +1,23 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Papa from "papaparse";
-import { ChevronDown, ChevronLeft, ChevronRight, Database, FileUp, List, LoaderCircle, Pause, Play, Plus, RefreshCw, Search, X } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, Database, LoaderCircle, Pause, Play, Plus, RefreshCw, Search, X } from "lucide-react";
 import { toast } from "sonner";
-import { ATRIBUTOS_VEHICULO_ML, type AtributoVehiculoId, type ValorVehiculo } from "@/lib/catalogo-vehiculos-atributos";
+import { ATRIBUTOS_VEHICULO_ML, type ValorVehiculo } from "@/lib/catalogo-vehiculos-atributos";
 
 type AttributeId = ValorVehiculo["id"];
 type Selected = Partial<Record<AttributeId, ValorVehiculo[]>>;
 type Option = { id: string; name: string };
 type Estado = {
   estado: string;
-  siguiente_marca: number;
-  total_marcas: number;
-  total_modelos: number;
   total_vehiculos: number;
   total_vehiculos_api: number;
+  marcas_objetivo: number;
   tareas_pendientes: number;
   tareas_procesando: number;
   tareas_error: number;
   ultimo_error: string | null;
-  atributos: Array<{ id: string; nombre: string; grupo: string; total: number; habilitado: boolean }>;
+  atributos: Array<{ id: string; habilitado: boolean }>;
 };
 type Exploracion = {
   data: Array<{ atributos: ValorVehiculo[] }>;
@@ -32,35 +29,12 @@ type ResultadoCarga = {
   completada?: boolean;
   tareasProcesadas?: number;
   vehiculosGenerados?: number;
+  message?: string;
 };
 
 const principales: AttributeId[] = ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE", "POWER"];
 const adicionales: AttributeId[] = ["SHORT_VERSION", "FUEL_TYPE", "VEHICLE_BODY_TYPE", "TRANSMISSION_CONTROL_TYPE", "GEAR_NUMBER", "DOORS", "STEERING", "TRACTION_CONTROL", "VALVES_PER_CYLINDER"];
 const labels = new Map(ATRIBUTOS_VEHICULO_ML.map((attribute) => [attribute.id, attribute.nombre]));
-const importAliases: Record<AttributeId, string[]> = {
-  BRAND: ["BRAND", "MARCA"],
-  MODEL: ["MODEL", "MODELO"],
-  VEHICLE_YEAR: ["VEHICLE_YEAR", "YEAR", "ANIO", "ANO"],
-  SHORT_VERSION: ["SHORT_VERSION", "VERSION"],
-  ENGINE: ["ENGINE", "MOTOR", "MOTORIZACION"],
-  FUEL_TYPE: ["FUEL_TYPE", "COMBUSTIBLE"],
-  POWER: ["POWER", "POTENCIA"],
-  VEHICLE_BODY_TYPE: ["VEHICLE_BODY_TYPE", "CARROCERIA"],
-  TRANSMISSION_CONTROL_TYPE: ["TRANSMISSION_CONTROL_TYPE", "TRANSMISION", "TIPO_DE_TRANSMISION"],
-  GEAR_NUMBER: ["GEAR_NUMBER", "MARCHAS"],
-  DOORS: ["DOORS", "PUERTAS"],
-  STEERING: ["STEERING", "DIRECCION"],
-  TRACTION_CONTROL: ["TRACTION_CONTROL", "TRACCION"],
-  VALVES_PER_CYLINDER: ["VALVES_PER_CYLINDER", "VALVULAS_POR_CILINDRO"],
-};
-
-function importKey(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
-}
-
-function importedValueId(attribute: AttributeId, name: string) {
-  return `IMC-${attribute}-${importKey(name)}`.slice(0, 200);
-}
 
 function canUse(attribute: AttributeId, selected: Selected) {
   if (attribute === "BRAND") return true;
@@ -76,6 +50,10 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
   const [state, setState] = useState<Estado | null>(null);
   const [loadingState, setLoadingState] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [continuous, setContinuous] = useState(false);
+  const [continuousBatch, setContinuousBatch] = useState(0);
+  const stopContinuousRef = useRef(false);
+
   const [selected, setSelected] = useState<Selected>({});
   const [options, setOptions] = useState<Partial<Record<AttributeId, Option[]>>>({});
   const [optionSearch, setOptionSearch] = useState<Partial<Record<AttributeId, string>>>({});
@@ -87,15 +65,6 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
   const [results, setResults] = useState<Exploracion | null>(null);
   const [loadingResults, setLoadingResults] = useState(false);
   const [page, setPage] = useState(1);
-  const [importing, setImporting] = useState(false);
-  const [continuous, setContinuous] = useState(false);
-  const [continuousBatch, setContinuousBatch] = useState(0);
-  const [showBrands, setShowBrands] = useState(false);
-  const [brandCatalog, setBrandCatalog] = useState<Option[]>([]);
-  const [loadingBrands, setLoadingBrands] = useState(false);
-  const [brandSearch, setBrandSearch] = useState("");
-  const importInputRef = useRef<HTMLInputElement>(null);
-  const stopContinuousRef = useRef(false);
 
   const loadState = useCallback(async () => {
     try {
@@ -113,6 +82,7 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
   }, []);
 
   useEffect(() => { void loadState(); }, [loadState]);
+  useEffect(() => () => { stopContinuousRef.current = true; }, []);
 
   const loadResults = useCallback(async (requestedPage = page, filters = appliedFilters) => {
     if (!filters.length) {
@@ -157,29 +127,6 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     }
   };
 
-  const loadBrandCatalog = async () => {
-    if (loadingBrands) return;
-    setShowBrands(true);
-    if (brandCatalog.length) return;
-    try {
-      setLoadingBrands(true);
-      const response = await fetch("/api/compatibilidades/valores", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attributeId: "BRAND", knownAttributes: [] }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.message || "No se pudieron cargar las marcas.");
-      const brands = Array.isArray(result.values) ? result.values as Option[] : [];
-      setBrandCatalog(brands.sort((left, right) => left.name.localeCompare(right.name, "es-AR")));
-    } catch (error) {
-      setShowBrands(false);
-      toast.error(error instanceof Error ? error.message : "No se pudieron cargar las marcas.");
-    } finally {
-      setLoadingBrands(false);
-    }
-  };
-
   const toggleValue = (attribute: AttributeId, valueId: string) => {
     const option = options[attribute]?.find((entry) => entry.id === valueId);
     if (!option) return;
@@ -197,11 +144,11 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const filters = selectedValues(selected);
     if (!selected.BRAND?.length) {
       toast.error("Selecciona al menos una marca para buscar.");
       return;
     }
+    const filters = selectedValues(selected);
     setAppliedFilters(filters);
     setPage(1);
     if (JSON.stringify(filters) === JSON.stringify(appliedFilters) && page === 1) void loadResults(1, filters);
@@ -226,7 +173,7 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reiniciar }),
       });
-      const result = await response.json().catch(() => ({})) as ResultadoCarga & { message?: string };
+      const result = await response.json().catch(() => ({})) as ResultadoCarga;
       if (!response.ok) throw new Error(result.message || "No se pudo actualizar el catalogo.");
       if (announce) {
         toast.success(result.completada
@@ -279,54 +226,8 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     }
   };
 
-  useEffect(() => () => { stopContinuousRef.current = true; }, []);
-
-  const importBatch = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file || importing) return;
-    try {
-      setImporting(true);
-      const parsed = Papa.parse<Record<string, unknown>>(await file.text(), { header: true, skipEmptyLines: "greedy" });
-      if (parsed.errors.length) throw new Error("El archivo CSV tiene un formato invalido.");
-      if (!parsed.data.length) throw new Error("El archivo no contiene filas.");
-      if (parsed.data.length > 1_000) throw new Error("Cada archivo puede contener hasta 1.000 filas.");
-
-      const vehicles = parsed.data.map((row, index) => {
-        const values = new Map(Object.entries(row).map(([key, value]) => [importKey(key), String(value ?? "").trim()]));
-        const attributes = ATRIBUTOS_VEHICULO_ML.flatMap((attribute) => {
-          const names = importAliases[attribute.id];
-          const name = names.map((key) => values.get(key) || "").find(Boolean) || "";
-          if (!name) return [];
-          const valueId = names.flatMap((key) => [`${key}_ID`, `ID_${key}`]).map((key) => values.get(key) || "").find(Boolean) || importedValueId(attribute.id, name);
-          return [{ id: attribute.id, valueId, valueName: name }];
-        });
-        const required = ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE"];
-        if (!required.every((attribute) => attributes.some((item) => item.id === attribute))) {
-          throw new Error(`La fila ${index + 2} necesita marca, modelo, año y motor.`);
-        }
-        return { atributos: attributes };
-      });
-
-      const response = await fetch("/api/compatibilidades/catalogo/importar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vehicles }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.message || "No se pudo importar el lote.");
-      toast.success(`${result.imported ?? result.processed} vehiculos importados.`);
-      await loadState();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo importar el lote.");
-    } finally {
-      setImporting(false);
-    }
-  };
-
   const visibleExtras = useMemo(() => extraFields.filter((attribute) => !available || available.has(attribute)), [available, extraFields]);
   const addableExtras = adicionales.filter((attribute) => !extraFields.includes(attribute) && (!available || available.has(attribute)));
-  const visibleBrands = useMemo(() => brandCatalog.filter((brand) => brand.name.toLocaleLowerCase("es-AR").includes(brandSearch.toLocaleLowerCase("es-AR"))), [brandCatalog, brandSearch]);
 
   const renderField = (attribute: AttributeId, removable = false) => {
     if (available && !available.has(attribute)) return null;
@@ -334,14 +235,14 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     const current = selected[attribute] ?? [];
     const search = optionSearch[attribute] ?? "";
     const visibleOptions = (options[attribute] ?? []).filter((option) => option.name.toLocaleLowerCase("es-AR").includes(search.toLocaleLowerCase("es-AR")));
-    const summary = current.length === 0 ? "Seleccionar" : current.length === 1 ? current[0].valueName : current.length + " seleccionados";
+    const summary = current.length === 0 ? "Seleccionar" : current.length === 1 ? current[0].valueName : `${current.length} seleccionados`;
 
     return <div key={attribute} className="min-w-0">
       <div className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-700 dark:text-slate-300">
         <span>{labels.get(attribute)}{attribute === "BRAND" ? " (requerido)" : ""}</span>
-        {removable && <button type="button" onClick={() => { setExtraFields((currentFields) => currentFields.filter((item) => item !== attribute)); setSelected((currentValues) => { const next = { ...currentValues }; delete next[attribute]; return next; }); }} className="text-slate-400 hover:text-red-500" title="Quitar filtro"><X className="h-3.5 w-3.5" /></button>}
+        {removable && <button type="button" onClick={() => { setExtraFields((fields) => fields.filter((item) => item !== attribute)); setSelected((values) => { const next = { ...values }; delete next[attribute]; return next; }); }} className="text-slate-400 hover:text-red-500" title="Quitar filtro"><X className="h-3.5 w-3.5" /></button>}
       </div>
-      <details open={openField === attribute} className={"group relative " + (enabled ? "" : "pointer-events-none opacity-45")} onToggle={(event) => {
+      <details open={openField === attribute} className={`group relative ${enabled ? "" : "pointer-events-none opacity-45"}`} onToggle={(event) => {
         if (event.currentTarget.open) {
           setOpenField(attribute);
           void loadOptions(attribute);
@@ -369,22 +270,21 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     <section className="border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300"><Database className="h-5 w-5" /></span><div><h1 className="text-lg font-black text-slate-900 dark:text-white">Catalogo de vehiculos de Mercado Libre</h1><p className="mt-1 text-sm text-slate-500">Argentina - MLA-CARS_AND_VANS.</p></div></div>
-        {canManage && <div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importBatch(event)} /><button type="button" onClick={() => showBrands ? setShowBrands(false) : void loadBrandCatalog()} disabled={loadingBrands} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 px-4 text-xs font-black text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"><List className={"h-4 w-4 " + (loadingBrands ? "animate-pulse" : "")} />{showBrands ? "Ocultar marcas" : "Ver marcas"}</button><button type="button" onClick={() => importInputRef.current?.click()} disabled={importing || continuous} className="inline-flex h-10 items-center gap-2 rounded-md border border-blue-500 px-4 text-xs font-black text-blue-600 hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300"><FileUp className={"h-4 w-4 " + (importing ? "animate-pulse" : "")} />{importing ? "Importando..." : "Importar lote"}</button><button type="button" onClick={() => void sync()} disabled={syncing || continuous} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={"h-4 w-4 " + (syncing ? "animate-spin" : "")} />{syncing ? "Cargando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar carga" : "Actualizar catalogo"}</button><button type="button" onClick={() => void runContinuous()} disabled={syncing && !continuous} className={"inline-flex h-10 items-center gap-2 rounded-md px-4 text-xs font-black disabled:opacity-50 " + (continuous ? "border border-red-500 text-red-600 hover:bg-red-500/10 dark:text-red-300" : "border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800")}><span title={continuous ? "Detener carga continua" : "Procesar diez lotes consecutivos"}>{continuous ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</span>{continuous ? `Detener (${continuousBatch}/10)` : "Carga continua (10)"}</button></div>}
+        {canManage && <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void sync()} disabled={syncing || continuous} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />{syncing ? "Cargando..." : state?.estado === "EN_PROCESO" || state?.estado === "ERROR" ? "Continuar carga" : "Actualizar catalogo"}</button><button type="button" onClick={() => void runContinuous()} disabled={syncing && !continuous} className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-xs font-black disabled:opacity-50 ${continuous ? "border border-red-500 text-red-600 hover:bg-red-500/10 dark:text-red-300" : "border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"}`}><span title={continuous ? "Detener carga continua" : "Procesar diez lotes consecutivos"}>{continuous ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</span>{continuous ? `Detener (${continuousBatch}/10)` : "Carga continua (10)"}</button></div>}
       </div>
-      <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-200 pt-4 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300"><span>{state?.total_marcas ?? 0} marcas detectadas</span><span>{(state?.tareas_pendientes ?? 0).toLocaleString("es-AR")} ramas pendientes</span>{continuous && <span className="text-blue-600 dark:text-blue-300">Carga continua: lote {continuousBatch} de 10</span>}{Boolean(state?.tareas_procesando) && <span>{state?.tareas_procesando} en proceso</span>}{Boolean(state?.tareas_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_error} con error</span>}{state?.ultimo_error && <p className="basis-full text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
-      {showBrands && <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800"><div className="flex flex-wrap items-center justify-between gap-3"><label className="relative block w-full max-w-sm"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" /><input value={brandSearch} onChange={(event) => setBrandSearch(event.target.value)} placeholder="Buscar marca" className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label><span className="text-xs font-bold text-slate-500">{visibleBrands.length} marcas</span></div><div className="mt-3 grid max-h-72 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto pr-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{loadingBrands ? <p className="col-span-full py-5 text-sm font-semibold text-slate-500">Cargando marcas...</p> : visibleBrands.map((brand) => <span key={brand.id} className="truncate border-b border-slate-100 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200" title={brand.name}>{brand.name}</span>)}</div></div>}
+      <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-200 pt-4 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300"><span>{state?.marcas_objetivo ?? 0} marcas seleccionadas</span><span>{(state?.tareas_pendientes ?? 0).toLocaleString("es-AR")} ramas pendientes</span>{continuous && <span className="text-blue-600 dark:text-blue-300">Carga continua: lote {continuousBatch} de 10</span>}{Boolean(state?.tareas_procesando) && <span>{state?.tareas_procesando} en proceso</span>}{Boolean(state?.tareas_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_error} con error</span>}{state?.ultimo_error && <p className="basis-full text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
     </section>
 
     <section className="relative overflow-visible rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <form onSubmit={submitSearch}>
-        <div className="p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">{principales.map((attribute) => renderField(attribute))}</div><div className="mt-4 flex flex-wrap items-end gap-3">{visibleExtras.map((attribute) => <div key={attribute} className="w-full sm:w-[220px]">{renderField(attribute, true)}</div>)}{addableExtras.length > 0 && <label className="block w-full sm:w-[190px]"><span className="sr-only">Agregar filtro</span><div className="relative"><Plus className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" /><select value="" onChange={(event) => { const field = event.target.value as AttributeId; if (field) setExtraFields((currentFields) => [...currentFields, field]); }} className="h-10 w-full appearance-none rounded-full border border-dashed border-slate-300 bg-white pl-9 pr-3 text-sm font-medium text-slate-500 outline-none hover:border-blue-400 focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"><option value="">Agregar filtro</option>{addableExtras.map((attribute) => <option key={attribute} value={attribute}>{labels.get(attribute)}</option>)}</select></div></label>}</div></div>
+        <div className="p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">{principales.map((attribute) => renderField(attribute))}</div><div className="mt-4 flex flex-wrap items-end gap-3">{visibleExtras.map((attribute) => <div key={attribute} className="w-full sm:w-[220px]">{renderField(attribute, true)}</div>)}{addableExtras.length > 0 && <label className="block w-full sm:w-[190px]"><span className="sr-only">Agregar filtro</span><div className="relative"><Plus className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" /><select value="" onChange={(event) => { const field = event.target.value as AttributeId; if (field) setExtraFields((fields) => [...fields, field]); }} className="h-10 w-full appearance-none rounded-full border border-dashed border-slate-300 bg-white pl-9 pr-3 text-sm font-medium text-slate-500 outline-none hover:border-blue-400 focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"><option value="">Agregar filtro</option>{addableExtras.map((attribute) => <option key={attribute} value={attribute}>{labels.get(attribute)}</option>)}</select></div></label>}</div></div>
         <div className="flex items-center justify-end gap-5 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/50"><button type="button" onClick={resetSearch} className="text-sm font-semibold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">Limpiar filtros</button><button type="submit" disabled={!selected.BRAND?.length} className="inline-flex h-11 items-center gap-2 rounded-md bg-blue-600 px-5 text-sm font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-800"><Search className="h-4 w-4" />Buscar</button></div>
       </form>
     </section>
 
     <section className="overflow-hidden border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-800"><h2 className="text-sm font-black text-slate-900 dark:text-white">Resultados</h2><span className="text-xs font-semibold text-slate-500">{results?.totalCount.toLocaleString("es-AR") ?? 0} filas</span></div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[1260px] table-fixed text-left"><thead className="bg-slate-100 text-[9px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-950"><tr>{ATRIBUTOS_VEHICULO_ML.map((attribute) => <th key={attribute.id} className="w-[90px] px-2 py-2 leading-tight">{attribute.nombre}</th>)}</tr></thead><tbody>{loadingResults ? <tr><td colSpan={ATRIBUTOS_VEHICULO_ML.length} className="px-5 py-12 text-center text-sm font-semibold text-slate-500">Completando datos del vehiculo...</td></tr> : results?.data.length ? results.data.map((item, index) => { const values = new Map(item.atributos.map((attribute) => [attribute.id, attribute])); return <tr key={String(index) + item.atributos.map((attribute) => attribute.valueId).join("-")} className="border-t border-slate-200 align-top dark:border-slate-800">{ATRIBUTOS_VEHICULO_ML.map((attribute) => { const value = values.get(attribute.id); return <td key={attribute.id} className="px-2 py-2 text-[11px] leading-tight"><span title={value?.valueName} className="block break-words font-bold text-slate-800 dark:text-slate-100">{value?.valueName ?? "-"}</span></td>; })}</tr>; }) : <tr><td colSpan={ATRIBUTOS_VEHICULO_ML.length} className="px-5 py-12 text-center text-sm font-semibold text-slate-500">Selecciona una marca y presiona Buscar para explorar el catalogo.</td></tr>}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1260px] table-fixed text-left"><thead className="bg-slate-100 text-[9px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-950"><tr>{ATRIBUTOS_VEHICULO_ML.map((attribute) => <th key={attribute.id} className="w-[90px] px-2 py-2 leading-tight">{attribute.nombre}</th>)}</tr></thead><tbody>{loadingResults ? <tr><td colSpan={ATRIBUTOS_VEHICULO_ML.length} className="px-5 py-12 text-center text-sm font-semibold text-slate-500">Completando datos del vehiculo...</td></tr> : results?.data.length ? results.data.map((item, index) => { const values = new Map(item.atributos.map((attribute) => [attribute.id, attribute])); return <tr key={`${index}-${item.atributos.map((attribute) => attribute.valueId).join("-")}`} className="border-t border-slate-200 align-top dark:border-slate-800">{ATRIBUTOS_VEHICULO_ML.map((attribute) => { const value = values.get(attribute.id); return <td key={attribute.id} className="px-2 py-2 text-[11px] leading-tight"><span title={value?.valueName} className="block break-words font-bold text-slate-800 dark:text-slate-100">{value?.valueName ?? "-"}</span></td>; })}</tr>; }) : <tr><td colSpan={ATRIBUTOS_VEHICULO_ML.length} className="px-5 py-12 text-center text-sm font-semibold text-slate-500">Selecciona una marca y presiona Buscar para explorar el catalogo.</td></tr>}</tbody></table></div>
       {results && <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3 dark:border-slate-800"><span className="text-xs font-semibold text-slate-500">Pagina {results.page} de {results.totalPages}</span><div className="flex gap-2"><button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={loadingResults || results.page <= 1} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-500 disabled:opacity-40 dark:border-slate-700" title="Pagina anterior"><ChevronLeft className="h-4 w-4" /></button><button type="button" onClick={() => setPage((current) => Math.min(results.totalPages, current + 1))} disabled={loadingResults || results.page >= results.totalPages} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-500 disabled:opacity-40 dark:border-slate-700" title="Pagina siguiente"><ChevronRight className="h-4 w-4" /></button></div></div>}
     </section>
 
