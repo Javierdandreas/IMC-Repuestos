@@ -1,10 +1,7 @@
-import { CatalogoVehiculosMercadoLibrePage } from "@/components/configuracion/CatalogoVehiculosMercadoLibrePage";
-import { getServerInternalUser } from "@/lib/auth";
-import { canManageContent } from "@/lib/permissions";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function ConfiguracionCompatibilidadesPage() {
-  const session = await getServerInternalUser();
-  return <CatalogoVehiculosMercadoLibrePage canManage={canManageContent(session?.rol)} />;
+export default function ConfiguracionCompatibilidadesPage() {
+  redirect("/operaciones/mercadolibre/compatibilidades");
 }
