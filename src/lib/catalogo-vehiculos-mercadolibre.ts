@@ -244,6 +244,47 @@ export async function explorarVehiculosCanonicos({
   };
 }
 
+/**
+ * Devuelve solo valores que existen en vehiculos ya almacenados por IMC y que
+ * respetan los filtros previos del buscador.
+ */
+export async function obtenerValoresVehiculosCanonicos(attributeId: AtributoVehiculoId, filters: ValorVehiculo[]) {
+  const clauses = ["vehiculo.dominio_id = $1", "vehiculo.activa = TRUE"];
+  const params: unknown[] = [DOMINIO_VEHICULOS_ML];
+  const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
+  for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
+    const values = groupedFilters.get(filter.id) ?? [];
+    if (!values.some((value) => value.valueId === filter.valueId)) values.push(filter);
+    groupedFilters.set(filter.id, values);
+  }
+
+  for (const [filterId, values] of groupedFilters) {
+    params.push(filterId, values.map((value) => value.valueId), values.map((value) => value.valueName));
+    const attributeParam = params.length - 2;
+    const idsParam = params.length - 1;
+    const namesParam = params.length;
+    clauses.push(`EXISTS (
+      SELECT 1 FROM jsonb_array_elements(vehiculo.atributos) AS known_attribute
+      WHERE known_attribute->>'id' = $${attributeParam}
+        AND (known_attribute->>'valueId' = ANY($${idsParam}::text[]) OR known_attribute->>'valueName' = ANY($${namesParam}::text[]))
+    )`);
+  }
+
+  params.push(attributeId);
+  const attributeParam = params.length;
+  const result = await query<{ value_id: string; value_name: string }>(`
+    SELECT DISTINCT attribute->>'valueId' AS value_id, attribute->>'valueName' AS value_name
+    FROM public.mercadolibre_catalogo_vehiculo AS vehiculo
+    CROSS JOIN LATERAL jsonb_array_elements(vehiculo.atributos) AS attribute
+    WHERE ${clauses.join(" AND ")}
+      AND attribute->>'id' = $${attributeParam}
+    ORDER BY value_name
+  `, params);
+  return result.rows
+    .filter((row) => row.value_id && row.value_name)
+    .map((row) => ({ id: row.value_id, name: row.value_name }));
+}
+
 export async function explorarCatalogoVehiculos({
   search = "",
   attributeId,

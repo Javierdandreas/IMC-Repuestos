@@ -119,7 +119,7 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
       const response = await fetch("/api/compatibilidades/valores", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attributeId: attribute, knownAttributes }),
+        body: JSON.stringify({ attributeId: attribute, knownAttributes, origen: "IMC" }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudieron consultar los valores.");
