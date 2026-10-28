@@ -12,6 +12,12 @@ type ResultadoCarga = {
   errores: number;
 };
 
+type EstadoCatalogo = {
+  tareas_pendientes: number;
+  tareas_procesando: number;
+  tareas_error: number;
+};
+
 type ErrorConStatus = Error & { status?: number };
 
 const TIEMPO_MAXIMO_SOLICITUD_ML_MS = 75_000;
@@ -87,9 +93,10 @@ async function main() {
   instalarTiempoMaximoFetch();
 
   // These imports happen after dotenv so the database pool receives the local environment.
-  const [mercadolibreModule, databaseModule] = await Promise.all([
+  const [mercadolibreModule, databaseModule, catalogoModule] = await Promise.all([
     import("@/lib/mercadolibre"),
     import("@/utils/database"),
+    import("@/lib/catalogo-vehiculos-mercadolibre"),
   ]);
   // tsx can expose project modules through `default` or `module.exports`
   // when it evaluates the TypeScript path aliases as CommonJS.
@@ -98,7 +105,11 @@ async function main() {
     "sincronizarCatalogoVehiculosMercadoLibre"
   );
   const getPool = obtenerFuncionExportada<() => { end: () => Promise<void> }>(databaseModule, "getPool");
-  if (!sincronizarCatalogoVehiculosMercadoLibre || !getPool) {
+  const estadoCatalogoVehiculosMercadoLibre = obtenerFuncionExportada<() => Promise<EstadoCatalogo>>(
+    catalogoModule,
+    "estadoCatalogoVehiculosMercadoLibre"
+  );
+  if (!sincronizarCatalogoVehiculosMercadoLibre || !getPool || !estadoCatalogoVehiculosMercadoLibre) {
     throw new Error("No se pudieron cargar las dependencias locales de la carga continua.");
   }
 
@@ -115,10 +126,27 @@ async function main() {
 
   let lote = 0;
   let reintentosConsecutivos = 0;
-  console.log("Carga continua local iniciada. Ctrl+C la detiene sin perder el avance guardado.");
+  let enEspera = false;
+  let ultimoAvisoEspera = 0;
+  console.log("Carga continua local iniciada. Permanecera activa y Ctrl+C la detiene sin perder el avance guardado.");
 
   try {
     while (!detener) {
+      if (enEspera) {
+        const estado = await estadoCatalogoVehiculosMercadoLibre();
+        if (!estado.tareas_pendientes && !estado.tareas_procesando) {
+          if (Date.now() - ultimoAvisoEspera >= 5 * 60_000) {
+            const detalleError = estado.tareas_error ? ` Hay ${estado.tareas_error} tareas con error definitivo.` : "";
+            console.log(`[${new Date().toLocaleTimeString("es-AR")}] Sin tareas pendientes. Sigue activo y revisara de nuevo en un minuto.${detalleError}`);
+            ultimoAvisoEspera = Date.now();
+          }
+          await esperarDetenible(60_000);
+          continue;
+        }
+        enEspera = false;
+        console.log(`[${new Date().toLocaleTimeString("es-AR")}] Detectadas ${estado.tareas_pendientes} tareas pendientes. Reanudando carga.`);
+      }
+
       lote += 1;
       const inicio = Date.now();
       console.log(`[${new Date().toLocaleTimeString("es-AR")}] Lote ${lote}: iniciando.`);
@@ -130,23 +158,24 @@ async function main() {
         );
 
         if (resultado.completada) {
-          console.log("Carga base completada.");
-          break;
+          console.log("Carga base completada. Queda activo a la espera de tareas nuevas.");
+          enEspera = true;
+          continue;
         }
 
         if (!resultado.pendientes && !resultado.procesando && resultado.errores > 0) {
-          console.error(`La carga se detuvo: quedaron ${resultado.errores} tareas con error definitivo. Revisa la cola antes de reanudar.`);
-          process.exitCode = 1;
-          break;
+          console.error(`Quedaron ${resultado.errores} tareas con error definitivo. Sigue activo y reanudara si se agregan o reinician tareas.`);
+          enEspera = true;
+          continue;
         }
 
         await esperarDetenible(1_500);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Error desconocido durante la carga.";
         if (!esErrorReintentable(error)) {
-          console.error(`La carga se detuvo por un error no reintentable: ${message}`);
-          process.exitCode = 1;
-          break;
+          console.error(`Error no reintentable: ${message}. El proceso sigue activo y volvera a probar en cinco minutos.`);
+          await esperarDetenible(5 * 60_000);
+          continue;
         }
 
         reintentosConsecutivos += 1;
