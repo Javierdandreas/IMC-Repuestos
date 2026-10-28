@@ -21,10 +21,13 @@ export async function POST(request: NextRequest) {
   try {
     await requireApiWriteSession(request);
     const body = await request.json().catch(() => ({})) as { reiniciar?: unknown; modo?: unknown };
+    const startedAt = Date.now();
     const result = body.modo === "ENRIQUECER"
       ? await enriquecerCatalogoVehiculosMercadoLibre()
       : await sincronizarCatalogoVehiculosMercadoLibre(body.reiniciar === true);
-    return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
+    const duracionMs = Date.now() - startedAt;
+    console.info(`[catalogo vehiculos] ${body.modo === "ENRIQUECER" ? "enriquecimiento" : "base"}: ${result.tareasProcesadas} tareas, ${result.vehiculosGenerados} vehiculos, ${Math.floor(duracionMs / 60_000)}m ${Math.round((duracionMs % 60_000) / 1_000)}s`);
+    return NextResponse.json({ ...result, duracionMs }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return jsonError(error, "No se pudo actualizar el catalogo de vehiculos.");
   }

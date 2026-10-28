@@ -31,11 +31,20 @@ type Exploracion = {
 };
 type ResultadoCarga = {
   completada?: boolean;
+  rutasConsultadas?: number;
   tareasProcesadas?: number;
   vehiculosGenerados?: number;
+  duracionMs?: number;
   message?: string;
 };
 type ErrorSolicitud = Error & { status?: number };
+type RegistroLote = {
+  lote: number;
+  duracionMs: number;
+  rutasConsultadas: number;
+  tareasProcesadas: number;
+  vehiculosGenerados: number;
+};
 
 const principales: AttributeId[] = ["BRAND", "MODEL", "VEHICLE_YEAR", "ENGINE", "POWER"];
 const adicionales: AttributeId[] = ["SHORT_VERSION", "FUEL_TYPE", "VEHICLE_BODY_TYPE", "TRANSMISSION_CONTROL_TYPE", "GEAR_NUMBER", "DOORS", "STEERING", "TRACTION_CONTROL", "VALVES_PER_CYLINDER"];
@@ -51,6 +60,11 @@ function selectedValues(selected: Selected) {
   return Object.values(selected).flatMap((values) => values ?? []);
 }
 
+function formatDuration(durationMs: number | undefined) {
+  const totalSeconds = Math.max(0, Math.round((durationMs ?? 0) / 1_000));
+  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
+}
+
 export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: boolean }) {
   const [state, setState] = useState<Estado | null>(null);
   const [loadingState, setLoadingState] = useState(true);
@@ -58,6 +72,7 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
   const [continuous, setContinuous] = useState(false);
   const [continuousBatch, setContinuousBatch] = useState(0);
   const [localExecution, setLocalExecution] = useState(false);
+  const [batchLog, setBatchLog] = useState<RegistroLote[]>([]);
   const stopContinuousRef = useRef(false);
 
   const [selected, setSelected] = useState<Selected>({});
@@ -192,7 +207,7 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
         const nombre = modo === "ENRIQUECER" ? "Enriquecimiento" : "Carga base";
         toast.success(result.completada
           ? `${nombre} completado.`
-          : `${nombre}: ${result.tareasProcesadas ?? 0} ramas procesadas y ${result.vehiculosGenerados ?? 0} vehiculos guardados.`);
+          : `${nombre}: ${result.tareasProcesadas ?? 0} ramas procesadas, ${result.vehiculosGenerados ?? 0} vehiculos guardados en ${formatDuration(result.duracionMs)}.`);
       }
       await loadState();
       return result;
@@ -221,6 +236,7 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
     stopContinuousRef.current = false;
     setContinuous(true);
     setContinuousBatch(0);
+    setBatchLog([]);
     let completed = false;
     let batchesCompleted = 0;
     try {
@@ -243,6 +259,13 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
           break;
         }
         if (!result) break;
+        setBatchLog((current) => [{
+          lote: batch,
+          duracionMs: result.duracionMs ?? 0,
+          rutasConsultadas: result.rutasConsultadas ?? 0,
+          tareasProcesadas: result.tareasProcesadas ?? 0,
+          vehiculosGenerados: result.vehiculosGenerados ?? 0,
+        }, ...current].slice(0, 100));
         batchesCompleted = batch;
         if (result.completada) {
           completed = true;
@@ -308,6 +331,11 @@ export function CatalogoVehiculosMercadoLibrePage({ canManage }: { canManage: bo
       </div>
       <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-200 pt-4 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300"><span>{state?.marcas_objetivo ?? 0} marcas seleccionadas</span><span>Carga base: marca, modelo, Año, motor y potencia</span><span>{(state?.tareas_pendientes ?? 0).toLocaleString("es-AR")} ramas base pendientes</span><span>{(state?.tareas_enriquecimiento_pendientes ?? 0).toLocaleString("es-AR")} ramas para enriquecer</span>{continuous && <span className="text-blue-600 dark:text-blue-300">Carga base continua: lote {continuousBatch}{localExecution ? ", hasta detener" : " de 10"}</span>}{Boolean(state?.tareas_procesando) && <span>{state?.tareas_procesando} base en proceso</span>}{Boolean(state?.tareas_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_error} base con error</span>}{Boolean(state?.tareas_enriquecimiento_error) && <span className="text-red-600 dark:text-red-300">{state?.tareas_enriquecimiento_error} de enriquecimiento con error</span>}{state?.ultimo_error && <p className="basis-full text-xs font-semibold text-red-600 dark:text-red-300">{state.ultimo_error}</p>}</div>
     </section>
+
+    {batchLog.length > 0 && <section className="overflow-hidden border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3 dark:border-slate-800"><h2 className="text-sm font-black text-slate-900 dark:text-white">Registro de carga base</h2><span className="text-xs font-semibold text-slate-500">Ultimos {batchLog.length} lotes</span></div>
+      <div className="max-h-60 overflow-y-auto"><table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100 text-[10px] font-black uppercase text-slate-500 dark:bg-slate-950"><tr><th className="px-5 py-2">Lote</th><th className="px-5 py-2">Duracion</th><th className="px-5 py-2">Rutas</th><th className="px-5 py-2">Tareas</th><th className="px-5 py-2 text-right">Vehiculos guardados</th></tr></thead><tbody>{batchLog.map((entry) => <tr key={entry.lote} className="border-t border-slate-200 dark:border-slate-800"><td className="px-5 py-2 font-mono font-black text-slate-900 dark:text-white">{entry.lote}</td><td className="px-5 py-2 font-semibold text-slate-700 dark:text-slate-200">{formatDuration(entry.duracionMs)}</td><td className="px-5 py-2 font-mono text-slate-600 dark:text-slate-300">{entry.rutasConsultadas}</td><td className="px-5 py-2 font-mono text-slate-600 dark:text-slate-300">{entry.tareasProcesadas}</td><td className="px-5 py-2 text-right font-mono font-black text-blue-600 dark:text-blue-300">{entry.vehiculosGenerados.toLocaleString("es-AR")}</td></tr>)}</tbody></table></div>
+    </section>}
 
     <MlaCompatibilityLookup />
 
