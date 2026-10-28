@@ -3,6 +3,13 @@ import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 
 export type DbClient = Pick<PoolClient, "query">;
 
+function esErrorDeConexion(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const code = (error as Error & { code?: unknown }).code;
+  return ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "57P01", "57P02", "57P03"].includes(String(code))
+    || /connection terminated|connection error|client has encountered a connection error/i.test(error.message);
+}
+
 /**
  * Envolve una función asíncrona dentro de una transacción de PostgreSQL.
  * Realiza COMMIT si la función se ejecuta con éxito, o ROLLBACK si lanza un error.
@@ -10,22 +17,36 @@ export type DbClient = Pick<PoolClient, "query">;
 export async function withTransaction<T>(
   callback: (client: PoolClient) => Promise<T>
 ): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const result = await callback(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
+  // Only retry a connection that failed before BEGIN. Retrying after the
+  // callback could duplicate a write whose commit status is uncertain.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const client = await pool.connect();
+    let transactionStarted = false;
+    let releaseError: Error | undefined;
     try {
-      await client.query("ROLLBACK");
-    } catch (err) {
-      console.error("Error al realizar rollback:", err);
+      await client.query("BEGIN");
+      transactionStarted = true;
+      const result = await callback(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      const connectionError = esErrorDeConexion(error);
+      if (connectionError && error instanceof Error) releaseError = error;
+      if (transactionStarted && !connectionError) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackError) {
+          if (rollbackError instanceof Error) releaseError = rollbackError;
+          console.error("Error al realizar rollback:", rollbackError);
+        }
+      }
+      if (connectionError && !transactionStarted && attempt === 0) continue;
+      throw error;
+    } finally {
+      client.release(releaseError);
     }
-    throw error;
-  } finally {
-    client.release();
   }
+  throw new Error("No se pudo iniciar una transaccion de base de datos.");
 }
 
 /**

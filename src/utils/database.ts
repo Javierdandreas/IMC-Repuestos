@@ -1,9 +1,9 @@
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 
 const isProd = process.env.NODE_ENV === "production";
 
 // Función para obtener la configuración del pool de forma perezosa
-function getPoolConfig() {
+function getPoolConfig(): PoolConfig {
   const connectionString = process.env.DATABASE_URL;
   
   if (!connectionString) {
@@ -25,6 +25,8 @@ function getPoolConfig() {
     max: Number(process.env.DB_POOL_MAX ?? 10),
     idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30000),
     connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 10000),
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
   };
 }
 
@@ -46,6 +48,9 @@ export const getPool = () => {
             _pool = globalForPg.__imcPgPool;
         } else {
             _pool = new Pool(getPoolConfig());
+            _pool.on("error", (error) => {
+                console.error("Conexion inactiva de PostgreSQL cerrada por el servidor:", error.message);
+            });
             if (!isProd) globalForPg.__imcPgPool = _pool;
         }
     }
