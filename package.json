@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "catalogo:continuo": "tsx src/scripts/catalogo-vehiculos-continuo.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",
