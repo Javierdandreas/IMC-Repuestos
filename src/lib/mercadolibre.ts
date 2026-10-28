@@ -895,6 +895,7 @@ type TareaCargaVehiculo = {
 
 const LIMITE_RUTAS_POR_CARGA = 50;
 const LIMITE_VEHICULOS_POR_CARGA = 65;
+const ESPERA_ENTRE_CONSULTAS_CATALOGO_MS = 900;
 const SECUENCIA_CARGA_BASE: AtributoVehiculoId[] = [
   "MODEL",
   "VEHICLE_YEAR",
@@ -1238,8 +1239,8 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
         await encolarCargaVehiculos(children);
         tareasProcesadas += 1;
         await finalizarTareaCargaVehiculo(task.id);
-        // Mantiene el lote por debajo de las 100 solicitudes por minuto de ML.
-        await new Promise((resolve) => setTimeout(resolve, 650));
+        // Deja margen para filtros y demas llamadas de la misma aplicacion ML.
+        await new Promise((resolve) => setTimeout(resolve, ESPERA_ENTRE_CONSULTAS_CATALOGO_MS));
       } catch (error) {
         await finalizarTareaCargaVehiculo(task.id, error);
         throw error;
@@ -1319,7 +1320,7 @@ export async function enriquecerCatalogoVehiculosMercadoLibre() {
         await encolarEnriquecimientoVehiculos(children);
         tareasProcesadas += 1;
         await finalizarTareaEnriquecimientoVehiculo(task.id);
-        await new Promise((resolve) => setTimeout(resolve, 650));
+        await new Promise((resolve) => setTimeout(resolve, ESPERA_ENTRE_CONSULTAS_CATALOGO_MS));
       } catch (error) {
         await finalizarTareaEnriquecimientoVehiculo(task.id, error);
         throw error;
@@ -1741,9 +1742,13 @@ async function meliPost(path: string, idCuenta: number, token: string, body: Rec
     response = await request(accessToken);
   }
   if (path.includes("/top_values")) {
-    const retryDelays = [1_000, 2_500, 5_000];
-    for (const delay of retryDelays) {
-      if (response.ok || ![500, 502, 503, 504].includes(response.status)) break;
+    const retryDelays = [1_500, 3_000, 6_000, 12_000];
+    for (const fallbackDelay of retryDelays) {
+      if (response.ok || ![429, 500, 502, 503, 504].includes(response.status)) break;
+      const retryAfterSeconds = Number(response.headers.get("retry-after"));
+      const delay = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? Math.max(fallbackDelay, retryAfterSeconds * 1_000)
+        : fallbackDelay;
       await new Promise((resolve) => setTimeout(resolve, delay));
       response = await request(accessToken);
       if (response.status === 401) {
@@ -1756,7 +1761,7 @@ async function meliPost(path: string, idCuenta: number, token: string, body: Rec
   if (!response.ok) {
     const details = await response.json().catch(() => null) as { message?: unknown } | null;
     const message = typeof details?.message === "string" ? ` ${details.message}` : "";
-    throw new AppError(`Mercado Libre no pudo completar la respuesta (${response.status}).${message}`, response.status === 403 ? 403 : 502);
+    throw new AppError(`Mercado Libre no pudo completar la respuesta (${response.status}).${message}`, response.status === 403 || response.status === 429 ? response.status : 502);
   }
   return response.json() as Promise<unknown>;
 }
