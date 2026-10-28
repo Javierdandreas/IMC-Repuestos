@@ -14,6 +14,7 @@ type ResultadoCarga = {
 
 type ErrorConStatus = Error & { status?: number };
 
+const TIEMPO_MAXIMO_SOLICITUD_ML_MS = 75_000;
 let detener = false;
 
 function formatoDuracion(milisegundos: number) {
@@ -36,7 +37,29 @@ function esErrorReintentable(error: unknown) {
   const status = Number((error as ErrorConStatus)?.status ?? 0);
   if ([429, 500, 502, 503, 504].includes(status)) return true;
   const message = error instanceof Error ? error.message : String(error);
-  return /connection terminated|connection error|econnreset|etimedout|fetch failed/i.test(message);
+  return /connection terminated|connection error|econnreset|etimedout|fetch failed|solicitud.*supero|abort/i.test(message);
+}
+
+function instalarTiempoMaximoFetch() {
+  const fetchOriginal = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const controller = new AbortController();
+    const requestSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+    const abortarSolicitudOriginal = () => controller.abort(requestSignal?.reason);
+    if (requestSignal?.aborted) abortarSolicitudOriginal();
+    else requestSignal?.addEventListener("abort", abortarSolicitudOriginal, { once: true });
+
+    const timer = setTimeout(() => {
+      controller.abort(new Error(`La solicitud a Mercado Libre supero ${TIEMPO_MAXIMO_SOLICITUD_ML_MS / 1_000} segundos.`));
+    }, TIEMPO_MAXIMO_SOLICITUD_ML_MS);
+
+    try {
+      return await fetchOriginal(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+      requestSignal?.removeEventListener("abort", abortarSolicitudOriginal);
+    }
+  };
 }
 
 function mostrarAyuda() {
@@ -49,6 +72,8 @@ async function main() {
     mostrarAyuda();
     return;
   }
+
+  instalarTiempoMaximoFetch();
 
   // These imports happen after dotenv so the database pool receives the local environment.
   const [mercadolibreModule, databaseModule] = await Promise.all([
@@ -81,6 +106,7 @@ async function main() {
     while (!detener) {
       lote += 1;
       const inicio = Date.now();
+      console.log(`[${new Date().toLocaleTimeString("es-AR")}] Lote ${lote}: iniciando.`);
       try {
         const resultado = await sincronizarCatalogoVehiculosMercadoLibre(false) as ResultadoCarga;
         reintentosConsecutivos = 0;
