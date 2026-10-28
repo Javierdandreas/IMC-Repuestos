@@ -1,8 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { normalizeText, normalizeCode } from "@/utils/text";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { PiezaForm } from "@/components/piezas/PiezaForm";
@@ -21,11 +20,19 @@ type Props = {
   subcategorias: SubcategoriaOption[];
   nextCode: number;
   totalPages?: number;
+  totalCount: number;
+  initialFilters: {
+    busquedaGeneral: string;
+    codigoExacto: string;
+    idCategoria: string;
+    idSubcategoria: string;
+  };
 };
 
-export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPages = 1 }: Props) {
+export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPages = 1, totalCount, initialFilters }: Props) {
 
   const router = useRouter();
+  const pathname = usePathname();
   const { canManage } = usePermissions();
   const [openNew, setOpenNew] = useState(false);
   const [editingPieza, setEditingPieza] = useState<PiezaListado | null>(null);
@@ -35,10 +42,10 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
   const [previewMedida, setPreviewMedida] = useState<string | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
   
-  const [searchGeneral, setSearchGeneral] = useState("");
-  const [searchSpecific, setSearchSpecific] = useState("");
-  const [categoria, setCategoria] = useState("");
-  const [subcategoria, setSubcategoria] = useState("");
+  const [searchGeneral, setSearchGeneral] = useState(initialFilters.busquedaGeneral);
+  const [searchSpecific, setSearchSpecific] = useState(initialFilters.codigoExacto);
+  const [categoria, setCategoria] = useState(initialFilters.idCategoria);
+  const [subcategoria, setSubcategoria] = useState(initialFilters.idSubcategoria);
 
   const subcategoriasDisponibles = useMemo(() => {
     if (!categoria) return [] as SubcategoriaOption[];
@@ -47,70 +54,46 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
       .sort((a, b) => a.descripcion.localeCompare(b.descripcion));
   }, [subcategorias, categoria]);
 
-  const filteredPiezas = useMemo(() => {
-    const generalText = normalizeText(searchGeneral);
-    const generalCode = normalizeCode(searchGeneral);
-    const specificCode = normalizeCode(searchSpecific);
+  const hasActiveFilters = Boolean(
+    initialFilters.busquedaGeneral
+    || initialFilters.codigoExacto
+    || initialFilters.idCategoria
+    || initialFilters.idSubcategoria
+  );
 
-    return piezas.filter((pieza) => {
-      // 1. Filtro por Categoría (ID)
-      if (categoria) {
-        const cat = categorias.find(c => String(c.id) === categoria);
-        if (pieza.categoria !== cat?.descripcion) return false;
-      }
+  useEffect(() => {
+    setSearchGeneral(initialFilters.busquedaGeneral);
+    setSearchSpecific(initialFilters.codigoExacto);
+    setCategoria(initialFilters.idCategoria);
+    setSubcategoria(initialFilters.idSubcategoria);
+  }, [initialFilters.busquedaGeneral, initialFilters.codigoExacto, initialFilters.idCategoria, initialFilters.idSubcategoria]);
 
-      // 2. Filtro por Subcategoría (ID)
-      if (subcategoria) {
-        const sub = subcategorias.find(s => String(s.id) === subcategoria);
-        if (pieza.subcategoria !== sub?.descripcion) return false;
-      }
+  useEffect(() => {
+    const filtersChanged = searchGeneral !== initialFilters.busquedaGeneral
+      || searchSpecific !== initialFilters.codigoExacto
+      || categoria !== initialFilters.idCategoria
+      || subcategoria !== initialFilters.idSubcategoria;
+    if (!filtersChanged) return;
 
-      // Preparamos campos de texto para búsqueda general
-      const textFields = [
-        pieza.codigo_pieza,
-        pieza.descripcion,
-        pieza.medida ?? "",
-        pieza.categoria ?? "",
-        pieza.subcategoria ?? "",
-      ];
-      
-      const generalHaystackText = normalizeText(textFields.join(" "));
-      const generalTextTokens = generalText ? generalText.split(" ").filter(Boolean) : [];
-      const matchesGeneralText = generalTextTokens.length === 0
-        ? true
-        : generalTextTokens.every((token) => generalHaystackText.includes(token));
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams();
+      if (searchGeneral) params.set("q", searchGeneral);
+      if (searchSpecific) params.set("codigo", searchSpecific);
+      if (categoria) params.set("categoria", categoria);
+      if (subcategoria) params.set("subcategoria", subcategoria);
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    }, 300);
 
-      // Candidatos de códigos (item asociado, originales, equivalentes)
-      const codeCandidates = [
-        String(pieza.codigo_pieza),
-        ...(pieza.originales ?? []).filter(Boolean),
-        ...(pieza.equivalentes ?? []).filter(Boolean),
-        ...(pieza.sustitutos ?? []).filter(Boolean),
-      ];
-      const generalHaystackCode = normalizeCode(codeCandidates.join(" "));
-      const matchesGeneralCode = !generalCode || generalHaystackCode.includes(generalCode);
-
-      // Si hay búsqueda general, debe coincidir texto O código
-      if (searchGeneral && !(matchesGeneralText || matchesGeneralCode)) {
-        return false;
-      }
-
-      // Buscador específico (exacto)
-      if (specificCode) {
-        const exactCandidates = codeCandidates.map((value) => normalizeCode(value));
-        const matchesSpecific = exactCandidates.some((value) => value === specificCode);
-        if (!matchesSpecific) return false;
-      }
-
-      return true;
-    });
-  }, [piezas, searchGeneral, searchSpecific, categoria, subcategoria, categorias, subcategorias]);
+    return () => window.clearTimeout(timer);
+  }, [searchGeneral, searchSpecific, categoria, subcategoria, initialFilters, pathname, router]);
 
   const clearFilters = () => {
     setSearchGeneral("");
     setSearchSpecific("");
     setCategoria("");
     setSubcategoria("");
+    router.replace(pathname);
   };
 
   const mapToForm = (pieza: PiezaListado | null): Pieza | undefined => {
@@ -252,7 +235,7 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
 
           <div className="flex items-center justify-between mt-1">
             <div className="text-xs font-medium text-slate-400 dark:text-slate-500">
-              Resultados: <span className="text-slate-900 dark:text-white font-bold">{filteredPiezas.length}</span>
+              Resultados: <span className="text-slate-900 dark:text-white font-bold">{totalCount}</span>
             </div>
             <button
               onClick={clearFilters}
@@ -276,14 +259,14 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredPiezas.length === 0 ? (
+              {piezas.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12 text-center text-sm font-medium text-slate-500 dark:text-slate-500">
-                    {piezas.length === 0 ? "Todavía no hay items asociados cargados." : "No hay items asociados que coincidan con los filtros."}
+                    {hasActiveFilters ? "No hay items asociados que coincidan con los filtros." : "Todavía no hay items asociados cargados."}
                   </td>
                 </tr>
               ) : (
-                filteredPiezas.map((pieza) => (
+                piezas.map((pieza) => (
                   <tr key={pieza.id} className="group transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/30">
                     <td className="whitespace-nowrap px-5 py-4">
                       <span className="font-mono text-sm font-black text-slate-900 dark:text-white">{pieza.codigo_pieza}</span>

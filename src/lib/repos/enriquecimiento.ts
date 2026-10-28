@@ -1,6 +1,6 @@
 import { query, withTransaction, type DbClient } from "@/lib/db-utils";
 import { revalidateTag } from "next/cache";
-import { buildConflictMessage, findCodeConflicts, findOrCreateCodigo } from "@/lib/repos/piezas";
+import { buildConflictMessage, findCodeConflicts, findOrCreateCodigo, reservarCodigoPiezaDisponible } from "@/lib/repos/piezas";
 import { sanitizeCodes, sanitizeRequiredString } from "@/utils/sanitization";
 import { firmaCompatibilidadVehiculo, guardarVehiculosCanonicos, normalizarAtributosVehiculo, type ValorVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
 
@@ -484,17 +484,19 @@ export async function crearPiezaDesdeItems(input: {
     const descripcion = sanitizeRequiredString(input.descripcion === undefined ? source?.descripcion : input.descripcion);
     if (!descripcion) throw new Error("La descripcion seleccionada no es valida.");
 
-    const piezaResult = await client.query<{ id: number; codigo_pieza: number; descripcion: string }>(`
-      INSERT INTO public.pieza (descripcion, medida, imagen_medida_url, id_subcategoria)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, codigo_pieza, descripcion
-    `, [descripcion, medida, imagenMedidaUrl, rows[0].id_subcategoria]);
-    const pieza = piezaResult.rows[0];
-
     const originalConflicts = await findCodeConflicts(client, originales, "ORIGINAL");
     if (originalConflicts.length > 0) {
       throw new Error(buildConflictMessage("Estos numeros originales ya existen en otros items asociados", originalConflicts));
     }
+
+    const codigoPieza = await reservarCodigoPiezaDisponible(client);
+
+    const piezaResult = await client.query<{ id: number; codigo_pieza: number; descripcion: string }>(`
+      INSERT INTO public.pieza (codigo_pieza, descripcion, medida, imagen_medida_url, id_subcategoria)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, codigo_pieza, descripcion
+    `, [codigoPieza, descripcion, medida, imagenMedidaUrl, rows[0].id_subcategoria]);
+    const pieza = piezaResult.rows[0];
 
     const codigosPorTipo: Array<{ tipo: "ORIGINAL" | "EQUIVALENTE" | "SUSTITUTO"; codigos: string[] }> = [
       { tipo: "ORIGINAL", codigos: originales },

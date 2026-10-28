@@ -10,8 +10,17 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const page = Number(searchParams.get("page")) || 1;
     const limit = Number(searchParams.get("limit")) || 50;
+    const idFilter = (key: string) => {
+      const value = Number(searchParams.get(key));
+      return Number.isInteger(value) && value > 0 ? value : null;
+    };
 
-    const result = await getPiezasListado(page, limit);
+    const result = await getPiezasListado(page, limit, {
+      busquedaGeneral: searchParams.get("q") ?? "",
+      codigoExacto: searchParams.get("codigo") ?? "",
+      idCategoria: idFilter("categoria"),
+      idSubcategoria: idFilter("subcategoria"),
+    });
     return NextResponse.json(result);
   } catch (error: unknown) {
     return jsonError(error, "No se pudieron obtener los items asociados");

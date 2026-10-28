@@ -6,6 +6,7 @@ import type { PiezaBusqueda } from "@/interfaces/productos";
 import { sanitizeUppercaseString as sanitizeText, sanitizeCodes } from "@/utils/sanitization";
 import { deleteFileFromStorage } from "@/lib/storage-cleanup";
 import { firmaCompatibilidadVehiculo, guardarVehiculosCanonicos, normalizarAtributosVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
+import { normalizeCode, normalizeText } from "@/utils/text";
 export type ConflictRow = {
   codigo: string;
   codigo_pieza: number;
@@ -44,6 +45,13 @@ export type PiezaImportResult = {
   categoriesCreated: string[];
   subcategoriesCreated: string[];
   errors: Array<{ row: number; error: string; codigo_pieza: string }>;
+};
+
+export type PiezaListadoFiltros = {
+  busquedaGeneral?: string;
+  codigoExacto?: string;
+  idCategoria?: number | null;
+  idSubcategoria?: number | null;
 };
 
 
@@ -196,7 +204,63 @@ async function cleanupOrphanedCodes(client: DbClient) {
   `);
 }
 
-export async function getPiezasListado(page: number = 1, limit: number = 50): Promise<{ data: PiezaListado[]; totalCount: number; totalPages: number }> {
+export async function getPiezasListado(
+  page: number = 1,
+  limit: number = 50,
+  filters: PiezaListadoFiltros = {}
+): Promise<{ data: PiezaListado[]; totalCount: number; totalPages: number }> {
+  const params: unknown[] = [];
+  const where: string[] = [];
+  const addParam = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  const categoriaId = Number(filters.idCategoria);
+  if (Number.isInteger(categoriaId) && categoriaId > 0) {
+    where.push(`c.id = ${addParam(categoriaId)}`);
+  }
+
+  const subcategoriaId = Number(filters.idSubcategoria);
+  if (Number.isInteger(subcategoriaId) && subcategoriaId > 0) {
+    where.push(`p.id_subcategoria = ${addParam(subcategoriaId)}`);
+  }
+
+  const textSearch = normalizeText(filters.busquedaGeneral).slice(0, 100);
+  if (textSearch) {
+    const normalizedTextSql = `translate(upper(concat_ws(' ', p.codigo_pieza::text, p.descripcion, p.medida, c.descripcion, s.descripcion)), 'ÁÉÍÓÚÜÑ', 'AEIOUUN')`;
+    const textConditions = textSearch
+      .split(" ")
+      .filter(Boolean)
+      .map((token) => `${normalizedTextSql} LIKE ${addParam(`%${token}%`)}`);
+    const codeSearch = normalizeCode(textSearch);
+    const codeCondition = codeSearch
+      ? `(regexp_replace(upper(p.codigo_pieza::text), '[^A-Z0-9]', '', 'g') LIKE ${addParam(`%${codeSearch}%`)} OR EXISTS (
+          SELECT 1
+          FROM public.pieza_codigo_referencia pcr_search
+          JOIN public.codigo_referencia cr_search ON cr_search.id = pcr_search.id_codigo_referencia
+          WHERE pcr_search.id_pieza = p.id
+            AND regexp_replace(upper(cr_search.codigo), '[^A-Z0-9]', '', 'g') LIKE ${addParam(`%${codeSearch}%`)}
+        ))`
+      : "FALSE";
+    where.push(`((${textConditions.join(" AND ")}) OR ${codeCondition})`);
+  }
+
+  const exactCode = normalizeCode(filters.codigoExacto).slice(0, 100);
+  if (exactCode) {
+    const exactCodeParam = addParam(exactCode);
+    where.push(`(
+      regexp_replace(upper(p.codigo_pieza::text), '[^A-Z0-9]', '', 'g') = ${exactCodeParam}
+      OR EXISTS (
+        SELECT 1
+        FROM public.pieza_codigo_referencia pcr_exact
+        JOIN public.codigo_referencia cr_exact ON cr_exact.id = pcr_exact.id_codigo_referencia
+        WHERE pcr_exact.id_pieza = p.id
+          AND regexp_replace(upper(cr_exact.codigo), '[^A-Z0-9]', '', 'g') = ${exactCodeParam}
+      )
+    )`);
+  }
+
   const sql = `
     SELECT
       p.id,
@@ -227,11 +291,12 @@ export async function getPiezasListado(page: number = 1, limit: number = 50): Pr
     JOIN categoria c ON c.id = s.id_categoria
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
     GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.imagen_medida_url, p.id_subcategoria, s.descripcion, c.descripcion
     ORDER BY p.codigo_pieza ASC
   `;
 
-  return await paginateQuery<PiezaListado>("pieza", sql, page, limit);
+  return await paginateQuery<PiezaListado>("pieza", sql, page, limit, params);
 }
 
 export async function getPiezasParaExportar(): Promise<Record<string, string | number | null>[]> {
@@ -636,12 +701,38 @@ export async function getPiezasBusquedaLive(searchTerm: string): Promise<PiezaBu
   return rows as PiezaBusqueda[];
 }
 
+const SQL_SIGUIENTE_CODIGO_PIEZA = `
+  WITH ordenados AS (
+    SELECT codigo_pieza,
+      LEAD(codigo_pieza) OVER (ORDER BY codigo_pieza) AS siguiente
+    FROM public.pieza
+  ), primer_hueco AS (
+    SELECT codigo_pieza + 1 AS codigo_pieza
+    FROM ordenados
+    WHERE siguiente > codigo_pieza + 1
+    ORDER BY codigo_pieza
+    LIMIT 1
+  )
+  SELECT COALESCE(
+    (SELECT codigo_pieza FROM primer_hueco),
+    (SELECT COALESCE(MAX(codigo_pieza), 0) + 1 FROM public.pieza)
+  ) AS codigo_pieza
+`;
+
+async function obtenerSiguienteCodigoPieza(client: DbClient): Promise<number> {
+  const { rows } = await client.query<{ codigo_pieza: number }>(SQL_SIGUIENTE_CODIGO_PIEZA);
+  return Number(rows[0].codigo_pieza);
+}
+
 export async function getNextCodigoPieza(): Promise<number> {
-  const { rows } = await query(`
-    SELECT COALESCE(MAX(codigo_pieza), 0) + 1 as next 
-    FROM pieza
-  `);
-  return Number(rows[0].next);
+  const { rows } = await query<{ codigo_pieza: number }>(SQL_SIGUIENTE_CODIGO_PIEZA);
+  return Number(rows[0].codigo_pieza);
+}
+
+export async function reservarCodigoPiezaDisponible(client: DbClient): Promise<number> {
+  // Serializa solo la asignacion del codigo para que dos altas concurrentes no usen el mismo hueco.
+  await client.query("SELECT pg_advisory_xact_lock($1)", [874231]);
+  return await obtenerSiguienteCodigoPieza(client);
 }
 
 
@@ -700,13 +791,15 @@ export async function createPieza(input: PiezaInput) {
 
     const equivalenteConflicts = await findCodeConflicts(client, payload.equivalentes, "EQUIVALENTE");
 
+    const codigoPieza = await reservarCodigoPiezaDisponible(client);
+
     const piezaResult = await client.query(
       `
-        INSERT INTO pieza (descripcion, medida, imagen_medida_url, id_subcategoria)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO pieza (codigo_pieza, descripcion, medida, imagen_medida_url, id_subcategoria)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING *
       `,
-      [payload.descripcion, payload.medida, payload.imagenMedidaUrl, payload.idSubcategoria]
+      [codigoPieza, payload.descripcion, payload.medida, payload.imagenMedidaUrl, payload.idSubcategoria]
     );
 
     const pieza = piezaResult.rows[0];
