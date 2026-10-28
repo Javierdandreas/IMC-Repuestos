@@ -62,6 +62,17 @@ function instalarTiempoMaximoFetch() {
   };
 }
 
+function obtenerFuncionExportada<T extends (...args: never[]) => unknown>(modulo: unknown, nombre: string): T | null {
+  const base = modulo as Record<string, unknown>;
+  const candidatos = [base, base.default, base["module.exports"]]
+    .filter((candidate): candidate is Record<string, unknown> => Boolean(candidate) && typeof candidate === "object");
+  for (const candidato of candidatos) {
+    const funcion = candidato[nombre];
+    if (typeof funcion === "function") return funcion as T;
+  }
+  return null;
+}
+
 function mostrarAyuda() {
   console.log("Uso: npm run catalogo:continuo");
   console.log("Procesa la carga base de vehiculos hasta terminar, detenerse con Ctrl+C o encontrar errores definitivos.");
@@ -80,12 +91,16 @@ async function main() {
     import("@/lib/mercadolibre"),
     import("@/utils/database"),
   ]);
-  // tsx can expose project modules through `default` when it evaluates the
-  // TypeScript path aliases as CommonJS.
-  const mercadolibreExports = mercadolibreModule as unknown as { default?: typeof import("@/lib/mercadolibre") };
-  const databaseExports = databaseModule as unknown as { default?: typeof import("@/utils/database") };
-  const { sincronizarCatalogoVehiculosMercadoLibre } = mercadolibreExports.default ?? mercadolibreModule;
-  const { getPool } = databaseExports.default ?? databaseModule;
+  // tsx can expose project modules through `default` or `module.exports`
+  // when it evaluates the TypeScript path aliases as CommonJS.
+  const sincronizarCatalogoVehiculosMercadoLibre = obtenerFuncionExportada<(reiniciar?: boolean) => Promise<ResultadoCarga>>(
+    mercadolibreModule,
+    "sincronizarCatalogoVehiculosMercadoLibre"
+  );
+  const getPool = obtenerFuncionExportada<() => { end: () => Promise<void> }>(databaseModule, "getPool");
+  if (!sincronizarCatalogoVehiculosMercadoLibre || !getPool) {
+    throw new Error("No se pudieron cargar las dependencias locales de la carga continua.");
+  }
 
   const solicitarDetencion = (signal: string) => {
     if (detener) {
