@@ -8,7 +8,7 @@ CREATE TABLE public.categoria (
 );
 CREATE TABLE public.codigo_referencia (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
-  codigo character varying NOT NULL,
+  codigo character varying(2000) NOT NULL,
   activo boolean NOT NULL DEFAULT true,
   created_at timestamp without time zone NOT NULL DEFAULT now(),
   updated_at timestamp without time zone NOT NULL DEFAULT now(),
