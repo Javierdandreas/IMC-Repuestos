@@ -73,6 +73,7 @@ export function permisoParaPagina(pathname: string, searchParams: URLSearchParam
   }
   if (pathname.startsWith("/listados/precios-modificados")) return requisito("costos_modificados", "leer");
   if (pathname.startsWith("/listados/movimientos-stock")) return requisito("movimientos_stock", "leer");
+  if (pathname === "/listados") return ["productos:leer", "movimientos_stock:leer", "inventario_ubicacion:leer", "costos_modificados:leer", "marcas:leer", "categorias:leer", "ubicaciones:leer"];
   if (pathname.startsWith("/listados/base-de-datos")) return ["marcas:leer", "categorias:leer", "ubicaciones:leer"];
   if (pathname.startsWith("/listados/importar-exportar")) return requisito("importaciones", "leer");
   if (pathname.startsWith("/ubicaciones/inventario")) return requisito("inventario_ubicacion", "leer");

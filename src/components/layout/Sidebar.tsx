@@ -74,9 +74,10 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Listados",
-    href: "/listados/base-de-datos",
+    href: "/listados",
     icon: HiOutlineLibrary,
     links: [
+      { href: "/listados", label: "Todos los listados", permisos: ["productos:leer", "movimientos_stock:leer", "inventario_ubicacion:leer", "costos_modificados:leer", "marcas:leer", "categorias:leer", "ubicaciones:leer"] },
       { href: "/listados/base-de-datos", label: "Base de datos", permisos: ["marcas:leer", "categorias:leer", "ubicaciones:leer"] },
       { href: "/listados/importar-exportar", label: "Importar y exportar", permisos: ["importaciones:leer"] },
       { href: "/listados/precios-modificados", label: "Costos modificados", permisos: ["costos_modificados:leer"] },
