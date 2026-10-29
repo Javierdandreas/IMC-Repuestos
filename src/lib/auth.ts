@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { pool } from "@/utils/database";
 import { createClient as createCookieSupabaseClient } from "@/utils/supabase/server";
-import { canReadContent, normalizeRole } from "@/lib/permissions";
+import { normalizeRole, tienePermisoDeLectura } from "@/lib/permissions";
 
 export type AuthenticatedInternalUser = {
   authUserId: string;
@@ -14,6 +14,7 @@ export type AuthenticatedInternalUser = {
   nombreUsuario: string | null;
   rol: "admin" | "empleado" | "";
   activo: boolean;
+  permisos: string[];
 };
 
 type InternalUserRow = {
@@ -63,11 +64,12 @@ function mapInternalUser(row: InternalUserRow | null | undefined): Authenticated
     nombreUsuario: row.nombreUsuario,
     rol: normalizeRole(row.rol),
     activo: Boolean(row.activo),
+    permisos: [],
   };
 }
 
 export function canAccessApp(session: AuthenticatedInternalUser | null | undefined): boolean {
-  return Boolean(session && session.activo && canReadContent(session.rol));
+  return Boolean(session && session.activo && tienePermisoDeLectura(session.rol, session.permisos));
 }
 
 export async function findInternalUserByAuthUserId(
@@ -94,7 +96,15 @@ export async function findInternalUserByAuthUserId(
       [authUserId]
     );
 
-    return mapInternalUser(rows[0]);
+    const usuario = mapInternalUser(rows[0]);
+    if (!usuario) return null;
+
+    const permisos = await pool.query<{ apartado: string; accion: string }>(
+      "SELECT apartado, accion FROM public.usuario_permiso WHERE usuario_id = $1",
+      [usuario.usuarioId]
+    );
+    usuario.permisos = permisos.rows.map((permiso) => `${permiso.apartado}:${permiso.accion}`);
+    return usuario;
   } catch (error: any) {
     console.error("❌ Error en findInternalUserByAuthUserId:", {
       message: error.message,

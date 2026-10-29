@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
       usuarioId: session.usuarioId,
       rol: session.rol,
       activo: session.activo,
+      permisos: session.permisos,
       canManage: canManageContent(session.rol),
     });
   } catch (error: unknown) {

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { findInternalUserByAuthUserId } from "@/lib/auth";
-import { canReadContent } from "@/lib/permissions";
+import { canAccessApp, findInternalUserByAuthUserId } from "@/lib/auth";
 import { rateLimit, getRequestIp } from "@/lib/rate-limit";
 import { jsonError } from "@/lib/api-errors";
 
@@ -90,7 +89,7 @@ export async function POST(request: NextRequest) {
     console.log(`✅ Supabase Auth exitoso para user id: ${user.id}. Buscando usuario en DB interna...`);
     const internalUser = await findInternalUserByAuthUserId(user.id);
 
-    if (!internalUser || !internalUser.activo || !canReadContent(internalUser.rol)) {
+    if (!internalUser || !canAccessApp(internalUser)) {
       console.warn(`⚠️ Usuario ${user.id} sin permisos o inactivo en IMC.`);
       await supabase.auth.signOut();
       return NextResponse.json(

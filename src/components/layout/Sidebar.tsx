@@ -17,12 +17,15 @@ import { ThemeToggle } from "./ThemeToggle";
 import LogoutButton from "../auth/LogoutButton";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
+import { puedeAccederPermisos, type RequisitoPermiso } from "@/lib/permissions";
 
 interface NavLink {
   href?: string;
   label: string;
   external?: boolean;
   disabled?: boolean;
+  permisos?: RequisitoPermiso;
+  soloAdmin?: boolean;
 }
 
 interface NavGroup {
@@ -44,11 +47,11 @@ const navGroups: NavGroup[] = [
     href: "/operaciones?tipo=VENTA",
     icon: HiOutlineShoppingCart,
     links: [
-      { href: "/operaciones?tipo=VENTA", label: "Ventas" },
-      { href: "/operaciones?tipo=COMPRA", label: "Compras" },
-      { href: "/operaciones?tipo=AJUSTE", label: "Ajustes de stock" },
-      { href: "/operaciones/mercadolibre", label: "Mercado Libre" },
-      { href: "/operaciones/mercadolibre/compatibilidades", label: "Compatibilidades" },
+      { href: "/operaciones?tipo=VENTA", label: "Ventas", permisos: ["ventas:leer"] },
+      { href: "/operaciones?tipo=COMPRA", label: "Compras", permisos: ["compras:leer"] },
+      { href: "/operaciones?tipo=AJUSTE", label: "Ajustes de stock", permisos: ["ajustes_stock:leer"] },
+      { href: "/operaciones/mercadolibre", label: "Mercado Libre", permisos: ["ml_ventas:leer"] },
+      { href: "/operaciones/mercadolibre/compatibilidades", label: "Compatibilidades", permisos: ["ml_compatibilidades:leer"] },
       { href: "https://imc-cerebro.vercel.app/", label: "Presupuestos", external: true },
     ],
   },
@@ -57,8 +60,8 @@ const navGroups: NavGroup[] = [
     href: "/",
     icon: HiOutlineCube,
     links: [
-      { href: "/", label: "Listado general" },
-      { href: "/piezas", label: "Items asociados" },
+      { href: "/", label: "Listado general", permisos: ["productos:leer"] },
+      { href: "/piezas", label: "Items asociados", permisos: ["piezas:leer"] },
     ],
   },
   {
@@ -66,7 +69,7 @@ const navGroups: NavGroup[] = [
     href: "/proveedores",
     icon: HiOutlineUsers,
     links: [
-      { href: "/proveedores", label: "Proveedores" },
+      { href: "/proveedores", label: "Proveedores", permisos: ["proveedores:leer"] },
       { label: "Clientes", disabled: true },
     ],
   },
@@ -75,9 +78,9 @@ const navGroups: NavGroup[] = [
     href: "/listados/precios-modificados",
     icon: HiOutlineLibrary,
     links: [
-      { href: "/listados/precios-modificados", label: "Costos modificados" },
-      { href: "/listados/movimientos-stock", label: "Movimientos de stock" },
-      { href: "/ubicaciones/inventario", label: "Inventario por ubicacion" },
+      { href: "/listados/precios-modificados", label: "Costos modificados", permisos: ["costos_modificados:leer"] },
+      { href: "/listados/movimientos-stock", label: "Movimientos de stock", permisos: ["movimientos_stock:leer"] },
+      { href: "/ubicaciones/inventario", label: "Inventario por ubicacion", permisos: ["inventario_ubicacion:leer"] },
     ],
   },
   {
@@ -85,13 +88,13 @@ const navGroups: NavGroup[] = [
     href: "/configuracion/datos",
     icon: HiOutlineCog,
     links: [
-      { href: "/configuracion/datos", label: "Datos" },
-      { href: "/configuracion/base-de-datos", label: "Base de datos" },
-      { href: "/configuracion/precios", label: "Listas de precio" },
-      { href: "/configuracion/multimoneda", label: "Multimoneda" },
-      { href: "/configuracion/enriquecimiento", label: "Enriquecimiento" },
-      { href: "/configuracion/usuarios", label: "Usuarios" },
-      { href: "/importaciones", label: "Importaciones" },
+      { href: "/configuracion/datos", label: "Datos", permisos: ["marcas:leer", "categorias:leer", "ubicaciones:leer"] },
+      { href: "/configuracion/base-de-datos", label: "Base de datos", permisos: ["marcas:leer", "categorias:leer", "ubicaciones:leer"] },
+      { href: "/configuracion/precios", label: "Listas de precio", permisos: ["listas_precios:leer"] },
+      { href: "/configuracion/multimoneda", label: "Multimoneda", permisos: ["multimoneda:leer"] },
+      { href: "/configuracion/enriquecimiento", label: "Enriquecimiento", permisos: ["enriquecimiento:leer"] },
+      { href: "/configuracion/usuarios", label: "Usuarios", soloAdmin: true },
+      { href: "/importaciones", label: "Importaciones", permisos: ["importaciones:leer"] },
     ],
   },
 ];
@@ -117,6 +120,18 @@ export const Sidebar = () => {
     return pathname === "/" && params ? `/?${params}` : "/";
   })();
 
+  const navHref = (href: string) => href === "/" ? itemsHref : href;
+  const puedeVerLink = (link: NavLink) => {
+    if (link.soloAdmin) return user?.rol?.toLowerCase() === "admin";
+    return !link.permisos || puedeAccederPermisos(user?.rol, user?.permisos, link.permisos);
+  };
+  const linksVisibles = (group: NavGroup) => group.links.filter(puedeVerLink);
+  const gruposVisibles = navGroups.filter((group) => linksVisibles(group).length > 0);
+  const hrefGrupo = (group: NavGroup) => {
+    const principal = linksVisibles(group).find((link) => link.href && !link.external)?.href;
+    return navHref(principal || group.href);
+  };
+
   const isGroupActive = (group: NavGroup) => {
     if (group.label === "Items") return pathname === "/" || pathname.startsWith("/productos") || pathname.startsWith("/piezas") || pathname.startsWith("/kits");
     if (group.label === "Operaciones") return pathname.startsWith("/operaciones") || pathname === "/configuracion/mercadolibre";
@@ -130,7 +145,7 @@ export const Sidebar = () => {
     return false;
   };
 
-  const activeGroup = navGroups.find(isGroupActive) ?? null;
+  const activeGroup = gruposVisibles.find(isGroupActive) ?? null;
 
   const isLinkActive = (href?: string) => {
     if (!href || href.startsWith("http")) return false;
@@ -161,8 +176,6 @@ export const Sidebar = () => {
     setUserMenuOpen(false);
   }, [pathname, searchParams]);
 
-  const navHref = (href: string) => href === "/" ? itemsHref : href;
-
   return (
     <header ref={navRef} className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-black/95">
       <nav className="mx-auto flex h-16 max-w-[1600px] items-center gap-3 px-4 md:px-6" aria-label="Navegacion principal">
@@ -171,11 +184,11 @@ export const Sidebar = () => {
         </Link>
 
         <div className="hidden h-full items-center gap-1 md:flex">
-          {navGroups.map((group) => {
+          {gruposVisibles.map((group) => {
             const Icon = group.icon;
             const active = isGroupActive(group);
             return (
-              <Link key={group.label} href={navHref(group.href)} className={`flex h-full items-center gap-2 border-b-2 px-3 text-sm font-bold transition-colors ${active ? "border-blue-600 text-slate-950 dark:text-white" : "border-transparent text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"}`}>
+              <Link key={group.label} href={hrefGrupo(group)} className={`flex h-full items-center gap-2 border-b-2 px-3 text-sm font-bold transition-colors ${active ? "border-blue-600 text-slate-950 dark:text-white" : "border-transparent text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"}`}>
                 <Icon className="h-5 w-5" />
                 <span>{group.label}</span>
               </Link>
@@ -205,7 +218,7 @@ export const Sidebar = () => {
       {activeGroup && (
         <nav className="border-t border-slate-100 bg-slate-50 dark:border-slate-900 dark:bg-slate-950/80" aria-label={`Opciones de ${activeGroup.label}`}>
           <div className="mx-auto flex max-w-[1600px] items-center gap-1 overflow-x-auto px-4 py-2 md:px-6">
-            {activeGroup.links.filter((link) => link.href !== "/configuracion/usuarios" || user?.rol?.toLowerCase() === "admin").map((link) => {
+            {linksVisibles(activeGroup).map((link) => {
               const className = `whitespace-nowrap rounded-md px-3 py-2 text-xs font-bold transition-colors ${isLinkActive(link.href) ? "bg-white text-blue-600 shadow-sm dark:bg-slate-900 dark:text-blue-300" : "text-slate-500 hover:bg-white hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white"}`;
               if (link.disabled) return <span key={link.label} className="whitespace-nowrap px-3 py-2 text-xs font-bold text-slate-400 dark:text-slate-600" title="Proximamente">{link.label}</span>;
               if (link.external && link.href) return <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" className={className}>{link.label}</a>;
@@ -218,9 +231,9 @@ export const Sidebar = () => {
       {mobileOpen && (
         <div className="border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-black md:hidden">
           <div className="grid grid-cols-2 gap-2">
-            {navGroups.map((group) => {
+            {gruposVisibles.map((group) => {
               const Icon = group.icon;
-              return <Link key={group.label} href={navHref(group.href)} className={`flex items-center gap-2 border px-3 py-3 text-sm font-bold ${isGroupActive(group) ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300" : "border-slate-200 text-slate-600 dark:border-slate-800 dark:text-slate-300"}`}><Icon className="h-5 w-5" />{group.label}</Link>;
+              return <Link key={group.label} href={hrefGrupo(group)} className={`flex items-center gap-2 border px-3 py-3 text-sm font-bold ${isGroupActive(group) ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300" : "border-slate-200 text-slate-600 dark:border-slate-800 dark:text-slate-300"}`}><Icon className="h-5 w-5" />{group.label}</Link>;
             })}
           </div>
           <div className="mt-3 flex items-center justify-between border-t border-slate-100 px-2 pt-3 dark:border-slate-900"><div><p className="text-sm font-bold text-slate-950 dark:text-white">{userProfile.nombre}</p><p className="text-xs text-slate-500">{userProfile.rol}</p></div><LogoutButton className="w-auto text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" /></div>

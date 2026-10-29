@@ -92,7 +92,12 @@ export async function PATCH(request: NextRequest) {
       if (!usuario) throw new AppError("No se encontro el usuario.", 404);
       if (usuario.rol.trim().toLowerCase() !== "empleado") throw new AppError("Solo se pueden modificar empleados desde esta pantalla.", 403);
       if (body.usuarioId === session.usuarioId) throw new AppError("No puedes modificar tu propia cuenta.", 403);
-      if (body.activo === true && !body.confirmarLecturaGeneral) throw new AppError("Confirma que el empleado tendra lectura general mientras los permisos no esten activos.", 400);
+      if (body.activo === true) {
+        const tieneLectura = body.permisos
+          ? body.permisos.some((permiso) => permiso.accion === "leer")
+          : Boolean((await client.query("SELECT 1 FROM public.usuario_permiso WHERE usuario_id = $1 AND accion = 'leer' LIMIT 1", [body.usuarioId])).rowCount);
+        if (!tieneLectura) throw new AppError("Asigna al menos un permiso de lectura antes de activar al empleado.", 400);
+      }
       if (body.activo !== undefined) await client.query("UPDATE public.usuario_auth SET activo = $2 WHERE usuario_id = $1", [body.usuarioId, body.activo]);
       if (body.email !== undefined) await client.query("UPDATE public.detalle_usuario SET email = $2 WHERE id = $1", [body.usuarioId, body.email.toLowerCase()]);
       if (body.permisos) {

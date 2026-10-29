@@ -1,23 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/utils/supabase/middleware";
-import { canManageContent, canReadContent } from "@/lib/permissions";
+import { permisoParaApi, permisoParaPagina, puedeAccederPermisos, tienePermisoDeLectura } from "@/lib/permissions";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout", "/api/auth/me"];
-
-const WRITE_PAGE_PREFIXES = [
-  "/productos/new",
-  "/productos/edit",
-  "/marcas/new",
-  "/marcas/edit",
-  "/proveedores/new",
-  "/proveedores/edit",
-  "/categorias/new",
-  "/categorias/edit",
-  "/subcategorias/new",
-  "/subcategorias/edit",
-  "/piezas/new",
-  "/piezas/edit",
-];
 
 function isAssetPath(pathname: string) {
   return (
@@ -29,12 +14,6 @@ function isAssetPath(pathname: string) {
 
 function isPublicPath(pathname: string) {
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
-}
-
-function isWritePage(pathname: string) {
-  return WRITE_PAGE_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
 }
 
 export async function middleware(request: NextRequest) {
@@ -55,8 +34,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const { response, authUserId, usuarioId, rol, activo } = await updateSession(request);
-  const hasReadAccess = Boolean(authUserId && usuarioId && activo && canReadContent(rol));
+  const { response, authUserId, usuarioId, rol, activo, permisos } = await updateSession(request);
+  const hasReadAccess = Boolean(authUserId && usuarioId && activo && tienePermisoDeLectura(rol, permisos));
 
   if (isPublicPath(pathname)) {
     if (pathname === "/login" && hasReadAccess) {
@@ -76,8 +55,18 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (isWritePage(pathname) && !canManageContent(rol)) {
-    return NextResponse.redirect(new URL("/", request.url));
+  if (rol === "admin") return response;
+  if (pathname === "/sin-permisos") return response;
+
+  const requisito = pathname.startsWith("/api/")
+    ? permisoParaApi(pathname, request.method, request.nextUrl.searchParams)
+    : permisoParaPagina(pathname, request.nextUrl.searchParams);
+
+  if (!requisito || !puedeAccederPermisos(rol, permisos, requisito)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ message: "No tienes permiso para esta accion." }, { status: 403 });
+    }
+    return NextResponse.redirect(new URL("/sin-permisos", request.url));
   }
 
   return response;

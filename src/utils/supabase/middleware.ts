@@ -1,3 +1,4 @@
+import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { normalizeRole } from "@/lib/permissions";
@@ -8,6 +9,7 @@ type MiddlewareSessionResult = {
   usuarioId: number | null;
   rol: "admin" | "empleado" | "";
   activo: boolean;
+  permisos: string[];
 };
 
 export async function updateSession(request: NextRequest): Promise<MiddlewareSessionResult> {
@@ -28,6 +30,7 @@ export async function updateSession(request: NextRequest): Promise<MiddlewareSes
       usuarioId: null,
       rol: "",
       activo: false,
+      permisos: [],
     };
   }
 
@@ -60,6 +63,7 @@ export async function updateSession(request: NextRequest): Promise<MiddlewareSes
       usuarioId: null,
       rol: "",
       activo: false,
+      permisos: [],
     };
   }
 
@@ -76,14 +80,30 @@ export async function updateSession(request: NextRequest): Promise<MiddlewareSes
       usuarioId: null,
       rol: "",
       activo: false,
+      permisos: [],
     };
+  }
+
+  const usuarioId = usuarioAuth.usuario_id ?? null;
+  const serviceKey = process.env.SUPABASE_SECRET_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  let permisos: string[] = [];
+
+  if (usuarioId && normalizeRole(usuarioAuth.rol) === "empleado" && serviceKey) {
+    const supabaseAdmin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { data, error } = await supabaseAdmin
+      .from("usuario_permiso")
+      .select("apartado, accion")
+      .eq("usuario_id", usuarioId);
+    if (error) console.error("No se pudieron consultar los permisos del usuario en middleware:", error.message);
+    else permisos = (data || []).map((permiso) => `${permiso.apartado}:${permiso.accion}`);
   }
 
   return {
     response: supabaseResponse,
     authUserId: user.id,
-    usuarioId: usuarioAuth.usuario_id ?? null,
+    usuarioId,
     rol: normalizeRole(usuarioAuth.rol),
     activo: Boolean(usuarioAuth.activo),
+    permisos,
   };
 }
