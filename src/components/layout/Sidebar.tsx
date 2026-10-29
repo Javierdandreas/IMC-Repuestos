@@ -214,7 +214,7 @@ export const Sidebar = () => {
         </div>
       </nav>
 
-      {activeGroup && (
+      {activeGroup && activeGroup.label !== "Listados" && (
         <nav className="border-t border-slate-100 bg-slate-50 dark:border-slate-900 dark:bg-slate-950/80" aria-label={`Opciones de ${activeGroup.label}`}>
           <div className="mx-auto flex max-w-[1600px] items-center gap-1 overflow-x-auto px-4 py-2 md:px-6">
             {linksVisibles(activeGroup).map((link) => {
