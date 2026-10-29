@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(await explorarVehiculosCanonicos({
         filters,
         page: positiveInteger(searchParams.get("page"), 1),
-        limit: 50,
+        limit: positiveInteger(searchParams.get("limit"), 50),
       }), { headers: { "Cache-Control": "no-store" } });
     }
     if (searchParams.get("completo") === "1") {

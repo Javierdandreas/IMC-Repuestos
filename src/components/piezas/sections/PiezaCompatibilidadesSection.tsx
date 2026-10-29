@@ -76,7 +76,7 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
       const response = await fetch("/api/compatibilidades/valores", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attributeId: attribute, knownAttributes: selectedValues(selected).filter((entry) => entry.id !== attribute) }),
+        body: JSON.stringify({ attributeId: attribute, knownAttributes: selectedValues(selected).filter((entry) => entry.id !== attribute), origen: "IMC" }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "No se pudieron consultar los valores.");
@@ -118,7 +118,7 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
     }
     try {
       setSearching(true);
-      const params = new URLSearchParams({ completo: "1", filters: JSON.stringify(selectedValues(selected)) });
+      const params = new URLSearchParams({ vehiculos: "1", limit: "100", filters: JSON.stringify(selectedValues(selected)) });
       const response = await fetch("/api/compatibilidades/catalogo?" + params.toString(), { cache: "no-store" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudieron buscar las aplicaciones.");
