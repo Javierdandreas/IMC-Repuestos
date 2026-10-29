@@ -28,6 +28,7 @@ import type {
   MercadoLibrePublicacionesResult,
   MercadoLibrePreguntaListado,
   MercadoLibrePreguntasResult,
+  MercadoLibreVentaConversacion,
   MercadoLibreSyncResult,
   MercadoLibreVentaListado,
   MercadoLibreVentasResult,
@@ -373,6 +374,105 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
     totalCount,
     totalPages: Math.ceil(totalCount / limit),
   };
+}
+
+function textoMensajePostVenta(value: unknown) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const plain = (value as Record<string, unknown>).plain;
+  return typeof plain === "string" ? plain : "";
+}
+
+function idSeguro(value: unknown) {
+  const normalized = String(value || "").trim();
+  return /^\d+$/.test(normalized) ? normalized : null;
+}
+
+export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId: string): Promise<MercadoLibreVentaConversacion> {
+  const normalizedVentaId = idSeguro(ventaId);
+  if (!normalizedVentaId) throw new AppError("La venta de Mercado Libre no es valida.", 400);
+  const { rows } = await query<{ venta_id: string; comprador: string | null; envio: string | null; estado: string; items: unknown; datos: unknown; site_id: string }>(
+    `SELECT venta.venta_id, venta.comprador, venta.envio, venta.estado, venta.items, venta.datos, cuenta.site_id
+     FROM public.mercadolibre_venta venta
+     JOIN public.mercadolibre_cuenta cuenta ON cuenta.id = venta.id_cuenta
+     WHERE venta.id_cuenta = $1 AND venta.venta_id = $2 LIMIT 1`,
+    [idCuenta, normalizedVentaId],
+  );
+  const venta = rows[0];
+  if (!venta) throw new AppError("La venta no existe en la cuenta seleccionada.", 404);
+  const datos = venta.datos && typeof venta.datos === "object" && !Array.isArray(venta.datos) ? venta.datos as Record<string, unknown> : {};
+  const shipping = datos.shipping && typeof datos.shipping === "object" && !Array.isArray(datos.shipping) ? datos.shipping as Record<string, unknown> : {};
+  const buyer = datos.buyer && typeof datos.buyer === "object" && !Array.isArray(datos.buyer) ? datos.buyer as Record<string, unknown> : {};
+  const packId = idSeguro(datos.pack_id) || normalizedVentaId;
+  const buyerId = idSeguro(buyer.id);
+  const items = Array.isArray(venta.items) ? venta.items.map((item) => {
+    const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    return { itemId: typeof value.itemId === "string" ? value.itemId : null, titulo: String(value.titulo || "Sin titulo"), sku: typeof value.sku === "string" ? value.sku : null };
+  }) : [];
+  const itemIds = items.map((item) => item.itemId).filter((itemId): itemId is string => Boolean(itemId));
+  const { rows: publicationRows } = itemIds.length ? await query<{ item_id: string; permalink: string | null }>(
+    "SELECT item_id, permalink FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = ANY($2::text[])",
+    [idCuenta, itemIds],
+  ) : { rows: [] as Array<{ item_id: string; permalink: string | null }> };
+  const permalinkByItem = new Map(publicationRows.map((publication) => [publication.item_id, publication.permalink]));
+  const { rows: questionRows } = buyerId ? await query<{ pregunta_id: string; item_id: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: Date | string | null }>(
+    `SELECT pregunta_id, item_id, titulo, texto, respuesta, fecha
+     FROM public.mercadolibre_pregunta
+     WHERE id_cuenta = $1 AND comprador_id::text = $2
+     ORDER BY fecha DESC NULLS LAST, id DESC LIMIT 100`,
+    [idCuenta, buyerId],
+  ) : { rows: [] as Array<{ pregunta_id: string; item_id: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: Date | string | null }> };
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  const payload = await meliGet(`/messages/packs/${encodeURIComponent(packId)}/sellers/${sellerId}?tag=post_sale&mark_as_read=false`, idCuenta, accessToken) as Record<string, unknown>;
+  const conversation = payload.conversation_status && typeof payload.conversation_status === "object" && !Array.isArray(payload.conversation_status)
+    ? payload.conversation_status as Record<string, unknown>
+    : {};
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  return {
+    ventaId: normalizedVentaId,
+    packId,
+    comprador: venta.comprador,
+    envio: venta.envio,
+    tipoEnvio: typeof shipping.logistic_type === "string" ? shipping.logistic_type : null,
+    estado: typeof conversation.status === "string" ? conversation.status : null,
+    permiteResponder: conversation.status === "active",
+    limiteRespuesta: Number.isFinite(Number(payload.seller_max_message_length)) ? Number(payload.seller_max_message_length) : 350,
+    items: items.map((item) => ({ ...item, permalink: item.itemId ? permalinkByItem.get(item.itemId) || null : null })),
+    mensajes: messages.map((message) => {
+      const value = message && typeof message === "object" ? message as Record<string, unknown> : {};
+      const from = value.from && typeof value.from === "object" ? value.from as Record<string, unknown> : {};
+      const dates = value.message_date && typeof value.message_date === "object" ? value.message_date as Record<string, unknown> : {};
+      const attachments = Array.isArray(value.message_attachments) ? value.message_attachments : [];
+      return {
+        id: String(value.id || value.message_id || crypto.randomUUID()), texto: textoMensajePostVenta(value.text),
+        fecha: typeof dates.created === "string" ? dates.created : null, propio: Number(from.user_id) === sellerId,
+        adjuntos: attachments.map((attachment) => {
+          const current = attachment && typeof attachment === "object" ? attachment as Record<string, unknown> : {};
+          return { nombre: typeof current.name === "string" ? current.name : null, url: typeof current.url === "string" ? current.url : null };
+        }),
+      };
+    }),
+    preguntasPrevias: questionRows.map((question) => ({
+      preguntaId: question.pregunta_id, itemId: question.item_id, titulo: question.titulo, texto: question.texto,
+      respuesta: question.respuesta, fecha: question.fecha ? new Date(question.fecha).toISOString() : null,
+    })),
+  };
+}
+
+export async function enviarMensajeVentaMercadoLibre(idCuenta: number, ventaId: string, texto: string) {
+  const conversation = await getMercadoLibreVentaConversacion(idCuenta, ventaId);
+  const text = texto.trim();
+  if (!text) throw new AppError("El mensaje es obligatorio.", 400);
+  if (Array.from(text).length > conversation.limiteRespuesta) throw new AppError(`El mensaje supera el limite permitido de ${conversation.limiteRespuesta} caracteres.`, 400);
+  if (!conversation.permiteResponder) throw new AppError("Mercado Libre no habilito esta conversacion para responder.", 409);
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  const { rows } = await query<{ site_id: string }>("SELECT site_id FROM public.mercadolibre_cuenta WHERE id = $1", [idCuenta]);
+  const agentBySite: Record<string, number> = { MLA: 3037674934, MLB: 3037675074, MLC: 3020819166, MCO: 3037204123, MLM: 3037204279, MLU: 3037204685 };
+  const recipientId = agentBySite[rows[0]?.site_id || "MLA"] || agentBySite.MLA;
+  await meliPost(`/messages/packs/${encodeURIComponent(conversation.packId)}/sellers/${sellerId}?tag=post_sale`, idCuenta, accessToken, {
+    from: { user_id: sellerId }, to: { user_id: recipientId }, text,
+  });
+  return getMercadoLibreVentaConversacion(idCuenta, ventaId);
 }
 
 export type MercadoLibrePreguntaEstadoFiltro = "POR_RESPONDER" | "RESPONDIDAS";

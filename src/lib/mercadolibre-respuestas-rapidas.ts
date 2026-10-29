@@ -26,19 +26,17 @@ function map(row: Record<string, unknown>): MercadoLibreRespuestaRapida {
   };
 }
 
-export async function getMercadoLibreRespuestasRapidas(idCuenta: number, includeInactive = false) {
+export async function getMercadoLibreRespuestasRapidas(includeInactive = false) {
   const { rows } = await query(
     `SELECT id, nombre, texto, orden, activo
-     FROM public.mercadolibre_respuesta_rapida
-     WHERE id_cuenta = $1 ${includeInactive ? "" : "AND activo = TRUE"}
+     FROM public.mercadolibre_respuesta_rapida_global
+     WHERE TRUE ${includeInactive ? "" : "AND activo = TRUE"}
      ORDER BY orden ASC, nombre ASC, id ASC`,
-    [idCuenta],
   );
   return rows.map(map);
 }
 
 export async function guardarMercadoLibreRespuestaRapida(
-  idCuenta: number,
   input: { id?: number; nombre?: unknown; texto?: unknown; activo?: unknown },
 ) {
   const nombre = textoRequerido(input.nombre, "El nombre", 80);
@@ -47,29 +45,29 @@ export async function guardarMercadoLibreRespuestaRapida(
 
   if (input.id) {
     const { rows } = await query(
-      `UPDATE public.mercadolibre_respuesta_rapida
-       SET nombre = $3, texto = $4, activo = $5, updated_at = NOW()
-       WHERE id = $1 AND id_cuenta = $2
+      `UPDATE public.mercadolibre_respuesta_rapida_global
+       SET nombre = $2, texto = $3, activo = $4, updated_at = NOW()
+       WHERE id = $1
        RETURNING id, nombre, texto, orden, activo`,
-      [input.id, idCuenta, nombre, texto, activo],
+      [input.id, nombre, texto, activo],
     );
     if (!rows[0]) throw new AppError("La respuesta rapida ya no existe.", 404);
     return map(rows[0]);
   }
 
   const { rows } = await query(
-    `INSERT INTO public.mercadolibre_respuesta_rapida (id_cuenta, nombre, texto, orden)
-     VALUES ($1, $2, $3, COALESCE((SELECT MAX(orden) + 1 FROM public.mercadolibre_respuesta_rapida WHERE id_cuenta = $1), 0))
+    `INSERT INTO public.mercadolibre_respuesta_rapida_global (nombre, texto, orden)
+     VALUES ($1, $2, COALESCE((SELECT MAX(orden) + 1 FROM public.mercadolibre_respuesta_rapida_global), 0))
      RETURNING id, nombre, texto, orden, activo`,
-    [idCuenta, nombre, texto],
+    [nombre, texto],
   );
   return map(rows[0]);
 }
 
-export async function eliminarMercadoLibreRespuestaRapida(idCuenta: number, id: number) {
+export async function eliminarMercadoLibreRespuestaRapida(id: number) {
   const result = await query(
-    "DELETE FROM public.mercadolibre_respuesta_rapida WHERE id = $1 AND id_cuenta = $2",
-    [id, idCuenta],
+    "DELETE FROM public.mercadolibre_respuesta_rapida_global WHERE id = $1",
+    [id],
   );
   if (!result.rowCount) throw new AppError("La respuesta rapida ya no existe.", 404);
 }

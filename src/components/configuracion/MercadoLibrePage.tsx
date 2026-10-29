@@ -18,10 +18,11 @@ import type {
   MercadoLibrePublicacionesResult,
   MercadoLibrePublicacionListado,
   MercadoLibreSyncResult,
+  MercadoLibreVentaConversacion,
   MercadoLibreVentasResult,
 } from "@/interfaces/mercadolibre";
 
-type Props = { canManage: boolean };
+type Props = { canManage: boolean; canReply: boolean };
 type Tab = "VENTAS" | "PUBLICACIONES" | "COSTOS" | "PREGUNTAS" | "SINCRONIZACION";
 type QuestionStatus = "POR_RESPONDER" | "RESPONDIDAS";
 type DateOrder = "DESC" | "ASC";
@@ -60,7 +61,7 @@ function publicationLinkLabel(tipo: "SIN_VINCULO" | "CODIGO_EXACTO" | "MANUAL" |
   return "Sin vinculo";
 }
 
-export function MercadoLibrePage({ canManage }: Props) {
+export function MercadoLibrePage({ canManage, canReply }: Props) {
   const [configMensajeAbierta, setConfigMensajeAbierta] = useState(false);
   const searchParams = useSearchParams();
   const targetQuestionId = searchParams.get("pregunta");
@@ -91,6 +92,7 @@ export function MercadoLibrePage({ canManage }: Props) {
   const [calculatingCostPage, setCalculatingCostPage] = useState(false);
   const [costSync, setCostSync] = useState<MercadoLibreCostoSincronizacion | null>(null);
   const [massCostSyncing, setMassCostSyncing] = useState(false);
+  const [ventaChat, setVentaChat] = useState<MercadoLibreVentasResult["data"][number] | null>(null);
   const salesRefreshInFlight = useRef(false);
   const questionRefreshInFlight = useRef(false);
   const massCostSyncInFlight = useRef(false);
@@ -105,8 +107,8 @@ export function MercadoLibrePage({ canManage }: Props) {
     } : account));
   }, []);
 
-  const loadQuickReplies = useCallback(async (accountId: number) => {
-    const response = await fetch(`/api/integraciones/mercadolibre/respuestas-rapidas?idCuenta=${accountId}`, { cache: "no-store" });
+  const loadQuickReplies = useCallback(async () => {
+    const response = await fetch("/api/integraciones/mercadolibre/respuestas-rapidas", { cache: "no-store" });
     if (!response.ok) throw new Error("No se pudieron cargar las respuestas rapidas.");
     setQuickReplies(await response.json());
   }, []);
@@ -257,9 +259,9 @@ export function MercadoLibrePage({ canManage }: Props) {
     };
   }, [selectedAccountId, tab]);
   useEffect(() => {
-    if (!selectedAccountId || tab !== "PREGUNTAS") return;
-    void loadQuickReplies(selectedAccountId).catch(() => setQuickReplies([]));
-  }, [loadQuickReplies, selectedAccountId, tab]);
+    if (tab !== "PREGUNTAS") return;
+    void loadQuickReplies().catch(() => setQuickReplies([]));
+  }, [loadQuickReplies, tab]);
   useEffect(() => {
     if (searchParams.get("meli") === "conectado") toast.success("Cuenta de Mercado Libre conectada.");
     if (searchParams.get("meli") === "error") toast.error(searchParams.get("mensaje") || "No se pudo conectar Mercado Libre.");
@@ -520,14 +522,15 @@ export function MercadoLibrePage({ canManage }: Props) {
       </div>}
       {tab === "VENTAS" && salesSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{salesSyncError}</p>}
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
-      {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} />}
+      {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} onOpenChat={setVentaChat} />}
       {tab === "PUBLICACIONES" && <PublicacionesTable publicaciones={visiblePublicaciones} loading={loading} canManage={canManage} onChanged={refreshPublicaciones} />}
       {tab === "COSTOS" && <CostosTable publicaciones={visiblePublicaciones} loading={loading} calculatingItemId={calculatingCostItemId} calculatingPage={calculatingCostPage} costSync={costSync} massSyncing={massCostSyncing} onCalculate={calculateCost} onCalculatePage={calculateCostPage} onUpdateAll={() => void updateAllActiveCosts()} />}
-      {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canManage} quickReplies={quickReplies} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} targetQuestionId={targetQuestionId} />}
+      {tab === "PREGUNTAS" && <PreguntasTable preguntas={visiblePreguntas} loading={loading} canManage={canReply} quickReplies={quickReplies} answeringQuestionId={answeringQuestionId} onAnswer={answerQuestion} targetQuestionId={targetQuestionId} />}
       {tab === "SINCRONIZACION" && <SyncPanel accounts={cuentas} account={activeAccount} selectedAccountId={selectedAccountId} onAccountChange={selectAccount} onConnect={() => { window.location.href = "/api/integraciones/mercadolibre/conectar"; }} onSync={() => void sync()} syncing={syncing} canManage={canManage} />}
       {tab !== "SINCRONIZACION" && activeResult.totalPages > 1 && <div className="flex items-center justify-center gap-3"><button type="button" onClick={() => void changePage(pages[tab] - 1)} disabled={pages[tab] <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Pagina {pages[tab]} de {activeResult.totalPages}</span><button type="button" onClick={() => void changePage(pages[tab] + 1)} disabled={pages[tab] >= activeResult.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
     </>}
-    {quickRepliesOpen && selectedAccountId && <QuickRepliesModal idCuenta={selectedAccountId} onClose={() => setQuickRepliesOpen(false)} onChanged={() => void loadQuickReplies(selectedAccountId)} />}
+    {quickRepliesOpen && <QuickRepliesModal onClose={() => setQuickRepliesOpen(false)} onChanged={() => void loadQuickReplies()} />}
+    {ventaChat && selectedAccountId && <VentaConversationModal venta={ventaChat} idCuenta={selectedAccountId} canReply={canReply} onClose={() => setVentaChat(null)} />}
     {configMensajeAbierta && selectedAccountId && canManage && <Modal title="Mensajes automaticos" open onClose={() => setConfigMensajeAbierta(false)} width="w-[min(96vw,680px)]"><div className="px-6 pb-6"><MercadoLibreMensajeAutomatico key={selectedAccountId} idCuenta={selectedAccountId} /></div></Modal>}
   </div></main>;
 }
@@ -539,8 +542,50 @@ function EstadoMensajeIcono({ estado, detalle }: { estado: string | null; detall
   return <span tabIndex={0} role="img" aria-label={titulo} title={titulo} className={`inline-flex h-8 w-8 items-center justify-center ${color}`}><Mail className="h-5 w-5" /></span>;
 }
 
-function VentasTable({ ventas, loading }: { ventas: MercadoLibreVentasResult["data"]; loading: boolean }) {
-  return <TableShell hasRows={ventas.length > 0} empty={loading ? "Cargando ventas..." : "No hay ventas sincronizadas."}><table className="w-full min-w-[1040px] text-left text-[13px] [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800"><thead><tr><th>Fecha</th><th>Cliente</th><th>Items</th><th>Envio</th><th>Estado</th><th>Mensaje</th><th className="text-right">Total</th></tr></thead><tbody>{ventas.map((venta) => <tr key={venta.id}><td><div className="font-bold text-slate-800 dark:text-white">{date(venta.fecha, "-")}</div><div className="mt-1 font-mono text-[11px] text-slate-500">#{venta.ventaId}</div></td><td className="font-bold text-slate-800 dark:text-white">{venta.comprador || "-"}</td><td><div className="max-w-md space-y-1">{venta.items.map((item, index) => <div key={`${venta.id}-${index}`} className="truncate font-semibold text-slate-700 dark:text-slate-200" title={item.titulo}>{item.cantidad}x {item.titulo}{item.sku && <span className="ml-1 font-mono text-slate-400">[{item.sku}]</span>}</div>)}</div></td><td><div>{venta.retiroEnPersona ? "Retira en persona" : venta.envio || "-"}</div>{venta.numeroEnvio && <div className="mt-1 font-mono text-[11px] text-slate-500">#{venta.numeroEnvio}</div>}</td><td><StateBadge value={venta.estado} /></td><td><EstadoMensajeIcono estado={venta.mensajeEstado} detalle={venta.mensajeDetalle} /></td><td className="text-right font-mono font-black text-slate-800 dark:text-white">{money(venta.total, venta.moneda)}</td></tr>)}</tbody></table></TableShell>;
+function VentasTable({ ventas, loading, onOpenChat }: { ventas: MercadoLibreVentasResult["data"]; loading: boolean; onOpenChat: (venta: MercadoLibreVentasResult["data"][number]) => void }) {
+  return <TableShell hasRows={ventas.length > 0} empty={loading ? "Cargando ventas..." : "No hay ventas sincronizadas."}><table className="w-full min-w-[1040px] text-left text-[13px] [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800"><thead><tr><th>Fecha</th><th>Cliente</th><th>Items</th><th>Envio</th><th>Estado</th><th>Mensaje</th><th className="text-right">Total</th></tr></thead><tbody>{ventas.map((venta) => <tr key={venta.id}><td><div className="font-bold text-slate-800 dark:text-white">{date(venta.fecha, "-")}</div><div className="mt-1 font-mono text-[11px] text-slate-500">#{venta.ventaId}</div></td><td className="font-bold text-slate-800 dark:text-white">{venta.comprador || "-"}</td><td><div className="max-w-md space-y-1">{venta.items.map((item, index) => <div key={`${venta.id}-${index}`} className="truncate font-semibold text-slate-700 dark:text-slate-200" title={item.titulo}>{item.cantidad}x {item.titulo}{item.sku && <span className="ml-1 font-mono text-slate-400">[{item.sku}]</span>}</div>)}</div></td><td><div>{venta.retiroEnPersona ? "Retira en persona" : venta.envio || "-"}</div>{venta.numeroEnvio && <div className="mt-1 font-mono text-[11px] text-slate-500">#{venta.numeroEnvio}</div>}</td><td><StateBadge value={venta.estado} /></td><td><div className="flex items-center gap-1"><EstadoMensajeIcono estado={venta.mensajeEstado} detalle={venta.mensajeDetalle} /><button type="button" onClick={() => onOpenChat(venta)} title="Ver chat de la venta" aria-label="Ver chat de la venta" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 transition hover:bg-blue-500/10 dark:text-blue-300"><MessageCircle className="h-4 w-4" /></button></div></td><td className="text-right font-mono font-black text-slate-800 dark:text-white">{money(venta.total, venta.moneda)}</td></tr>)}</tbody></table></TableShell>;
+}
+
+function VentaConversationModal({ venta, idCuenta, canReply, onClose }: { venta: MercadoLibreVentasResult["data"][number]; idCuenta: number; canReply: boolean; onClose: () => void }) {
+  const [conversation, setConversation] = useState<MercadoLibreVentaConversacion | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [texto, setTexto] = useState("");
+  const loadConversation = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/integraciones/mercadolibre/ventas/${encodeURIComponent(venta.ventaId)}/mensajes?idCuenta=${idCuenta}`, { cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo cargar el chat.");
+      setConversation(result as MercadoLibreVentaConversacion);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo cargar el chat.");
+      setConversation(null);
+    } finally { setLoading(false); }
+  }, [idCuenta, venta.ventaId]);
+  useEffect(() => { void loadConversation(); }, [loadConversation]);
+  const copyData = async () => {
+    const items = conversation?.items || venta.items.map((item) => ({ ...item, permalink: null }));
+    const sku = items.map((item) => item.sku).filter(Boolean).join(", ") || "-";
+    const envio = conversation?.tipoEnvio || conversation?.envio || venta.envio || "-";
+    await navigator.clipboard.writeText(`Venta: ${venta.ventaId}\nComprador: ${conversation?.comprador || venta.comprador || "-"}\nEnvio: ${envio}\nSKU: ${sku}`);
+    toast.success("Datos de la venta copiados.");
+  };
+  const send = async () => {
+    if (!texto.trim()) return;
+    try {
+      setSending(true);
+      const response = await fetch(`/api/integraciones/mercadolibre/ventas/${encodeURIComponent(venta.ventaId)}/mensajes?idCuenta=${idCuenta}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo enviar el mensaje.");
+      setConversation(result as MercadoLibreVentaConversacion);
+      setTexto("");
+      toast.success("Mensaje enviado a Mercado Libre.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "No se pudo enviar el mensaje."); }
+    finally { setSending(false); }
+  };
+  const maxLength = conversation?.limiteRespuesta || 350;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="venta-chat-title"><div className="flex h-[min(88dvh,760px)] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-950"><header className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-slate-800"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Postventa</p><h2 id="venta-chat-title" className="mt-1 text-base font-black text-slate-900 dark:text-white">Chat de venta #{venta.ventaId}</h2><p className="mt-1 text-xs text-slate-500">{conversation?.comprador || venta.comprador || "Comprador sin nombre"}</p></div><div className="flex items-center gap-1"><button type="button" onClick={() => void copyData()} title="Copiar datos" className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"><Copy className="h-3.5 w-3.5" />Copiar datos</button><button type="button" onClick={onClose} title="Cerrar" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button></div></header><div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_320px]"><section className="flex min-h-0 flex-col border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r"><div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">{loading ? <p className="py-12 text-center text-sm font-semibold text-slate-500">Cargando chat...</p> : conversation?.mensajes.length ? conversation.mensajes.map((mensaje) => <div key={mensaje.id} className={`flex ${mensaje.propio ? "justify-end" : "justify-start"}`}><div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${mensaje.propio ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100"}`}><p className="whitespace-pre-wrap">{mensaje.texto || "Mensaje sin texto"}</p>{mensaje.adjuntos.map((adjunto, index) => adjunto.url ? <a key={`${mensaje.id}-${index}`} href={adjunto.url} target="_blank" rel="noreferrer" className="mt-2 block text-xs underline">{adjunto.nombre || "Adjunto"}</a> : <p key={`${mensaje.id}-${index}`} className="mt-2 text-xs">{adjunto.nombre || "Adjunto"}</p>)}<p className={`mt-1 text-right text-[10px] ${mensaje.propio ? "text-blue-100" : "text-slate-400"}`}>{date(mensaje.fecha, "")}</p></div></div>) : <p className="py-12 text-center text-sm font-semibold text-slate-500">No hay mensajes posventa para esta venta.</p>}</div><div className="border-t border-slate-200 p-3 dark:border-slate-800">{conversation && !conversation.permiteResponder && <p className="mb-2 text-xs font-semibold text-amber-700 dark:text-amber-300">Mercado Libre no permite responder en esta conversacion.</p>}<div className="flex gap-2"><textarea value={texto} onChange={(event) => setTexto(event.target.value)} disabled={!canReply || sending || !conversation?.permiteResponder} maxLength={maxLength} placeholder="Escribi al comprador" className="min-h-20 flex-1 resize-y rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /><button type="button" onClick={() => void send()} disabled={!canReply || sending || !conversation?.permiteResponder || !texto.trim()} title="Enviar mensaje" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-4 w-4" /></button></div><p className="mt-1 text-right text-[10px] text-slate-400">{texto.length}/{maxLength}</p></div></section><aside className="min-h-0 overflow-y-auto bg-slate-50 p-4 dark:bg-slate-900/40"><div className="flex items-center justify-between gap-2"><h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Venta</h3><StateBadge value={conversation?.estado || venta.estado} /></div><dl className="mt-3 space-y-2 text-xs"><div><dt className="text-slate-500">Envio</dt><dd className="font-bold text-slate-800 dark:text-white">{conversation?.tipoEnvio || conversation?.envio || venta.envio || "-"}</dd></div><div><dt className="text-slate-500">SKU</dt><dd className="font-mono font-bold text-slate-800 dark:text-white">{(conversation?.items || venta.items).map((item) => item.sku).filter(Boolean).join(", ") || "-"}</dd></div></dl><h3 className="mt-6 text-xs font-black uppercase tracking-widest text-slate-500">Publicacion</h3><div className="mt-2 space-y-2">{(conversation?.items || venta.items.map((item) => ({ ...item, permalink: null }))).map((item, index) => <div key={`${item.itemId || item.titulo}-${index}`} className="border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-950"><p className="font-bold text-slate-800 dark:text-white">{item.titulo}</p>{item.sku && <p className="mt-1 font-mono text-slate-500">SKU: {item.sku}</p>}{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline dark:text-blue-300">Abrir publicacion <ExternalLink className="h-3 w-3" /></a>}</div>)}</div><h3 className="mt-6 text-xs font-black uppercase tracking-widest text-slate-500">Preguntas previas</h3><div className="mt-2 space-y-2">{conversation?.preguntasPrevias.length ? conversation.preguntasPrevias.map((pregunta) => <div key={pregunta.preguntaId} className="border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-950"><p className="font-semibold text-slate-800 dark:text-white">{pregunta.texto}</p>{pregunta.respuesta && <p className="mt-2 border-l-2 border-blue-500 pl-2 text-slate-500">{pregunta.respuesta}</p>}</div>) : <p className="text-xs text-slate-500">No hay preguntas previas sincronizadas.</p>}</div></aside></div></div></div>;
 }
 
 function PublicacionesTable({ publicaciones, loading, canManage, onChanged }: {
@@ -752,7 +797,7 @@ function PreguntaPublicacionLink({ pregunta }: { pregunta: MercadoLibrePreguntas
     : <div className="min-w-0">{content}</div>;
 }
 
-function QuickRepliesModal({ idCuenta, onClose, onChanged }: { idCuenta: number; onClose: () => void; onChanged: () => void }) {
+function QuickRepliesModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const [replies, setReplies] = useState<QuickReply[]>([]);
   const [editing, setEditing] = useState<QuickReply | null>(null);
   const [nombre, setNombre] = useState("");
@@ -763,13 +808,13 @@ function QuickRepliesModal({ idCuenta, onClose, onChanged }: { idCuenta: number;
   const loadReplies = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/integraciones/mercadolibre/respuestas-rapidas?idCuenta=${idCuenta}`, { cache: "no-store" });
+      const response = await fetch("/api/integraciones/mercadolibre/respuestas-rapidas", { cache: "no-store" });
       if (!response.ok) throw new Error();
       setReplies(await response.json());
     } catch {
       toast.error("No se pudieron cargar las respuestas rapidas.");
     } finally { setLoading(false); }
-  }, [idCuenta]);
+  }, []);
 
   useEffect(() => { void loadReplies(); }, [loadReplies]);
   const resetForm = () => { setEditing(null); setNombre(""); setTexto(""); };
@@ -777,7 +822,7 @@ function QuickRepliesModal({ idCuenta, onClose, onChanged }: { idCuenta: number;
   const save = async () => {
     try {
       setSaving(true);
-      const response = await fetch(editing ? `/api/integraciones/mercadolibre/respuestas-rapidas/${editing.id}?idCuenta=${idCuenta}` : `/api/integraciones/mercadolibre/respuestas-rapidas?idCuenta=${idCuenta}`, {
+      const response = await fetch(editing ? `/api/integraciones/mercadolibre/respuestas-rapidas/${editing.id}` : "/api/integraciones/mercadolibre/respuestas-rapidas", {
         method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre, texto }),
       });
       const result = await response.json().catch(() => ({}));
@@ -790,7 +835,7 @@ function QuickRepliesModal({ idCuenta, onClose, onChanged }: { idCuenta: number;
   const remove = async (reply: QuickReply) => {
     if (!window.confirm(`Eliminar la respuesta rapida "${reply.nombre}"?`)) return;
     try {
-      const response = await fetch(`/api/integraciones/mercadolibre/respuestas-rapidas/${reply.id}?idCuenta=${idCuenta}`, { method: "DELETE" });
+      const response = await fetch(`/api/integraciones/mercadolibre/respuestas-rapidas/${reply.id}`, { method: "DELETE" });
       if (!response.ok) throw new Error("No se pudo eliminar la respuesta.");
       toast.success("Respuesta eliminada."); await loadReplies(); onChanged();
     } catch (error) { toast.error(error instanceof Error ? error.message : "No se pudo eliminar la respuesta."); }

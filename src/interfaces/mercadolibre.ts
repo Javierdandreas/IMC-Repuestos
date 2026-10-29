@@ -103,6 +103,28 @@ export type MercadoLibreVentasResult = {
   totalPages: number;
 };
 
+export type MercadoLibreMensajePostVenta = {
+  id: string;
+  texto: string;
+  fecha: string | null;
+  propio: boolean;
+  adjuntos: Array<{ nombre: string | null; url: string | null }>;
+};
+
+export type MercadoLibreVentaConversacion = {
+  ventaId: string;
+  packId: string;
+  comprador: string | null;
+  envio: string | null;
+  tipoEnvio: string | null;
+  estado: string | null;
+  permiteResponder: boolean;
+  limiteRespuesta: number;
+  items: Array<{ itemId: string | null; titulo: string; sku: string | null; permalink: string | null }>;
+  mensajes: MercadoLibreMensajePostVenta[];
+  preguntasPrevias: Array<{ preguntaId: string; itemId: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: string | null }>;
+};
+
 export type MercadoLibrePreguntaListado = {
   id: number;
   preguntaId: string;
