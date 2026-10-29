@@ -39,7 +39,7 @@ type Row = {
   resuelto_at: string | null;
 };
 
-type ExportSummary = { id: number; created_at: string; cantidad: number; proveedores: number; importaciones: number };
+type ExportSummary = { id: number; created_at: string; cantidad: number; proveedores: number; importaciones: number; proveedores_detalle: string[] };
 type Response = { data: Row[]; page: number; totalPages: number; totalCount: number; recentExports: ExportSummary[] };
 
 const fetcher = async (url: string) => {
@@ -213,7 +213,7 @@ export function PriceChangesReportPage() {
       }
       const blob = await response.blob();
       const disposition = response.headers.get("Content-Disposition") || "";
-      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "costos_modificados.xlsx";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "costos_modificados.csv";
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -254,13 +254,8 @@ export function PriceChangesReportPage() {
               {data.recentExports.map((item) => (
                 <article key={item.id} className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/60">
                   <p className="truncate text-xs font-black text-slate-800 dark:text-slate-100">{formatDate(item.created_at)}</p>
-                  <div className="mt-2 flex items-center gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                    <span>{item.cantidad.toLocaleString("es-AR")} cambios</span>
-                    <span className="text-slate-300 dark:text-slate-700">|</span>
-                    <span>{item.proveedores} prov.</span>
-                    <span className="text-slate-300 dark:text-slate-700">|</span>
-                    <span>{item.importaciones} imp.</span>
-                  </div>
+                  <p className="mt-2 truncate text-[11px] font-bold text-slate-600 dark:text-slate-300" title={item.proveedores_detalle.join(", ")}>{item.proveedores_detalle.length ? item.proveedores_detalle.join(", ") : `${item.proveedores} proveedor${item.proveedores === 1 ? "" : "es"} (sin detalle)`}</p>
+                  <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] font-bold text-slate-500 dark:text-slate-400"><span>{item.cantidad.toLocaleString("es-AR")} items exportados</span><span>{item.importaciones} importacion{item.importaciones === 1 ? "" : "es"} de origen</span></div>
                 </article>
               ))}
             </div>
@@ -269,7 +264,7 @@ export function PriceChangesReportPage() {
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
           <div className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40">
-            <div className="grid gap-3 px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1.4fr)_minmax(170px,1fr)_minmax(180px,1.1fr)_130px_130px_170px]">
+            <div className="grid gap-3 px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1.4fr)_minmax(170px,1fr)_minmax(180px,1.1fr)_130px_130px_170px_40px]">
               <label className="min-w-0">
                 <span className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-500">Proveedor</span>
                 <select value={providerId} onChange={(event) => { setProviderId(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
@@ -305,6 +300,9 @@ export function PriceChangesReportPage() {
                   <option value="">Todos los origenes</option><option value="IMPORTACION">Lista de proveedor</option><option value="CARGA_MANUAL_PROVEEDOR">Carga manual</option><option value="CRITERIO_MASIVO">Criterio masivo</option><option value="REGLAS_PROVEEDOR">Capas de costo</option><option value="DESCUENTOS_PROVEEDOR">Descuentos</option><option value="EDICION_ITEM">Edicion de item</option>
                 </select>
               </label>
+              <button type="button" onClick={() => void mutate()} title="Actualizar listado" aria-label="Actualizar listado" className="mt-[21px] inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-white hover:text-blue-600 dark:border-slate-700 dark:hover:bg-slate-950 dark:hover:text-blue-300">
+                <HiRefresh className="h-4 w-4" />
+              </button>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 px-4 py-2.5 dark:border-slate-800">
               {canManage && selectedIds.length > 0 && (
@@ -322,9 +320,6 @@ export function PriceChangesReportPage() {
                   <HiCheck className="h-4 w-4" /> Aprobar todos ({data?.totalCount.toLocaleString("es-AR")})
                 </button>
               )}
-              <button type="button" onClick={() => void mutate()} title="Actualizar listado" aria-label="Actualizar listado" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-white hover:text-blue-600 dark:border-slate-700 dark:hover:bg-slate-950 dark:hover:text-blue-300">
-                <HiRefresh className="h-4 w-4" />
-              </button>
             </div>
           </div>
 

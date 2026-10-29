@@ -1282,7 +1282,21 @@ export type ResumenExportacionCosto = {
   cantidad: number;
   proveedores: number;
   importaciones: number;
+  proveedores_detalle: string[];
 };
+
+async function tieneDetalleProveedoresExportacionCosto() {
+  const { rows } = await query<{ existe: boolean }>(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'proveedor_importacion_exportacion_costo'
+        AND column_name = 'proveedores_detalle'
+    ) AS existe
+  `);
+  return Boolean(rows[0]?.existe);
+}
 
 function normalizarEnteroPositivo(value: number | undefined) {
   return Number.isInteger(value) && Number(value) > 0 ? Number(value) : undefined;
@@ -1410,8 +1424,9 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
 
 export async function getResumenExportacionesCosto(limit = 5): Promise<ResumenExportacionCosto[]> {
   const safeLimit = Math.max(1, Math.min(10, Math.floor(limit)));
+  const tieneDetalle = await tieneDetalleProveedoresExportacionCosto();
   const result = await query<ResumenExportacionCosto>(
-    `SELECT id, created_at, cantidad, proveedores, importaciones
+    `SELECT id, created_at, cantidad, proveedores, importaciones, ${tieneDetalle ? "COALESCE(proveedores_detalle, '[]'::jsonb)" : "'[]'::jsonb"} AS proveedores_detalle
      FROM public.proveedor_importacion_exportacion_costo
      ORDER BY created_at DESC
      LIMIT $1`,
@@ -1423,6 +1438,7 @@ export async function getResumenExportacionesCosto(limit = 5): Promise<ResumenEx
     cantidad: Number(row.cantidad),
     proveedores: Number(row.proveedores),
     importaciones: Number(row.importaciones),
+    proveedores_detalle: Array.isArray(row.proveedores_detalle) ? row.proveedores_detalle.map(String) : [],
   }));
 }
 
@@ -1436,6 +1452,16 @@ export async function registrarExportacionCambiosCosto(
   if (!Number.isInteger(usuarioId) || usuarioId <= 0) throw new AppError("Usuario invalido.", 401);
 
   return withTransaction(async (client) => {
+    const detalleColumn = await client.query<{ existe: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'proveedor_importacion_exportacion_costo'
+          AND column_name = 'proveedores_detalle'
+      ) AS existe
+    `);
+    const tieneDetalle = Boolean(detalleColumn.rows[0]?.existe);
     const deleted = await client.query<{ id: number; id_proveedor: number | null; id_importacion: number | null }>(
       `DELETE FROM public.proveedor_importacion_cambio_costo
        WHERE id = ANY($1::bigint[])
@@ -1447,11 +1473,17 @@ export async function registrarExportacionCambiosCosto(
 
     const proveedores = new Set(deleted.rows.map((row) => Number(row.id_proveedor)).filter((id) => Number.isInteger(id) && id > 0)).size;
     const importaciones = new Set(deleted.rows.map((row) => Number(row.id_importacion)).filter((id) => Number.isInteger(id) && id > 0)).size;
+    const proveedorIds = [...new Set(deleted.rows.map((row) => Number(row.id_proveedor)).filter((id) => Number.isInteger(id) && id > 0))];
+    const proveedorDetalle = proveedorIds.length
+      ? (await client.query<{ descripcion: string }>(`SELECT descripcion FROM public.proveedores WHERE id = ANY($1::int[]) ORDER BY descripcion ASC`, [proveedorIds])).rows.map((row) => row.descripcion)
+      : [];
     const summary = await client.query<ResumenExportacionCosto>(
-      `INSERT INTO public.proveedor_importacion_exportacion_costo (usuario_id, cantidad, proveedores, importaciones, filtros)
-       VALUES ($1, $2, $3, $4, $5::jsonb)
-       RETURNING id, created_at, cantidad, proveedores, importaciones`,
-      [usuarioId, deleted.rowCount, proveedores, importaciones, JSON.stringify(filters)],
+      `INSERT INTO public.proveedor_importacion_exportacion_costo (usuario_id, cantidad, proveedores, importaciones, filtros${tieneDetalle ? ", proveedores_detalle" : ""})
+       VALUES ($1, $2, $3, $4, $5::jsonb${tieneDetalle ? ", $6::jsonb" : ""})
+       RETURNING id, created_at, cantidad, proveedores, importaciones${tieneDetalle ? ", proveedores_detalle" : ""}`,
+      tieneDetalle
+        ? [usuarioId, deleted.rowCount, proveedores, importaciones, JSON.stringify(filters), JSON.stringify(proveedorDetalle)]
+        : [usuarioId, deleted.rowCount, proveedores, importaciones, JSON.stringify(filters)],
     );
     await client.query(
       `DELETE FROM public.proveedor_importacion_exportacion_costo
@@ -1476,6 +1508,7 @@ export async function registrarExportacionCambiosCosto(
         cantidad: Number(summary.rows[0].cantidad),
         proveedores: Number(summary.rows[0].proveedores),
         importaciones: Number(summary.rows[0].importaciones),
+        proveedores_detalle: Array.isArray(summary.rows[0].proveedores_detalle) ? summary.rows[0].proveedores_detalle.map(String) : [],
       },
     };
   });
