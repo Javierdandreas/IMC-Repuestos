@@ -8,7 +8,7 @@ import {
 import { requireApiSession } from "@/lib/api-auth";
 import { jsonError } from "@/lib/api-errors";
 
-const ESTADOS = new Set<EstadoEnriquecimiento>(["PENDIENTES", "ENRIQUECIDOS", "TODOS"]);
+const ESTADOS = new Set<EstadoEnriquecimiento>(["PENDIENTES", "ENRIQUECIDOS", "SIN_COMPLETAR", "TODOS"]);
 
 function optionalPositiveInt(value: string | null) {
   const parsed = Number(value);

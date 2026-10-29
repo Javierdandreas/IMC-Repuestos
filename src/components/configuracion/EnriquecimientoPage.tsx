@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { ImageUpload } from "@/components/products/ImageUpload";
 import { PiezaCompatibilidadesSection } from "@/components/piezas/sections/PiezaCompatibilidadesSection";
 
-type Estado = "PENDIENTES" | "ENRIQUECIDOS" | "TODOS";
+type Estado = "PENDIENTES" | "ENRIQUECIDOS" | "SIN_COMPLETAR" | "TODOS";
 type Vista = "ITEMS" | "GRUPOS";
 type Option = { id: number; descripcion: string };
 type Item = {
@@ -371,11 +371,11 @@ export function EnriquecimientoPage({ canManage }: Props) {
         </header>
 
         <div role="tablist" aria-label="Enriquecimiento" className="flex w-full border-b border-slate-200 dark:border-slate-800">
-          <button type="button" role="tab" aria-selected={vista === "ITEMS"} onClick={() => { setVista("ITEMS"); setPage(1); }} className={`h-10 border-b-2 px-4 text-xs font-black uppercase tracking-wide transition ${vista === "ITEMS" ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white"}`}>Items</button>
-          <button type="button" role="tab" aria-selected={vista === "GRUPOS"} onClick={() => { setVista("GRUPOS"); setEstado("TODOS"); setPage(1); setSelectedIds(new Set()); }} className={`h-10 border-b-2 px-4 text-xs font-black uppercase tracking-wide transition ${vista === "GRUPOS" ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white"}`}>Informe agrupado</button>
+          <button type="button" role="tab" aria-selected={vista === "ITEMS"} onClick={() => { setVista("ITEMS"); setEstado("PENDIENTES"); setPage(1); }} className={`h-10 border-b-2 px-4 text-xs font-black uppercase tracking-wide transition ${vista === "ITEMS" ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white"}`}>Items</button>
+          <button type="button" role="tab" aria-selected={vista === "GRUPOS"} onClick={() => { setVista("GRUPOS"); setEstado("SIN_COMPLETAR"); setPage(1); setSelectedIds(new Set()); }} className={`h-10 border-b-2 px-4 text-xs font-black uppercase tracking-wide transition ${vista === "GRUPOS" ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white"}`}>Informe agrupado</button>
         </div>
 
-        <section className="grid gap-3 sm:grid-cols-3">
+        {vista === "ITEMS" && <section className="grid gap-3 sm:grid-cols-3">
           {([
             ["PENDIENTES", "Pendientes", datos.resumen.pendientes, "border-amber-500/35 bg-amber-500/5 text-amber-600 dark:text-amber-300"],
             ["ENRIQUECIDOS", "Enriquecidos", datos.resumen.enriquecidos, "border-emerald-500/35 bg-emerald-500/5 text-emerald-600 dark:text-emerald-300"],
@@ -386,15 +386,16 @@ export function EnriquecimientoPage({ canManage }: Props) {
               <span className="mt-1 block text-2xl font-black text-slate-900 dark:text-white">{count.toLocaleString("es-AR")}</span>
             </button>
           ))}
-        </section>
+        </section>}
 
         <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-          <form onSubmit={(event) => { event.preventDefault(); setSearchApplied(search); setPage(1); }} className="grid gap-2 xl:grid-cols-[minmax(250px,1.4fr)_repeat(4,minmax(150px,1fr))_auto]">
+          <form onSubmit={(event) => { event.preventDefault(); setSearchApplied(search); setPage(1); }} className={`grid gap-2 ${vista === "GRUPOS" ? "xl:grid-cols-[minmax(250px,1.4fr)_repeat(5,minmax(150px,1fr))_auto]" : "xl:grid-cols-[minmax(250px,1.4fr)_repeat(4,minmax(150px,1fr))_auto]"}`}>
             <label className="relative block"><HiSearch className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Codigo, descripcion o marca" className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label>
             <select value={categoria} onChange={(event) => { setCategoria(event.target.value); setSubcategoria(""); setPage(1); }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"><option value="">Todas las categorias</option>{datos.opciones.categorias.map((item) => <option key={item.id} value={item.id}>{item.descripcion}</option>)}</select>
             <select value={subcategoria} onChange={(event) => { setSubcategoria(event.target.value); setPage(1); }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"><option value="">Todas las subcategorias</option>{subcategorias.map((item) => <option key={item.id} value={item.id}>{item.descripcion}</option>)}</select>
             <select value={marca} onChange={(event) => { setMarca(event.target.value); setPage(1); }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"><option value="">Todas las marcas</option>{datos.opciones.marcas.map((item) => <option key={item.id} value={item.id}>{item.descripcion}</option>)}</select>
             <select value={proveedor} onChange={(event) => { setProveedor(event.target.value); setPage(1); }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"><option value="">Todos los proveedores</option>{datos.opciones.proveedores.map((item) => <option key={item.id} value={item.id}>{item.descripcion}</option>)}</select>
+            {vista === "GRUPOS" && <select value={estado} onChange={(event) => { setEstado(event.target.value as Estado); setPage(1); }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"><option value="SIN_COMPLETAR">Sin completar</option><option value="PENDIENTES">Solo pendientes</option><option value="ENRIQUECIDOS">Solo enriquecidos</option><option value="TODOS">Todos los grupos</option></select>}
             <div className="flex gap-2"><button type="submit" className="inline-flex h-10 items-center justify-center rounded-lg bg-blue-600 px-4 text-[10px] font-black uppercase tracking-wide text-white transition hover:bg-blue-500">Buscar</button><button type="button" onClick={resetFilters} className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 text-slate-500 transition hover:border-red-400 hover:text-red-500 dark:border-slate-700" title="Limpiar filtros"><HiX className="h-4 w-4" /></button></div>
           </form>
         </section>

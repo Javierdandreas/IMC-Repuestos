@@ -4,7 +4,7 @@ import { buildConflictMessage, findCodeConflicts, findOrCreateCodigo, reservarCo
 import { sanitizeCodes, sanitizeRequiredString } from "@/utils/sanitization";
 import { firmaCompatibilidadVehiculo, guardarVehiculosCanonicos, normalizarAtributosVehiculo, type ValorVehiculo } from "@/lib/catalogo-vehiculos-mercadolibre";
 
-export type EstadoEnriquecimiento = "PENDIENTES" | "ENRIQUECIDOS" | "TODOS";
+export type EstadoEnriquecimiento = "PENDIENTES" | "ENRIQUECIDOS" | "SIN_COMPLETAR" | "TODOS";
 
 export type EnriquecimientoFiltros = {
   page?: number;
@@ -97,7 +97,7 @@ export async function getEnriquecimientoItems(filters: EnriquecimientoFiltros = 
   const where = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
   const estado = filters.estado ?? "PENDIENTES";
 
-  if (estado === "PENDIENTES") where.push("p.id_pieza IS NULL");
+  if (estado === "PENDIENTES" || estado === "SIN_COMPLETAR") where.push("p.id_pieza IS NULL");
   if (estado === "ENRIQUECIDOS") where.push("p.id_pieza IS NOT NULL");
 
   const search = filters.search?.trim();
@@ -313,6 +313,8 @@ export async function getEnriquecimientoGrupos(filters: EnriquecimientoFiltros =
   const estado = filters.estado ?? "TODOS";
   const groupWhere = estado === "PENDIENTES"
     ? "cantidad_enriquecidos = 0"
+    : estado === "SIN_COMPLETAR"
+      ? "cantidad_enriquecidos < cantidad_items"
     : estado === "ENRIQUECIDOS"
       ? "cantidad_enriquecidos = cantidad_items"
       : "TRUE";
