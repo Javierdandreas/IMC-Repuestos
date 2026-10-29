@@ -93,6 +93,7 @@ export type MercadoLibreVentaListado = {
   retiroEnPersona: boolean;
   mensajeEstado: string | null;
   mensajeDetalle: string | null;
+  mensajesNoLeidos: number;
   items: Array<{ itemId: string | null; titulo: string; cantidad: number; sku: string | null }>;
   sincronizadaAt: string;
 };
@@ -120,7 +121,7 @@ export type MercadoLibreVentaConversacion = {
   estado: string | null;
   permiteResponder: boolean;
   limiteRespuesta: number;
-  items: Array<{ itemId: string | null; titulo: string; sku: string | null; permalink: string | null }>;
+  items: Array<{ itemId: string | null; titulo: string; sku: string | null; permalink: string | null; thumbnailUrl: string | null }>;
   mensajes: MercadoLibreMensajePostVenta[];
   preguntasPrevias: Array<{ preguntaId: string; itemId: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: string | null }>;
 };

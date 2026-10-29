@@ -341,6 +341,36 @@ export async function getMercadoLibrePublicaciones(
   };
 }
 
+function etiquetaTipoEnvio(shipping: Record<string, unknown>) {
+  const option = shipping.shipping_option && typeof shipping.shipping_option === "object" && !Array.isArray(shipping.shipping_option)
+    ? shipping.shipping_option as Record<string, unknown>
+    : {};
+  const values = [shipping.logistic_type, shipping.mode, option.name].filter((value): value is string => typeof value === "string").join(" ").toLowerCase();
+  if (values.includes("flex")) return "FLEX";
+  if (values.includes("cross_docking") || values.includes("collect") || values.includes("recolec")) return "COLECTA";
+  if (values.includes("fulfillment")) return "FULL";
+  if (values.includes("drop_off")) return "DROP OFF";
+  return typeof shipping.logistic_type === "string" ? shipping.logistic_type.replaceAll("_", " ").toUpperCase() : null;
+}
+
+async function mensajesNoLeidosPorPack(idCuenta: number) {
+  try {
+    const { accessToken } = await accessTokenForCuenta(idCuenta);
+    const payload = await meliGet("/messages/unread?role=seller&tag=post_sale", idCuenta, accessToken) as Record<string, unknown>;
+    const results = Array.isArray(payload.results) ? payload.results : [];
+    return new Map(results.flatMap((result) => {
+      const value = result && typeof result === "object" ? result as Record<string, unknown> : {};
+      const resource = typeof value.resource === "string" ? value.resource : "";
+      const packId = /^\/packs\/(\d+)\/sellers\/\d+/.exec(resource)?.[1];
+      const count = Number(value.count);
+      return packId && Number.isFinite(count) && count > 0 ? [[packId, count] as const] : [];
+    }));
+  } catch (error) {
+    console.warn("[MERCADOLIBRE] No se pudieron consultar los mensajes no leidos:", error instanceof Error ? error.message : error);
+    return new Map<string, number>();
+  }
+}
+
 export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 50): Promise<MercadoLibreVentasResult> {
   const totalResult = await query<{ total_count: number }>("SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_venta WHERE id_cuenta = $1", [idCuenta]);
   const totalCount = Number(totalResult.rows[0]?.total_count || 0);
@@ -348,7 +378,8 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
   const safePage = Math.max(1, page);
   const { rows } = await query(
     `SELECT venta.id, venta.venta_id, venta.fecha, venta.estado, venta.comprador, venta.total, venta.moneda, venta.envio, venta.retiro_en_persona,
-            NULLIF(venta.datos #>> '{shipping,id}', '') AS numero_envio, venta.items, venta.sincronizada_at,
+            NULLIF(venta.datos #>> '{shipping,id}', '') AS numero_envio,
+            COALESCE(NULLIF(venta.datos->>'pack_id', ''), venta.venta_id) AS pack_id, venta.items, venta.sincronizada_at,
             COALESCE(mensaje.estado, evento.estado) AS mensaje_estado,
             COALESCE(mensaje.detalle, evento.detalle) AS mensaje_detalle
      FROM public.mercadolibre_venta venta
@@ -359,6 +390,7 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
      ORDER BY venta.fecha DESC NULLS LAST, venta.id DESC LIMIT $2 OFFSET $3`,
     [idCuenta, limit, (safePage - 1) * limit],
   );
+  const unreadByPack = await mensajesNoLeidosPorPack(idCuenta);
   return {
     data: rows.map((row): MercadoLibreVentaListado => ({
       id: Number(row.id), ventaId: String(row.venta_id), fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
@@ -367,6 +399,7 @@ export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 
       envio: row.envio ? String(row.envio) : null, retiroEnPersona: Boolean(row.retiro_en_persona),
       mensajeEstado: row.mensaje_estado ? String(row.mensaje_estado) : null,
       mensajeDetalle: row.mensaje_detalle ? String(row.mensaje_detalle) : null,
+      mensajesNoLeidos: unreadByPack.get(String(row.pack_id || row.venta_id)) || 0,
       numeroEnvio: row.numero_envio ? String(row.numero_envio) : null,
       items: Array.isArray(row.items) ? row.items.map((item: Record<string, unknown>) => ({ itemId: item.itemId ? String(item.itemId) : null, titulo: String(item.titulo || "Sin titulo"), cantidad: Number(item.cantidad || 0), sku: item.sku ? String(item.sku) : null })) : [],
       sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
@@ -410,11 +443,11 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
     return { itemId: typeof value.itemId === "string" ? value.itemId : null, titulo: String(value.titulo || "Sin titulo"), sku: typeof value.sku === "string" ? value.sku : null };
   }) : [];
   const itemIds = items.map((item) => item.itemId).filter((itemId): itemId is string => Boolean(itemId));
-  const { rows: publicationRows } = itemIds.length ? await query<{ item_id: string; permalink: string | null }>(
-    "SELECT item_id, permalink FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = ANY($2::text[])",
+  const { rows: publicationRows } = itemIds.length ? await query<{ item_id: string; permalink: string | null; thumbnail_url: string | null }>(
+    "SELECT item_id, permalink, thumbnail_url FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = ANY($2::text[])",
     [idCuenta, itemIds],
-  ) : { rows: [] as Array<{ item_id: string; permalink: string | null }> };
-  const permalinkByItem = new Map(publicationRows.map((publication) => [publication.item_id, publication.permalink]));
+  ) : { rows: [] as Array<{ item_id: string; permalink: string | null; thumbnail_url: string | null }> };
+  const publicationByItem = new Map(publicationRows.map((publication) => [publication.item_id, publication]));
   const { rows: questionRows } = buyerId ? await query<{ pregunta_id: string; item_id: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: Date | string | null }>(
     `SELECT pregunta_id, item_id, titulo, texto, respuesta, fecha
      FROM public.mercadolibre_pregunta
@@ -433,11 +466,14 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
     packId,
     comprador: venta.comprador,
     envio: venta.envio,
-    tipoEnvio: typeof shipping.logistic_type === "string" ? shipping.logistic_type : null,
+    tipoEnvio: etiquetaTipoEnvio(shipping),
     estado: typeof conversation.status === "string" ? conversation.status : null,
     permiteResponder: conversation.status === "active",
     limiteRespuesta: Number.isFinite(Number(payload.seller_max_message_length)) ? Number(payload.seller_max_message_length) : 350,
-    items: items.map((item) => ({ ...item, permalink: item.itemId ? permalinkByItem.get(item.itemId) || null : null })),
+    items: items.map((item) => {
+      const publication = item.itemId ? publicationByItem.get(item.itemId) : null;
+      return { ...item, permalink: publication?.permalink || null, thumbnailUrl: secureThumbnailUrl(publication?.thumbnail_url || null) };
+    }),
     mensajes: messages.map((message) => {
       const value = message && typeof message === "object" ? message as Record<string, unknown> : {};
       const from = value.from && typeof value.from === "object" ? value.from as Record<string, unknown> : {};
@@ -451,6 +487,10 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
           return { nombre: typeof current.name === "string" ? current.name : null, url: typeof current.url === "string" ? current.url : null };
         }),
       };
+    }).sort((left, right) => {
+      const leftTime = left.fecha ? new Date(left.fecha).getTime() : 0;
+      const rightTime = right.fecha ? new Date(right.fecha).getTime() : 0;
+      return leftTime - rightTime;
     }),
     preguntasPrevias: questionRows.map((question) => ({
       preguntaId: question.pregunta_id, itemId: question.item_id, titulo: question.titulo, texto: question.texto,
