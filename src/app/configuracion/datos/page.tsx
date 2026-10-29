@@ -1,8 +1,5 @@
-import { CatalogTransfersPage } from "@/components/configuracion/CatalogTransfersPage";
-import { getServerInternalUser } from "@/lib/auth";
-import { canManageContent } from "@/lib/permissions";
+import { redirect } from "next/navigation";
 
 export default async function ConfiguracionDatosPage() {
-  const session = await getServerInternalUser();
-  return <CatalogTransfersPage canManage={canManageContent(session?.rol, session?.permisos)} />;
+  redirect("/listados/importar-exportar");
 }

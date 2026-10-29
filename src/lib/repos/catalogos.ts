@@ -1041,3 +1041,108 @@ export async function updateUbicacion(id: string | number, descripcion: unknown)
 export async function deleteUbicacion(id: string | number) {
   return deleteCatalogo('ubicaciones', id);
 }
+
+export type CatalogoMaestroTipo = "marcas" | "categorias" | "ubicaciones";
+export type CatalogoMaestroFila = Record<string, unknown>;
+
+function textoCatalogoMaestro(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+export async function getCatalogoMaestroParaExportar(tipo: CatalogoMaestroTipo): Promise<Array<Record<string, string>>> {
+  if (tipo === "marcas") {
+    const { rows } = await query(`SELECT descripcion AS "Marca" FROM marcas ORDER BY descripcion ASC`);
+    return rows as Array<Record<string, string>>;
+  }
+
+  if (tipo === "ubicaciones") {
+    const { rows } = await query(`SELECT descripcion AS "Ubicacion" FROM ubicaciones ORDER BY ${getOrderByClause("ubicaciones")}`);
+    return rows as Array<Record<string, string>>;
+  }
+
+  const { rows } = await query(`
+    SELECT c.descripcion AS "Categoria", COALESCE(s.descripcion, '') AS "Subcategoria"
+    FROM categoria c
+    LEFT JOIN subcategoria s ON s.id_categoria = c.id
+    ORDER BY c.descripcion ASC, s.descripcion ASC
+  `);
+  return rows as Array<Record<string, string>>;
+}
+
+export async function importarCatalogoMaestro(tipo: CatalogoMaestroTipo, filas: CatalogoMaestroFila[]) {
+  const resultado = { creados: 0, ignorados: 0, errores: [] as Array<{ fila: number; mensaje: string }> };
+
+  await withTransaction(async (client) => {
+    if (tipo === "marcas" || tipo === "ubicaciones") {
+      const tabla = tipo === "marcas" ? "marcas" : "ubicaciones";
+      const columna = tipo === "marcas" ? "Marca" : "Ubicacion";
+      const { rows } = await client.query(`SELECT descripcion FROM ${tabla}`);
+      const existentes = new Set(rows.map((row) => textoCatalogoMaestro(row.descripcion).toLocaleUpperCase("es-AR")));
+
+      for (let index = 0; index < filas.length; index += 1) {
+        const descripcion = textoCatalogoMaestro(filas[index][columna] ?? filas[index].Descripcion ?? filas[index]["Descripción"]);
+        if (!descripcion) {
+          resultado.ignorados += 1;
+          resultado.errores.push({ fila: index + 2, mensaje: `La columna ${columna} es obligatoria.` });
+          continue;
+        }
+
+        const clave = descripcion.toLocaleUpperCase("es-AR");
+        if (existentes.has(clave)) {
+          resultado.ignorados += 1;
+          continue;
+        }
+
+        await client.query(`INSERT INTO ${tabla} (descripcion) VALUES ($1)`, [descripcion]);
+        existentes.add(clave);
+        resultado.creados += 1;
+      }
+      return;
+    }
+
+    const categorias = await client.query(`SELECT id, descripcion FROM categoria`);
+    const categoriasPorNombre = new Map(categorias.rows.map((row) => [textoCatalogoMaestro(row.descripcion).toLocaleUpperCase("es-AR"), Number(row.id)]));
+    const subcategorias = await client.query(`SELECT id_categoria, descripcion FROM subcategoria`);
+    const subcategoriasPorCategoria = new Set(subcategorias.rows.map((row) => `${row.id_categoria}:${textoCatalogoMaestro(row.descripcion).toLocaleUpperCase("es-AR")}`));
+
+    for (let index = 0; index < filas.length; index += 1) {
+      const fila = filas[index];
+      const categoria = textoCatalogoMaestro(fila.Categoria ?? fila["Categoría"]);
+      const subcategoria = textoCatalogoMaestro(fila.Subcategoria ?? fila["Subcategoría"]);
+      if (!categoria) {
+        resultado.ignorados += 1;
+        resultado.errores.push({ fila: index + 2, mensaje: "La columna Categoria es obligatoria." });
+        continue;
+      }
+
+      const claveCategoria = categoria.toLocaleUpperCase("es-AR");
+      let categoriaId = categoriasPorNombre.get(claveCategoria);
+      let creoRegistro = false;
+      if (!categoriaId) {
+        const { rows } = await client.query(`INSERT INTO categoria (descripcion) VALUES ($1) RETURNING id`, [categoria]);
+        categoriaId = Number(rows[0].id);
+        categoriasPorNombre.set(claveCategoria, categoriaId);
+        resultado.creados += 1;
+        creoRegistro = true;
+      }
+
+      if (!subcategoria) {
+        if (!creoRegistro) resultado.ignorados += 1;
+        continue;
+      }
+
+      const claveSubcategoria = `${categoriaId}:${subcategoria.toLocaleUpperCase("es-AR")}`;
+      if (subcategoriasPorCategoria.has(claveSubcategoria)) {
+        if (!creoRegistro) resultado.ignorados += 1;
+        continue;
+      }
+
+      await client.query(`INSERT INTO subcategoria (descripcion, id_categoria) VALUES ($1, $2)`, [subcategoria, categoriaId]);
+      subcategoriasPorCategoria.add(claveSubcategoria);
+      resultado.creados += 1;
+    }
+  });
+
+  revalidateTag("meta");
+  return resultado;
+}

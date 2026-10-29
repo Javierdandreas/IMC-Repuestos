@@ -74,9 +74,11 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Listados",
-    href: "/listados/precios-modificados",
+    href: "/listados/base-de-datos",
     icon: HiOutlineLibrary,
     links: [
+      { href: "/listados/base-de-datos", label: "Base de datos", permisos: ["marcas:leer", "categorias:leer", "ubicaciones:leer"] },
+      { href: "/listados/importar-exportar", label: "Importar y exportar", permisos: ["importaciones:leer"] },
       { href: "/listados/precios-modificados", label: "Costos modificados", permisos: ["costos_modificados:leer"] },
       { href: "/listados/movimientos-stock", label: "Movimientos de stock", permisos: ["movimientos_stock:leer"] },
       { href: "/ubicaciones/inventario", label: "Inventario por ubicacion", permisos: ["inventario_ubicacion:leer"] },
@@ -84,16 +86,13 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Configuracion",
-    href: "/configuracion/datos",
+    href: "/configuracion/precios",
     icon: HiOutlineCog,
     links: [
-      { href: "/configuracion/datos", label: "Datos", permisos: ["marcas:leer", "categorias:leer", "ubicaciones:leer"] },
-      { href: "/configuracion/base-de-datos", label: "Base de datos", permisos: ["marcas:leer", "categorias:leer", "ubicaciones:leer"] },
       { href: "/configuracion/precios", label: "Listas de precio", permisos: ["listas_precios:leer"] },
       { href: "/configuracion/multimoneda", label: "Multimoneda", permisos: ["multimoneda:leer"] },
       { href: "/configuracion/enriquecimiento", label: "Enriquecimiento", permisos: ["enriquecimiento:leer"] },
       { href: "/configuracion/usuarios", label: "Usuarios", soloAdmin: true },
-      { href: "/importaciones", label: "Importaciones", permisos: ["importaciones:leer"] },
     ],
   },
 ];
@@ -136,11 +135,11 @@ export const Sidebar = () => {
     if (group.label === "Operaciones") return pathname.startsWith("/operaciones") || pathname === "/configuracion/mercadolibre";
     if (group.label === "Contactos") return pathname.startsWith("/proveedores") || pathname.startsWith("/clientes");
     if (group.label === "Configuracion") {
-      return ["/configuracion", "/importaciones", "/marcas", "/categorias", "/ubicaciones"].some((route) => pathname.startsWith(route))
+      return pathname.startsWith("/configuracion")
         && pathname !== "/configuracion/mercadolibre"
         && pathname !== "/ubicaciones/inventario";
     }
-    if (group.label === "Listados") return pathname.startsWith("/listados") || pathname === "/ubicaciones/inventario";
+    if (group.label === "Listados") return pathname.startsWith("/listados") || pathname.startsWith("/marcas") || pathname.startsWith("/categorias") || pathname.startsWith("/ubicaciones") || pathname.startsWith("/importaciones");
     return false;
   };
 

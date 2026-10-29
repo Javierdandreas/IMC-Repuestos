@@ -73,6 +73,8 @@ export function permisoParaPagina(pathname: string, searchParams: URLSearchParam
   }
   if (pathname.startsWith("/listados/precios-modificados")) return requisito("costos_modificados", "leer");
   if (pathname.startsWith("/listados/movimientos-stock")) return requisito("movimientos_stock", "leer");
+  if (pathname.startsWith("/listados/base-de-datos")) return ["marcas:leer", "categorias:leer", "ubicaciones:leer"];
+  if (pathname.startsWith("/listados/importar-exportar")) return requisito("importaciones", "leer");
   if (pathname.startsWith("/ubicaciones/inventario")) return requisito("inventario_ubicacion", "leer");
   if (pathname.startsWith("/ubicaciones")) return requisito("ubicaciones", "leer");
   if (pathname.startsWith("/marcas")) return requisito("marcas", "leer");
@@ -123,6 +125,12 @@ export function permisoParaApi(pathname: string, method: string, searchParams: U
   if (pathname.startsWith("/api/ubicaciones/inventario")) return conAccion("inventario_ubicacion", pathname.includes("/export") ? "exportar" : pathname.includes("/import") ? "masivo" : undefined);
   if (pathname.startsWith("/api/listados/precios-modificados")) return conAccion("costos_modificados", pathname.includes("/export") ? "exportar" : undefined);
   if (pathname.startsWith("/api/listados/movimientos-stock")) return conAccion("movimientos_stock", pathname.includes("/export") ? "exportar" : undefined);
+  if (pathname.startsWith("/api/listados/base-de-datos")) {
+    const tipo = searchParams.get("tipo");
+    const apartado = tipo === "marcas" ? "marcas" : tipo === "categorias" ? "categorias" : tipo === "ubicaciones" ? "ubicaciones" : null;
+    if (!apartado) return null;
+    return conAccion(apartado, pathname.includes("/export") ? "exportar" : pathname.includes("/importar") ? "masivo" : undefined);
+  }
   if (pathname.startsWith("/api/compatibilidades")) return conAccion(pathname.includes("/publicacion") ? "ml_compatibilidades" : "compatibilidades");
   if (pathname.startsWith("/api/enriquecimiento")) return conAccion("enriquecimiento");
   if (pathname.startsWith("/api/catalogo-externo")) return conAccion("catalogo_externo", pathname.includes("/import") ? "masivo" : undefined);

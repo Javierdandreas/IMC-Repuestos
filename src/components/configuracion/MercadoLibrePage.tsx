@@ -65,9 +65,11 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
   const [configMensajeAbierta, setConfigMensajeAbierta] = useState(false);
   const searchParams = useSearchParams();
   const targetQuestionId = searchParams.get("pregunta");
+  const requestedTab = searchParams.get("tab");
   const requestedAccountId = Number(searchParams.get("cuenta"));
   const targetAccountId = Number.isInteger(requestedAccountId) && requestedAccountId > 0 ? requestedAccountId : null;
-  const [tab, setTab] = useState<Tab>(() => targetQuestionId ? "PREGUNTAS" : "VENTAS");
+  const initialTab: Tab = requestedTab === "PUBLICACIONES" || requestedTab === "COSTOS" || requestedTab === "PREGUNTAS" || requestedTab === "SINCRONIZACION" ? requestedTab : "VENTAS";
+  const [tab, setTab] = useState<Tab>(() => targetQuestionId ? "PREGUNTAS" : initialTab);
   const [cuentas, setCuentas] = useState<MercadoLibreCuentaEstado[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [ventas, setVentas] = useState<MercadoLibreVentasResult>({ data: [], totalCount: 0, totalPages: 0 });

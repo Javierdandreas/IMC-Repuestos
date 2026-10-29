@@ -83,9 +83,9 @@ export function CatalogTransfersPage({ canManage }: Props) {
     <main className="min-h-[calc(100dvh-4rem)] bg-slate-50 p-4 dark:bg-slate-950 md:p-6">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6">
         <header className="border-b border-slate-200 pb-5 dark:border-slate-800">
-          <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Configuracion</p>
-          <h1 className="mt-2 text-2xl font-black text-slate-900 dark:text-white">Datos</h1>
-          <p className="mt-1 text-sm font-medium text-slate-500">Catalogo, proveedores, inventario e integraciones.</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Listados</p>
+          <h1 className="mt-2 text-2xl font-black text-slate-900 dark:text-white">Importar y exportar</h1>
+          <p className="mt-1 text-sm font-medium text-slate-500">Transferencias de catalogo, proveedores, inventario y respaldos.</p>
         </header>
 
         <div role="tablist" aria-label="Datos" className="flex w-full overflow-x-auto border-b border-slate-200 dark:border-slate-800">
