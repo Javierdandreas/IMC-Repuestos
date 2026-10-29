@@ -51,7 +51,6 @@ const navGroups: NavGroup[] = [
       { href: "/operaciones?tipo=COMPRA", label: "Compras", permisos: ["compras:leer"] },
       { href: "/operaciones?tipo=AJUSTE", label: "Ajustes de stock", permisos: ["ajustes_stock:leer"] },
       { href: "/operaciones/mercadolibre", label: "Mercado Libre", permisos: ["ml_ventas:leer"] },
-      { href: "/operaciones/mercadolibre/compatibilidades", label: "Compatibilidades", permisos: ["ml_compatibilidades:leer"] },
       { href: "https://imc-cerebro.vercel.app/", label: "Presupuestos", external: true },
     ],
   },

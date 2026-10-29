@@ -2,7 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, Copy, ExternalLink, Link2, LoaderCircle, Mail, MessageCircle, MessageSquarePlus, Package, Pencil, Plus, RefreshCw, Search, Send, Settings2, ShieldCheck, ShoppingCart, Trash2, X } from "lucide-react";
+import { Ban, CarFront, Check, ChevronDown, ChevronUp, CircleDollarSign, Copy, ExternalLink, Link2, LoaderCircle, Mail, MessageCircle, MessageSquarePlus, Package, Pencil, Plus, RefreshCw, Search, Send, Settings2, ShieldCheck, ShoppingCart, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { PushNotificationsControl } from "@/components/notificaciones/PushNotificationsControl";
@@ -22,7 +22,7 @@ import type {
   MercadoLibreVentasResult,
 } from "@/interfaces/mercadolibre";
 
-type Props = { canManage: boolean; canReply: boolean };
+type Props = { canManage: boolean; canReply: boolean; canViewCompatibilidades: boolean };
 type Tab = "VENTAS" | "PUBLICACIONES" | "COSTOS" | "PREGUNTAS" | "SINCRONIZACION";
 type QuestionStatus = "POR_RESPONDER" | "RESPONDIDAS";
 type DateOrder = "DESC" | "ASC";
@@ -61,7 +61,7 @@ function publicationLinkLabel(tipo: "SIN_VINCULO" | "CODIGO_EXACTO" | "MANUAL" |
   return "Sin vinculo";
 }
 
-export function MercadoLibrePage({ canManage, canReply }: Props) {
+export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades }: Props) {
   const [configMensajeAbierta, setConfigMensajeAbierta] = useState(false);
   const searchParams = useSearchParams();
   const targetQuestionId = searchParams.get("pregunta");
@@ -509,7 +509,7 @@ export function MercadoLibrePage({ canManage, canReply }: Props) {
     {!loading && !error && cuentas.length === 0 && <SyncPanel accounts={cuentas} account={null} selectedAccountId={null} onAccountChange={selectAccount} onConnect={() => { window.location.href = "/api/integraciones/mercadolibre/conectar"; }} onSync={() => void sync()} syncing={syncing} canManage={canManage} />}
 
     {cuentas.length > 0 && <>
-      <nav className="flex overflow-x-auto border-b border-slate-200 dark:border-slate-800" aria-label="Secciones de Mercado Libre">{TABS.map((item) => { const Icon = item.icon; const active = tab === item.id; return <button key={item.id} type="button" onClick={() => void changeTab(item.id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-xs font-black uppercase tracking-wide transition ${active ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}><Icon className="h-4 w-4" />{item.label}</button>; })}</nav>
+      <nav className="flex overflow-x-auto border-b border-slate-200 dark:border-slate-800" aria-label="Secciones de Mercado Libre">{TABS.map((item) => { const Icon = item.icon; const active = tab === item.id; return <span key={item.id} className="inline-flex">{item.id === "SINCRONIZACION" && canViewCompatibilidades && <a href="/operaciones/mercadolibre/compatibilidades" className="inline-flex shrink-0 items-center gap-2 border-b-2 border-transparent px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"><CarFront className="h-4 w-4" />Compatibilidades</a>}<button type="button" onClick={() => void changeTab(item.id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-xs font-black uppercase tracking-wide transition ${active ? "border-blue-600 text-blue-600 dark:text-blue-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}><Icon className="h-4 w-4" />{item.label}</button></span>; })}</nav>
       {tab !== "SINCRONIZACION" && <div className="flex flex-wrap items-center gap-2">
         {tab === "PREGUNTAS" && <><label className="sr-only" htmlFor="preguntas-estado">Estado de preguntas</label><select id="preguntas-estado" value={questionStatus} onChange={(event) => changeQuestionFilter("estado", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="POR_RESPONDER">Por responder</option><option value="RESPONDIDAS">Respondidas</option></select><label className="sr-only" htmlFor="preguntas-orden">Orden de preguntas</label><select id="preguntas-orden" value={questionOrder} onChange={(event) => changeQuestionFilter("orden", event.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="DESC">Mas nuevas primero</option><option value="ASC">Mas viejas primero</option></select><button type="button" onClick={() => setQuickRepliesOpen(true)} disabled={!canManage} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><MessageSquarePlus className="h-4 w-4" />Respuestas rapidas</button></>}
         {tab === "PUBLICACIONES" && <>
