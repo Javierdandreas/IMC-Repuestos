@@ -10,7 +10,14 @@ export const dynamic = "force-dynamic";
 
 const permiso = z.object({ apartado: z.string().max(80), accion: z.string().max(20) });
 const creacion = z.object({ nombre: z.string().trim().min(1).max(100), email: z.string().trim().email().max(254), password: z.string().min(12).max(128) });
-const edicion = z.object({ usuarioId: z.number().int().positive(), activo: z.boolean().optional(), confirmarLecturaGeneral: z.boolean().optional(), permisos: z.array(permiso).max(200).optional() });
+const edicion = z.object({
+  usuarioId: z.number().int().positive(),
+  activo: z.boolean().optional(),
+  confirmarLecturaGeneral: z.boolean().optional(),
+  permisos: z.array(permiso).max(200).optional(),
+  email: z.string().trim().email().max(254).optional(),
+  password: z.string().min(12).max(128).optional(),
+});
 
 export async function GET(request: NextRequest) {
   try {
@@ -55,6 +62,26 @@ export async function PATCH(request: NextRequest) {
     const session = await requireApiRole(request, ["admin"]);
     const body = edicion.parse(await request.json());
     if (body.permisos && !asignacionesValidas(body.permisos)) throw new AppError("Los permisos son invalidos o falta lectura en un apartado.", 400);
+    const actualizarAcceso = body.email !== undefined || body.password !== undefined;
+
+    if (actualizarAcceso) {
+      const acceso = await query<{ auth_user_id: string; rol: string }>("SELECT auth_user_id, rol FROM public.usuario_auth WHERE usuario_id = $1", [body.usuarioId]);
+      const usuario = acceso.rows[0];
+      if (!usuario) throw new AppError("No se encontro el usuario.", 404);
+      if (usuario.rol.trim().toLowerCase() !== "empleado") throw new AppError("Solo se pueden modificar empleados desde esta pantalla.", 403);
+      if (body.usuarioId === session.usuarioId) throw new AppError("No puedes modificar tu propia cuenta.", 403);
+
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+      if (!url || !key) throw new AppError("Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor.", 503);
+      const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+      const { error } = await supabase.auth.admin.updateUserById(usuario.auth_user_id, {
+        ...(body.email !== undefined ? { email: body.email.toLowerCase(), email_confirm: true } : {}),
+        ...(body.password !== undefined ? { password: body.password } : {}),
+      });
+      if (error) throw new AppError(`No se pudo actualizar el acceso: ${error.message}`, 400);
+    }
+
     await withTransaction(async (client) => {
       const result = await client.query<{ rol: string }>("SELECT rol FROM public.usuario_auth WHERE usuario_id = $1 FOR UPDATE", [body.usuarioId]);
       const usuario = result.rows[0];
@@ -63,6 +90,7 @@ export async function PATCH(request: NextRequest) {
       if (body.usuarioId === session.usuarioId) throw new AppError("No puedes modificar tu propia cuenta.", 403);
       if (body.activo === true && !body.confirmarLecturaGeneral) throw new AppError("Confirma que el empleado tendra lectura general mientras los permisos no esten activos.", 400);
       if (body.activo !== undefined) await client.query("UPDATE public.usuario_auth SET activo = $2 WHERE usuario_id = $1", [body.usuarioId, body.activo]);
+      if (body.email !== undefined) await client.query("UPDATE public.detalle_usuario SET email = $2 WHERE id = $1", [body.usuarioId, body.email.toLowerCase()]);
       if (body.permisos) {
         await client.query("DELETE FROM public.usuario_permiso WHERE usuario_id = $1", [body.usuarioId]);
         for (const p of body.permisos) await client.query("INSERT INTO public.usuario_permiso (usuario_id, apartado, accion) VALUES ($1, $2, $3)", [body.usuarioId, p.apartado, p.accion]);
