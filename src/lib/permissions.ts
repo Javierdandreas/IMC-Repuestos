@@ -140,7 +140,8 @@ export function permisoParaApi(pathname: string, method: string, searchParams: U
   }
   if (pathname.startsWith("/api/integraciones/mercadolibre/buscar-publicacion") || pathname.startsWith("/api/integraciones/mercadolibre/candidatos-vinculo") || pathname.startsWith("/api/integraciones/mercadolibre/vinculos")) return conAccion("ml_publicaciones");
   if (pathname.startsWith("/api/integraciones/mercadolibre")) return conAccion("ml_integracion");
-  if (pathname.startsWith("/api/geografia") || pathname.startsWith("/api/metadata") || pathname.startsWith("/api/notificaciones")) return ["productos:leer", "piezas:leer", "proveedores:leer", "ventas:leer"];
+  if (pathname.startsWith("/api/notificaciones")) return requisito("ml_ventas", "leer");
+  if (pathname.startsWith("/api/geografia") || pathname.startsWith("/api/metadata")) return ["productos:leer", "piezas:leer", "proveedores:leer", "ventas:leer"];
   return null;
 }
 

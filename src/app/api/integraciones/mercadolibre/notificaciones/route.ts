@@ -8,7 +8,7 @@ import { procesarEventoMercadoLibre } from "@/lib/mercadolibre";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const TOPICS = new Set(["orders_v2", "questions", "items"]);
+const TOPICS = new Set(["orders_v2", "questions", "items", "messages"]);
 
 type MeliNotification = {
   topic?: unknown;
@@ -18,6 +18,7 @@ type MeliNotification = {
   sent?: unknown;
   id?: unknown;
   data?: { id?: unknown };
+  actions?: unknown;
 };
 
 function signatureParts(value: string | null) {
@@ -81,7 +82,11 @@ export async function POST(request: NextRequest) {
   const topic = typeof notification.topic === "string" ? notification.topic : "";
   const resource = typeof notification.resource === "string" ? notification.resource : "";
   const sellerId = Number(notification.user_id);
-  if (!TOPICS.has(topic) || !resource.startsWith("/") || !Number.isSafeInteger(sellerId)) {
+  const validResource = topic === "messages"
+    ? /^[A-Za-z0-9-]{8,200}$/.test(resource)
+    : resource.startsWith("/");
+  const actions = Array.isArray(notification.actions) ? notification.actions.filter((action): action is string => typeof action === "string") : [];
+  if (!TOPICS.has(topic) || !validResource || !Number.isSafeInteger(sellerId) || (topic === "messages" && !actions.includes("created"))) {
     return NextResponse.json({ ok: true, ignored: true }, { headers: { "Cache-Control": "no-store" } });
   }
 

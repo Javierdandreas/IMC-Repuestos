@@ -16,8 +16,8 @@ export async function GET(request: NextRequest) {
     const result = await query<{ revision: string }>(
       `SELECT COALESCE(MAX(procesado_at)::text, '') AS revision
        FROM public.mercadolibre_webhook_evento
-       WHERE id_cuenta = $1 AND topic = $2 AND estado = 'PROCESADO'`,
-      [idCuenta, tipo === "VENTAS" ? "orders_v2" : "questions"],
+       WHERE id_cuenta = $1 AND topic = ANY($2::text[]) AND estado = 'PROCESADO'`,
+      [idCuenta, tipo === "VENTAS" ? ["orders_v2", "messages"] : ["questions"]],
     );
     return NextResponse.json({ revision: result.rows[0].revision }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

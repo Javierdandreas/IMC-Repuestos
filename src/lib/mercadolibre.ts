@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
 
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
-import { notificarNuevaPreguntaMercadoLibre } from "@/lib/notificaciones-push";
+import { notificarNuevaPreguntaMercadoLibre, notificarNuevoMensajePostVentaMercadoLibre } from "@/lib/notificaciones-push";
 import { atributosObligatoriosFaltantes, interpretarValidacionPublicacion, prepararValidacionPublicacion, protegerDiagnostico, type AtributoCategoriaPublicacion } from "@/lib/mercadolibre-validacion-publicacion";
 import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
 import { dominiosCompatibles, planCopiaCompatibilidades, solicitudCopiaUserProduct, totalCompatibilidades, totalResumen } from "@/lib/mercadolibre-copia-compatibilidades";
@@ -2468,6 +2468,15 @@ type MeliQuestion = {
   answer?: { text?: string | null; date_created?: string | null } | null;
 };
 
+type MeliMensajePostVenta = {
+  id?: string;
+  message_id?: string;
+  from?: { user_id?: number | string };
+  text?: unknown;
+  resource_id?: number | string;
+  message_resources?: Array<{ id?: number | string; name?: string }>;
+};
+
 type MeliWebhookEventRow = {
   id: number;
   id_cuenta: number;
@@ -2714,11 +2723,65 @@ function recursoPermitido(topic: string, recurso: string) {
   if (topic === "orders_v2") return /^\/orders\/\d+$/.test(recurso);
   if (topic === "questions") return /^\/questions\/\d+$/.test(recurso);
   if (topic === "items") return /^\/items\/ML[A-Z]+\d+$/i.test(recurso);
+  if (topic === "messages") return /^[A-Za-z0-9-]{8,200}$/.test(recurso);
   return false;
 }
 
+function valueRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+async function notificarMensajePostVentaMercadoLibre(idCuenta: number, sellerId: number, recurso: string, accessToken: string) {
+  const response = await meliGet(`/messages/${encodeURIComponent(recurso)}?tag=post_sale`, idCuenta, accessToken);
+  const payload = valueRecord(response);
+  const messages = Array.isArray(payload.messages) ? payload.messages : [payload];
+  const message = valueRecord(messages[0]) as MeliMensajePostVenta;
+  const messageId = String(message.id || message.message_id || recurso).trim();
+  const from = valueRecord(message.from);
+  if (!messageId || Number(from.user_id) === sellerId) return;
+
+  const reserved = await query<{ id: number }>(
+    `INSERT INTO public.mercadolibre_mensaje_postventa_notificado (id_cuenta, mensaje_id, venta_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (id_cuenta, mensaje_id) DO NOTHING
+     RETURNING id`,
+    [idCuenta, messageId, idSeguro(message.resource_id)],
+  );
+  if (!reserved.rows.length) return;
+
+  const resources = Array.isArray(message.message_resources) ? message.message_resources : [];
+  const packId = resources.find((resource) => resource?.name?.toLowerCase() === "packs")?.id;
+  const identifiers = Array.from(new Set([idSeguro(message.resource_id), idSeguro(packId)].filter((value): value is string => Boolean(value))));
+  const sale = identifiers.length ? await query<{ venta_id: string; comprador: string | null; items: unknown }>(
+    `SELECT venta_id, comprador, items
+     FROM public.mercadolibre_venta
+     WHERE id_cuenta = $1
+       AND (venta_id = ANY($2::text[]) OR NULLIF(datos->>'pack_id', '') = ANY($2::text[]))
+     ORDER BY fecha DESC NULLS LAST, id DESC
+     LIMIT 1`,
+    [idCuenta, identifiers],
+  ) : { rows: [] as Array<{ venta_id: string; comprador: string | null; items: unknown }> };
+  const venta = sale.rows[0];
+  const firstItem = Array.isArray(venta?.items) ? valueRecord(venta.items[0]) : {};
+  const itemId = typeof firstItem.itemId === "string" ? firstItem.itemId : null;
+  const publication = itemId ? await query<{ titulo: string | null; thumbnail_url: string | null }>(
+    "SELECT titulo, thumbnail_url FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = $2 LIMIT 1",
+    [idCuenta, itemId],
+  ) : { rows: [] as Array<{ titulo: string | null; thumbnail_url: string | null }> };
+  const publicacion = publication.rows[0];
+  const texto = textoMensajePostVenta(message.text).trim();
+  await notificarNuevoMensajePostVentaMercadoLibre({
+    idCuenta,
+    mensajeId: messageId,
+    ventaId: venta?.venta_id || idSeguro(message.resource_id),
+    titulo: venta?.comprador ? `Mensaje de ${venta.comprador}` : publicacion?.titulo || "Nuevo mensaje de postventa",
+    thumbnailUrl: secureThumbnailUrl(publicacion?.thumbnail_url || null),
+    texto,
+  });
+}
+
 async function procesarEventoMercadoLibreReclamado(row: MeliWebhookEventRow) {
-  const { accessToken } = await accessTokenForCuenta(row.id_cuenta);
+  const { accessToken, sellerId } = await accessTokenForCuenta(row.id_cuenta);
   if (!recursoPermitido(row.topic, row.recurso)) {
     await query(
       "UPDATE public.mercadolibre_webhook_evento SET estado = 'IGNORADO', procesado_at = NOW(), ultimo_error = NULL WHERE id = $1",
@@ -2726,7 +2789,7 @@ async function procesarEventoMercadoLibreReclamado(row: MeliWebhookEventRow) {
     );
     return;
   }
-  const resource = await meliGet(row.recurso, row.id_cuenta, accessToken);
+  const resource = row.topic === "messages" ? null : await meliGet(row.recurso, row.id_cuenta, accessToken);
   if (row.topic === "orders_v2") {
     const venta = resource as MeliOrder;
     await guardarVentaMercadoLibre(row.id_cuenta, venta);
@@ -2735,6 +2798,7 @@ async function procesarEventoMercadoLibreReclamado(row: MeliWebhookEventRow) {
   }
   if (row.topic === "questions") await guardarPreguntaMercadoLibre(row.id_cuenta, resource as MeliQuestion, { notificar: true });
   if (row.topic === "items") await guardarPublicacionDesdeWebhook(row.id_cuenta, resource as MeliItem);
+  if (row.topic === "messages") await notificarMensajePostVentaMercadoLibre(row.id_cuenta, sellerId, row.recurso, accessToken);
   await query(
     "UPDATE public.mercadolibre_webhook_evento SET estado = 'PROCESADO', procesado_at = NOW(), ultimo_error = NULL WHERE id = $1",
     [row.id],

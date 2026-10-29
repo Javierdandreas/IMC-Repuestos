@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, BellOff, LoaderCircle } from "lucide-react";
+import { Bell, BellOff, LoaderCircle, Send } from "lucide-react";
 import { toast } from "sonner";
 
 type PushConfiguration = { configured: boolean; publicKey: string | null };
@@ -103,9 +103,26 @@ export function PushNotificationsControl() {
     }
   };
 
+  const sendTest = async () => {
+    try {
+      setWorking(true);
+      const response = await fetch("/api/notificaciones/push/prueba", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "No se pudo enviar la alerta de prueba.");
+      toast.success("Alerta de prueba enviada a este dispositivo.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo enviar la alerta de prueba.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   if (state === "checking") return <span className="inline-flex h-9 w-9 items-center justify-center text-slate-400"><LoaderCircle className="h-4 w-4 animate-spin" /></span>;
 
   const unavailable = state === "unsupported" || state === "unavailable";
   const active = state === "active";
-  return <button type="button" onClick={() => void (active ? deactivate() : activate())} disabled={working || unavailable} title={unavailable ? "Las alertas no estan disponibles en este navegador" : active ? "Desactivar alertas en este dispositivo" : "Activar alertas en este dispositivo"} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-50 ${active ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300" : "border-slate-300 text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"}`}>{working ? <LoaderCircle className="h-4 w-4 animate-spin" /> : active ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}{active ? "Alertas activas" : "Activar alertas"}</button>;
+  return <div className="inline-flex items-center gap-1">
+    <button type="button" onClick={() => void (active ? deactivate() : activate())} disabled={working || unavailable} title={state === "unavailable" ? "Faltan las claves VAPID de alertas en el servidor" : state === "unsupported" ? "Las alertas no estan disponibles en este navegador" : active ? "Desactivar alertas en este dispositivo" : "Activar alertas en este dispositivo"} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-50 ${active ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300" : "border-slate-300 text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"}`}>{working ? <LoaderCircle className="h-4 w-4 animate-spin" /> : active ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}{active ? "Alertas activas" : unavailable ? "Alertas sin configurar" : "Activar alertas"}</button>
+    {active && <button type="button" onClick={() => void sendTest()} disabled={working} title="Enviar alerta de prueba" aria-label="Enviar alerta de prueba" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><Send className="h-4 w-4" /></button>}
+  </div>;
 }
