@@ -2624,6 +2624,21 @@ async function sincronizarPreguntasMercadoLibre(idCuenta: number, sellerId: numb
         pregunta.answer?.date_created || null, JSON.stringify(pregunta)],
     );
   }
+
+  // Mercado Libre deja de devolver las preguntas cerradas en la consulta de pendientes.
+  // Solo conciliamos las recientes para no alterar registros historicos fuera de la ventana activa.
+  const pendientesIds = pendientes
+    .filter((pregunta) => pregunta.id)
+    .map((pregunta) => String(pregunta.id));
+  await query(
+    `UPDATE public.mercadolibre_pregunta
+     SET estado = 'CLOSED', sincronizada_at = NOW(), updated_at = NOW()
+     WHERE id_cuenta = $1
+       AND estado = 'UNANSWERED'
+       AND fecha >= NOW() - INTERVAL '30 days'
+       AND NOT (pregunta_id = ANY($2::text[]))`,
+    [idCuenta, pendientesIds],
+  );
   return preguntas.length;
 }
 
