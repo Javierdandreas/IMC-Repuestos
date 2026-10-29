@@ -19,6 +19,10 @@ const edicion = z.object({
   password: z.string().min(12).max(128).optional(),
 });
 
+function getSupabaseAdminKey() {
+  return process.env.SUPABASE_SECRET_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+}
+
 export async function GET(request: NextRequest) {
   try {
     await requireApiRole(request, ["admin"]);
@@ -35,8 +39,8 @@ export async function POST(request: NextRequest) {
     await requireApiRole(request, ["admin"]);
     const body = creacion.parse(await request.json());
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-    if (!url || !key) throw new AppError("Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor.", 503);
+    const key = getSupabaseAdminKey();
+    if (!url || !key) throw new AppError("Falta configurar SUPABASE_SECRET_KEY (o la clave heredada SUPABASE_SERVICE_ROLE_KEY) en el servidor.", 503);
     // Comprueba la base antes de crear una cuenta en Auth.
     await query("SELECT 1 FROM public.usuario_permiso LIMIT 1");
     const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -72,8 +76,8 @@ export async function PATCH(request: NextRequest) {
       if (body.usuarioId === session.usuarioId) throw new AppError("No puedes modificar tu propia cuenta.", 403);
 
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-      const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-      if (!url || !key) throw new AppError("Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor.", 503);
+      const key = getSupabaseAdminKey();
+      if (!url || !key) throw new AppError("Falta configurar SUPABASE_SECRET_KEY (o la clave heredada SUPABASE_SERVICE_ROLE_KEY) en el servidor.", 503);
       const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
       const { error } = await supabase.auth.admin.updateUserById(usuario.auth_user_id, {
         ...(body.email !== undefined ? { email: body.email.toLowerCase(), email_confirm: true } : {}),
