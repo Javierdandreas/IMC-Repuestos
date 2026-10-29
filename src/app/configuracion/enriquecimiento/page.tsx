@@ -6,5 +6,5 @@ export const dynamic = "force-dynamic";
 
 export default async function ConfiguracionEnriquecimientoPage() {
   const session = await getServerInternalUser();
-  return <EnriquecimientoPage canManage={canManageContent(session?.rol)} />;
+  return <EnriquecimientoPage canManage={canManageContent(session?.rol, session?.permisos)} />;
 }

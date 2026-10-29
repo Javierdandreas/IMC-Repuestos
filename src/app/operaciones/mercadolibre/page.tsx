@@ -6,5 +6,5 @@ export const dynamic = "force-dynamic";
 
 export default async function OperacionesMercadoLibrePage() {
   const session = await getServerInternalUser();
-  return <MercadoLibrePage canManage={canManageContent(session?.rol)} canReply={canReadContent(session?.rol)} />;
+  return <MercadoLibrePage canManage={canManageContent(session?.rol, session?.permisos)} canReply={canReadContent(session?.rol)} />;
 }

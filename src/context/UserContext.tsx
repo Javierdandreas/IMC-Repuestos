@@ -20,7 +20,7 @@ export function UserProvider({
   children: ReactNode;
   initialUser: AuthenticatedInternalUser | null;
 }) {
-  const canManage = initialUser ? canManageContent(initialUser.rol) : false;
+  const canManage = initialUser ? canManageContent(initialUser.rol, initialUser.permisos) : false;
   const can = (apartado: string, accion: PermisoAccion = "leer") => Boolean(initialUser && puedeAccederPermisos(initialUser.rol, initialUser.permisos, [`${apartado}:${accion}`]));
 
   return (

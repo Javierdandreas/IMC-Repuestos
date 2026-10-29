@@ -4,5 +4,5 @@ import { canManageContent } from "@/lib/permissions";
 
 export default async function ConfiguracionDatosPage() {
   const session = await getServerInternalUser();
-  return <CatalogTransfersPage canManage={canManageContent(session?.rol)} />;
+  return <CatalogTransfersPage canManage={canManageContent(session?.rol, session?.permisos)} />;
 }

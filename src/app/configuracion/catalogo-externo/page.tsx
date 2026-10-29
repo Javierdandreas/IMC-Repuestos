@@ -6,5 +6,5 @@ export const dynamic = "force-dynamic";
 
 export default async function CatalogoExternoPage() {
   const session = await getServerInternalUser();
-  return <ExternalCatalogPage canManage={canManageContent(session?.rol)} />;
+  return <ExternalCatalogPage canManage={canManageContent(session?.rol, session?.permisos)} />;
 }

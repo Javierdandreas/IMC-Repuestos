@@ -36,8 +36,9 @@ export function isValidRole(role: AppRole): role is "admin" | "empleado" {
   return normalizeRole(role) !== "";
 }
 
-export function canManageContent(role: AppRole): boolean {
-  return normalizeRole(role) === "admin";
+export function canManageContent(role: AppRole, permisos: readonly string[] | null | undefined = []): boolean {
+  if (normalizeRole(role) === "admin") return true;
+  return normalizeRole(role) === "empleado" && Boolean(permisos?.some((permiso) => !permiso.endsWith(":leer")));
 }
 
 export function canReadContent(role: AppRole): boolean {
