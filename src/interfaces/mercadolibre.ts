@@ -109,7 +109,7 @@ export type MercadoLibreMensajePostVenta = {
   texto: string;
   fecha: string | null;
   propio: boolean;
-  adjuntos: Array<{ nombre: string | null; url: string | null }>;
+  adjuntos: Array<{ nombre: string | null; url: string | null; tipo: string | null }>;
 };
 
 export type MercadoLibreVentaConversacion = {

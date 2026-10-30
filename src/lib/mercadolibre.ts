@@ -421,6 +421,18 @@ function idSeguro(value: unknown) {
   return /^\d+$/.test(normalized) ? normalized : null;
 }
 
+function idAdjuntoSeguro(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,299}$/.test(normalized) ? normalized : null;
+}
+
+function tipoSeguroAdjunto(value: string | null) {
+  const normalized = String(value || "").split(";", 1)[0].trim().toLowerCase();
+  return /^(application\/pdf|image\/(avif|gif|jpe?g|png|webp)|text\/plain)$/.test(normalized)
+    ? normalized
+    : "application/octet-stream";
+}
+
 export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId: string): Promise<MercadoLibreVentaConversacion> {
   const normalizedVentaId = idSeguro(ventaId);
   if (!normalizedVentaId) throw new AppError("La venta de Mercado Libre no es valida.", 400);
@@ -484,7 +496,19 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
         fecha: typeof dates.created === "string" ? dates.created : null, propio: Number(from.user_id) === sellerId,
         adjuntos: attachments.map((attachment) => {
           const current = attachment && typeof attachment === "object" ? attachment as Record<string, unknown> : {};
-          return { nombre: typeof current.name === "string" ? current.name : null, url: typeof current.url === "string" ? current.url : null };
+          const idAdjunto = idAdjuntoSeguro(current.filename) || idAdjuntoSeguro(current.id);
+          const nombre = typeof current.original_filename === "string"
+            ? current.original_filename
+            : typeof current.name === "string"
+              ? current.name
+              : idAdjunto;
+          return {
+            nombre,
+            tipo: typeof current.type === "string" ? current.type : null,
+            url: idAdjunto
+              ? `/api/integraciones/mercadolibre/ventas/${encodeURIComponent(normalizedVentaId)}/mensajes/adjuntos/${encodeURIComponent(idAdjunto)}?idCuenta=${idCuenta}`
+              : typeof current.url === "string" ? current.url : null,
+          };
         }),
       };
     }).sort((left, right) => {
@@ -496,6 +520,41 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
       preguntaId: question.pregunta_id, itemId: question.item_id, titulo: question.titulo, texto: question.texto,
       respuesta: question.respuesta, fecha: question.fecha ? new Date(question.fecha).toISOString() : null,
     })),
+  };
+}
+
+export async function getMercadoLibreVentaAdjunto(idCuenta: number, ventaId: string, adjuntoId: string) {
+  const normalizedVentaId = idSeguro(ventaId);
+  const normalizedAdjuntoId = idAdjuntoSeguro(adjuntoId);
+  if (!normalizedVentaId || !normalizedAdjuntoId) throw new AppError("El adjunto de Mercado Libre no es valido.", 400);
+
+  const { rows } = await query<{ site_id: string }>(
+    `SELECT cuenta.site_id
+     FROM public.mercadolibre_venta venta
+     JOIN public.mercadolibre_cuenta cuenta ON cuenta.id = venta.id_cuenta
+     WHERE venta.id_cuenta = $1 AND venta.venta_id = $2
+     LIMIT 1`,
+    [idCuenta, normalizedVentaId],
+  );
+  const venta = rows[0];
+  if (!venta) throw new AppError("La venta no existe en la cuenta seleccionada.", 404);
+
+  const request = async (accessToken: string) => fetch(
+    `${API_BASE_URL}/messages/attachments/${encodeURIComponent(normalizedAdjuntoId)}?tag=post_sale&site_id=${encodeURIComponent(venta.site_id)}`,
+    { headers: { Authorization: `Bearer ${accessToken}`, Accept: "*/*" }, cache: "no-store" },
+  );
+  let { accessToken } = await accessTokenForCuenta(idCuenta);
+  let response = await request(accessToken);
+  if (response.status === 401) {
+    ({ accessToken } = await accessTokenForCuenta(idCuenta, true));
+    response = await request(accessToken);
+  }
+  if (!response.ok) throw new AppError(`Mercado Libre no pudo obtener el adjunto (${response.status}).`, response.status === 403 ? 403 : 502);
+
+  return {
+    contenido: await response.arrayBuffer(),
+    tipo: tipoSeguroAdjunto(response.headers.get("content-type")),
+    nombre: normalizedAdjuntoId,
   };
 }
 
