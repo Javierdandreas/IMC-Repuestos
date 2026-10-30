@@ -65,6 +65,21 @@ export async function obtenerValoresCatalogoVehiculos(attributeId: AtributoVehic
 
 export type CatalogoVehiculoFila = { atributos: ValorVehiculo[] };
 
+function condicionVehiculoConAvance(alias = "") {
+  const column = (name: string) => `${alias}${name}`;
+  return `(
+    ${column("version_id")} IS NOT NULL
+    OR ${column("combustible_id")} IS NOT NULL
+    OR ${column("carroceria_id")} IS NOT NULL
+    OR ${column("transmision_id")} IS NOT NULL
+    OR ${column("marchas_id")} IS NOT NULL
+    OR ${column("puertas_id")} IS NOT NULL
+    OR ${column("direccion_id")} IS NOT NULL
+    OR ${column("traccion_id")} IS NOT NULL
+    OR ${column("valvulas_por_cilindro_id")} IS NOT NULL
+  )`;
+}
+
 type VehiculoCanonico = {
   id: number;
   firma: string;
@@ -189,13 +204,16 @@ export async function explorarVehiculosCanonicos({
   filters = [],
   page = 1,
   limit = 50,
+  soloConAvance = false,
 }: {
   filters?: ValorVehiculo[];
   page?: number;
   limit?: number;
+  soloConAvance?: boolean;
 } = {}): Promise<CatalogoVehiculosExploracion> {
   const clauses = ["dominio_id = $1", "activa = TRUE"];
   const params: unknown[] = [DOMINIO_VEHICULOS_ML];
+  if (soloConAvance) clauses.push(condicionVehiculoConAvance());
   const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
   for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
     const values = groupedFilters.get(filter.id) ?? [];
@@ -248,9 +266,14 @@ export async function explorarVehiculosCanonicos({
  * Devuelve solo valores que existen en vehiculos ya almacenados por IMC y que
  * respetan los filtros previos del buscador.
  */
-export async function obtenerValoresVehiculosCanonicos(attributeId: AtributoVehiculoId, filters: ValorVehiculo[]) {
+export async function obtenerValoresVehiculosCanonicos(
+  attributeId: AtributoVehiculoId,
+  filters: ValorVehiculo[],
+  soloConAvance = false
+) {
   const clauses = ["vehiculo.dominio_id = $1", "vehiculo.activa = TRUE"];
   const params: unknown[] = [DOMINIO_VEHICULOS_ML];
+  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."));
   const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
   for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
     const values = groupedFilters.get(filter.id) ?? [];

@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
         filters,
         page: positiveInteger(searchParams.get("page"), 1),
         limit: positiveInteger(searchParams.get("limit"), 50),
+        soloConAvance: searchParams.get("conAvance") === "1",
       }), { headers: { "Cache-Control": "no-store" } });
     }
     if (searchParams.get("completo") === "1") {

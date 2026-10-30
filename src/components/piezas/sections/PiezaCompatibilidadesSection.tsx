@@ -76,7 +76,7 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
       const response = await fetch("/api/compatibilidades/valores", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attributeId: attribute, knownAttributes: selectedValues(selected).filter((entry) => entry.id !== attribute), origen: "IMC" }),
+        body: JSON.stringify({ attributeId: attribute, knownAttributes: selectedValues(selected).filter((entry) => entry.id !== attribute), origen: "IMC", soloConAvance: true }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "No se pudieron consultar los valores.");
@@ -118,7 +118,7 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
     }
     try {
       setSearching(true);
-      const params = new URLSearchParams({ vehiculos: "1", limit: "100", filters: JSON.stringify(selectedValues(selected)) });
+      const params = new URLSearchParams({ vehiculos: "1", conAvance: "1", limit: "100", filters: JSON.stringify(selectedValues(selected)) });
       const response = await fetch("/api/compatibilidades/catalogo?" + params.toString(), { cache: "no-store" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudieron buscar las aplicaciones.");
@@ -179,7 +179,7 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
   const selectedCount = useMemo(() => selectedMatches.size, [selectedMatches]);
 
   return <section className="border-t border-slate-200 pt-8 dark:border-slate-800">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-black text-slate-900 dark:text-white">Compatibilidades de vehículos</h2><p className="mt-1 text-sm text-slate-500">Buscá aplicaciones, seleccioná cuáles corresponden y guardalas en este número de pieza.</p></div><span className="rounded-md bg-blue-500/10 px-2 py-1 text-xs font-black text-blue-700 dark:text-blue-300">{value.length} cargadas</span></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-black text-slate-900 dark:text-white">Compatibilidades de vehículos</h2><p className="mt-1 text-sm text-slate-500">Buscá aplicaciones enriquecidas o con avance parcial, seleccioná cuáles corresponden y guardalas en este número de pieza.</p></div><span className="rounded-md bg-blue-500/10 px-2 py-1 text-xs font-black text-blue-700 dark:text-blue-300">{value.length} cargadas</span></div>
     <div className="relative mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">{principales.map(renderField)}</div>
     <div className="mt-3 flex flex-wrap items-end gap-3">
       <details className="min-w-[210px]"><summary className="cursor-pointer text-xs font-black text-slate-600 dark:text-slate-300">Especificaciones técnicas opcionales</summary><div className="relative z-20 mt-3 grid gap-3 rounded-md border border-slate-200 bg-white p-3 sm:grid-cols-2 xl:grid-cols-3 dark:border-slate-800 dark:bg-slate-900">{opcionales.map(renderField)}</div></details>

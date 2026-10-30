@@ -16,11 +16,11 @@ function parseKnownAttributes(value: unknown) {
 export async function POST(request: NextRequest) {
   try {
     await requireApiReadSession(request);
-    const body = await request.json() as { attributeId?: unknown; knownAttributes?: unknown; origen?: unknown };
+    const body = await request.json() as { attributeId?: unknown; knownAttributes?: unknown; origen?: unknown; soloConAvance?: unknown };
     const knownAttributes = parseKnownAttributes(body.knownAttributes);
     const values = body.origen === "IMC"
       ? esAtributoVehiculo(body.attributeId)
-        ? await obtenerValoresVehiculosCanonicos(body.attributeId, knownAttributes)
+        ? await obtenerValoresVehiculosCanonicos(body.attributeId, knownAttributes, body.soloConAvance === true)
         : []
       : await consultarValoresVehiculoMercadoLibreParaContextos(body.attributeId, knownAttributes);
     return NextResponse.json({ values }, { headers: { "Cache-Control": "no-store" } });
