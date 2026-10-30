@@ -400,7 +400,7 @@ export async function explorarCatalogoVehiculos({
 }
 
 export async function estadoCatalogoVehiculosMercadoLibre() {
-  const [state, counts, attributesState, canonicalCount, apiCount, queue, enrichmentQueue, targetBrands] = await Promise.all([
+  const [state, counts, attributesState, canonicalCount, apiCount, vehiclesWithProgress, queue, enrichmentQueue, targetBrands] = await Promise.all([
     query<{ estado: string; siguiente_marca: number; total_marcas: number; ultimo_error: string | null; iniciada_at: string | null; finalizada_at: string | null }>(`
       SELECT estado, siguiente_marca, total_marcas, ultimo_error, iniciada_at, finalizada_at
       FROM public.mercadolibre_catalogo_vehiculo_sincronizacion
@@ -425,6 +425,12 @@ export async function estadoCatalogoVehiculosMercadoLibre() {
       SELECT COUNT(*)::text AS total
       FROM public.mercadolibre_catalogo_vehiculo
       WHERE dominio_id = $1 AND activa = TRUE AND origen = 'API'
+    `, [DOMINIO_VEHICULOS_ML]),
+    query<{ total: string }>(`
+      SELECT COUNT(*)::text AS total
+      FROM public.mercadolibre_catalogo_vehiculo
+      WHERE dominio_id = $1 AND activa = TRUE
+        AND ${condicionVehiculoConAvance()}
     `, [DOMINIO_VEHICULOS_ML]),
     query<{ pendientes: string; procesando: string; errores: string }>(`
       SELECT
@@ -454,6 +460,7 @@ export async function estadoCatalogoVehiculosMercadoLibre() {
     total_modelos: Number(counts.rows.find((row) => row.atributo_id === "MODEL")?.total ?? 0),
     total_vehiculos: Number(canonicalCount.rows[0]?.total ?? 0),
     total_vehiculos_api: Number(apiCount.rows[0]?.total ?? 0),
+    vehiculos_con_avance: Number(vehiclesWithProgress.rows[0]?.total ?? 0),
     tareas_pendientes: Number(queue.rows[0]?.pendientes ?? 0),
     tareas_procesando: Number(queue.rows[0]?.procesando ?? 0),
     tareas_error: Number(queue.rows[0]?.errores ?? 0),
