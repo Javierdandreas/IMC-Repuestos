@@ -17,6 +17,11 @@ import {
   type EstadoStockProveedor,
 } from "@/lib/stock-proveedor";
 
+async function loadExcelCodepages() {
+  const { cptable } = await import("xlsx/dist/cpexcel.full.mjs");
+  XLSX.set_cptable(cptable);
+}
+
 type Step = "upload" | "mapping" | "importing" | "results";
 
 interface ImportResults {
@@ -447,8 +452,9 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
     if (isExcel) {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         try {
+          await loadExcelCodepages();
           const workbook = XLSX.read(event.target?.result, { type: "array", cellStyles: true });
           const firstSheet = workbook.SheetNames[0];
           if (!firstSheet) throw new Error("El archivo no tiene hojas");
