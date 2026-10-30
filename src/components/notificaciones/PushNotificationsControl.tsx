@@ -14,6 +14,18 @@ function applicationServerKey(value: string) {
   return Uint8Array.from(raw, (character) => character.charCodeAt(0));
 }
 
+async function saveSubscription(subscription: PushSubscription) {
+  const serialized = subscription.toJSON();
+  if (!serialized.keys?.p256dh || !serialized.keys.auth) throw new Error("La suscripcion no contiene las claves requeridas.");
+  const response = await fetch("/api/notificaciones/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint, keys: serialized.keys }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || "No se pudo guardar la suscripcion.");
+}
+
 export function PushNotificationsControl() {
   const [state, setState] = useState<PushState>("checking");
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
@@ -38,8 +50,19 @@ export function PushNotificationsControl() {
         const nextSubscription = await worker.pushManager.getSubscription();
         setConfiguration(nextConfiguration);
         setRegistration(worker);
-        setSubscription(nextSubscription);
-        setState(nextSubscription ? "active" : nextConfiguration.configured ? "inactive" : "unavailable");
+        if (!nextConfiguration.configured) {
+          setSubscription(nextSubscription);
+          setState("unavailable");
+          return;
+        }
+        if (nextSubscription) {
+          await saveSubscription(nextSubscription);
+          setSubscription(nextSubscription);
+          setState("active");
+          return;
+        }
+        setSubscription(null);
+        setState("inactive");
       } catch {
         setState("unsupported");
       }
@@ -63,15 +86,7 @@ export function PushNotificationsControl() {
         userVisibleOnly: true,
         applicationServerKey: applicationServerKey(configuration.publicKey),
       });
-      const serialized = nextSubscription.toJSON();
-      if (!serialized.keys?.p256dh || !serialized.keys.auth) throw new Error("La suscripcion no contiene las claves requeridas.");
-      const response = await fetch("/api/notificaciones/push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: nextSubscription.endpoint, keys: serialized.keys }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || "No se pudo guardar la suscripcion.");
+      await saveSubscription(nextSubscription);
       setSubscription(nextSubscription);
       setState("active");
       toast.success("Alertas activadas en este dispositivo.");
@@ -109,7 +124,7 @@ export function PushNotificationsControl() {
       const response = await fetch("/api/notificaciones/push/prueba", { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "No se pudo enviar la alerta de prueba.");
-      toast.success("Alerta de prueba enviada a este dispositivo.");
+      toast.success(`Alerta de prueba aceptada por ${data.enviados} dispositivo${data.enviados === 1 ? "" : "s"}.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo enviar la alerta de prueba.");
     } finally {

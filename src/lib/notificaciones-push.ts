@@ -35,6 +35,14 @@ type PushPayload = {
   data?: Record<string, unknown>;
 };
 
+export type ResultadoEnvioPush = {
+  configurado: boolean;
+  suscripciones: number;
+  enviados: number;
+  expirados: number;
+  fallidos: number;
+};
+
 function configurePush() {
   const publicKey = process.env.WEB_PUSH_VAPID_PUBLIC_KEY?.trim();
   const privateKey = process.env.WEB_PUSH_VAPID_PRIVATE_KEY?.trim();
@@ -52,10 +60,10 @@ function truncate(value: string, length: number) {
   return value.length > length ? `${value.slice(0, length - 1).trimEnd()}...` : value;
 }
 
-async function enviarNotificacionPush(payload: PushPayload, usuarioId?: number) {
+async function enviarNotificacionPush(payload: PushPayload, usuarioId?: number): Promise<ResultadoEnvioPush> {
   if (!configurePush()) {
     console.warn("No se envio la notificacion push: faltan las claves VAPID.");
-    return;
+    return { configurado: false, suscripciones: 0, enviados: 0, expirados: 0, fallidos: 0 };
   }
 
   const { rows } = await query<PushSubscriptionRow>(
@@ -64,7 +72,7 @@ async function enviarNotificacionPush(payload: PushPayload, usuarioId?: number) 
      ${usuarioId ? "WHERE usuario_id = $1" : ""}`,
     usuarioId ? [usuarioId] : [],
   );
-  if (!rows.length) return;
+  if (!rows.length) return { configurado: true, suscripciones: 0, enviados: 0, expirados: 0, fallidos: 0 };
 
   const serializedPayload = JSON.stringify({
     ...payload,
@@ -73,24 +81,31 @@ async function enviarNotificacionPush(payload: PushPayload, usuarioId?: number) 
   });
 
   const expiredIds: number[] = [];
+  let sent = 0;
+  let failed = 0;
   await Promise.all(rows.map(async (subscription) => {
     try {
       await webpush.sendNotification({
         endpoint: subscription.endpoint,
         keys: { p256dh: subscription.p256dh, auth: subscription.auth },
       }, serializedPayload, { TTL: 60 * 60 });
+      sent += 1;
     } catch (error) {
       const statusCode = typeof error === "object" && error && "statusCode" in error
         ? Number((error as { statusCode?: unknown }).statusCode)
         : 0;
       if (statusCode === 404 || statusCode === 410) expiredIds.push(subscription.id);
-      else console.error("No se pudo enviar una notificacion push de Mercado Libre.", error);
+      else {
+        failed += 1;
+        console.error("No se pudo enviar una notificacion push de Mercado Libre.", error);
+      }
     }
   }));
 
   if (expiredIds.length) {
     await query("DELETE FROM public.notificacion_push_suscripcion WHERE id = ANY($1::bigint[])", [expiredIds]);
   }
+  return { configurado: true, suscripciones: rows.length, enviados: sent, expirados: expiredIds.length, fallidos: failed };
 }
 
 export async function notificarNuevaPreguntaMercadoLibre(input: NuevaPreguntaPush) {
@@ -118,7 +133,7 @@ export async function notificarNuevoMensajePostVentaMercadoLibre(input: NuevoMen
 }
 
 export async function notificarPruebaPush(usuarioId: number) {
-  await enviarNotificacionPush({
+  return enviarNotificacionPush({
     title: "Alertas de Mercado Libre activas",
     body: "Esta es una prueba de notificacion de IMC.",
     tag: `imc-prueba-${usuarioId}`,
