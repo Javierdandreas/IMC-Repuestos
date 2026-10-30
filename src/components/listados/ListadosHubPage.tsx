@@ -28,7 +28,7 @@ export function ListadosHubPage({ disponibles }: { disponibles: string[] }) {
   const permitidos = new Set(disponibles);
   const listados: Listado[] = [
     { id: "movimientos", titulo: "Movimientos de stock", href: "/listados/movimientos-stock", grupo: "OPERACIONES", icono: ArrowLeftRight, color: "text-blue-600 bg-blue-500/10 dark:text-blue-300" },
-    { id: "items", titulo: "Items", href: "/", grupo: "ITEMS", icono: Boxes, color: "text-violet-600 bg-violet-500/10 dark:text-violet-300" },
+    { id: "importar-exportar", titulo: "Importar y exportar", href: "/listados/importar-exportar", grupo: "ITEMS", icono: Boxes, color: "text-violet-600 bg-violet-500/10 dark:text-violet-300" },
     { id: "inventario", titulo: "Inventario por ubicacion", href: "/ubicaciones/inventario", grupo: "INVENTARIO", icono: ClipboardList, color: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300" },
     { id: "costos", titulo: "Costos modificados", href: "/listados/precios-modificados", grupo: "OPERACIONES", icono: DollarSign, color: "text-amber-600 bg-amber-500/10 dark:text-amber-300" },
     { id: "marcas", titulo: "Marcas", href: "/marcas", grupo: "CATALOGOS", icono: Tags, color: "text-rose-600 bg-rose-500/10 dark:text-rose-300" },
