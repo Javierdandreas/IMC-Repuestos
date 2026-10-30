@@ -447,25 +447,21 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     }
   };
 
-  const parseFileHeaders = (selectedFile: File) => {
+  const parseFileHeaders = async (selectedFile: File) => {
     const isExcel = selectedFile.name.endsWith(".xlsx") || selectedFile.name.endsWith(".xls");
 
     if (isExcel) {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        try {
-          await loadExcelCodepages();
-          const workbook = XLSX.read(event.target?.result, { type: "array", cellStyles: true });
-          const firstSheet = workbook.SheetNames[0];
-          if (!firstSheet) throw new Error("El archivo no tiene hojas");
-          workbookRef.current = workbook;
-          setExcelSheets(workbook.SheetNames);
-          loadExcelSheet(workbook, firstSheet);
-        } catch {
-          toast.error("Error al leer el archivo Excel");
-        }
-      };
-      reader.readAsArrayBuffer(selectedFile);
+      try {
+        await loadExcelCodepages();
+        const workbook = XLSX.read(await selectedFile.arrayBuffer(), { type: "array", cellStyles: true });
+        const firstSheet = workbook.SheetNames[0];
+        if (!firstSheet) throw new Error("El archivo no tiene hojas");
+        workbookRef.current = workbook;
+        setExcelSheets(workbook.SheetNames);
+        loadExcelSheet(workbook, firstSheet);
+      } catch {
+        toast.error("Error al leer el archivo Excel");
+      }
       return;
     }
 
@@ -490,7 +486,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     const selectedFile = event.target.files?.[0];
     if (!selectedFile) return;
     setFile(selectedFile);
-    parseFileHeaders(selectedFile);
+    void parseFileHeaders(selectedFile);
   };
 
   const handleExcelSheetChange = (sheetName: string) => {
