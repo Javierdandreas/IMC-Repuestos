@@ -89,12 +89,13 @@ export type MercadoLibreVentaListado = {
   total: number | null;
   moneda: string | null;
   envio: string | null;
+  tipoEnvio: "FLEX" | "COLECTA" | "FULL" | "DROP OFF" | "OTRO" | null;
   numeroEnvio: string | null;
   retiroEnPersona: boolean;
   mensajeEstado: string | null;
   mensajeDetalle: string | null;
   mensajesNoLeidos: number;
-  items: Array<{ itemId: string | null; titulo: string; cantidad: number; sku: string | null }>;
+  items: Array<{ itemId: string | null; titulo: string; cantidad: number; sku: string | null; thumbnailUrl: string | null }>;
   sincronizadaAt: string;
 };
 

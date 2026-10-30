@@ -26,6 +26,8 @@ type Props = { canManage: boolean; canReply: boolean; canViewCompatibilidades: b
 type Tab = "VENTAS" | "PUBLICACIONES" | "COSTOS" | "PREGUNTAS" | "SINCRONIZACION";
 type QuestionStatus = "POR_RESPONDER" | "RESPONDIDAS";
 type DateOrder = "DESC" | "ASC";
+type SalesShippingFilter = "TODOS" | "FLEX" | "COLECTA" | "FULL" | "DROP_OFF" | "OTRO";
+type SalesMessageFilter = "TODOS" | "NO_LEIDOS" | "LEIDOS" | "RESPONDIDOS" | "SIN_RESPONDER";
 type PublicationLinkFilter = "" | "SIN_VINCULO" | "EXCLUIDO_MANUAL";
 type PublicationDateFilter = { desde: string; hasta: string };
 type LinkCandidate = { tipo: "ITEM" | "KIT"; id: number; codigo: string; descripcion: string };
@@ -85,6 +87,8 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
   const deferredSearch = useDeferredValue(search.trim());
   const [questionStatus, setQuestionStatus] = useState<QuestionStatus>("POR_RESPONDER");
   const [questionOrder, setQuestionOrder] = useState<DateOrder>("DESC");
+  const [salesShippingFilter, setSalesShippingFilter] = useState<SalesShippingFilter>("TODOS");
+  const [salesMessageFilter, setSalesMessageFilter] = useState<SalesMessageFilter>("TODOS");
   const [salesSyncError, setSalesSyncError] = useState<string | null>(null);
   const [questionSyncError, setQuestionSyncError] = useState<string | null>(null);
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
@@ -126,6 +130,10 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
     if (nextTab === "SINCRONIZACION") return;
     const path = nextTab === "VENTAS" ? "ventas" : nextTab === "PREGUNTAS" ? "preguntas" : "publicaciones";
     const params = new URLSearchParams({ idCuenta: String(accountId), page: String(page) });
+    if (nextTab === "VENTAS") {
+      if (salesShippingFilter !== "TODOS") params.set("envio", salesShippingFilter);
+      if (salesMessageFilter !== "TODOS") params.set("mensajes", salesMessageFilter);
+    }
     if (nextTab === "PREGUNTAS") {
       params.set("estado", questionStatus);
       params.set("orden", questionOrder);
@@ -140,7 +148,7 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
     if (nextTab === "VENTAS") setVentas(data);
     if (nextTab === "PUBLICACIONES" || nextTab === "COSTOS") setPublicaciones(data);
     if (nextTab === "PREGUNTAS") setPreguntas(data);
-  }, [questionOrder, questionStatus]);
+  }, [questionOrder, questionStatus, salesMessageFilter, salesShippingFilter]);
 
   const load = useCallback(async () => {
     try {
@@ -261,7 +269,7 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
     };
   }, [selectedAccountId, tab]);
   useEffect(() => {
-    if (tab !== "PREGUNTAS") return;
+    if (tab !== "PREGUNTAS" && tab !== "VENTAS") return;
     void loadQuickReplies().catch(() => setQuickReplies([]));
   }, [loadQuickReplies, tab]);
   useEffect(() => {
@@ -310,6 +318,12 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
     setPages((current) => ({ ...current, PREGUNTAS: 1 }));
     if (type === "estado") setQuestionStatus(value as QuestionStatus);
     else setQuestionOrder(value as DateOrder);
+  };
+
+  const changeSalesFilter = (type: "envio" | "mensajes", value: string) => {
+    setPages((current) => ({ ...current, VENTAS: 1 }));
+    if (type === "envio") setSalesShippingFilter(value as SalesShippingFilter);
+    else setSalesMessageFilter(value as SalesMessageFilter);
   };
 
   const changePublicationLinkFilter = (value: PublicationLinkFilter) => {
@@ -522,6 +536,7 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
         </>}
         <div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><PushNotificationsControl />{tab === "VENTAS" && canManage && <button type="button" onClick={() => setConfigMensajeAbierta(true)} title="Configurar mensajes automaticos" aria-label="Configurar mensajes automaticos" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"><Settings2 className="h-4 w-4" /></button>}<span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} {tab === "PREGUNTAS" && questionStatus === "RESPONDIDAS" ? "conversaciones" : "registros"}</span>
       </div>}
+      {tab === "VENTAS" && <VentasFilters envio={salesShippingFilter} mensajes={salesMessageFilter} canManage={canManage} onChange={changeSalesFilter} onManageQuickReplies={() => setQuickRepliesOpen(true)} />}
       {tab === "VENTAS" && salesSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{salesSyncError}</p>}
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
       {tab === "VENTAS" && <VentasTable ventas={visibleVentas} loading={loading} onOpenChat={setVentaChat} />}
@@ -532,7 +547,7 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
       {tab !== "SINCRONIZACION" && activeResult.totalPages > 1 && <div className="flex items-center justify-center gap-3"><button type="button" onClick={() => void changePage(pages[tab] - 1)} disabled={pages[tab] <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Pagina {pages[tab]} de {activeResult.totalPages}</span><button type="button" onClick={() => void changePage(pages[tab] + 1)} disabled={pages[tab] >= activeResult.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
     </>}
     {quickRepliesOpen && <QuickRepliesModal onClose={() => setQuickRepliesOpen(false)} onChanged={() => void loadQuickReplies()} />}
-    {ventaChat && selectedAccountId && <VentaConversationModal venta={ventaChat} idCuenta={selectedAccountId} canReply={canReply} onClose={() => setVentaChat(null)} />}
+    {ventaChat && selectedAccountId && <VentaConversationModal venta={ventaChat} idCuenta={selectedAccountId} canReply={canReply} quickReplies={quickReplies} onClose={() => setVentaChat(null)} />}
     {configMensajeAbierta && selectedAccountId && canManage && <Modal title="Mensajes automaticos" open onClose={() => setConfigMensajeAbierta(false)} width="w-[min(96vw,680px)]"><div className="px-6 pb-6"><MercadoLibreMensajeAutomatico key={selectedAccountId} idCuenta={selectedAccountId} /></div></Modal>}
   </div></main>;
 }
@@ -544,19 +559,126 @@ function EstadoMensajeIcono({ estado, detalle }: { estado: string | null; detall
   return <span tabIndex={0} role="img" aria-label={titulo} title={titulo} className={`inline-flex h-8 w-8 items-center justify-center ${color}`}><Mail className="h-5 w-5" /></span>;
 }
 
-function VentasTable({ ventas, loading, onOpenChat }: { ventas: MercadoLibreVentasResult["data"]; loading: boolean; onOpenChat: (venta: MercadoLibreVentasResult["data"][number]) => void }) {
-  return <TableShell hasRows={ventas.length > 0} empty={loading ? "Cargando ventas..." : "No hay ventas sincronizadas."}><table className="w-full min-w-[1040px] text-left text-[13px] [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800"><thead><tr><th>Fecha</th><th>Cliente</th><th>Items</th><th>Envio</th><th>Estado</th><th>Mensaje</th><th className="text-right">Total</th></tr></thead><tbody>{ventas.map((venta) => <tr key={venta.id}><td><div className="font-bold text-slate-800 dark:text-white">{date(venta.fecha, "-")}</div><div className="mt-1 font-mono text-[11px] text-slate-500">#{venta.ventaId}</div></td><td className="font-bold text-slate-800 dark:text-white">{venta.comprador || "-"}</td><td><div className="max-w-md space-y-1">{venta.items.map((item, index) => <div key={`${venta.id}-${index}`} className="truncate font-semibold text-slate-700 dark:text-slate-200" title={item.titulo}>{item.cantidad}x {item.titulo}{item.sku && <span className="ml-1 font-mono text-slate-400">[{item.sku}]</span>}</div>)}</div></td><td><div>{venta.retiroEnPersona ? "Retira en persona" : venta.envio || "-"}</div>{venta.numeroEnvio && <div className="mt-1 font-mono text-[11px] text-slate-500">#{venta.numeroEnvio}</div>}</td><td><StateBadge value={venta.estado} /></td><td><div className="flex items-center gap-1"><EstadoMensajeIcono estado={venta.mensajeEstado} detalle={venta.mensajeDetalle} /><button type="button" onClick={() => onOpenChat(venta)} title={venta.mensajesNoLeidos ? `${venta.mensajesNoLeidos} mensaje(s) sin leer` : "Ver chat de la venta"} aria-label="Ver chat de la venta" className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 transition hover:bg-blue-500/10 dark:text-blue-300"><MessageCircle className="h-4 w-4" />{venta.mensajesNoLeidos > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-black text-white">{venta.mensajesNoLeidos > 9 ? "9+" : venta.mensajesNoLeidos}</span>}</button></div></td><td className="text-right font-mono font-black text-slate-800 dark:text-white">{money(venta.total, venta.moneda)}</td></tr>)}</tbody></table></TableShell>;
+function VentasFilters({ envio, mensajes, canManage, onChange, onManageQuickReplies }: { envio: SalesShippingFilter; mensajes: SalesMessageFilter; canManage: boolean; onChange: (type: "envio" | "mensajes", value: string) => void; onManageQuickReplies: () => void }) {
+  return <div className="flex flex-wrap items-center gap-2"><select value={envio} onChange={(event) => onChange("envio", event.target.value)} aria-label="Filtrar por tipo de envio" className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="TODOS">Todos los envios</option><option value="FLEX">FLEX</option><option value="COLECTA">COLECTA</option><option value="FULL">FULL</option><option value="DROP_OFF">Drop off</option><option value="OTRO">Otros envios</option></select><select value={mensajes} onChange={(event) => onChange("mensajes", event.target.value)} aria-label="Filtrar por estado de mensaje" className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="TODOS">Todos los mensajes</option><option value="NO_LEIDOS">No leidos</option><option value="LEIDOS">Leidos</option><option value="RESPONDIDOS">Respondidos</option><option value="SIN_RESPONDER">Sin responder</option></select>{canManage && <button type="button" onClick={onManageQuickReplies} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><MessageSquarePlus className="h-4 w-4" />Respuestas rapidas</button>}</div>;
+}
+
+function VentasTable({
+  ventas,
+  loading,
+  onOpenChat,
+}: {
+  ventas: MercadoLibreVentasResult["data"];
+  loading: boolean;
+  onOpenChat: (venta: MercadoLibreVentasResult["data"][number]) => void;
+}) {
+  return (
+    <TableShell
+      hasRows={ventas.length > 0}
+      empty={loading ? "Cargando ventas..." : "No hay ventas sincronizadas."}
+    >
+      <table className="w-full min-w-[1120px] text-left text-[13px] [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Cliente</th>
+            <th>Items</th>
+            <th>Envio</th>
+            <th>Estado</th>
+            <th>Mensaje</th>
+            <th className="text-right">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ventas.map((venta) => (
+            <tr key={venta.id}>
+              <td>
+                <div className="font-bold text-slate-800 dark:text-white">
+                  {date(venta.fecha, "-")}
+                </div>
+                <div className="mt-1 font-mono text-[11px] text-slate-500">
+                  #{venta.ventaId}
+                </div>
+              </td>
+              <td className="font-bold text-slate-800 dark:text-white">
+                {venta.comprador || "-"}
+              </td>
+              <td>
+                <div className="max-w-md space-y-2">
+                  {venta.items.map((item, index) => (
+                    <div
+                      key={`${venta.id}-${index}`}
+                      className="flex min-w-0 items-center gap-2"
+                      title={item.titulo}
+                    >
+                      {item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" className="h-9 w-9 shrink-0 rounded border border-slate-200 bg-white object-contain dark:border-slate-700 dark:bg-slate-950" /> : <span className="h-9 w-9 shrink-0 rounded border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900" />}
+                      <div className="min-w-0 truncate font-semibold text-slate-700 dark:text-slate-200">{item.cantidad}x {item.titulo}{item.sku && <span className="ml-1 font-mono text-slate-400">[{item.sku}]</span>}</div>
+                    </div>
+                  ))}
+                </div>
+              </td>
+              <td>
+                <div className="font-bold text-slate-800 dark:text-white">{venta.retiroEnPersona ? "Retira en persona" : venta.tipoEnvio || venta.envio || "-"}</div>
+                {!venta.retiroEnPersona && venta.tipoEnvio && venta.envio && <div className="mt-0.5 text-[11px] text-slate-500">{venta.envio}</div>}
+                {venta.numeroEnvio && (
+                  <div className="mt-1 font-mono text-[11px] text-slate-500">
+                    #{venta.numeroEnvio}
+                  </div>
+                )}
+              </td>
+              <td>
+                <StateBadge value={venta.estado} />
+              </td>
+              <td>
+                <div className="flex items-center gap-1">
+                  <EstadoMensajeIcono
+                    estado={venta.mensajeEstado}
+                    detalle={venta.mensajeDetalle}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onOpenChat(venta)}
+                    title={
+                      venta.mensajesNoLeidos
+                        ? `${venta.mensajesNoLeidos} mensaje(s) sin leer`
+                        : "Ver chat de la venta"
+                    }
+                    aria-label="Ver chat de la venta"
+                    className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 transition hover:bg-blue-500/10 dark:text-blue-300"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    {venta.mensajesNoLeidos > 0 && (
+                      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-black text-white">
+                        {venta.mensajesNoLeidos > 9
+                          ? "9+"
+                          : venta.mensajesNoLeidos}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              </td>
+              <td className="text-right font-mono font-black text-slate-800 dark:text-white">
+                {money(venta.total, venta.moneda)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableShell>
+  );
 }
 
 function VentaConversationModal({
   venta,
   idCuenta,
   canReply,
+  quickReplies,
   onClose,
 }: {
   venta: MercadoLibreVentasResult["data"][number];
   idCuenta: number;
   canReply: boolean;
+  quickReplies: QuickReply[];
   onClose: () => void;
 }) {
   const [conversation, setConversation] =
@@ -633,6 +755,15 @@ function VentaConversationModal({
     }
   };
   const maxLength = conversation?.limiteRespuesta || 350;
+  const selectQuickReply = (value: string) => {
+    const reply = quickReplies.find((item) => String(item.id) === value);
+    if (!reply) return;
+    if (Array.from(reply.texto).length > maxLength) {
+      toast.error(`La respuesta rapida supera el limite de ${maxLength} caracteres de Mercado Libre.`);
+      return;
+    }
+    setTexto(reply.texto);
+  };
   const conversationItems =
     conversation?.items ||
     venta.items.map((item) => ({
@@ -774,16 +905,17 @@ function VentaConversationModal({
                 </p>
               )}
               <div className="flex gap-2">
-                <textarea
-                  value={texto}
-                  onChange={(event) => setTexto(event.target.value)}
-                  disabled={
-                    !canReply || sending || !conversation?.permiteResponder
-                  }
-                  maxLength={maxLength}
-                  placeholder="Escribi al comprador"
-                  className="min-h-20 flex-1 resize-y rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                />
+                <div className="min-w-0 flex-1">
+                  {quickReplies.length > 0 && <select defaultValue="" onChange={(event) => { selectQuickReply(event.target.value); event.currentTarget.value = ""; }} disabled={!canReply || sending || !conversation?.permiteResponder} className="mb-2 h-8 max-w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><option value="">Respuestas rapidas</option>{quickReplies.map((reply) => <option key={reply.id} value={reply.id}>{reply.nombre}</option>)}</select>}
+                  <textarea
+                    value={texto}
+                    onChange={(event) => setTexto(event.target.value)}
+                    disabled={!canReply || sending || !conversation?.permiteResponder}
+                    maxLength={maxLength}
+                    placeholder="Escribi al comprador"
+                    className="min-h-20 w-full resize-y rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => void send()}
@@ -879,19 +1011,41 @@ function VentaConversationModal({
                 className="flex w-full items-center justify-between gap-2 text-left text-xs font-black uppercase tracking-widest text-slate-500 transition hover:text-blue-600 disabled:cursor-default disabled:hover:text-slate-500 dark:hover:text-blue-300"
               >
                 <span>Preguntas previas</span>
-                {preguntasPrevias.length > 0 && <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-300">{preguntasPrevias.length}{preguntasAbiertas ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</span>}
+                {preguntasPrevias.length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-300">
+                    {preguntasPrevias.length}
+                    {preguntasAbiertas ? (
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    )}
+                  </span>
+                )}
               </button>
               {preguntasAbiertas && preguntasPrevias.length > 0 && (
                 <div className="mt-2 space-y-2">
                   {preguntasPrevias.map((pregunta) => (
-                    <div key={pregunta.preguntaId} className="border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-950">
-                      <p className="font-semibold text-slate-800 dark:text-white">{pregunta.texto}</p>
-                      {pregunta.respuesta && <p className="mt-2 border-l-2 border-blue-500 pl-2 text-slate-500">{pregunta.respuesta}</p>}
+                    <div
+                      key={pregunta.preguntaId}
+                      className="border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-950"
+                    >
+                      <p className="font-semibold text-slate-800 dark:text-white">
+                        {pregunta.texto}
+                      </p>
+                      {pregunta.respuesta && (
+                        <p className="mt-2 border-l-2 border-blue-500 pl-2 text-slate-500">
+                          {pregunta.respuesta}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
-              {!preguntasPrevias.length && <p className="mt-2 text-xs text-slate-500">No hay preguntas previas sincronizadas.</p>}
+              {!preguntasPrevias.length && (
+                <p className="mt-2 text-xs text-slate-500">
+                  No hay preguntas previas sincronizadas.
+                </p>
+              )}
             </section>
           </aside>
         </div>
@@ -1258,7 +1412,7 @@ function QuickRepliesModal({ onClose, onChanged }: { onClose: () => void; onChan
     } catch (error) { toast.error(error instanceof Error ? error.message : "No se pudo eliminar la respuesta."); }
   };
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="quick-replies-title"><div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-950"><header className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-slate-800"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Preguntas</p><h2 id="quick-replies-title" className="mt-1 text-base font-black text-slate-900 dark:text-white">Respuestas rapidas</h2></div><button type="button" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Cerrar"><X className="h-4 w-4" /></button></header><div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><section className="space-y-2"><div className="flex items-center justify-between"><h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Guardadas</h3><button type="button" onClick={resetForm} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"><Plus className="h-3.5 w-3.5" />Nueva</button></div>{loading ? <p className="py-8 text-center text-xs font-semibold text-slate-500">Cargando...</p> : replies.length ? <div className="divide-y divide-slate-200 border border-slate-200 dark:divide-slate-800 dark:border-slate-800">{replies.map((reply) => <div key={reply.id} className="flex gap-2 p-3"><button type="button" onClick={() => edit(reply)} className="min-w-0 flex-1 text-left"><p className="truncate text-xs font-black text-slate-900 dark:text-white">{reply.nombre}</p><p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-300">{reply.texto}</p></button><button type="button" onClick={() => edit(reply)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Editar"><Pencil className="h-3.5 w-3.5" /></button><button type="button" onClick={() => void remove(reply)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30" title="Eliminar"><Trash2 className="h-3.5 w-3.5" /></button></div>)}</div> : <p className="border border-dashed border-slate-300 px-3 py-8 text-center text-xs font-semibold text-slate-500 dark:border-slate-700">Todavia no hay respuestas guardadas.</p>}</section><section className="space-y-3"><h3 className="text-xs font-black uppercase tracking-widest text-slate-500">{editing ? "Editar respuesta" : "Nueva respuesta"}</h3><div><label htmlFor="quick-reply-name" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Nombre</label><input id="quick-reply-name" value={nombre} onChange={(event) => setNombre(event.target.value)} maxLength={80} placeholder="Ej. Pedir chasis" className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /></div><div><label htmlFor="quick-reply-text" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Respuesta</label><textarea id="quick-reply-text" value={texto} onChange={(event) => setTexto(event.target.value)} maxLength={2000} placeholder="Texto que se insertara en la respuesta" className="mt-1 min-h-40 w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /><p className="mt-1 text-right text-[10px] text-slate-400">{texto.length}/2000</p></div><div className="flex justify-end gap-2"><button type="button" onClick={resetForm} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 dark:border-slate-700 dark:text-slate-200">Cancelar</button><button type="button" onClick={() => void save()} disabled={saving || !nombre.trim() || !texto.trim()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{saving ? "Guardando" : "Guardar"}</button></div></section></div></div></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="quick-replies-title"><div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-950"><header className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-slate-800"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Mensajeria</p><h2 id="quick-replies-title" className="mt-1 text-base font-black text-slate-900 dark:text-white">Respuestas rapidas</h2></div><button type="button" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Cerrar"><X className="h-4 w-4" /></button></header><div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><section className="space-y-2"><div className="flex items-center justify-between"><h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Guardadas</h3><button type="button" onClick={resetForm} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"><Plus className="h-3.5 w-3.5" />Nueva</button></div>{loading ? <p className="py-8 text-center text-xs font-semibold text-slate-500">Cargando...</p> : replies.length ? <div className="divide-y divide-slate-200 border border-slate-200 dark:divide-slate-800 dark:border-slate-800">{replies.map((reply) => <div key={reply.id} className="flex gap-2 p-3"><button type="button" onClick={() => edit(reply)} className="min-w-0 flex-1 text-left"><p className="truncate text-xs font-black text-slate-900 dark:text-white">{reply.nombre}</p><p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-300">{reply.texto}</p></button><button type="button" onClick={() => edit(reply)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Editar"><Pencil className="h-3.5 w-3.5" /></button><button type="button" onClick={() => void remove(reply)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30" title="Eliminar"><Trash2 className="h-3.5 w-3.5" /></button></div>)}</div> : <p className="border border-dashed border-slate-300 px-3 py-8 text-center text-xs font-semibold text-slate-500 dark:border-slate-700">Todavia no hay respuestas guardadas.</p>}</section><section className="space-y-3"><h3 className="text-xs font-black uppercase tracking-widest text-slate-500">{editing ? "Editar respuesta" : "Nueva respuesta"}</h3><div><label htmlFor="quick-reply-name" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Nombre</label><input id="quick-reply-name" value={nombre} onChange={(event) => setNombre(event.target.value)} maxLength={80} placeholder="Ej. Pedir chasis" className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /></div><div><label htmlFor="quick-reply-text" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Respuesta</label><textarea id="quick-reply-text" value={texto} onChange={(event) => setTexto(event.target.value)} maxLength={2000} placeholder="Texto que se insertara en la respuesta" className="mt-1 min-h-40 w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /><p className="mt-1 text-right text-[10px] text-slate-400">{texto.length}/2000</p></div><div className="flex justify-end gap-2"><button type="button" onClick={resetForm} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 dark:border-slate-700 dark:text-slate-200">Cancelar</button><button type="button" onClick={() => void save()} disabled={saving || !nombre.trim() || !texto.trim()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{saving ? "Guardando" : "Guardar"}</button></div></section></div></div></div>;
 }
 
 function SyncPanel({ accounts, account, selectedAccountId, onAccountChange, onConnect, onSync, syncing, canManage }: { accounts: MercadoLibreCuentaEstado[]; account: MercadoLibreCuentaEstado | null; selectedAccountId: number | null; onAccountChange: (accountId: number) => Promise<void>; onConnect: () => void; onSync: () => void; syncing: boolean; canManage: boolean }) {

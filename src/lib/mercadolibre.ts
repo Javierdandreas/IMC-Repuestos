@@ -380,39 +380,111 @@ async function mensajesNoLeidosPorPack(idCuenta: number) {
   }
 }
 
-export async function getMercadoLibreVentas(idCuenta: number, page = 1, limit = 50): Promise<MercadoLibreVentasResult> {
-  const totalResult = await query<{ total_count: number }>("SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_venta WHERE id_cuenta = $1", [idCuenta]);
+export type FiltroEnvioVentaMercadoLibre = "TODOS" | "FLEX" | "COLECTA" | "FULL" | "DROP_OFF" | "OTRO";
+export type FiltroMensajeVentaMercadoLibre = "TODOS" | "NO_LEIDOS" | "LEIDOS" | "RESPONDIDOS" | "SIN_RESPONDER";
+
+async function seguimientoMensajesPostventaDisponible() {
+  const result = await query<{ total: number }>(`
+    SELECT COUNT(*)::int AS total
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'mercadolibre_mensaje_postventa_notificado'
+      AND column_name IN ('leido_at', 'respondido_at')
+  `);
+  return Number(result.rows[0]?.total || 0) === 2;
+}
+
+function tipoEnvioVenta(shipping: Record<string, unknown>): MercadoLibreVentaListado["tipoEnvio"] {
+  const tipo = etiquetaTipoEnvio(shipping);
+  if (tipo === "FLEX" || tipo === "COLECTA" || tipo === "FULL" || tipo === "DROP OFF") return tipo;
+  return tipo ? "OTRO" : null;
+}
+
+export async function getMercadoLibreVentas(
+  idCuenta: number,
+  page = 1,
+  limit = 50,
+  filters: { envio?: FiltroEnvioVentaMercadoLibre; mensajes?: FiltroMensajeVentaMercadoLibre } = {},
+): Promise<MercadoLibreVentasResult> {
+  const envio = (["TODOS", "FLEX", "COLECTA", "FULL", "DROP_OFF", "OTRO"] as const).includes(filters.envio as FiltroEnvioVentaMercadoLibre)
+    ? filters.envio as FiltroEnvioVentaMercadoLibre
+    : "TODOS";
+  const mensajes = (["TODOS", "NO_LEIDOS", "LEIDOS", "RESPONDIDOS", "SIN_RESPONDER"] as const).includes(filters.mensajes as FiltroMensajeVentaMercadoLibre)
+    ? filters.mensajes as FiltroMensajeVentaMercadoLibre
+    : "TODOS";
+  const unreadByPack = await mensajesNoLeidosPorPack(idCuenta);
+  const unreadPacks = [...unreadByPack.keys()];
+  const hasSeguimiento = mensajes === "RESPONDIDOS" || mensajes === "SIN_RESPONDER" ? await seguimientoMensajesPostventaDisponible() : false;
+  const params: unknown[] = [idCuenta];
+  const where = ["venta.id_cuenta = $1"];
+  const packId = "COALESCE(NULLIF(venta.datos->>'pack_id', ''), venta.venta_id)";
+  const logistics = "LOWER(CONCAT_WS(' ', venta.datos #>> '{shipping,logistic_type}', venta.datos #>> '{shipping,mode}', venta.datos #>> '{shipping,shipping_option,name}'))";
+  const hasNotifiedMessage = "EXISTS (SELECT 1 FROM public.mercadolibre_mensaje_postventa_notificado notificado WHERE notificado.id_cuenta = venta.id_cuenta AND notificado.venta_id = venta.venta_id)";
+
+  if (envio === "FLEX") where.push(`(${logistics} LIKE '%flex%' OR ${logistics} LIKE '%self_service%')`);
+  if (envio === "COLECTA") where.push(`(${logistics} LIKE '%cross_docking%' OR ${logistics} LIKE '%collect%' OR ${logistics} LIKE '%recolec%')`);
+  if (envio === "FULL") where.push(`${logistics} LIKE '%fulfillment%'`);
+  if (envio === "DROP_OFF") where.push(`${logistics} LIKE '%drop_off%'`);
+  if (envio === "OTRO") where.push(`NOT (${logistics} LIKE '%flex%' OR ${logistics} LIKE '%self_service%' OR ${logistics} LIKE '%cross_docking%' OR ${logistics} LIKE '%collect%' OR ${logistics} LIKE '%recolec%' OR ${logistics} LIKE '%fulfillment%' OR ${logistics} LIKE '%drop_off%')`);
+
+  if (mensajes === "NO_LEIDOS") {
+    if (!unreadPacks.length) where.push("FALSE");
+    else { params.push(unreadPacks); where.push(`${packId} = ANY($${params.length}::text[])`); }
+  }
+  if (mensajes === "LEIDOS") {
+    where.push(hasNotifiedMessage);
+    if (unreadPacks.length) { params.push(unreadPacks); where.push(`${packId} <> ALL($${params.length}::text[])`); }
+  }
+  if (mensajes === "RESPONDIDOS") where.push(hasSeguimiento
+    ? "EXISTS (SELECT 1 FROM public.mercadolibre_mensaje_postventa_notificado notificado WHERE notificado.id_cuenta = venta.id_cuenta AND notificado.venta_id = venta.venta_id AND notificado.respondido_at IS NOT NULL)"
+    : "FALSE");
+  if (mensajes === "SIN_RESPONDER") where.push(hasSeguimiento
+    ? "EXISTS (SELECT 1 FROM public.mercadolibre_mensaje_postventa_notificado notificado WHERE notificado.id_cuenta = venta.id_cuenta AND notificado.venta_id = venta.venta_id AND notificado.respondido_at IS NULL)"
+    : hasNotifiedMessage);
+
+  const totalResult = await query<{ total_count: number }>(`SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_venta venta WHERE ${where.join(" AND ")}`, params);
   const totalCount = Number(totalResult.rows[0]?.total_count || 0);
   if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
   const safePage = Math.max(1, page);
-  const { rows } = await query(
-    `SELECT venta.id, venta.venta_id, venta.fecha, venta.estado, venta.comprador, venta.total, venta.moneda, venta.envio, venta.retiro_en_persona,
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT venta.id, venta.venta_id, venta.fecha, venta.estado, venta.comprador, venta.total, venta.moneda, venta.envio, venta.retiro_en_persona, venta.datos,
             NULLIF(venta.datos #>> '{shipping,id}', '') AS numero_envio,
-            COALESCE(NULLIF(venta.datos->>'pack_id', ''), venta.venta_id) AS pack_id, venta.items, venta.sincronizada_at,
+            ${packId} AS pack_id, venta.items, venta.sincronizada_at,
             COALESCE(mensaje.estado, evento.estado) AS mensaje_estado,
             COALESCE(mensaje.detalle, evento.detalle) AS mensaje_detalle
      FROM public.mercadolibre_venta venta
-     LEFT JOIN public.mercadolibre_mensaje_prueba mensaje ON mensaje.id_cuenta = venta.id_cuenta
-       AND mensaje.pack_id = COALESCE(NULLIF(venta.datos->>'pack_id', ''), venta.venta_id)
+     LEFT JOIN public.mercadolibre_mensaje_prueba mensaje ON mensaje.id_cuenta = venta.id_cuenta AND mensaje.pack_id = ${packId}
      LEFT JOIN public.mercadolibre_mensaje_automatico_evento evento ON evento.id_cuenta = venta.id_cuenta AND evento.venta_id = venta.venta_id
-     WHERE venta.id_cuenta = $1
-     ORDER BY venta.fecha DESC NULLS LAST, venta.id DESC LIMIT $2 OFFSET $3`,
-    [idCuenta, limit, (safePage - 1) * limit],
+     WHERE ${where.join(" AND ")}
+     ORDER BY venta.fecha DESC NULLS LAST, venta.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, (safePage - 1) * limit],
   );
-  const unreadByPack = await mensajesNoLeidosPorPack(idCuenta);
+  const itemIds = [...new Set(rows.flatMap((row) => Array.isArray(row.items) ? row.items.map((item) => item && typeof item === "object" ? String((item as Record<string, unknown>).itemId || "") : "") : []).filter(Boolean))];
+  const publicationRows = itemIds.length ? await query<{ item_id: string; thumbnail_url: string | null }>(
+    "SELECT item_id, thumbnail_url FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = ANY($2::text[])",
+    [idCuenta, itemIds],
+  ) : { rows: [] as Array<{ item_id: string; thumbnail_url: string | null }> };
+  const thumbnailByItem = new Map(publicationRows.rows.map((publication) => [publication.item_id, secureThumbnailUrl(publication.thumbnail_url)]));
   return {
-    data: rows.map((row): MercadoLibreVentaListado => ({
-      id: Number(row.id), ventaId: String(row.venta_id), fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
-      estado: String(row.estado), comprador: row.comprador ? String(row.comprador) : null,
-      total: row.total === null ? null : Number(row.total), moneda: row.moneda ? String(row.moneda) : null,
-      envio: row.envio ? String(row.envio) : null, retiroEnPersona: Boolean(row.retiro_en_persona),
-      mensajeEstado: row.mensaje_estado ? String(row.mensaje_estado) : null,
-      mensajeDetalle: row.mensaje_detalle ? String(row.mensaje_detalle) : null,
-      mensajesNoLeidos: unreadByPack.get(String(row.pack_id || row.venta_id)) || 0,
-      numeroEnvio: row.numero_envio ? String(row.numero_envio) : null,
-      items: Array.isArray(row.items) ? row.items.map((item: Record<string, unknown>) => ({ itemId: item.itemId ? String(item.itemId) : null, titulo: String(item.titulo || "Sin titulo"), cantidad: Number(item.cantidad || 0), sku: item.sku ? String(item.sku) : null })) : [],
-      sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
-    })),
+    data: rows.map((row): MercadoLibreVentaListado => {
+      const datos = row.datos && typeof row.datos === "object" && !Array.isArray(row.datos) ? row.datos as Record<string, unknown> : {};
+      const shipping = datos.shipping && typeof datos.shipping === "object" && !Array.isArray(datos.shipping) ? datos.shipping as Record<string, unknown> : {};
+      return {
+        id: Number(row.id), ventaId: String(row.venta_id), fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
+        estado: String(row.estado), comprador: row.comprador ? String(row.comprador) : null,
+        total: row.total === null ? null : Number(row.total), moneda: row.moneda ? String(row.moneda) : null,
+        envio: row.envio ? String(row.envio) : null, tipoEnvio: tipoEnvioVenta(shipping), retiroEnPersona: Boolean(row.retiro_en_persona),
+        mensajeEstado: row.mensaje_estado ? String(row.mensaje_estado) : null,
+        mensajeDetalle: row.mensaje_detalle ? String(row.mensaje_detalle) : null,
+        mensajesNoLeidos: unreadByPack.get(String(row.pack_id || row.venta_id)) || 0,
+        numeroEnvio: row.numero_envio ? String(row.numero_envio) : null,
+        items: Array.isArray(row.items) ? row.items.map((item: Record<string, unknown>) => {
+          const itemId = item.itemId ? String(item.itemId) : null;
+          return { itemId, titulo: String(item.titulo || "Sin titulo"), cantidad: Number(item.cantidad || 0), sku: item.sku ? String(item.sku) : null, thumbnailUrl: itemId ? thumbnailByItem.get(itemId) || null : null };
+        }) : [],
+        sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
+      };
+    }),
     totalCount,
     totalPages: Math.ceil(totalCount / limit),
   };
@@ -442,6 +514,17 @@ function tipoSeguroAdjunto(value: string | null) {
     : "application/octet-stream";
 }
 
+async function actualizarSeguimientoMensajesPostventa(idCuenta: number, ventaId: string, respondido = false) {
+  if (!await seguimientoMensajesPostventaDisponible()) return;
+  await query(
+    `UPDATE public.mercadolibre_mensaje_postventa_notificado
+     SET leido_at = COALESCE(leido_at, NOW()),
+         respondido_at = CASE WHEN $3 THEN NOW() ELSE respondido_at END
+     WHERE id_cuenta = $1 AND venta_id = $2`,
+    [idCuenta, ventaId, respondido],
+  );
+}
+
 export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId: string): Promise<MercadoLibreVentaConversacion> {
   const normalizedVentaId = idSeguro(ventaId);
   if (!normalizedVentaId) throw new AppError("La venta de Mercado Libre no es valida.", 400);
@@ -454,6 +537,7 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
   );
   const venta = rows[0];
   if (!venta) throw new AppError("La venta no existe en la cuenta seleccionada.", 404);
+  await actualizarSeguimientoMensajesPostventa(idCuenta, normalizedVentaId);
   const datos = venta.datos && typeof venta.datos === "object" && !Array.isArray(venta.datos) ? venta.datos as Record<string, unknown> : {};
   const shipping = datos.shipping && typeof datos.shipping === "object" && !Array.isArray(datos.shipping) ? datos.shipping as Record<string, unknown> : {};
   const buyer = datos.buyer && typeof datos.buyer === "object" && !Array.isArray(datos.buyer) ? datos.buyer as Record<string, unknown> : {};
@@ -487,7 +571,7 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
       console.warn("[MERCADOLIBRE] No se pudo obtener el tipo de envio:", error instanceof Error ? error.message : error);
     }
   }
-  const payload = await meliGet(`/messages/packs/${encodeURIComponent(packId)}/sellers/${sellerId}?tag=post_sale&mark_as_read=false`, idCuenta, accessToken) as Record<string, unknown>;
+  const payload = await meliGet(`/messages/packs/${encodeURIComponent(packId)}/sellers/${sellerId}?tag=post_sale&mark_as_read=true`, idCuenta, accessToken) as Record<string, unknown>;
   const conversation = payload.conversation_status && typeof payload.conversation_status === "object" && !Array.isArray(payload.conversation_status)
     ? payload.conversation_status as Record<string, unknown>
     : {};
@@ -593,6 +677,7 @@ export async function enviarMensajeVentaMercadoLibre(idCuenta: number, ventaId: 
   await meliPost(`/messages/packs/${encodeURIComponent(conversation.packId)}/sellers/${sellerId}?tag=post_sale`, idCuenta, accessToken, {
     from: { user_id: sellerId }, to: { user_id: recipientId }, text,
   });
+  await actualizarSeguimientoMensajesPostventa(idCuenta, conversation.ventaId, true);
   return getMercadoLibreVentaConversacion(idCuenta, ventaId);
 }
 
