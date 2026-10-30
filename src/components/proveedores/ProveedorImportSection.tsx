@@ -109,6 +109,41 @@ function normalizeHeader(value: string) {
     .trim();
 }
 
+function getExcelHeaderColumns(worksheet: XLSX.WorkSheet) {
+  const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+  const lastCandidateRow = Math.min(range.e.r, range.s.r + 40);
+  let headerRow = range.s.r;
+  let highestScore = -1;
+
+  for (let row = range.s.r; row <= lastCandidateRow; row += 1) {
+    const values = Array.from({ length: range.e.c - range.s.c + 1 }, (_, index) => {
+      const cell = worksheet[XLSX.utils.encode_cell({ r: row, c: range.s.c + index })];
+      return String(cell?.v ?? "").trim();
+    }).filter(Boolean);
+    if (values.length < 2) continue;
+
+    const descriptiveCells = values.filter((value) => /[a-zA-Z]/.test(value)).length;
+    const score = values.length * 10 + descriptiveCells;
+    if (score > highestScore) {
+      highestScore = score;
+      headerRow = row;
+    }
+  }
+
+  const duplicateCount = new Map<string, number>();
+  const columns: Array<{ header: string; column: number }> = [];
+  for (let column = range.s.c; column <= range.e.c; column += 1) {
+    const cell = worksheet[XLSX.utils.encode_cell({ r: headerRow, c: column })];
+    const baseHeader = String(cell?.v ?? "").trim();
+    if (!baseHeader) continue;
+    const count = (duplicateCount.get(baseHeader) || 0) + 1;
+    duplicateCount.set(baseHeader, count);
+    columns.push({ header: count === 1 ? baseHeader : `${baseHeader} (${count})`, column });
+  }
+
+  return { range, headerRow, columns };
+}
+
 function detectHeader(headers: string[], fieldId: string) {
   const candidates = fieldId === "codigo_proveedor"
     ? [
@@ -375,16 +410,11 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       const worksheet = workbook.Sheets[sheetName];
       if (!worksheet) throw new Error("Hoja no encontrada");
 
-      const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
-      const headerColumns: Array<{ header: string; column: number }> = [];
-      for (let column = range.s.c; column <= range.e.c; column += 1) {
-        const cell = worksheet[XLSX.utils.encode_cell({ r: range.s.r, c: column })];
-        const header = String(cell?.v ?? "").trim();
-        if (header) headerColumns.push({ header, column });
-      }
+      const { range, headerRow, columns: headerColumns } = getExcelHeaderColumns(worksheet);
+      if (!headerColumns.length) throw new Error("No se encontraron encabezados");
 
       const rows: Array<Record<string, unknown>> = [];
-      for (let rowIndex = range.s.r + 1; rowIndex <= range.e.r; rowIndex += 1) {
+      for (let rowIndex = headerRow + 1; rowIndex <= range.e.r; rowIndex += 1) {
         const row: Record<string, unknown> = { __rowNumber: rowIndex + 1 };
         let hasContent = false;
         let rowColor = "";

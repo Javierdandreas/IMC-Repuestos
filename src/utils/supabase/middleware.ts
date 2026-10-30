@@ -88,14 +88,24 @@ export async function updateSession(request: NextRequest): Promise<MiddlewareSes
   const serviceKey = process.env.SUPABASE_SECRET_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   let permisos: string[] = [];
 
-  if (usuarioId && normalizeRole(usuarioAuth.rol) === "empleado" && serviceKey) {
-    const supabaseAdmin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data, error } = await supabaseAdmin
+  if (usuarioId && normalizeRole(usuarioAuth.rol) === "empleado") {
+    const ownPermissions = await supabase
       .from("usuario_permiso")
       .select("apartado, accion")
       .eq("usuario_id", usuarioId);
-    if (error) console.error("No se pudieron consultar los permisos del usuario en middleware:", error.message);
-    else permisos = (data || []).map((permiso) => `${permiso.apartado}:${permiso.accion}`);
+    if (!ownPermissions.error) {
+      permisos = (ownPermissions.data || []).map((permiso) => `${permiso.apartado}:${permiso.accion}`);
+    }
+
+    if (!permisos.length && serviceKey) {
+      const supabaseAdmin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      const { data, error } = await supabaseAdmin
+        .from("usuario_permiso")
+        .select("apartado, accion")
+        .eq("usuario_id", usuarioId);
+      if (error) console.error("No se pudieron consultar los permisos del usuario en middleware:", error.message);
+      else permisos = (data || []).map((permiso) => `${permiso.apartado}:${permiso.accion}`);
+    }
   }
 
   return {

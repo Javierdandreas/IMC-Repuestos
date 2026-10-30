@@ -67,14 +67,45 @@ function detectMappings(headers: string[]) {
   return mappings;
 }
 
-function getHeaders(sheet: XLSX.WorkSheet) {
+function getExcelHeaderRow(sheet: XLSX.WorkSheet) {
   const range = XLSX.utils.decode_range(sheet["!ref"] || "A1");
-  const headers: string[] = [];
-  for (let column = range.s.c; column <= range.e.c; column += 1) {
-    const cell = sheet[XLSX.utils.encode_cell({ r: range.s.r, c: column })];
-    if (cell?.v !== undefined && String(cell.v).trim()) headers.push(String(cell.v));
+  const lastCandidateRow = Math.min(range.e.r, range.s.r + 40);
+  let headerRow = range.s.r;
+  let highestScore = -1;
+
+  for (let row = range.s.r; row <= lastCandidateRow; row += 1) {
+    const values = Array.from({ length: range.e.c - range.s.c + 1 }, (_, index) => {
+      const cell = sheet[XLSX.utils.encode_cell({ r: row, c: range.s.c + index })];
+      return String(cell?.v ?? "").trim();
+    }).filter(Boolean);
+    if (values.length < 2) continue;
+
+    const descriptiveCells = values.filter((value) => /[a-zA-Z]/.test(value)).length;
+    const score = values.length * 10 + descriptiveCells;
+    if (score > highestScore) {
+      highestScore = score;
+      headerRow = row;
+    }
   }
-  return headers;
+
+  return headerRow;
+}
+
+function readExcelSheet(sheet: XLSX.WorkSheet) {
+  const headerRow = getExcelHeaderRow(sheet);
+  const headers: string[] = [];
+  const seen = new Map<string, number>();
+  const range = XLSX.utils.decode_range(sheet["!ref"] || "A1");
+  for (let column = range.s.c; column <= range.e.c; column += 1) {
+    const cell = sheet[XLSX.utils.encode_cell({ r: headerRow, c: column })];
+    const baseHeader = String(cell?.v ?? "").trim();
+    if (!baseHeader) continue;
+    const count = (seen.get(baseHeader) || 0) + 1;
+    seen.set(baseHeader, count);
+    headers.push(count === 1 ? baseHeader : `${baseHeader} (${count})`);
+  }
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", range: headerRow });
+  return { headers, rows };
 }
 
 export function ImportProviderPricesPage() {
@@ -118,7 +149,8 @@ export function ImportProviderPricesPage() {
         const sheetName = workbook.SheetNames.find((name) => providerSheetNames.has(normalizeHeader(name))) ?? workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         if (!sheet) throw new Error("No se encontro una hoja para importar.");
-        setParsedFile(file.name, getHeaders(sheet), XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" }));
+        const { headers, rows } = readExcelSheet(sheet);
+        setParsedFile(file.name, headers, rows);
         return;
       }
 
