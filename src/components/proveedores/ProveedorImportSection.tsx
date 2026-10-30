@@ -348,6 +348,10 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const { data: cotizaciones, error: cotizacionesError } = useSWR<CotizacionProveedor[]>(
     `/api/proveedores/${id_proveedor}/monedas`, stockColorRulesFetcher,
   );
+  const cotizacionesActivas = useMemo(
+    () => (cotizaciones ?? []).filter((item) => item.activa),
+    [cotizaciones],
+  );
   const cotizacionSeleccionada = cotizaciones?.find((item) => item.activa && item.codigo === codigoCotizacion);
   const valorCotizacion = cotizacionSeleccionada
     ? cotizacionSeleccionada.lado === "COMPRA" ? cotizacionSeleccionada.valorCompra : cotizacionSeleccionada.valorVenta
@@ -378,6 +382,15 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       return savedRule ? { ...savedRule, color: rule.color } : rule;
     }));
   }, [savedStockColorRules]);
+
+  useEffect(() => {
+    if (!cotizaciones || cotizacionesError) return;
+    setCodigoCotizacion((current) => {
+      if (current === "ARS" || cotizacionesActivas.some((item) => item.codigo === current)) return current;
+      if (cotizacionesActivas.length === 1) return cotizacionesActivas[0].codigo;
+      return cotizacionesActivas.length === 0 ? "ARS" : "";
+    });
+  }, [cotizaciones, cotizacionesActivas, cotizacionesError]);
 
   useEffect(() => {
     if (!importing) return;
