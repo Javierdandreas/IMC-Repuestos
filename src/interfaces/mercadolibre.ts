@@ -116,6 +116,7 @@ export type MercadoLibreVentaConversacion = {
   ventaId: string;
   packId: string;
   comprador: string | null;
+  compradorId: string | null;
   envio: string | null;
   tipoEnvio: string | null;
   estado: string | null;

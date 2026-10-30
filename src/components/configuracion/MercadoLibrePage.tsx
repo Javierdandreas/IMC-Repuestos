@@ -548,79 +548,486 @@ function VentasTable({ ventas, loading, onOpenChat }: { ventas: MercadoLibreVent
   return <TableShell hasRows={ventas.length > 0} empty={loading ? "Cargando ventas..." : "No hay ventas sincronizadas."}><table className="w-full min-w-[1040px] text-left text-[13px] [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800"><thead><tr><th>Fecha</th><th>Cliente</th><th>Items</th><th>Envio</th><th>Estado</th><th>Mensaje</th><th className="text-right">Total</th></tr></thead><tbody>{ventas.map((venta) => <tr key={venta.id}><td><div className="font-bold text-slate-800 dark:text-white">{date(venta.fecha, "-")}</div><div className="mt-1 font-mono text-[11px] text-slate-500">#{venta.ventaId}</div></td><td className="font-bold text-slate-800 dark:text-white">{venta.comprador || "-"}</td><td><div className="max-w-md space-y-1">{venta.items.map((item, index) => <div key={`${venta.id}-${index}`} className="truncate font-semibold text-slate-700 dark:text-slate-200" title={item.titulo}>{item.cantidad}x {item.titulo}{item.sku && <span className="ml-1 font-mono text-slate-400">[{item.sku}]</span>}</div>)}</div></td><td><div>{venta.retiroEnPersona ? "Retira en persona" : venta.envio || "-"}</div>{venta.numeroEnvio && <div className="mt-1 font-mono text-[11px] text-slate-500">#{venta.numeroEnvio}</div>}</td><td><StateBadge value={venta.estado} /></td><td><div className="flex items-center gap-1"><EstadoMensajeIcono estado={venta.mensajeEstado} detalle={venta.mensajeDetalle} /><button type="button" onClick={() => onOpenChat(venta)} title={venta.mensajesNoLeidos ? `${venta.mensajesNoLeidos} mensaje(s) sin leer` : "Ver chat de la venta"} aria-label="Ver chat de la venta" className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 transition hover:bg-blue-500/10 dark:text-blue-300"><MessageCircle className="h-4 w-4" />{venta.mensajesNoLeidos > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-black text-white">{venta.mensajesNoLeidos > 9 ? "9+" : venta.mensajesNoLeidos}</span>}</button></div></td><td className="text-right font-mono font-black text-slate-800 dark:text-white">{money(venta.total, venta.moneda)}</td></tr>)}</tbody></table></TableShell>;
 }
 
-function VentaConversationModal({ venta, idCuenta, canReply, onClose }: { venta: MercadoLibreVentasResult["data"][number]; idCuenta: number; canReply: boolean; onClose: () => void }) {
-  const [conversation, setConversation] = useState<MercadoLibreVentaConversacion | null>(null);
+function VentaConversationModal({
+  venta,
+  idCuenta,
+  canReply,
+  onClose,
+}: {
+  venta: MercadoLibreVentasResult["data"][number];
+  idCuenta: number;
+  canReply: boolean;
+  onClose: () => void;
+}) {
+  const [conversation, setConversation] =
+    useState<MercadoLibreVentaConversacion | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [texto, setTexto] = useState("");
+  const [preguntasAbiertas, setPreguntasAbiertas] = useState(false);
   const loadConversation = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/integraciones/mercadolibre/ventas/${encodeURIComponent(venta.ventaId)}/mensajes?idCuenta=${idCuenta}`, { cache: "no-store" });
+      const response = await fetch(
+        `/api/integraciones/mercadolibre/ventas/${encodeURIComponent(venta.ventaId)}/mensajes?idCuenta=${idCuenta}`,
+        { cache: "no-store" },
+      );
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.message || "No se pudo cargar el chat.");
+      if (!response.ok)
+        throw new Error(result.message || "No se pudo cargar el chat.");
       setConversation(result as MercadoLibreVentaConversacion);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo cargar el chat.");
+      toast.error(
+        error instanceof Error ? error.message : "No se pudo cargar el chat.",
+      );
       setConversation(null);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }, [idCuenta, venta.ventaId]);
-  useEffect(() => { void loadConversation(); }, [loadConversation]);
+  useEffect(() => {
+    void loadConversation();
+  }, [loadConversation]);
   const copyData = async () => {
-    const items = conversation?.items || venta.items.map((item) => ({ ...item, permalink: null }));
-    const sku = items.map((item) => item.sku).filter(Boolean).join(", ") || "-";
-    const envio = conversation?.tipoEnvio || conversation?.envio || venta.envio || "-";
-    await navigator.clipboard.writeText(`Venta: ${venta.ventaId}\nComprador: ${conversation?.comprador || venta.comprador || "-"}\nEnvio: ${envio}\nSKU: ${sku}`);
+    const items =
+      conversation?.items ||
+      venta.items.map((item) => ({ ...item, permalink: null }));
+    const sku =
+      items
+        .map((item) => item.sku)
+        .filter(Boolean)
+        .join(", ") || "-";
+    const envio =
+      conversation?.tipoEnvio || conversation?.envio || venta.envio || "-";
+    await navigator.clipboard.writeText(
+      `Venta: ${venta.ventaId}\nComprador: ${conversation?.comprador || venta.comprador || "-"}\nEnvio: ${envio}\nSKU: ${sku}`,
+    );
     toast.success("Datos de la venta copiados.");
   };
   const send = async () => {
     if (!texto.trim()) return;
     try {
       setSending(true);
-      const response = await fetch(`/api/integraciones/mercadolibre/ventas/${encodeURIComponent(venta.ventaId)}/mensajes?idCuenta=${idCuenta}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto }) });
+      const response = await fetch(
+        `/api/integraciones/mercadolibre/ventas/${encodeURIComponent(venta.ventaId)}/mensajes?idCuenta=${idCuenta}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ texto }),
+        },
+      );
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.message || "No se pudo enviar el mensaje.");
+      if (!response.ok)
+        throw new Error(result.message || "No se pudo enviar el mensaje.");
       setConversation(result as MercadoLibreVentaConversacion);
       setTexto("");
       toast.success("Mensaje enviado a Mercado Libre.");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "No se pudo enviar el mensaje."); }
-    finally { setSending(false); }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "No se pudo enviar el mensaje.",
+      );
+    } finally {
+      setSending(false);
+    }
   };
   const maxLength = conversation?.limiteRespuesta || 350;
-  const conversationItems = conversation?.items || venta.items.map((item) => ({ ...item, permalink: null, thumbnailUrl: null }));
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="venta-chat-title"><div className="flex h-[min(88dvh,760px)] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-950"><header className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-slate-800"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Postventa</p><h2 id="venta-chat-title" className="mt-1 text-base font-black text-slate-900 dark:text-white">Chat de venta #{venta.ventaId}</h2><p className="mt-1 text-xs text-slate-500">{conversation?.comprador || venta.comprador || "Comprador sin nombre"}</p></div><div className="flex items-center gap-1"><button type="button" onClick={() => void copyData()} title="Copiar datos" className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"><Copy className="h-3.5 w-3.5" />Copiar datos</button><button type="button" onClick={onClose} title="Cerrar" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button></div></header><div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_320px]"><section className="flex min-h-0 flex-col border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r"><div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">{loading ? <p className="py-12 text-center text-sm font-semibold text-slate-500">Cargando chat...</p> : conversation?.mensajes.length ? conversation.mensajes.map((mensaje) => <div key={mensaje.id} className={`flex ${mensaje.propio ? "justify-end" : "justify-start"}`}><div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${mensaje.propio ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100"}`}><p className="whitespace-pre-wrap">{mensaje.texto || "Mensaje sin texto"}</p>{mensaje.adjuntos.map((adjunto, index) => {
-                const image = /^image\/(avif|gif|jpe?g|png|webp)$/i.test(adjunto.tipo || "") || /\.(avif|gif|jpe?g|png|webp)$/i.test(adjunto.nombre || "");
-                const key = `${mensaje.id}-${index}`;
-                if (!adjunto.url) return <p key={key} className="mt-2 text-xs">{adjunto.nombre || "Adjunto"}</p>;
-                return image
-                  ? <a key={key} href={adjunto.url} target="_blank" rel="noreferrer" className="mt-2 block overflow-hidden rounded-md border border-black/10"><img src={adjunto.url} alt={adjunto.nombre || "Imagen adjunta"} className="max-h-56 w-auto max-w-full object-contain" /><span className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold"><ImageIcon className="h-3.5 w-3.5" />Ver imagen</span></a>
-                  : <a key={key} href={adjunto.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded border border-current/25 px-2 py-1 text-xs font-semibold hover:opacity-80"><FileText className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{adjunto.nombre || "Abrir adjunto"}</span></a>;
-              })}<p className={`mt-1 text-right text-[10px] ${mensaje.propio ? "text-blue-100" : "text-slate-400"}`}>{date(mensaje.fecha, "")}</p></div></div>) : <p className="py-12 text-center text-sm font-semibold text-slate-500">No hay mensajes posventa para esta venta.</p>}</div><div className="border-t border-slate-200 p-3 dark:border-slate-800">{conversation && !conversation.permiteResponder && <p className="mb-2 text-xs font-semibold text-amber-700 dark:text-amber-300">Mercado Libre no permite responder en esta conversacion.</p>}<div className="flex gap-2"><textarea value={texto} onChange={(event) => setTexto(event.target.value)} disabled={!canReply || sending || !conversation?.permiteResponder} maxLength={maxLength} placeholder="Escribi al comprador" className="min-h-20 flex-1 resize-y rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /><button type="button" onClick={() => void send()} disabled={!canReply || sending || !conversation?.permiteResponder || !texto.trim()} title="Enviar mensaje" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-4 w-4" /></button></div><p className="mt-1 text-right text-[10px] text-slate-400">{texto.length}/{maxLength}</p></div></section><aside className="min-h-0 overflow-y-auto bg-slate-50 p-4 dark:bg-slate-900/40"><div className="flex items-center justify-between gap-2"><h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Venta</h3><StateBadge value={conversation?.estado || venta.estado} /></div><dl className="mt-3 space-y-2 text-xs"><div><dt className="text-slate-500">Tipo de envio</dt><dd className="font-bold text-slate-800 dark:text-white">{conversation?.tipoEnvio || conversation?.envio || venta.envio || "-"}</dd></div><div><dt className="text-slate-500">SKU</dt><dd className="font-mono font-bold text-slate-800 dark:text-white">{conversationItems.map((item) => item.sku).filter(Boolean).join(", ") || "-"}</dd></div></dl><h3 className="mt-6 text-xs font-black uppercase tracking-widest text-slate-500">Publicacion</h3><div className="mt-2 space-y-2">{conversationItems.map((item, index) => <div key={`${item.itemId || item.titulo}-${index}`} className="flex gap-2 border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-950">{item.thumbnailUrl && <img src={item.thumbnailUrl} alt="" className="h-12 w-12 shrink-0 object-contain" />}<div className="min-w-0"><p className="font-bold text-slate-800 dark:text-white">{item.titulo}</p>{item.sku && <p className="mt-1 font-mono text-slate-500">SKU: {item.sku}</p>}{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline dark:text-blue-300">Abrir publicacion <ExternalLink className="h-3 w-3" /></a>}</div></div>)}</div><h3 className="mt-6 text-xs font-black uppercase tracking-widest text-slate-500">Preguntas previas</h3><div className="mt-2 space-y-2">{conversation?.preguntasPrevias.length ? conversation.preguntasPrevias.map((pregunta) => <div key={pregunta.preguntaId} className="border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-950"><p className="font-semibold text-slate-800 dark:text-white">{pregunta.texto}</p>{pregunta.respuesta && <p className="mt-2 border-l-2 border-blue-500 pl-2 text-slate-500">{pregunta.respuesta}</p>}</div>) : <p className="text-xs text-slate-500">No hay preguntas previas sincronizadas.</p>}</div></aside></div></div></div>;
+  const conversationItems =
+    conversation?.items ||
+    venta.items.map((item) => ({
+      ...item,
+      permalink: null,
+      thumbnailUrl: null,
+    }));
+  const preguntasPrevias = conversation?.preguntasPrevias || [];
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="venta-chat-title"
+    >
+      <div className="flex h-[min(88dvh,760px)] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-slate-700 bg-white shadow-2xl dark:bg-slate-950">
+        <header className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-slate-800">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">
+              Postventa
+            </p>
+            <h2
+              id="venta-chat-title"
+              className="mt-1 text-base font-black text-slate-900 dark:text-white"
+            >
+              Chat de venta #{venta.ventaId}
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {conversation?.comprador ||
+                venta.comprador ||
+                "Comprador sin nombre"}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void copyData()}
+              title="Copiar datos"
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copiar datos
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              title="Cerrar"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </header>
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <section className="flex min-h-0 flex-col border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+              {loading ? (
+                <p className="py-12 text-center text-sm font-semibold text-slate-500">
+                  Cargando chat...
+                </p>
+              ) : conversation?.mensajes.length ? (
+                conversation.mensajes.map((mensaje) => (
+                  <div
+                    key={mensaje.id}
+                    className={`flex ${mensaje.propio ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${mensaje.propio ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100"}`}
+                    >
+                      <p className="whitespace-pre-wrap">
+                        {mensaje.texto || "Mensaje sin texto"}
+                      </p>
+                      {mensaje.adjuntos.map((adjunto, index) => {
+                        const image =
+                          /^image\/(avif|gif|jpe?g|png|webp)$/i.test(
+                            adjunto.tipo || "",
+                          ) ||
+                          /\.(avif|gif|jpe?g|png|webp)$/i.test(
+                            adjunto.nombre || "",
+                          );
+                        const key = `${mensaje.id}-${index}`;
+                        if (!adjunto.url)
+                          return (
+                            <p key={key} className="mt-2 text-xs">
+                              {adjunto.nombre || "Adjunto"}
+                            </p>
+                          );
+                        return image ? (
+                          <a
+                            key={key}
+                            href={adjunto.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 block overflow-hidden rounded-md border border-black/10"
+                          >
+                            <img
+                              src={adjunto.url}
+                              alt={adjunto.nombre || "Imagen adjunta"}
+                              className="max-h-56 w-auto max-w-full object-contain"
+                            />
+                            <span className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold">
+                              <ImageIcon className="h-3.5 w-3.5" />
+                              Ver imagen
+                            </span>
+                          </a>
+                        ) : (
+                          <a
+                            key={key}
+                            href={adjunto.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded border border-current/25 px-2 py-1 text-xs font-semibold hover:opacity-80"
+                          >
+                            <FileText className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">
+                              {adjunto.nombre || "Abrir adjunto"}
+                            </span>
+                          </a>
+                        );
+                      })}
+                      <p
+                        className={`mt-1 text-right text-[10px] ${mensaje.propio ? "text-blue-100" : "text-slate-400"}`}
+                      >
+                        {date(mensaje.fecha, "")}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="py-12 text-center text-sm font-semibold text-slate-500">
+                  No hay mensajes posventa para esta venta.
+                </p>
+              )}
+            </div>
+            <div className="border-t border-slate-200 p-3 dark:border-slate-800">
+              {conversation && !conversation.permiteResponder && (
+                <p className="mb-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                  Mercado Libre no permite responder en esta conversacion.
+                </p>
+              )}
+              <div className="flex gap-2">
+                <textarea
+                  value={texto}
+                  onChange={(event) => setTexto(event.target.value)}
+                  disabled={
+                    !canReply || sending || !conversation?.permiteResponder
+                  }
+                  maxLength={maxLength}
+                  placeholder="Escribi al comprador"
+                  className="min-h-20 flex-1 resize-y rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={
+                    !canReply ||
+                    sending ||
+                    !conversation?.permiteResponder ||
+                    !texto.trim()
+                  }
+                  title="Enviar mensaje"
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="mt-1 text-right text-[10px] text-slate-400">
+                {texto.length}/{maxLength}
+              </p>
+            </div>
+          </section>
+          <aside className="min-h-0 overflow-y-auto bg-slate-50 p-4 dark:bg-slate-900/40">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">
+                Venta
+              </h3>
+              <StateBadge value={conversation?.estado || venta.estado} />
+            </div>
+            <dl className="mt-3 space-y-2 text-xs">
+              <div>
+                <dt className="text-slate-500">Tipo de envio</dt>
+                <dd className="font-bold text-slate-800 dark:text-white">
+                  {conversation?.tipoEnvio ||
+                    conversation?.envio ||
+                    venta.envio ||
+                    "-"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500">SKU</dt>
+                <dd className="font-mono font-bold text-slate-800 dark:text-white">
+                  {conversationItems
+                    .map((item) => item.sku)
+                    .filter(Boolean)
+                    .join(", ") || "-"}
+                </dd>
+              </div>
+            </dl>
+            <h3 className="mt-6 text-xs font-black uppercase tracking-widest text-slate-500">
+              Publicacion
+            </h3>
+            <div className="mt-2 space-y-2">
+              {conversationItems.map((item, index) => (
+                <div
+                  key={`${item.itemId || item.titulo}-${index}`}
+                  className="flex gap-2 border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-950"
+                >
+                  {item.thumbnailUrl && (
+                    <img
+                      src={item.thumbnailUrl}
+                      alt=""
+                      className="h-12 w-12 shrink-0 object-contain"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-800 dark:text-white">
+                      {item.titulo}
+                    </p>
+                    {item.sku && (
+                      <p className="mt-1 font-mono text-slate-500">
+                        SKU: {item.sku}
+                      </p>
+                    )}
+                    {item.permalink && (
+                      <a
+                        href={item.permalink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline dark:text-blue-300"
+                      >
+                        Abrir publicacion <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <section className="mt-6">
+              <button
+                type="button"
+                onClick={() => setPreguntasAbiertas((value) => !value)}
+                disabled={!preguntasPrevias.length}
+                aria-expanded={preguntasAbiertas}
+                className="flex w-full items-center justify-between gap-2 text-left text-xs font-black uppercase tracking-widest text-slate-500 transition hover:text-blue-600 disabled:cursor-default disabled:hover:text-slate-500 dark:hover:text-blue-300"
+              >
+                <span>Preguntas previas</span>
+                {preguntasPrevias.length > 0 && <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-300">{preguntasPrevias.length}{preguntasAbiertas ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</span>}
+              </button>
+              {preguntasAbiertas && preguntasPrevias.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {preguntasPrevias.map((pregunta) => (
+                    <div key={pregunta.preguntaId} className="border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-950">
+                      <p className="font-semibold text-slate-800 dark:text-white">{pregunta.texto}</p>
+                      {pregunta.respuesta && <p className="mt-2 border-l-2 border-blue-500 pl-2 text-slate-500">{pregunta.respuesta}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!preguntasPrevias.length && <p className="mt-2 text-xs text-slate-500">No hay preguntas previas sincronizadas.</p>}
+            </section>
+          </aside>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function PublicacionesTable({ publicaciones, loading, canManage, onChanged }: {
+function PublicacionesTable({
+  publicaciones,
+  loading,
+  canManage,
+  onChanged,
+}: {
   publicaciones: MercadoLibrePublicacionesResult["data"];
   loading: boolean;
   canManage: boolean;
   onChanged: () => Promise<void>;
 }) {
-  const [reviewing, setReviewing] = useState<MercadoLibrePublicacionListado | null>(null);
+  const [reviewing, setReviewing] =
+    useState<MercadoLibrePublicacionListado | null>(null);
 
-  return <>
-    <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}>
-      <table className="w-full min-w-[1210px] text-left text-[13px]">
-        <thead><tr><th>Publicacion</th><th>SKU ML</th><th>Estado</th><th>Precio ML</th><th className="text-right">Stock ML</th><th>Fechas</th><th>Vinculo IMC</th><th /></tr></thead>
-        <tbody>{publicaciones.map((item) => <tr key={item.id}>
-          <td><div className="max-w-md truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 font-mono text-[11px] text-slate-500">{item.itemId}</div></td>
-          <td className="font-mono font-bold">{item.sellerSku || "-"}</td><td><StateBadge value={item.estado} /></td><td className="font-mono font-black">{money(item.precio, item.moneda)}</td><td className="text-right font-mono font-black">{item.cantidadDisponible ?? "-"}</td>
-          <td className="whitespace-nowrap text-[11px] leading-5 text-slate-500 dark:text-slate-300"><div><b>Creada:</b> {date(item.fechaCreacionMl, "-")}</div><div><b>Editada:</b> {date(item.fechaActualizacionMl, "-")}</div><div><b>Sync IMC:</b> {date(item.sincronizadaAt, "-")}</div></td>
-          <td><span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${publicationLinkBadge(item.tipoVinculo)}`}>{publicationLinkLabel(item.tipoVinculo)}</span>{(item.codigoProducto || item.codigoKit) && <div className="mt-1 font-mono text-[11px] text-slate-500">{item.codigoProducto || item.codigoKit}</div>}</td>
-          <td className="text-right"><div className="flex justify-end gap-1">{canManage && (item.tipoVinculo === "SIN_VINCULO" || item.tipoVinculo === "EXCLUIDO_MANUAL") && <button type="button" onClick={() => setReviewing(item)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-200 px-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-50 dark:border-blue-900/70 dark:text-blue-300 dark:hover:bg-blue-950/30"><Link2 className="h-3.5 w-3.5" />Revisar</button>}{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" title="Abrir publicacion" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"><ExternalLink className="h-4 w-4" /></a>}</div></td>
-        </tr>)}</tbody>
-      </table>
-    </TableShell>
-    {reviewing && <VinculoReviewDialog publication={reviewing} onClose={() => setReviewing(null)} onChanged={async () => { setReviewing(null); await onChanged(); }} />}
-  </>;
+  return (
+    <>
+      <TableShell
+        hasRows={publicaciones.length > 0}
+        empty={
+          loading
+            ? "Cargando publicaciones..."
+            : "No hay publicaciones sincronizadas."
+        }
+      >
+        <table className="w-full min-w-[1210px] text-left text-[13px]">
+          <thead>
+            <tr>
+              <th>Publicacion</th>
+              <th>SKU ML</th>
+              <th>Estado</th>
+              <th>Precio ML</th>
+              <th className="text-right">Stock ML</th>
+              <th>Fechas</th>
+              <th>Vinculo IMC</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {publicaciones.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <div
+                    className="max-w-md truncate font-black text-slate-900 dark:text-white"
+                    title={item.titulo}
+                  >
+                    {item.titulo}
+                  </div>
+                  <div className="mt-1 font-mono text-[11px] text-slate-500">
+                    {item.itemId}
+                  </div>
+                </td>
+                <td className="font-mono font-bold">{item.sellerSku || "-"}</td>
+                <td>
+                  <StateBadge value={item.estado} />
+                </td>
+                <td className="font-mono font-black">
+                  {money(item.precio, item.moneda)}
+                </td>
+                <td className="text-right font-mono font-black">
+                  {item.cantidadDisponible ?? "-"}
+                </td>
+                <td className="whitespace-nowrap text-[11px] leading-5 text-slate-500 dark:text-slate-300">
+                  <div>
+                    <b>Creada:</b> {date(item.fechaCreacionMl, "-")}
+                  </div>
+                  <div>
+                    <b>Editada:</b> {date(item.fechaActualizacionMl, "-")}
+                  </div>
+                  <div>
+                    <b>Sync IMC:</b> {date(item.sincronizadaAt, "-")}
+                  </div>
+                </td>
+                <td>
+                  <span
+                    className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${publicationLinkBadge(item.tipoVinculo)}`}
+                  >
+                    {publicationLinkLabel(item.tipoVinculo)}
+                  </span>
+                  {(item.codigoProducto || item.codigoKit) && (
+                    <div className="mt-1 font-mono text-[11px] text-slate-500">
+                      {item.codigoProducto || item.codigoKit}
+                    </div>
+                  )}
+                </td>
+                <td className="text-right">
+                  <div className="flex justify-end gap-1">
+                    {canManage &&
+                      (item.tipoVinculo === "SIN_VINCULO" ||
+                        item.tipoVinculo === "EXCLUIDO_MANUAL") && (
+                        <button
+                          type="button"
+                          onClick={() => setReviewing(item)}
+                          className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-200 px-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-50 dark:border-blue-900/70 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
+                          Revisar
+                        </button>
+                      )}
+                    {item.permalink && (
+                      <a
+                        href={item.permalink}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Abrir publicacion"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableShell>
+      {reviewing && (
+        <VinculoReviewDialog
+          publication={reviewing}
+          onClose={() => setReviewing(null)}
+          onChanged={async () => {
+            setReviewing(null);
+            await onChanged();
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 function VinculoReviewDialog({ publication, onClose, onChanged }: {

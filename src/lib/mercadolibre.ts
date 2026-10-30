@@ -347,10 +347,19 @@ function etiquetaTipoEnvio(shipping: Record<string, unknown>) {
     : {};
   const values = [shipping.logistic_type, shipping.mode, option.name].filter((value): value is string => typeof value === "string").join(" ").toLowerCase();
   if (values.includes("flex")) return "FLEX";
+  if (values.includes("self_service")) return "FLEX";
   if (values.includes("cross_docking") || values.includes("collect") || values.includes("recolec")) return "COLECTA";
   if (values.includes("fulfillment")) return "FULL";
   if (values.includes("drop_off")) return "DROP OFF";
   return typeof shipping.logistic_type === "string" ? shipping.logistic_type.replaceAll("_", " ").toUpperCase() : null;
+}
+
+function nombreComprador(buyer: Record<string, unknown>, fallback: string | null) {
+  const fullName = [buyer.first_name, buyer.last_name]
+    .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+    .join(" ")
+    .trim();
+  return fullName || fallback;
 }
 
 async function mensajesNoLeidosPorPack(idCuenta: number) {
@@ -450,6 +459,7 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
   const buyer = datos.buyer && typeof datos.buyer === "object" && !Array.isArray(datos.buyer) ? datos.buyer as Record<string, unknown> : {};
   const packId = idSeguro(datos.pack_id) || normalizedVentaId;
   const buyerId = idSeguro(buyer.id);
+  const shippingId = idSeguro(shipping.id);
   const items = Array.isArray(venta.items) ? venta.items.map((item) => {
     const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
     return { itemId: typeof value.itemId === "string" ? value.itemId : null, titulo: String(value.titulo || "Sin titulo"), sku: typeof value.sku === "string" ? value.sku : null };
@@ -468,6 +478,15 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
     [idCuenta, buyerId],
   ) : { rows: [] as Array<{ pregunta_id: string; item_id: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: Date | string | null }> };
   const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  let tipoEnvio = etiquetaTipoEnvio(shipping);
+  if (!tipoEnvio && shippingId) {
+    try {
+      const detalleEnvio = await meliGet(`/shipments/${encodeURIComponent(shippingId)}`, idCuenta, accessToken);
+      if (detalleEnvio && typeof detalleEnvio === "object" && !Array.isArray(detalleEnvio)) tipoEnvio = etiquetaTipoEnvio(detalleEnvio as Record<string, unknown>);
+    } catch (error) {
+      console.warn("[MERCADOLIBRE] No se pudo obtener el tipo de envio:", error instanceof Error ? error.message : error);
+    }
+  }
   const payload = await meliGet(`/messages/packs/${encodeURIComponent(packId)}/sellers/${sellerId}?tag=post_sale&mark_as_read=false`, idCuenta, accessToken) as Record<string, unknown>;
   const conversation = payload.conversation_status && typeof payload.conversation_status === "object" && !Array.isArray(payload.conversation_status)
     ? payload.conversation_status as Record<string, unknown>
@@ -476,9 +495,10 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
   return {
     ventaId: normalizedVentaId,
     packId,
-    comprador: venta.comprador,
+    comprador: nombreComprador(buyer, venta.comprador),
+    compradorId: buyerId,
     envio: venta.envio,
-    tipoEnvio: etiquetaTipoEnvio(shipping),
+    tipoEnvio,
     estado: typeof conversation.status === "string" ? conversation.status : null,
     permiteResponder: conversation.status === "active",
     limiteRespuesta: Number.isFinite(Number(payload.seller_max_message_length)) ? Number(payload.seller_max_message_length) : 350,
@@ -567,7 +587,9 @@ export async function enviarMensajeVentaMercadoLibre(idCuenta: number, ventaId: 
   const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
   const { rows } = await query<{ site_id: string }>("SELECT site_id FROM public.mercadolibre_cuenta WHERE id = $1", [idCuenta]);
   const agentBySite: Record<string, number> = { MLA: 3037674934, MLB: 3037675074, MLC: 3020819166, MCO: 3037204123, MLM: 3037204279, MLU: 3037204685 };
-  const recipientId = agentBySite[rows[0]?.site_id || "MLA"] || agentBySite.MLA;
+  const siteId = rows[0]?.site_id || "MLA";
+  const recipientId = siteId === "MLA" ? Number(conversation.compradorId) : agentBySite[siteId];
+  if (!Number.isInteger(recipientId) || recipientId <= 0) throw new AppError("No se pudo identificar al comprador para enviar el mensaje.", 422);
   await meliPost(`/messages/packs/${encodeURIComponent(conversation.packId)}/sellers/${sellerId}?tag=post_sale`, idCuenta, accessToken, {
     from: { user_id: sellerId }, to: { user_id: recipientId }, text,
   });
