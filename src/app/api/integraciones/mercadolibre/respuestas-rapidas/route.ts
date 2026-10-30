@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     await requireApiReadSession(request);
-    return NextResponse.json(await getMercadoLibreRespuestasRapidas());
+    return NextResponse.json(await getMercadoLibreRespuestasRapidas(request.nextUrl.searchParams.get("contexto")));
   } catch (error) {
     return jsonError(error, "No se pudieron consultar las respuestas rapidas.");
   }
