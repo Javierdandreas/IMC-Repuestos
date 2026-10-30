@@ -6,6 +6,7 @@ import {
 } from "./common";
 
 const compatibilidadVehiculoSchema = z.object({
+  id_vehiculo: z.number().int().positive().optional().nullable(),
   atributos: z.array(z.object({
     id: z.string().trim(),
     valueId: z.string().trim(),

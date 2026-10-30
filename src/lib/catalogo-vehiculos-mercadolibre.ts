@@ -63,7 +63,10 @@ export async function obtenerValoresCatalogoVehiculos(attributeId: AtributoVehic
   return result.rows.map((row) => ({ id: row.value_id, name: row.value_name }));
 }
 
-export type CatalogoVehiculoFila = { atributos: ValorVehiculo[] };
+export type CatalogoVehiculoFila = {
+  id_vehiculo?: number;
+  atributos: ValorVehiculo[];
+};
 
 function condicionVehiculoConAvance(alias = "") {
   const column = (name: string) => `${alias}${name}`;
@@ -237,8 +240,8 @@ export async function explorarVehiculosCanonicos({
   const safePage = Math.max(1, Math.floor(page));
   const [countResult, dataResult, brandsResult] = await Promise.all([
     query<{ total: string }>(`SELECT COUNT(*)::text AS total FROM public.mercadolibre_catalogo_vehiculo WHERE ${where}`, params),
-    query<{ atributos: unknown }>(`
-      SELECT atributos
+    query<{ id_vehiculo: number; atributos: unknown }>(`
+      SELECT id AS id_vehiculo, atributos
       FROM public.mercadolibre_catalogo_vehiculo
       WHERE ${where}
       ORDER BY marca_nombre, modelo_nombre, anio_nombre DESC, motor_nombre, potencia_nombre NULLS LAST, id
@@ -254,7 +257,10 @@ export async function explorarVehiculosCanonicos({
   const totalCount = Number(countResult.rows[0]?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalCount / safeLimit));
   return {
-    data: dataResult.rows.map((row) => ({ atributos: normalizarAtributosVehiculo(row.atributos) })),
+    data: dataResult.rows.map((row) => ({
+      id_vehiculo: Number(row.id_vehiculo),
+      atributos: normalizarAtributosVehiculo(row.atributos),
+    })),
     marcas: brandsResult.rows.map((row) => ({ id: row.valor_id, nombre: row.valor_nombre })),
     page: Math.min(safePage, totalPages),
     totalPages,

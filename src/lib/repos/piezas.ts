@@ -21,7 +21,7 @@ type PiezaInput = {
   originales?: string[];
   equivalentes?: string[];
   sustitutos?: string[];
-  compatibilidades?: Array<{ atributos: unknown }>;
+  compatibilidades?: Array<{ id_vehiculo?: number | null; atributos: unknown }>;
 };
 
 type PiezaImportMapping = Record<string, { csvHeader?: string }>;
@@ -65,8 +65,13 @@ function sanitizePiezaInput(input: PiezaInput) {
     equivalentes: sanitizeCodes(input.equivalentes),
     sustitutos: sanitizeCodes(input.sustitutos),
     compatibilidades: (input.compatibilidades || [])
-      .map((compatibilidad) => normalizarAtributosVehiculo(compatibilidad.atributos))
-      .filter((attributes) => attributes.some((attribute) => attribute.id === "BRAND") && attributes.some((attribute) => attribute.id === "MODEL")),
+      .map((compatibilidad) => ({
+        idVehiculo: Number.isSafeInteger(compatibilidad.id_vehiculo) && Number(compatibilidad.id_vehiculo) > 0
+          ? Number(compatibilidad.id_vehiculo)
+          : null,
+        atributos: normalizarAtributosVehiculo(compatibilidad.atributos),
+      }))
+      .filter((compatibilidad) => compatibilidad.atributos.some((attribute) => attribute.id === "BRAND") && compatibilidad.atributos.some((attribute) => attribute.id === "MODEL")),
   };
 }
 
@@ -78,15 +83,51 @@ function validatePiezaInput(payload: ReturnType<typeof sanitizePiezaInput>) {
 }
 
 async function replacePiezaCompatibilidades(client: DbClient, pieceId: number, compatibilidades: ReturnType<typeof sanitizePiezaInput>["compatibilidades"]) {
-  const unique = new Map<string, ReturnType<typeof normalizarAtributosVehiculo>>();
-  for (const attributes of compatibilidades) unique.set(firmaCompatibilidadVehiculo(attributes), attributes);
-  const vehicleIds = await guardarVehiculosCanonicos(client, [...unique.values()]);
+  const unique = new Map<string, { idVehiculo: number | null; atributos: ReturnType<typeof normalizarAtributosVehiculo> }>();
+  for (const compatibilidad of compatibilidades) {
+    const firma = firmaCompatibilidadVehiculo(compatibilidad.atributos);
+    const previous = unique.get(firma);
+    unique.set(firma, {
+      atributos: compatibilidad.atributos,
+      idVehiculo: compatibilidad.idVehiculo ?? previous?.idVehiculo ?? null,
+    });
+  }
+
+  const requestedIds = [...new Set([...unique.values()].flatMap((compatibilidad) => compatibilidad.idVehiculo ? [compatibilidad.idVehiculo] : []))];
+  const selectedVehicleIds = new Map<string, number>();
+  if (requestedIds.length) {
+    const selectedVehicles = await client.query<{ id: number; firma: string }>(`
+      SELECT id, firma
+      FROM public.mercadolibre_catalogo_vehiculo
+      WHERE dominio_id = 'MLA-CARS_AND_VANS' AND activa = TRUE AND id = ANY($1::bigint[])
+    `, [requestedIds]);
+    const selectedById = new Map(selectedVehicles.rows.map((vehicle) => [Number(vehicle.id), vehicle.firma]));
+    for (const [firma, compatibilidad] of unique) {
+      if (compatibilidad.idVehiculo && selectedById.get(compatibilidad.idVehiculo) === firma) {
+        selectedVehicleIds.set(firma, compatibilidad.idVehiculo);
+      }
+    }
+  }
+
+  const missingVehicles = [...unique.entries()]
+    .filter(([firma]) => !selectedVehicleIds.has(firma))
+    .map(([, compatibilidad]) => compatibilidad.atributos);
+  const vehicleIds = await guardarVehiculosCanonicos(client, missingVehicles);
   await client.query(`DELETE FROM public.mercadolibre_pieza_compatibilidad WHERE id_pieza = $1`, [pieceId]);
-  for (const [firma, attributes] of unique) {
+
+  const entries = [...unique.entries()];
+  for (let start = 0; start < entries.length; start += 250) {
+    const batch = entries.slice(start, start + 250);
+    const params: unknown[] = [];
+    const values = batch.map(([firma, compatibilidad]) => {
+      const position = params.length + 1;
+      params.push(pieceId, JSON.stringify(compatibilidad.atributos), firma, selectedVehicleIds.get(firma) ?? vehicleIds.get(firma) ?? null);
+      return `($${position}, $${position + 1}::jsonb, $${position + 2}, $${position + 3})`;
+    });
     await client.query(`
       INSERT INTO public.mercadolibre_pieza_compatibilidad (id_pieza, atributos, firma, id_vehiculo)
-      VALUES ($1, $2::jsonb, $3, $4)
-    `, [pieceId, JSON.stringify(attributes), firma, vehicleIds.get(firma) ?? null]);
+      VALUES ${values.join(", ")}
+    `, params);
   }
 }
 
