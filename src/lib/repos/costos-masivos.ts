@@ -21,6 +21,7 @@ export type ResumenCostoMasivo = {
   conCostoProveedor: number;
   conCostoManual: number;
   sinFilaCosto: number;
+  manualesConPrecioUnicoProveedor: number;
 };
 
 export type ResultadoCostoMasivo = {
@@ -193,6 +194,7 @@ export async function getResumenCostosMasivos(filters: FiltrosCostoMasivo): Prom
     con_costo_proveedor: number;
     con_costo_manual: number;
     sin_fila_costo: number;
+    manuales_con_precio_unico_proveedor: number;
   }>(
     `
       WITH tipo_costo AS (
@@ -231,7 +233,24 @@ export async function getResumenCostosMasivos(filters: FiltrosCostoMasivo): Prom
           CROSS JOIN tipo_costo
           WHERE costo.id_producto = items.id
             AND costo.id_tipo_precio = tipo_costo.id
-        ))::int AS sin_fila_costo
+        ))::int AS sin_fila_costo,
+        COUNT(*) FILTER (WHERE
+          $4::int IS NOT NULL
+          AND items.criterio_costo = 'MANUAL'
+          AND EXISTS (
+            SELECT 1
+            FROM public.producto_proveedor proveedor
+            WHERE proveedor.id_producto = items.id
+              AND proveedor.id_proveedor = $4::int
+              AND COALESCE(proveedor.costo_actual, proveedor.precio_lista_actual) > 0
+          )
+          AND 1 = (
+            SELECT COUNT(*)
+            FROM public.producto_proveedor proveedor
+            WHERE proveedor.id_producto = items.id
+              AND COALESCE(proveedor.costo_actual, proveedor.precio_lista_actual) > 0
+          )
+        )::int AS manuales_con_precio_unico_proveedor
       FROM items
     `,
     filter.values,
@@ -242,6 +261,7 @@ export async function getResumenCostosMasivos(filters: FiltrosCostoMasivo): Prom
     conCostoProveedor: Number(row?.con_costo_proveedor ?? 0),
     conCostoManual: Number(row?.con_costo_manual ?? 0),
     sinFilaCosto: Number(row?.sin_fila_costo ?? 0),
+    manualesConPrecioUnicoProveedor: Number(row?.manuales_con_precio_unico_proveedor ?? 0),
   };
 }
 
@@ -383,6 +403,76 @@ export async function asignarCriterioCostoMasivo(
     idProveedor: filters.idProveedor,
     detalle: `Criterio de costo asignado: ${criterio}.`,
   });
+  return {
+    totalItems: productIds.length,
+    criteriosActualizados: productIds.length,
+    itemsConCosto: result.costosDisponibles,
+    itemsSinCosto: productIds.length - result.costosDisponibles,
+    itemsRecalculados: result.preciosRecalculados,
+    cambiosCosto: result.cambios,
+    cambiosPendientes: result.pendientes,
+  };
+}
+
+/**
+ * Reemplaza el costo manual solo cuando el item tiene exactamente un proveedor
+ * con precio valido y ese proveedor coincide con el filtro seleccionado.
+ */
+export async function asignarPrecioUnicoProveedorMasivo(
+  client: DbClient,
+  filters: FiltrosCostoMasivo,
+): Promise<ResultadoCostoMasivo> {
+  if (!filters.idProveedor) throw new AppError("Selecciona un proveedor para asignar su precio unico.", 400);
+
+  const filter = filtroSql(filters);
+  const candidates = await client.query<{ id: number }>(
+    `
+      SELECT p.id
+      FROM public.productos p
+      INNER JOIN public.subcategoria subcategoria ON subcategoria.id = p.id_subcategoria
+      INNER JOIN public.categoria categoria ON categoria.id = subcategoria.id_categoria
+      WHERE ${filter.sql}
+        AND p.criterio_costo = 'MANUAL'
+        AND EXISTS (
+          SELECT 1
+          FROM public.producto_proveedor proveedor
+          WHERE proveedor.id_producto = p.id
+            AND proveedor.id_proveedor = $4::int
+            AND COALESCE(proveedor.costo_actual, proveedor.precio_lista_actual) > 0
+        )
+        AND 1 = (
+          SELECT COUNT(*)
+          FROM public.producto_proveedor proveedor
+          WHERE proveedor.id_producto = p.id
+            AND COALESCE(proveedor.costo_actual, proveedor.precio_lista_actual) > 0
+        )
+      ORDER BY p.id
+    `,
+    filter.values,
+  );
+  const productIds = candidates.rows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
+  if (productIds.length === 0) {
+    return { totalItems: 0, criteriosActualizados: 0, itemsConCosto: 0, itemsSinCosto: 0, itemsRecalculados: 0 };
+  }
+
+  const provider = await client.query<{ descripcion: string }>(
+    `SELECT descripcion FROM public.proveedores WHERE id = $1`,
+    [filters.idProveedor],
+  );
+  if (!provider.rows[0]) throw new AppError("El proveedor seleccionado no existe.", 404);
+
+  const costosAntes = await capturarCostosReferencia(client, productIds);
+  await client.query(
+    `UPDATE public.productos SET criterio_costo = 'PROVEEDOR_UNICO' WHERE id = ANY($1::int[])`,
+    [productIds],
+  );
+  await recalcularCostosProveedorProductos(client, { productIds });
+  const result = await registrarCambiosCostoReferencia(client, costosAntes, {
+    origen: "CRITERIO_MASIVO",
+    idProveedor: filters.idProveedor,
+    detalle: `Proveedor ${provider.rows[0].descripcion}: precio unico asignado masivamente.`,
+  });
+
   return {
     totalItems: productIds.length,
     criteriosActualizados: productIds.length,

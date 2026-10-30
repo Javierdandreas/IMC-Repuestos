@@ -4,6 +4,7 @@ import { jsonError } from "@/lib/api-errors";
 import { withTransaction } from "@/lib/db-utils";
 import {
   asignarCriterioCostoMasivo,
+  asignarPrecioUnicoProveedorMasivo,
   getResumenCostosMasivos,
   normalizarFiltrosCostoMasivo,
   repararPreciosMasivos,
@@ -44,6 +45,9 @@ export async function POST(request: NextRequest) {
       if (action === "REPARAR_PRECIOS") return repararPreciosMasivos(client, filters);
       if (action === "ASIGNAR_CRITERIO") {
         return asignarCriterioCostoMasivo(client, filters, validarCriterioCostoMasivo(body?.criterio));
+      }
+      if (action === "ASIGNAR_PRECIO_UNICO_PROVEEDOR") {
+        return asignarPrecioUnicoProveedorMasivo(client, filters);
       }
       throw new Error("Accion invalida.");
     });
