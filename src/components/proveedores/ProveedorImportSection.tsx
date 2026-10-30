@@ -448,7 +448,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   };
 
   const parseFileHeaders = async (selectedFile: File) => {
-    const isExcel = selectedFile.name.endsWith(".xlsx") || selectedFile.name.endsWith(".xls");
+    const isExcel = /\.(xlsx|xls)$/i.test(selectedFile.name);
 
     if (isExcel) {
       try {
