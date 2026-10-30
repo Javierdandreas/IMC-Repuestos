@@ -19,12 +19,14 @@ const labels: Record<AccionPermiso, string> = {
 export function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [permisos, setPermisos] = useState<Permiso[]>([]);
+  const [usuarioActualId, setUsuarioActualId] = useState<number | null>(null);
   const [seleccionado, setSeleccionado] = useState<number | null>(null);
   const [borrador, setBorrador] = useState<string[]>([]);
   const [nuevo, setNuevo] = useState(false);
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rol, setRol] = useState<"admin" | "empleado">("empleado");
   const [mostrarPassword, setMostrarPassword] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -38,7 +40,8 @@ export function UsuariosPage() {
     if (!response.ok) throw new Error(data.message || "No se pudieron consultar los usuarios.");
     setUsuarios(data.usuarios);
     setPermisos(data.permisos);
-    return data as { usuarios: Usuario[]; permisos: Permiso[] };
+    setUsuarioActualId(data.usuarioActualId);
+    return data as { usuarios: Usuario[]; permisos: Permiso[]; usuarioActualId: number };
   }, []);
 
   useEffect(() => {
@@ -50,6 +53,7 @@ export function UsuariosPage() {
     setNuevo(false);
     setEmail(usuario.email || "");
     setPassword("");
+    setRol(usuario.rol.trim().toLowerCase() === "admin" ? "admin" : "empleado");
     setMostrarPassword(false);
     setMensaje("");
     setError("");
@@ -128,15 +132,17 @@ export function UsuariosPage() {
 
     const emailNormalizado = email.trim().toLowerCase();
     const emailActual = (actual.email || "").trim().toLowerCase();
-    if (!password && emailNormalizado === emailActual) {
+    const rolActual = actual.rol.trim().toLowerCase() === "admin" ? "admin" : "empleado";
+    if (!password && emailNormalizado === emailActual && rol === rolActual) {
       setError("");
-      setMensaje("No hay cambios de acceso para guardar.");
+      setMensaje("No hay cambios para guardar.");
       return;
     }
 
-    const body: { usuarioId: number; email?: string; password?: string } = { usuarioId: actual.id };
+    const body: { usuarioId: number; email?: string; password?: string; rol?: "admin" | "empleado" } = { usuarioId: actual.id };
     if (emailNormalizado !== emailActual) body.email = emailNormalizado;
     if (password) body.password = password;
+    if (rol !== rolActual) body.rol = rol;
     if (await solicitar("PATCH", body)) {
       setPassword("");
       setMostrarPassword(false);
@@ -208,17 +214,18 @@ export function UsuariosPage() {
                 {actual.rol.toLowerCase() === "empleado" && <button type="button" disabled={guardando} onClick={() => { setError(""); setConfirmarEstado(actual); }} className="rounded border border-slate-400 px-3 py-2 text-xs font-bold">{actual.activo ? "Desactivar" : "Activar"}</button>}
               </div>
 
-              {actual.rol.toLowerCase() === "empleado" ? <>
-                <form onSubmit={(event) => void guardarAcceso(event)} className="max-w-lg space-y-3 border-b border-slate-200 pb-4 dark:border-slate-700">
-                  <h3 className="font-bold">Acceso</h3>
-                  <label className="block text-xs font-bold">Correo<input required type="email" maxLength={254} autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 h-10 w-full rounded border border-slate-300 bg-transparent px-3 dark:border-slate-700" /></label>
-                  <label className="block text-xs font-bold">Nueva contrasena (minimo 12 caracteres)
-                    <span className="relative mt-1 block"><input type={mostrarPassword ? "text" : "password"} minLength={12} maxLength={128} autoComplete="new-password" placeholder="Dejar vacio para conservar la actual" value={password} onChange={(event) => setPassword(event.target.value)} className="h-10 w-full rounded border border-slate-300 bg-transparent px-3 pr-10 dark:border-slate-700" /><button type="button" onClick={() => setMostrarPassword((actualmenteVisible) => !actualmenteVisible)} className="absolute inset-y-0 right-0 px-3 text-slate-500" aria-label={mostrarPassword ? "Ocultar contrasena" : "Mostrar contrasena"}>{mostrarPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></span>
-                  </label>
-                  <p className="text-xs text-slate-500">Por seguridad, una contrasena ya guardada no puede recuperarse ni mostrarse.</p>
-                  <button disabled={guardando} className="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Save className="h-4 w-4" />Guardar acceso</button>
-                </form>
+              {actual.id !== usuarioActualId ? <form onSubmit={(event) => void guardarAcceso(event)} className="max-w-lg space-y-3 border-b border-slate-200 pb-4 dark:border-slate-700">
+                <h3 className="font-bold">Acceso y rol</h3>
+                <label className="block text-xs font-bold">Rol<select value={rol} onChange={(event) => setRol(event.target.value as "admin" | "empleado")} className="mt-1 h-10 w-full rounded border border-slate-300 bg-transparent px-3 dark:border-slate-700"><option value="empleado">Empleado</option><option value="admin">Administrador</option></select></label>
+                <label className="block text-xs font-bold">Correo<input required type="email" maxLength={254} autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 h-10 w-full rounded border border-slate-300 bg-transparent px-3 dark:border-slate-700" /></label>
+                <label className="block text-xs font-bold">Nueva contrasena (minimo 12 caracteres)
+                  <span className="relative mt-1 block"><input type={mostrarPassword ? "text" : "password"} minLength={12} maxLength={128} autoComplete="new-password" placeholder="Dejar vacio para conservar la actual" value={password} onChange={(event) => setPassword(event.target.value)} className="h-10 w-full rounded border border-slate-300 bg-transparent px-3 pr-10 dark:border-slate-700" /><button type="button" onClick={() => setMostrarPassword((actualmenteVisible) => !actualmenteVisible)} className="absolute inset-y-0 right-0 px-3 text-slate-500" aria-label={mostrarPassword ? "Ocultar contrasena" : "Mostrar contrasena"}>{mostrarPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></span>
+                </label>
+                <p className="text-xs text-slate-500">Por seguridad, una contrasena ya guardada no puede recuperarse ni mostrarse.</p>
+                <button disabled={guardando} className="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Save className="h-4 w-4" />Guardar acceso y rol</button>
+              </form> : <p className="text-xs text-slate-500">No puedes modificar tu propia cuenta desde esta pantalla.</p>}
 
+              {actual.rol.toLowerCase() === "empleado" ? <>
                 <h3 className="font-bold">Permisos propuestos</h3>
                 <div className="space-y-4">
                   {Array.from(new Set(CATALOGO_PERMISOS.map((permiso) => permiso.grupo))).map((grupo) => {

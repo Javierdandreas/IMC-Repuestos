@@ -17,6 +17,7 @@ const edicion = z.object({
   permisos: z.array(permiso).max(200).optional(),
   email: z.string().trim().email().max(254).optional(),
   password: z.string().min(12).max(128).optional(),
+  rol: z.enum(["admin", "empleado"]).optional(),
 });
 
 function getSupabaseAdminKey() {
@@ -25,12 +26,12 @@ function getSupabaseAdminKey() {
 
 export async function GET(request: NextRequest) {
   try {
-    await requireApiRole(request, ["admin"]);
+    const session = await requireApiRole(request, ["admin"]);
     const usuarios = await query(`SELECT ua.usuario_id AS id, u.nombre_usuario AS nombre, du.email, ua.rol, ua.activo
       FROM public.usuario_auth ua JOIN public.usuario u ON u.id = ua.usuario_id
       LEFT JOIN public.detalle_usuario du ON du.id = u.id ORDER BY u.nombre_usuario, u.id`);
     const permisos = await query("SELECT usuario_id, apartado, accion FROM public.usuario_permiso ORDER BY usuario_id, apartado, accion");
-    return NextResponse.json({ usuarios: usuarios.rows, permisos: permisos.rows }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ usuarios: usuarios.rows, permisos: permisos.rows, usuarioActualId: session.usuarioId }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return jsonError(error, "No se pudieron consultar los usuarios. Verifica la migracion 105."); }
 }
 
@@ -66,14 +67,14 @@ export async function PATCH(request: NextRequest) {
     const session = await requireApiRole(request, ["admin"]);
     const body = edicion.parse(await request.json());
     if (body.permisos && !asignacionesValidas(body.permisos)) throw new AppError("Los permisos son invalidos o falta lectura en un apartado.", 400);
+    if (body.usuarioId === session.usuarioId) throw new AppError("No puedes modificar tu propia cuenta.", 403);
+
     const actualizarAcceso = body.email !== undefined || body.password !== undefined;
 
     if (actualizarAcceso) {
       const acceso = await query<{ auth_user_id: string; rol: string }>("SELECT auth_user_id, rol FROM public.usuario_auth WHERE usuario_id = $1", [body.usuarioId]);
       const usuario = acceso.rows[0];
       if (!usuario) throw new AppError("No se encontro el usuario.", 404);
-      if (usuario.rol.trim().toLowerCase() !== "empleado") throw new AppError("Solo se pueden modificar empleados desde esta pantalla.", 403);
-      if (body.usuarioId === session.usuarioId) throw new AppError("No puedes modificar tu propia cuenta.", 403);
 
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
       const key = getSupabaseAdminKey();
@@ -87,17 +88,28 @@ export async function PATCH(request: NextRequest) {
     }
 
     await withTransaction(async (client) => {
-      const result = await client.query<{ rol: string }>("SELECT rol FROM public.usuario_auth WHERE usuario_id = $1 FOR UPDATE", [body.usuarioId]);
+      const result = await client.query<{ rol: string; activo: boolean }>("SELECT rol, activo FROM public.usuario_auth WHERE usuario_id = $1 FOR UPDATE", [body.usuarioId]);
       const usuario = result.rows[0];
       if (!usuario) throw new AppError("No se encontro el usuario.", 404);
-      if (usuario.rol.trim().toLowerCase() !== "empleado") throw new AppError("Solo se pueden modificar empleados desde esta pantalla.", 403);
-      if (body.usuarioId === session.usuarioId) throw new AppError("No puedes modificar tu propia cuenta.", 403);
-      if (body.activo === true) {
-        const tieneLectura = body.permisos
-          ? body.permisos.some((permiso) => permiso.accion === "leer")
-          : Boolean((await client.query("SELECT 1 FROM public.usuario_permiso WHERE usuario_id = $1 AND accion = 'leer' LIMIT 1", [body.usuarioId])).rowCount);
-        if (!tieneLectura) throw new AppError("Asigna al menos un permiso de lectura antes de activar al empleado.", 400);
+      const rolActual = usuario.rol.trim().toLowerCase();
+      const rolFinal = body.rol ?? rolActual;
+      const seraActivo = body.activo ?? usuario.activo;
+
+      if (rolActual === "admin" && usuario.activo && (rolFinal !== "admin" || !seraActivo)) {
+        const administradores = await client.query<{ cantidad: string }>("SELECT COUNT(*)::text AS cantidad FROM public.usuario_auth WHERE LOWER(TRIM(rol)) = 'admin' AND activo = true");
+        if (Number(administradores.rows[0]?.cantidad || 0) <= 1) {
+          throw new AppError("Debe permanecer al menos un administrador activo en el sistema.", 400);
+        }
       }
+      if (body.activo === true) {
+        if (rolFinal === "empleado") {
+          const tieneLectura = body.permisos
+            ? body.permisos.some((permiso) => permiso.accion === "leer")
+            : Boolean((await client.query("SELECT 1 FROM public.usuario_permiso WHERE usuario_id = $1 AND accion = 'leer' LIMIT 1", [body.usuarioId])).rowCount);
+          if (!tieneLectura) throw new AppError("Asigna al menos un permiso de lectura antes de activar al empleado.", 400);
+        }
+      }
+      if (body.rol !== undefined) await client.query("UPDATE public.usuario_auth SET rol = $2 WHERE usuario_id = $1", [body.usuarioId, body.rol]);
       if (body.activo !== undefined) await client.query("UPDATE public.usuario_auth SET activo = $2 WHERE usuario_id = $1", [body.usuarioId, body.activo]);
       if (body.email !== undefined) await client.query("UPDATE public.detalle_usuario SET email = $2 WHERE id = $1", [body.usuarioId, body.email.toLowerCase()]);
       if (body.permisos) {
