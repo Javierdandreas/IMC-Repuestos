@@ -22,6 +22,7 @@ export type ResumenCostoMasivo = {
   conCostoManual: number;
   sinFilaCosto: number;
   manualesConPrecioUnicoProveedor: number;
+  asignacionesPrecioUnicoPendientes: number;
 };
 
 export type ResultadoCostoMasivo = {
@@ -195,6 +196,7 @@ export async function getResumenCostosMasivos(filters: FiltrosCostoMasivo): Prom
     con_costo_manual: number;
     sin_fila_costo: number;
     manuales_con_precio_unico_proveedor: number;
+    asignaciones_precio_unico_pendientes: number;
   }>(
     `
       WITH tipo_costo AS (
@@ -250,7 +252,32 @@ export async function getResumenCostosMasivos(filters: FiltrosCostoMasivo): Prom
             WHERE proveedor.id_producto = items.id
               AND COALESCE(proveedor.costo_actual, proveedor.precio_lista_actual) > 0
           )
-        )::int AS manuales_con_precio_unico_proveedor
+        )::int AS manuales_con_precio_unico_proveedor,
+        COUNT(*) FILTER (WHERE
+          $4::int IS NOT NULL
+          AND items.criterio_costo = 'PROVEEDOR_UNICO'
+          AND EXISTS (
+            SELECT 1
+            FROM public.producto_proveedor proveedor
+            WHERE proveedor.id_producto = items.id
+              AND proveedor.id_proveedor = $4::int
+              AND COALESCE(proveedor.costo_actual, proveedor.precio_lista_actual) > 0
+          )
+          AND 1 = (
+            SELECT COUNT(*)
+            FROM public.producto_proveedor proveedor
+            WHERE proveedor.id_producto = items.id
+              AND COALESCE(proveedor.costo_actual, proveedor.precio_lista_actual) > 0
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM public.proveedor_importacion_cambio_costo cambio
+            WHERE cambio.id_producto = items.id
+              AND cambio.id_proveedor = $4::int
+              AND cambio.origen = 'CRITERIO_MASIVO'
+              AND cambio.estado_aprobacion = 'PENDIENTE'
+          )
+        )::int AS asignaciones_precio_unico_pendientes
       FROM items
     `,
     filter.values,
@@ -262,6 +289,7 @@ export async function getResumenCostosMasivos(filters: FiltrosCostoMasivo): Prom
     conCostoManual: Number(row?.con_costo_manual ?? 0),
     sinFilaCosto: Number(row?.sin_fila_costo ?? 0),
     manualesConPrecioUnicoProveedor: Number(row?.manuales_con_precio_unico_proveedor ?? 0),
+    asignacionesPrecioUnicoPendientes: Number(row?.asignaciones_precio_unico_pendientes ?? 0),
   };
 }
 
@@ -421,6 +449,7 @@ export async function asignarCriterioCostoMasivo(
 export async function asignarPrecioUnicoProveedorMasivo(
   client: DbClient,
   filters: FiltrosCostoMasivo,
+  usuarioId: number,
 ): Promise<ResultadoCostoMasivo> {
   if (!filters.idProveedor) throw new AppError("Selecciona un proveedor para asignar su precio unico.", 400);
 
@@ -432,7 +461,20 @@ export async function asignarPrecioUnicoProveedorMasivo(
       INNER JOIN public.subcategoria subcategoria ON subcategoria.id = p.id_subcategoria
       INNER JOIN public.categoria categoria ON categoria.id = subcategoria.id_categoria
       WHERE ${filter.sql}
-        AND p.criterio_costo = 'MANUAL'
+        AND (
+          p.criterio_costo = 'MANUAL'
+          OR (
+            p.criterio_costo = 'PROVEEDOR_UNICO'
+            AND EXISTS (
+              SELECT 1
+              FROM public.proveedor_importacion_cambio_costo cambio
+              WHERE cambio.id_producto = p.id
+                AND cambio.id_proveedor = $4::int
+                AND cambio.origen = 'CRITERIO_MASIVO'
+                AND cambio.estado_aprobacion = 'PENDIENTE'
+            )
+          )
+        )
         AND EXISTS (
           SELECT 1
           FROM public.producto_proveedor proveedor
@@ -471,6 +513,7 @@ export async function asignarPrecioUnicoProveedorMasivo(
     origen: "CRITERIO_MASIVO",
     idProveedor: filters.idProveedor,
     detalle: `Proveedor ${provider.rows[0].descripcion}: precio unico asignado masivamente.`,
+    aprobacionManual: { usuarioId },
   });
 
   return {

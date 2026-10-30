@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireApiWriteSession(request);
+    const session = await requireApiWriteSession(request);
     const body = await request.json().catch(() => ({}));
     const filters = normalizarFiltrosCostoMasivo(body?.filters);
     const action = body?.action;
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
         return asignarCriterioCostoMasivo(client, filters, validarCriterioCostoMasivo(body?.criterio));
       }
       if (action === "ASIGNAR_PRECIO_UNICO_PROVEEDOR") {
-        return asignarPrecioUnicoProveedorMasivo(client, filters);
+        return asignarPrecioUnicoProveedorMasivo(client, filters, session.usuarioId);
       }
       throw new Error("Accion invalida.");
     });

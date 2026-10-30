@@ -24,13 +24,14 @@ type ContextoCambioCosto = {
   origen: OrigenCambioCostoReferencia;
   idProveedor?: number;
   detalle: string;
+  aprobacionManual?: { usuarioId: number };
 };
 
 type CambioCalculado = CostoAntes & {
   criterioCosto: string;
   costoNuevo: number;
   porcentajeVariacion: number | null;
-  estadoAprobacion: "PENDIENTE" | "APROBADO_AUTOMATICO";
+  estadoAprobacion: "PENDIENTE" | "APROBADO_AUTOMATICO" | "APROBADO_MANUAL";
 };
 
 function idsValidos(productIds: number[]) {
@@ -88,9 +89,9 @@ export async function capturarCostosReferencia(client: DbClient, productIds: num
 }
 
 /**
- * Registra las variaciones posteriores a una regla y aplica solamente las que
- * no requieren revision. Los costos iguales se recalculan para conservar las
- * listas finales sincronizadas.
+ * Registra las variaciones posteriores a una regla y aplica las aprobadas.
+ * Los costos iguales se recalculan para conservar las listas finales
+ * sincronizadas.
  */
 export async function registrarCambiosCostoReferencia(
   client: DbClient,
@@ -118,9 +119,11 @@ export async function registrarCambiosCostoReferencia(
       const porcentajeVariacion = item.costo === null || item.costo <= 0
         ? null
         : ((costoNuevo - item.costo) / item.costo) * 100;
-      const estadoAprobacion = porcentajeVariacion !== null && Math.abs(porcentajeVariacion) <= UMBRAL_APROBACION_AUTOMATICA
-        ? "APROBADO_AUTOMATICO"
-        : "PENDIENTE";
+      const estadoAprobacion = context.aprobacionManual
+        ? "APROBADO_MANUAL"
+        : porcentajeVariacion !== null && Math.abs(porcentajeVariacion) <= UMBRAL_APROBACION_AUTOMATICA
+          ? "APROBADO_AUTOMATICO"
+          : "PENDIENTE";
       return {
         ...item,
         criterioCosto: criteriosPorProducto.get(item.idProducto) ?? "PROVEEDOR_UNICO",
@@ -147,16 +150,16 @@ export async function registrarCambiosCostoReferencia(
         INSERT INTO public.proveedor_importacion_cambio_costo (
           id_producto, id_proveedor, codigo_item, descripcion_item, codigo_proveedor,
           criterio_costo, costo_anterior, costo_nuevo, estado_aprobacion,
-          porcentaje_variacion, umbral_aprobacion, resuelto_at, origen, detalle_origen
+          porcentaje_variacion, umbral_aprobacion, resuelto_at, resuelto_por, origen, detalle_origen
         )
         SELECT * FROM UNNEST(
           $1::int[], $2::int[], $3::text[], $4::text[], $5::text[],
           $6::text[], $7::numeric[], $8::numeric[], $9::text[],
-          $10::numeric[], $11::numeric[], $12::timestamptz[], $13::text[], $14::text[]
+          $10::numeric[], $11::numeric[], $12::timestamptz[], $13::int[], $14::text[], $15::text[]
         ) AS valores(
           id_producto, id_proveedor, codigo_item, descripcion_item, codigo_proveedor,
           criterio_costo, costo_anterior, costo_nuevo, estado_aprobacion,
-          porcentaje_variacion, umbral_aprobacion, resuelto_at, origen, detalle_origen
+          porcentaje_variacion, umbral_aprobacion, resuelto_at, resuelto_por, origen, detalle_origen
         )
       `,
       [
@@ -171,7 +174,8 @@ export async function registrarCambiosCostoReferencia(
         cambios.map((item) => item.estadoAprobacion),
         cambios.map((item) => item.porcentajeVariacion === null ? null : Math.round(item.porcentajeVariacion * 100) / 100),
         cambios.map(() => UMBRAL_APROBACION_AUTOMATICA),
-        cambios.map((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" ? new Date() : null),
+        cambios.map((item) => item.estadoAprobacion === "PENDIENTE" ? null : new Date()),
+        cambios.map((item) => item.estadoAprobacion === "APROBADO_MANUAL" ? context.aprobacionManual?.usuarioId ?? null : null),
         cambios.map(() => context.origen),
         cambios.map(() => context.detalle),
       ],
@@ -181,7 +185,7 @@ export async function registrarCambiosCostoReferencia(
   const cambiosPorProducto = new Map(cambios.map((item) => [item.idProducto, item]));
   const costosAplicables = costosNuevos.filter((item) => {
     const cambio = cambiosPorProducto.get(item.idProducto);
-    return !cambio || cambio.estadoAprobacion === "APROBADO_AUTOMATICO";
+    return !cambio || cambio.estadoAprobacion !== "PENDIENTE";
   });
   const preciosRecalculados = await aplicarPreciosDesdeCostosReferencia(client, costosAplicables);
 

@@ -31,6 +31,7 @@ type Resumen = {
   conCostoManual: number;
   sinFilaCosto: number;
   manualesConPrecioUnicoProveedor: number;
+  asignacionesPrecioUnicoPendientes: number;
 };
 
 type Resultado = {
@@ -113,6 +114,7 @@ export function MassCostsPage() {
     () => filters.categoria ? subcategorias.filter((item) => String(item.id_categoria) === filters.categoria) : subcategorias,
     [filters.categoria, subcategorias],
   );
+  const candidatosPrecioUnico = (summary?.manualesConPrecioUnicoProveedor ?? 0) + (summary?.asignacionesPrecioUnicoPendientes ?? 0);
 
   useEffect(() => {
     setLastResult(null);
@@ -125,16 +127,16 @@ export function MassCostsPage() {
 
   async function run(action: "REPARAR_PRECIOS" | "ASIGNAR_CRITERIO" | "ASIGNAR_PRECIO_UNICO_PROVEEDOR") {
     const total = action === "ASIGNAR_PRECIO_UNICO_PROVEEDOR"
-      ? summary?.manualesConPrecioUnicoProveedor ?? 0
+      ? candidatosPrecioUnico
       : summary?.totalItems ?? 0;
     if (total === 0) {
       toast.error(action === "ASIGNAR_PRECIO_UNICO_PROVEEDOR"
-        ? "No hay items manuales con un unico precio valido de este proveedor."
+        ? "No hay items con un unico precio valido de este proveedor para aplicar."
         : "No hay items que coincidan con los filtros.");
       return;
     }
     const description = action === "ASIGNAR_PRECIO_UNICO_PROVEEDOR"
-      ? `Se reemplazara el costo manual de ${plural(total, "item")} por el unico precio valido de ${proveedores.find((item) => String(item.id) === filters.proveedor)?.descripcion || "este proveedor"}. Los items con mas de un proveedor o sin precio valido no se tocaran.`
+      ? `Se aplicara el unico precio valido de ${proveedores.find((item) => String(item.id) === filters.proveedor)?.descripcion || "este proveedor"} a ${plural(total, "item")}. Se actualizaran de inmediato el costo de compra y las listas de venta. Los items con mas de un proveedor o sin precio valido no se tocaran.`
       : action === "REPARAR_PRECIOS"
       ? `Se revisaran ${plural(total, "item")} y se crearan solo las filas de precio faltantes. Los precios que ya existen no se modificaran.`
       : `Se asignara ${criterios.find((item) => item.value === criterio)?.label.toLowerCase()} a ${plural(total, "item")} y luego se recalcularan sus precios.`;
@@ -219,8 +221,8 @@ export function MassCostsPage() {
           </div>
 
           <div>
-            <div className="flex items-start gap-3"><span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-300"><HiSwitchHorizontal className="h-5 w-5" /></span><div><h2 className="text-sm font-black text-slate-900 dark:text-white">Asignar precio unico del proveedor</h2><p className="mt-1 text-xs font-medium leading-5 text-slate-500">Solo cambia items en costo manual que tengan exactamente un precio valido y pertenezca al proveedor seleccionado. Las variaciones quedan registradas para aprobar y exportar.</p></div></div>
-            <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" onClick={() => void run("ASIGNAR_PRECIO_UNICO_PROVEEDOR")} disabled={!canManage || isLoading || running !== null || !filters.proveedor || !summary?.manualesConPrecioUnicoProveedor} className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-500/40 px-4 text-xs font-black uppercase tracking-wide text-amber-700 transition hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300">{running === "ASIGNAR_PRECIO_UNICO_PROVEEDOR" ? "Asignando" : "Asignar precio unico"}</button>{filters.proveedor ? <span className="text-xs font-bold text-slate-500">{(summary?.manualesConPrecioUnicoProveedor ?? 0).toLocaleString("es-AR")} candidatos seguros</span> : <span className="text-xs font-bold text-slate-500">Selecciona un proveedor.</span>}</div>
+            <div className="flex items-start gap-3"><span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-300"><HiSwitchHorizontal className="h-5 w-5" /></span><div><h2 className="text-sm font-black text-slate-900 dark:text-white">Asignar precio unico del proveedor</h2><p className="mt-1 text-xs font-medium leading-5 text-slate-500">Solo cambia items con exactamente un precio valido del proveedor seleccionado. Aplica de inmediato el costo y las listas de venta, y deja el registro listo para exportar.</p></div></div>
+            <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" onClick={() => void run("ASIGNAR_PRECIO_UNICO_PROVEEDOR")} disabled={!canManage || isLoading || running !== null || !filters.proveedor || !candidatosPrecioUnico} className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-500/40 px-4 text-xs font-black uppercase tracking-wide text-amber-700 transition hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300">{running === "ASIGNAR_PRECIO_UNICO_PROVEEDOR" ? "Asignando" : "Asignar precio unico"}</button>{filters.proveedor ? <span className="text-xs font-bold text-slate-500">{candidatosPrecioUnico.toLocaleString("es-AR")} candidatos seguros</span> : <span className="text-xs font-bold text-slate-500">Selecciona un proveedor.</span>}</div>
           </div>
 
           <div>
