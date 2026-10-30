@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "catalogo:continuo": "tsx src/scripts/catalogo-vehiculos-continuo.ts"
+    "catalogo:continuo": "tsx src/scripts/catalogo-vehiculos-continuo.ts",
+    "catalogo:enriquecer:continuo": "tsx src/scripts/catalogo-vehiculos-enriquecer-continuo.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",
