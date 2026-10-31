@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { AppError, jsonError } from "@/lib/api-errors";
 import { requireApiReadSession } from "@/lib/api-auth";
-import { enviarMensajeVentaMercadoLibre, getMercadoLibreVentaConversacion } from "@/lib/mercadolibre";
+import { enviarMensajeVentaMercadoLibre, getMercadoLibreVentaConversacion, marcarMercadoLibreVentaNoLeida } from "@/lib/mercadolibre";
 
 export const dynamic = "force-dynamic";
 
@@ -29,5 +29,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json(await enviarMensajeVentaMercadoLibre(accountId(request), (await params).ventaId, body.texto));
   } catch (error) {
     return jsonError(error, "No se pudo enviar el mensaje.");
+  }
+}
+
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ ventaId: string }> }) {
+  try {
+    await requireApiReadSession(request);
+    const body = z.object({ accion: z.literal("MARCAR_NO_LEIDO") }).parse(await request.json());
+    if (body.accion === "MARCAR_NO_LEIDO") {
+      return NextResponse.json(await marcarMercadoLibreVentaNoLeida(accountId(request), (await params).ventaId));
+    }
+  } catch (error) {
+    return jsonError(error, "No se pudo marcar el chat como no leido.");
   }
 }

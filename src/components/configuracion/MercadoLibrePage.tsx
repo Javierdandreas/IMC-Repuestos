@@ -345,6 +345,20 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
     setPages((current) => ({ ...current, PUBLICACIONES: 1 }));
   };
 
+  const markVentaRead = useCallback((ventaId: string) => {
+    setVentas((current) => ({
+      ...current,
+      data: current.data.map((venta) => venta.ventaId === ventaId ? { ...venta, mensajesNoLeidos: 0 } : venta),
+    }));
+  }, []);
+
+  const markVentaUnread = useCallback((ventaId: string) => {
+    setVentas((current) => ({
+      ...current,
+      data: current.data.map((venta) => venta.ventaId === ventaId ? { ...venta, mensajesNoLeidos: Math.max(1, venta.mensajesNoLeidos) } : venta),
+    }));
+  }, []);
+
   const copyFilteredPublicationMlas = async () => {
     if (!selectedAccountId) return;
     try {
@@ -556,7 +570,7 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
       {tab !== "SINCRONIZACION" && activeResult.totalPages > 1 && <div className="flex items-center justify-center gap-3"><button type="button" onClick={() => void changePage(pages[tab] - 1)} disabled={pages[tab] <= 1} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Anterior</button><span className="text-xs font-bold text-slate-500">Pagina {pages[tab]} de {activeResult.totalPages}</span><button type="button" onClick={() => void changePage(pages[tab] + 1)} disabled={pages[tab] >= activeResult.totalPages} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-black disabled:opacity-40 dark:border-slate-700">Siguiente</button></div>}
     </>}
     {quickRepliesOpen && <QuickRepliesModal context={quickRepliesContext} onClose={() => setQuickRepliesOpen(false)} onChanged={() => void loadQuickReplies(quickRepliesContext)} />}
-    {ventaChat && selectedAccountId && <VentaConversationModal venta={ventaChat} idCuenta={selectedAccountId} canReply={canReply} quickReplies={postSaleQuickReplies} onClose={() => setVentaChat(null)} />}
+    {ventaChat && selectedAccountId && <VentaConversationModal venta={ventaChat} idCuenta={selectedAccountId} canReply={canReply} quickReplies={postSaleQuickReplies} onRead={markVentaRead} onMarkUnread={markVentaUnread} onClose={() => setVentaChat(null)} />}
     {configMensajeAbierta && selectedAccountId && canManage && <Modal title="Mensajes automaticos" open onClose={() => setConfigMensajeAbierta(false)} width="w-[min(96vw,680px)]"><div className="px-6 pb-6"><MercadoLibreMensajeAutomatico key={selectedAccountId} idCuenta={selectedAccountId} /></div></Modal>}
   </div></main>;
 }
@@ -689,12 +703,16 @@ function VentaConversationModal({
   idCuenta,
   canReply,
   quickReplies,
+  onRead,
+  onMarkUnread,
   onClose,
 }: {
   venta: MercadoLibreVentasResult["data"][number];
   idCuenta: number;
   canReply: boolean;
   quickReplies: QuickReply[];
+  onRead: (ventaId: string) => void;
+  onMarkUnread: (ventaId: string) => void;
   onClose: () => void;
 }) {
   const [conversation, setConversation] =
@@ -714,6 +732,7 @@ function VentaConversationModal({
       if (!response.ok)
         throw new Error(result.message || "No se pudo cargar el chat.");
       setConversation(result as MercadoLibreVentaConversacion);
+      onRead(venta.ventaId);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "No se pudo cargar el chat.",
@@ -722,7 +741,7 @@ function VentaConversationModal({
     } finally {
       setLoading(false);
     }
-  }, [idCuenta, venta.ventaId]);
+  }, [idCuenta, onRead, venta.ventaId]);
   useEffect(() => {
     void loadConversation();
   }, [loadConversation]);
@@ -768,6 +787,25 @@ function VentaConversationModal({
       );
     } finally {
       setSending(false);
+    }
+  };
+  const markUnread = async () => {
+    try {
+      const response = await fetch(
+        `/api/integraciones/mercadolibre/ventas/${encodeURIComponent(venta.ventaId)}/mensajes?idCuenta=${idCuenta}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "MARCAR_NO_LEIDO" }),
+        },
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo marcar el chat como no leido.");
+      onMarkUnread(venta.ventaId);
+      toast.success("Chat marcado como no leido.");
+      onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo marcar el chat como no leido.");
     }
   };
   const maxLength = conversation?.limiteRespuesta || 350;
@@ -822,6 +860,15 @@ function VentaConversationModal({
             >
               <Copy className="h-3.5 w-3.5" />
               Copiar datos
+            </button>
+            <button
+              type="button"
+              onClick={() => void markUnread()}
+              title="Marcar como no leido"
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              Marcar no leido
             </button>
             <button
               type="button"
