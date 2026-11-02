@@ -621,6 +621,13 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         data = await requestImportJson(`/api/proveedores/importaciones/${idImportacion}/aplicar`, {
           method: "POST",
         });
+        const phase = String(data.phase || "APLICANDO");
+        if (phase === "PREPARANDO") {
+          setApplicationTotal(Number(data.totalRows || mappedData.items.length));
+          setProcessedRows(Number(data.preparedCount || 0));
+          setImportPhase("validating");
+          continue;
+        }
         const total = Number(data.totalProcessable || 0);
         const processed = Number(data.processedCount || 0);
         if (total > 0) setApplicationTotal(total);

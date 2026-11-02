@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       message: "Importación aplicada exitosamente",
+      complete: applyResult.complete,
+      phase: applyResult.phase,
       data: importacion,
       updatedCount: applyResult.updatedCount,
       recalculatedCostCount: applyResult.recalculatedCostCount,

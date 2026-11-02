@@ -313,9 +313,33 @@ async function limpiarDetalleImportacionesResueltas(client: DbClient, importacio
   return new Set(result.rows.map((row) => Number(row.id_importacion))).size;
 }
 
+const TAMANO_LOTE_PREPARACION = 500;
 const TAMANO_LOTE_APLICACION = 500;
 
-async function prepararImportacionParaAplicar(client: DbClient, idImportacion: number) {
+type EstadoPreparacionImportacion = {
+  estado: "APLICADA" | "LOTE_PREPARADO" | "COMPLETA";
+  preparedCount: number;
+  totalRows: number;
+};
+
+async function progresoPreparacionImportacion(client: DbClient, idImportacion: number) {
+  const result = await client.query<{ prepared_count: number; total_rows: number }>(
+    `
+      SELECT
+        COUNT(*)::int AS total_rows,
+        COUNT(*) FILTER (WHERE preparado_at IS NOT NULL OR applied_at IS NOT NULL)::int AS prepared_count
+      FROM public.proveedor_importacion_item
+      WHERE id_importacion = $1
+    `,
+    [idImportacion],
+  );
+  return {
+    preparedCount: Number(result.rows[0]?.prepared_count || 0),
+    totalRows: Number(result.rows[0]?.total_rows || 0),
+  };
+}
+
+async function prepararImportacionParaAplicar(client: DbClient, idImportacion: number): Promise<EstadoPreparacionImportacion> {
   const importacion = await client.query<{ estado: string }>(
     `SELECT estado FROM public.proveedor_importacion WHERE id = $1 FOR UPDATE`,
     [idImportacion],
@@ -323,24 +347,25 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
   if (importacion.rowCount === 0) throw new AppError("Importacion no encontrada", 404);
 
   const estado = String(importacion.rows[0].estado);
-  if (estado === "APLICADA") return false;
-  if (estado !== "PROCESADA") {
-    throw new AppError("La importacion todavia no esta lista para aplicar", 409);
-  }
+  if (estado === "APLICADA") return { estado: "APLICADA", ...(await progresoPreparacionImportacion(client, idImportacion)) };
+  if (estado !== "PROCESADA") throw new AppError("La importacion todavia no esta lista para aplicar", 409);
 
-  const preparacionExistente = await client.query<{ preparada: boolean }>(
+  const lote = await client.query<{ id: number }>(
     `
-      SELECT EXISTS (
-        SELECT 1
-        FROM public.proveedor_importacion_item pii
-        WHERE id_importacion = $1
-          AND (estado <> 'PENDIENTE' OR applied_at IS NOT NULL)
-      ) AS preparada
+      SELECT id
+      FROM public.proveedor_importacion_item
+      WHERE id_importacion = $1
+        AND preparado_at IS NULL
+        AND applied_at IS NULL
+      ORDER BY id
+      LIMIT $2
+      FOR UPDATE SKIP LOCKED
     `,
-    [idImportacion],
+    [idImportacion, TAMANO_LOTE_PREPARACION],
   );
-  if (preparacionExistente.rows[0]?.preparada) return true;
+  if (lote.rowCount === 0) return { estado: "COMPLETA", ...(await progresoPreparacionImportacion(client, idImportacion)) };
 
+  const itemIds = lote.rows.map((row) => Number(row.id));
   await client.query(
     `
       UPDATE public.proveedor_importacion_item pii
@@ -361,36 +386,39 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
         precio_anterior = NULL,
         precio_aplicado = NULL,
         applied_at = NULL
-      WHERE pii.id_importacion = $1
+      WHERE pii.id = ANY($1::int[])
     `,
-    [idImportacion],
+    [itemIds],
   );
 
   await client.query(
     `
-      WITH filas AS (
-        SELECT
-          pii.id,
-          upper(trim(pii.codigo_proveedor)) AS codigo_normalizado,
-          ROW_NUMBER() OVER (
-            PARTITION BY upper(trim(pii.codigo_proveedor))
-            ORDER BY pii.fila NULLS LAST, pii.id
-          ) AS posicion
+      WITH codigos AS (
+        SELECT DISTINCT upper(trim(codigo_proveedor)) AS codigo_normalizado
+        FROM public.proveedor_importacion_item
+        WHERE id = ANY($1::int[])
+          AND trim(COALESCE(codigo_proveedor, '')) <> ''
+          AND precio_lista IS NOT NULL
+          AND precio_lista >= 0
+      ), filas AS (
+        SELECT pii.id, upper(trim(pii.codigo_proveedor)) AS codigo_normalizado,
+          ROW_NUMBER() OVER (PARTITION BY upper(trim(pii.codigo_proveedor)) ORDER BY pii.fila NULLS LAST, pii.id) AS posicion
         FROM public.proveedor_importacion_item pii
-        WHERE pii.id_importacion = $1 AND pii.estado = 'PENDIENTE'
+        INNER JOIN codigos ON codigos.codigo_normalizado = upper(trim(pii.codigo_proveedor))
+        WHERE pii.id_importacion = $2
+          AND trim(COALESCE(pii.codigo_proveedor, '')) <> ''
+          AND pii.precio_lista IS NOT NULL
+          AND pii.precio_lista >= 0
       ), grupos AS (
-        SELECT
-          upper(trim(codigo_proveedor)) AS codigo_normalizado,
-          COUNT(*) AS cantidad,
+        SELECT codigo_normalizado, COUNT(*) AS cantidad,
           COUNT(DISTINCT COALESCE(precio_origen, precio_lista)) AS precios,
           COUNT(DISTINCT ROW(COALESCE(stock_estado, 'DESCONOCIDO'), stock_cantidad, upper(trim(COALESCE(stock_original, ''))))) AS stocks
-        FROM public.proveedor_importacion_item
-        WHERE id_importacion = $1 AND estado = 'PENDIENTE'
-        GROUP BY upper(trim(codigo_proveedor))
+        FROM filas
+        INNER JOIN public.proveedor_importacion_item pii ON pii.id = filas.id
+        GROUP BY codigo_normalizado
       )
       UPDATE public.proveedor_importacion_item pii
-      SET
-        estado = 'DUPLICADO',
+      SET estado = 'DUPLICADO',
         mensaje = CASE
           WHEN grupos.precios > 1 THEN 'El codigo aparece mas de una vez con precio distinto'
           WHEN grupos.stocks > 1 THEN 'Fila repetida con distinto stock: se aplicara stock desconocido'
@@ -399,44 +427,53 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
       FROM filas
       INNER JOIN grupos ON grupos.codigo_normalizado = filas.codigo_normalizado
       WHERE pii.id = filas.id
+        AND pii.id = ANY($1::int[])
         AND grupos.cantidad > 1
         AND (grupos.precios > 1 OR filas.posicion > 1)
     `,
-    [idImportacion],
+    [itemIds, idImportacion],
   );
 
   await client.query(
     `
-      WITH grupos AS (
-        SELECT upper(trim(codigo_proveedor)) AS codigo_normalizado,
-          COUNT(DISTINCT ROW(COALESCE(stock_estado, 'DESCONOCIDO'), stock_cantidad, upper(trim(COALESCE(stock_original, ''))))) AS stocks
+      WITH codigos AS (
+        SELECT DISTINCT upper(trim(codigo_proveedor)) AS codigo_normalizado
         FROM public.proveedor_importacion_item
-        WHERE id_importacion = $1 AND estado IN ('PENDIENTE', 'DUPLICADO')
-        GROUP BY upper(trim(codigo_proveedor))
+        WHERE id = ANY($1::int[])
+          AND trim(COALESCE(codigo_proveedor, '')) <> ''
+          AND precio_lista IS NOT NULL
+          AND precio_lista >= 0
+      ), grupos AS (
+        SELECT upper(trim(pii.codigo_proveedor)) AS codigo_normalizado,
+          COUNT(DISTINCT ROW(COALESCE(stock_estado, 'DESCONOCIDO'), stock_cantidad, upper(trim(COALESCE(stock_original, ''))))) AS stocks
+        FROM public.proveedor_importacion_item pii
+        INNER JOIN codigos ON codigos.codigo_normalizado = upper(trim(pii.codigo_proveedor))
+        WHERE pii.id_importacion = $2
+          AND trim(COALESCE(pii.codigo_proveedor, '')) <> ''
+          AND pii.precio_lista IS NOT NULL
+          AND pii.precio_lista >= 0
+        GROUP BY upper(trim(pii.codigo_proveedor))
       )
       UPDATE public.proveedor_importacion_item pii
       SET stock_estado = 'DESCONOCIDO', stock_cantidad = NULL, stock_original = NULL
       FROM grupos
-      WHERE pii.id_importacion = $1 AND pii.estado = 'PENDIENTE'
+      WHERE pii.id = ANY($1::int[]) AND pii.estado = 'PENDIENTE'
         AND upper(trim(pii.codigo_proveedor)) = grupos.codigo_normalizado AND grupos.stocks > 1
     `,
-    [idImportacion],
+    [itemIds, idImportacion],
   );
 
   await client.query(
     `
       WITH matches AS (
-        SELECT
-          pii.id,
-          COUNT(pp.id_producto)::int AS match_count,
-          MIN(pp.id_producto) AS id_producto,
-          MIN(pp.precio_lista_actual) AS precio_anterior
+        SELECT pii.id, COUNT(pp.id_producto)::int AS match_count,
+          MIN(pp.id_producto) AS id_producto, MIN(pp.precio_lista_actual) AS precio_anterior
         FROM public.proveedor_importacion_item pii
         INNER JOIN public.proveedor_importacion pi ON pi.id = pii.id_importacion
         LEFT JOIN public.producto_proveedor pp
           ON pp.id_proveedor = pi.id_proveedor
          AND upper(trim(pp.codigo_proveedor)) = upper(trim(pii.codigo_proveedor))
-        WHERE pi.id = $1 AND pii.estado = 'PENDIENTE'
+        WHERE pii.id = ANY($1::int[]) AND pii.estado = 'PENDIENTE'
         GROUP BY pii.id
       )
       UPDATE public.proveedor_importacion_item pii
@@ -450,10 +487,14 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
       FROM matches
       WHERE pii.id = matches.id
     `,
-    [idImportacion],
+    [itemIds],
   );
 
-  return true;
+  await client.query(
+    `UPDATE public.proveedor_importacion_item SET preparado_at = NOW() WHERE id = ANY($1::int[])`,
+    [itemIds],
+  );
+  return { estado: "LOTE_PREPARADO", ...(await progresoPreparacionImportacion(client, idImportacion)) };
 }
 
 async function resumenAplicacionImportacion(client: DbClient, idImportacion: number) {
@@ -846,10 +887,14 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
   return withTransaction(async (client) => {
     await client.query("SET LOCAL statement_timeout = '120s'");
     const preparada = await prepararImportacionParaAplicar(client, id_importacion);
-    if (!preparada) {
+    if (preparada.estado === "APLICADA") {
       const summary = await resumenAplicacionImportacion(client, id_importacion);
       await limpiarDetalleImportacionesResueltas(client, [id_importacion]);
-      return { ...summary, complete: true };
+      return { ...summary, ...preparada, complete: true, phase: "COMPLETA" as const };
+    }
+    if (preparada.estado === "LOTE_PREPARADO") {
+      const summary = await resumenAplicacionImportacion(client, id_importacion);
+      return { ...summary, ...preparada, complete: false, phase: "PREPARANDO" as const };
     }
 
     const lote = await client.query<{ id: number }>(
@@ -870,7 +915,7 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
       await finalizarAplicacionImportacion(client, id_importacion);
       const summary = await resumenAplicacionImportacion(client, id_importacion);
       await limpiarDetalleImportacionesResueltas(client, [id_importacion]);
-      return { ...summary, complete: true };
+      return { ...summary, ...preparada, complete: true, phase: "COMPLETA" as const };
     }
 
     const itemIds = lote.rows.map((row) => Number(row.id));
@@ -991,7 +1036,7 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
       await finalizarAplicacionImportacion(client, id_importacion);
       await limpiarDetalleImportacionesResueltas(client, [id_importacion]);
     }
-    return { ...summary, complete };
+    return { ...summary, ...preparada, complete, phase: complete ? "COMPLETA" as const : "APLICANDO" as const };
   });
 }
 

@@ -25,8 +25,11 @@ export async function POST(
     const result = await aplicarImportacionAlCatalogo(importacionId);
 
     return NextResponse.json({
-      message: result.complete ? "Lista aplicada correctamente" : "Lote aplicado correctamente",
+      message: result.complete ? "Lista aplicada correctamente" : result.phase === "PREPARANDO" ? "Lote validado correctamente" : "Lote aplicado correctamente",
       complete: result.complete,
+      phase: result.phase,
+      preparedCount: result.preparedCount,
+      totalRows: result.totalRows,
       processedCount: result.processedCount,
       totalProcessable: result.totalProcessable,
       updatedCount: result.updatedCount,

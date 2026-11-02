@@ -26,9 +26,16 @@ type ImportacionItemsPage = {
   totalPages: number;
 };
 
+type ApplicationProgress = {
+  phase: "PREPARANDO" | "APLICANDO";
+  processed: number;
+  total: number;
+};
+
 export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
   const { mutate } = useSWRConfig();
   const [applyingId, setApplyingId] = useState<number | null>(null);
+  const [applicationProgress, setApplicationProgress] = useState<ApplicationProgress | null>(null);
   const [confirmImport, setConfirmImport] = useState<ProveedorImportacion | null>(null);
   const [detailImport, setDetailImport] = useState<ProveedorImportacion | null>(null);
   const [detailPage, setDetailPage] = useState(1);
@@ -52,6 +59,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
 
   const handleApply = async (item: ProveedorImportacion) => {
     setApplyingId(item.id);
+    setApplicationProgress(null);
     setConfirmImport(null);
 
     try {
@@ -64,6 +72,19 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
         data = await response.json();
         if (!response.ok) {
           throw new Error(String(data.message || data.error || "Error al aplicar la lista"));
+        }
+        if (data.phase === "PREPARANDO") {
+          setApplicationProgress({
+            phase: "PREPARANDO",
+            processed: Number(data.preparedCount || 0),
+            total: Number(data.totalRows || item.total_items || 0),
+          });
+        } else if (!data.complete) {
+          setApplicationProgress({
+            phase: "APLICANDO",
+            processed: Number(data.processedCount || 0),
+            total: Number(data.totalProcessable || 0),
+          });
         }
       } while (!data.complete);
 
@@ -81,6 +102,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
       toast.error(error instanceof Error ? error.message : "Error al aplicar la lista");
     } finally {
       setApplyingId(null);
+      setApplicationProgress(null);
     }
   };
 
@@ -171,6 +193,11 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                 </span>
                 <span className="text-right font-mono font-black text-blue-300">
                   <span>{item.total_items}</span>
+                  {applyingId === item.id && applicationProgress && (
+                    <span className="block text-[9px] font-black text-blue-400">
+                      {applicationProgress.phase === "PREPARANDO" ? "Validando" : "Aplicando"} {applicationProgress.processed.toLocaleString("es-AR")}/{applicationProgress.total.toLocaleString("es-AR")}
+                    </span>
+                  )}
                   {(item.actualizados || problemCount) ? (
                     <span className="block text-[9px] font-black text-slate-500">
                       {item.actualizados || 0}/{problemCount}
