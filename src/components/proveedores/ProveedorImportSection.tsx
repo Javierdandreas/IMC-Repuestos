@@ -192,6 +192,11 @@ function detectHeader(headers: string[], fieldId: string) {
 
 function parseSupplierPrice(value: unknown): number {
   if (value === null || value === undefined) return 0;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0
+      ? Math.round((value + Number.EPSILON) * 100) / 100
+      : 0;
+  }
   const raw = String(value).trim();
   if (!raw) return 0;
 

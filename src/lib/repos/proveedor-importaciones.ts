@@ -22,6 +22,7 @@ import {
 type ImportacionItemInput = CreateImportacionInput["items"][number];
 
 const UMBRAL_APROBACION_AUTOMATICA = 5;
+const MAX_PRECIO_IMPORTACION_ARS = 999_999_999_999.99;
 
 export type EstadoAprobacionCambioCosto =
   | "PENDIENTE"
@@ -47,7 +48,7 @@ async function obtenerCostosReferenciaImportacion(
   const result = await client.query(
     `
       WITH tipo_costo AS (
-        SELECT id
+        SELECT id, COALESCE(cotizacion_usada, 1)::float AS cotizacion_usada
         FROM public.tipo_precio
         WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
         ORDER BY id
@@ -168,6 +169,15 @@ export async function agregarItemsImportacionProveedor(
       [idImportacion, idProveedor],
     );
     if (importacion.rowCount === 0) throw new Error("La importacion no esta disponible para recibir filas");
+
+    const cotizacionUsada = Number(importacion.rows[0]?.cotizacion_usada || 1);
+    const filasFueraDeRango = items.filter((item) => {
+      const precio = Number(item.precio_lista);
+      return !Number.isFinite(precio) || precio < 0 || precio * cotizacionUsada > MAX_PRECIO_IMPORTACION_ARS;
+    }).map((item) => item.fila).slice(0, 10);
+    if (filasFueraDeRango.length) {
+      throw new AppError(`El precio de las filas ${filasFueraDeRango.join(", ")} supera el maximo permitido despues de aplicar la cotizacion.`, 422);
+    }
 
     await client.query(
       `
