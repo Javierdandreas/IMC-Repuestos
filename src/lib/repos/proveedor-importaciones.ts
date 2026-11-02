@@ -48,7 +48,7 @@ async function obtenerCostosReferenciaImportacion(
   const result = await client.query(
     `
       WITH tipo_costo AS (
-        SELECT id, COALESCE(cotizacion_usada, 1)::float AS cotizacion_usada
+        SELECT id
         FROM public.tipo_precio
         WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
         ORDER BY id
@@ -161,7 +161,7 @@ export async function agregarItemsImportacionProveedor(
   return withTransaction(async (client) => {
     const importacion = await client.query(
       `
-        SELECT id
+        SELECT id, COALESCE(cotizacion_usada, 1)::float AS cotizacion_usada
         FROM public.proveedor_importacion
         WHERE id = $1 AND id_proveedor = $2 AND estado = 'PENDIENTE'
         LIMIT 1
