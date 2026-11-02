@@ -206,19 +206,25 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
   };
 
   const handleCostoChange = (val: number) => {
-    const basePrecios = syncAllPrices(precios, val);
+    const precioCostoActual = precios.find((precio) => precio.id_tipo_precio === tipoCosto.id) ?? costoItem;
+    const modo = criterioCosto === "MANUAL" && precioCostoActual.modo_calculo === "FIJO_MONEDA"
+      ? "FIJO_MONEDA"
+      : criterioCosto === "MANUAL" ? "FIJO_ARS" : "MARGEN_COSTO";
+    const costoActualizado = {
+      ...precioCostoActual,
+      modo_calculo: modo,
+      importe_origen: modo === "MARGEN_COSTO" ? null : round(val),
+    } as PrecioDetalle;
+    const costoArs = estimarArs(costoActualizado, val);
+    const basePrecios = syncAllPrices(precios, costoArs);
     const tiposVentaActivos = new Set(tiposVenta.map(tipo => tipo.id));
     const nuevosPrecios = basePrecios.map(p => {
       if (p.id_tipo_precio === tipoCosto.id) {
-        const modo = criterioCosto === "MANUAL" && p.modo_calculo === "FIJO_MONEDA"
-          ? "FIJO_MONEDA"
-          : criterioCosto === "MANUAL" ? "FIJO_ARS" : "MARGEN_COSTO";
-        const costoActualizado = { ...p, modo_calculo: modo, importe_origen: modo === "MARGEN_COSTO" ? null : round(val) } as PrecioDetalle;
-        return { ...costoActualizado, valor: estimarArs(costoActualizado, val) };
+        return { ...p, ...costoActualizado, valor: costoArs };
       }
       if (!tiposVentaActivos.has(p.id_tipo_precio)) return p;
       if ((p.modo_calculo ?? "MARGEN_COSTO") !== "MARGEN_COSTO") return p;
-      const nuevoValor = val * (1 + (p.porcentaje_ganancia || 0) / 100);
+      const nuevoValor = costoArs * (1 + (p.porcentaje_ganancia || 0) / 100);
       return { ...p, valor: round(nuevoValor) };
     });
 
@@ -282,10 +288,14 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
 
   const updateCostoMoneda = (field: keyof PrecioDetalle, value: string | number) => {
     const basePrecios = syncAllPrices(precios);
+    const precioCosto = basePrecios.find((precio) => precio.id_tipo_precio === tipoCosto.id) ?? costoItem;
+    const costoActualizado = { ...precioCosto, modo_calculo: "FIJO_MONEDA" as const, ...cotizacionPredeterminada(), [field]: value } as PrecioDetalle;
+    const costoArs = estimarArs(costoActualizado);
+    const tiposVentaActivos = new Set(tiposVenta.map((tipo) => tipo.id));
     onChange(basePrecios.map((precio) => {
-      if (precio.id_tipo_precio !== tipoCosto.id) return precio;
-      const updated = { ...precio, modo_calculo: "FIJO_MONEDA" as const, ...cotizacionPredeterminada(), [field]: value } as PrecioDetalle;
-      return { ...updated, valor: estimarArs(updated) };
+      if (precio.id_tipo_precio === tipoCosto.id) return { ...precio, ...costoActualizado, valor: costoArs };
+      if (!tiposVentaActivos.has(precio.id_tipo_precio) || (precio.modo_calculo ?? "MARGEN_COSTO") !== "MARGEN_COSTO") return precio;
+      return { ...precio, valor: round(costoArs * (1 + (precio.porcentaje_ganancia || 0) / 100)) };
     }));
   };
 

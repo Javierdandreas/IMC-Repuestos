@@ -55,6 +55,21 @@ function obtenerPrecioListado(product: ItemListadoUnificado, tipo?: TipoPrecio |
   return Number.isFinite(valor) ? valor : null;
 }
 
+function formatPrecioCompra(product: ItemListadoUnificado, tipo?: TipoPrecio | null) {
+  if (!tipo) return "-";
+  const precio = product.precios?.find((item) => item.id_tipo_precio === tipo.id);
+  const importeOrigen = Number(precio?.importe_origen);
+  if (
+    precio?.modo_calculo === "FIJO_MONEDA"
+    && precio.moneda_origen
+    && precio.moneda_origen !== "ARS"
+    && Number.isFinite(importeOrigen)
+  ) {
+    return `${precio.moneda_origen} ${importeOrigen.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return formatMoney(obtenerPrecioListado(product, tipo));
+}
+
 function formatMoney(value: number | null) {
   return value === null
     ? "-"
@@ -760,7 +775,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       {product.tipo === "KIT" ? `${product.componentes_kit?.length || 0} componentes` : product.proveedor ?? "-"}
                     </td>
                     <td className="px-2 py-3 text-right text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200" title="Costo de compra">
-                      {formatMoney(obtenerPrecioListado(product, tipoCompra))}
+                      {formatPrecioCompra(product, tipoCompra)}
                     </td>
                     <td className="px-2 py-3 text-right text-[11px] font-black tabular-nums text-blue-600 dark:text-blue-300" title={tipoVentaSeleccionado?.descripcion ?? "Precio de venta"}>
                       {formatMoney(obtenerPrecioListado(product, tipoVentaSeleccionado))}

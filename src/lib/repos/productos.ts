@@ -375,7 +375,10 @@ export async function getProductosListado(
             'id_tipo_precio', precio.id_tipo_precio,
             'tipo_descripcion', tipo.descripcion,
             'valor', precio.precio,
-            'porcentaje_ganancia', COALESCE(precio.porcentaje_ganancia, 0)
+            'porcentaje_ganancia', COALESCE(precio.porcentaje_ganancia, 0),
+            'modo_calculo', COALESCE(precio.modo_calculo, 'MARGEN_COSTO'),
+            'importe_origen', precio.importe_origen,
+            'moneda_origen', precio.moneda_origen
           )
           ORDER BY COALESCE(tipo.orden, 0), tipo.id
         ),
