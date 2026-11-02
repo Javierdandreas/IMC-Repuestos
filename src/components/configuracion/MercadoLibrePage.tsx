@@ -138,6 +138,7 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
     if (nextTab === "VENTAS") {
       if (salesShippingFilter !== "TODOS") params.set("envio", salesShippingFilter);
       if (salesMessageFilter !== "TODOS") params.set("mensajes", salesMessageFilter);
+      if (deferredSearch) params.set("q", deferredSearch);
     }
     if (nextTab === "PREGUNTAS") {
       params.set("estado", questionStatus);
@@ -153,7 +154,7 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
     if (nextTab === "VENTAS") setVentas(data);
     if (nextTab === "PUBLICACIONES" || nextTab === "COSTOS") setPublicaciones(data);
     if (nextTab === "PREGUNTAS") setPreguntas(data);
-  }, [questionOrder, questionStatus, salesMessageFilter, salesShippingFilter]);
+  }, [deferredSearch, questionOrder, questionStatus, salesMessageFilter, salesShippingFilter]);
 
   const load = useCallback(async () => {
     try {
@@ -167,10 +168,10 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
         ? targetAccountId
         : nextAccounts.some((account) => account.id === selectedAccountId) ? selectedAccountId : nextAccounts[0]?.id ?? null;
       setSelectedAccountId(accountId);
-      const isPublicationSearch = tab === "PUBLICACIONES" || tab === "COSTOS";
-      const page = isPublicationSearch && deferredSearch ? 1 : pages[tab];
-      if (isPublicationSearch && deferredSearch && pages[tab] !== 1) setPages((current) => ({ ...current, [tab]: 1 }));
-      if (accountId) await loadTab(accountId, tab, page, isPublicationSearch ? deferredSearch : "", tab === "PUBLICACIONES" ? publicationLinkFilter : "", tab === "PUBLICACIONES" ? publicationDateFilter : undefined);
+      const isSearchableTab = tab === "VENTAS" || tab === "PUBLICACIONES" || tab === "COSTOS";
+      const page = isSearchableTab && deferredSearch ? 1 : pages[tab];
+      if (isSearchableTab && deferredSearch && pages[tab] !== 1) setPages((current) => ({ ...current, [tab]: 1 }));
+      if (accountId) await loadTab(accountId, tab, page, isSearchableTab ? deferredSearch : "", tab === "PUBLICACIONES" ? publicationLinkFilter : "", tab === "PUBLICACIONES" ? publicationDateFilter : undefined);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo cargar Mercado Libre.");
     } finally {
@@ -456,7 +457,7 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
   const visibleVentas = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return ventas.data;
-    return ventas.data.filter((venta) => [venta.ventaId, venta.numeroEnvio, venta.comprador, venta.estado, ...venta.items.flatMap((item) => [item.titulo, item.itemId, item.sku])].some((value) => String(value || "").toLowerCase().includes(term)));
+    return ventas.data.filter((venta) => [venta.ventaId, venta.packId, venta.numeroEnvio, venta.comprador, venta.estado, ...venta.items.flatMap((item) => [item.titulo, item.itemId, item.sku])].some((value) => String(value || "").toLowerCase().includes(term)));
   }, [search, ventas.data]);
   const visiblePublicaciones = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -619,8 +620,9 @@ function VentasTable({
                 <div className="font-bold text-slate-800 dark:text-white">
                   {date(venta.fecha, "-")}
                 </div>
-                <div className="mt-1 font-mono text-[11px] text-slate-500">
-                  #{venta.ventaId}
+                <div className="mt-1 space-y-0.5 font-mono text-[11px] text-slate-500">
+                  <div>Orden #{venta.ventaId}</div>
+                  {venta.packId && <div>Paquete #{venta.packId}</div>}
                 </div>
               </td>
               <td className="font-bold text-slate-800 dark:text-white">
@@ -756,9 +758,13 @@ function VentaConversationModal({
         .join(", ") || "-";
     const envio =
       conversation?.tipoEnvio || conversation?.envio || venta.envio || "-";
-    await navigator.clipboard.writeText(
-      `Venta: ${venta.ventaId}\nComprador: ${conversation?.comprador || venta.comprador || "-"}\nEnvio: ${envio}\nSKU: ${sku}`,
-    );
+    await navigator.clipboard.writeText([
+      `Orden: ${venta.ventaId}`,
+      venta.packId ? `Paquete: ${venta.packId}` : null,
+      `Comprador: ${conversation?.comprador || venta.comprador || "-"}`,
+      `Envio: ${envio}`,
+      `SKU: ${sku}`,
+    ].filter(Boolean).join("\n"));
     toast.success("Datos de la venta copiados.");
   };
   const send = async () => {
@@ -843,13 +849,12 @@ function VentaConversationModal({
               id="venta-chat-title"
               className="mt-1 text-base font-black text-slate-900 dark:text-white"
             >
-              Chat de venta #{venta.ventaId}
+              Chat de venta
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              {conversation?.comprador ||
-                venta.comprador ||
-                "Comprador sin nombre"}
+              Orden #{venta.ventaId}{venta.packId ? ` · Paquete #${venta.packId}` : ""}
             </p>
+            <p className="mt-1 text-xs text-slate-500">{conversation?.comprador || venta.comprador || "Comprador sin nombre"}</p>
           </div>
           <div className="flex items-center gap-1">
             <button

@@ -14,9 +14,11 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page")) || 1);
     const envio = request.nextUrl.searchParams.get("envio");
     const mensajes = request.nextUrl.searchParams.get("mensajes");
+    const search = request.nextUrl.searchParams.get("q") || "";
     return NextResponse.json(await getMercadoLibreVentas(idCuenta, page, 50, {
       envio: envio === "FLEX" || envio === "COLECTA" || envio === "FULL" || envio === "DROP_OFF" || envio === "OTRO" ? envio : "TODOS",
       mensajes: mensajes === "NO_LEIDOS" || mensajes === "LEIDOS" || mensajes === "RESPONDIDOS" || mensajes === "SIN_RESPONDER" ? mensajes : "TODOS",
+      search,
     }), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return jsonError(error, "No se pudieron consultar las ventas de Mercado Libre.");

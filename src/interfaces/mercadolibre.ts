@@ -83,6 +83,7 @@ export type MercadoLibrePublicacionesResult = {
 export type MercadoLibreVentaListado = {
   id: number;
   ventaId: string;
+  packId: string | null;
   fecha: string | null;
   estado: string;
   comprador: string | null;

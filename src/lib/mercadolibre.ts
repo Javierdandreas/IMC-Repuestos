@@ -414,7 +414,7 @@ export async function getMercadoLibreVentas(
   idCuenta: number,
   page = 1,
   limit = 50,
-  filters: { envio?: FiltroEnvioVentaMercadoLibre; mensajes?: FiltroMensajeVentaMercadoLibre } = {},
+  filters: { envio?: FiltroEnvioVentaMercadoLibre; mensajes?: FiltroMensajeVentaMercadoLibre; search?: string } = {},
 ): Promise<MercadoLibreVentasResult> {
   const envio = (["TODOS", "FLEX", "COLECTA", "FULL", "DROP_OFF", "OTRO"] as const).includes(filters.envio as FiltroEnvioVentaMercadoLibre)
     ? filters.envio as FiltroEnvioVentaMercadoLibre
@@ -433,6 +433,26 @@ export async function getMercadoLibreVentas(
   const packId = "COALESCE(NULLIF(venta.datos->>'pack_id', ''), venta.venta_id)";
   const logistics = "LOWER(CONCAT_WS(' ', venta.datos #>> '{shipping,logistic_type}', venta.datos #>> '{shipping,mode}', venta.datos #>> '{shipping,shipping_option,name}'))";
   const hasNotifiedMessage = "EXISTS (SELECT 1 FROM public.mercadolibre_mensaje_postventa_notificado notificado WHERE notificado.id_cuenta = venta.id_cuenta AND notificado.venta_id = venta.venta_id)";
+  const search = filters.search?.trim();
+
+  if (search) {
+    params.push(`%${search}%`);
+    const searchParam = `$${params.length}`;
+    where.push(`(
+      venta.venta_id ILIKE ${searchParam}
+      OR COALESCE(venta.datos->>'pack_id', '') ILIKE ${searchParam}
+      OR COALESCE(venta.datos #>> '{shipping,id}', '') ILIKE ${searchParam}
+      OR COALESCE(venta.comprador, '') ILIKE ${searchParam}
+      OR COALESCE(venta.estado, '') ILIKE ${searchParam}
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(venta.items) AS item
+        WHERE COALESCE(item->>'titulo', '') ILIKE ${searchParam}
+          OR COALESCE(item->>'itemId', '') ILIKE ${searchParam}
+          OR COALESCE(item->>'sku', '') ILIKE ${searchParam}
+      )
+    )`);
+  }
 
   if (envio === "FLEX") where.push(`(${logistics} LIKE '%flex%' OR ${logistics} LIKE '%self_service%')`);
   if (envio === "COLECTA") where.push(`(${logistics} LIKE '%cross_docking%' OR ${logistics} LIKE '%collect%' OR ${logistics} LIKE '%recolec%')`);
@@ -485,8 +505,10 @@ export async function getMercadoLibreVentas(
     data: rows.map((row): MercadoLibreVentaListado => {
       const datos = row.datos && typeof row.datos === "object" && !Array.isArray(row.datos) ? row.datos as Record<string, unknown> : {};
       const shipping = datos.shipping && typeof datos.shipping === "object" && !Array.isArray(datos.shipping) ? datos.shipping as Record<string, unknown> : {};
+      const ventaId = String(row.venta_id);
+      const packIdVenta = String(row.pack_id || ventaId);
       return {
-        id: Number(row.id), ventaId: String(row.venta_id), fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
+        id: Number(row.id), ventaId, packId: packIdVenta === ventaId ? null : packIdVenta, fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
         estado: String(row.estado), comprador: row.comprador ? String(row.comprador) : null,
         total: row.total === null ? null : Number(row.total), moneda: row.moneda ? String(row.moneda) : null,
         envio: row.envio ? String(row.envio) : null, tipoEnvio: tipoEnvioVenta(shipping), retiroEnPersona: Boolean(row.retiro_en_persona),
