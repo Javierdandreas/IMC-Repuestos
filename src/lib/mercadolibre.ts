@@ -24,6 +24,7 @@ import type {
   MercadoLibreCuentaEstado,
   MercadoLibreCostoEstimado,
   MercadoLibreCostoSincronizacion,
+  MercadoLibreEstadisticas,
   MercadoLibrePublicacion,
   MercadoLibrePublicacionesResult,
   MercadoLibrePreguntaListado,
@@ -528,6 +529,190 @@ export async function getMercadoLibreVentas(
     }),
     totalCount,
     totalPages: Math.ceil(totalCount / limit),
+  };
+}
+
+async function ejecutarConsultasEnBloques<T extends readonly (() => Promise<unknown>)[]>(tasks: T, maxConcurrent = 3): Promise<{ [K in keyof T]: Awaited<ReturnType<T[K]>> }> {
+  const results: unknown[] = [];
+  for (let index = 0; index < tasks.length; index += maxConcurrent) {
+    results.push(...await Promise.all(tasks.slice(index, index + maxConcurrent).map((task) => task())));
+  }
+  return results as { [K in keyof T]: Awaited<ReturnType<T[K]>> };
+}
+
+export async function getMercadoLibreEstadisticas(idCuenta: number, dias = 30): Promise<MercadoLibreEstadisticas> {
+  const safeDays = [7, 30, 90, 365].includes(Math.floor(dias)) ? Math.floor(dias) : 30;
+  const hasta = new Date();
+  const desde = new Date(hasta);
+  desde.setDate(desde.getDate() - safeDays);
+  const params = [idCuenta, desde.toISOString(), hasta.toISOString()];
+  const salesWhere = "venta.id_cuenta = $1 AND venta.fecha >= $2::timestamptz AND venta.fecha < $3::timestamptz";
+  const logistics = "LOWER(CONCAT_WS(' ', venta.datos #>> '{shipping,logistic_type}', venta.datos #>> '{shipping,mode}', venta.datos #>> '{shipping,shipping_option,name}'))";
+  const shippingType = `CASE
+    WHEN venta.retiro_en_persona THEN 'RETIRO'
+    WHEN ${logistics} LIKE '%flex%' OR ${logistics} LIKE '%self_service%' THEN 'FLEX'
+    WHEN ${logistics} LIKE '%cross_docking%' OR ${logistics} LIKE '%collect%' OR ${logistics} LIKE '%recolec%' THEN 'COLECTA'
+    WHEN ${logistics} LIKE '%fulfillment%' THEN 'FULL'
+    WHEN ${logistics} LIKE '%drop_off%' THEN 'DROP OFF'
+    WHEN ${logistics} = '' THEN 'SIN DEFINIR'
+    ELSE 'OTRO'
+  END`;
+  const shippingStatus = `CASE
+    WHEN LOWER(COALESCE(venta.datos #>> '{shipping,status}', '')) IN ('delivered', 'delivered_to_buyer') THEN 'ENTREGADO'
+    WHEN LOWER(COALESCE(venta.datos #>> '{shipping,status}', '')) IN ('shipped', 'in_transit', 'out_for_delivery') THEN 'EN CAMINO'
+    WHEN LOWER(COALESCE(venta.datos #>> '{shipping,status}', '')) IN ('cancelled', 'canceled') THEN 'CANCELADO'
+    WHEN LOWER(COALESCE(venta.datos #>> '{shipping,status}', '')) IN ('pending', 'ready_to_ship', 'handling') THEN 'PENDIENTE'
+    ELSE 'SIN ESTADO'
+  END`;
+  const [summaryResult, evolutionResult, shippingResult, shippingStatusResult, productsResult, brandsResult, categoriesResult, publicationsResult, postSaleResult, questionsResult] = await ejecutarConsultasEnBloques([
+    () => query<{ facturacion: number; ordenes: number; unidades: number; ticket_promedio: number; moneda: string | null }>(
+      `SELECT
+         COALESCE(SUM(venta.total), 0)::float AS facturacion,
+         COUNT(*)::int AS ordenes,
+         COALESCE(SUM((SELECT COALESCE(SUM(NULLIF(item->>'cantidad', '')::int), 0) FROM jsonb_array_elements(venta.items) item)), 0)::int AS unidades,
+         COALESCE(AVG(venta.total), 0)::float AS ticket_promedio,
+         COALESCE(MAX(venta.moneda), 'ARS') AS moneda
+       FROM public.mercadolibre_venta venta
+       WHERE ${salesWhere}`,
+      params,
+    ),
+    () => query<{ fecha: string; ordenes: number; facturacion: number }>(
+      `SELECT TO_CHAR(venta.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires', 'YYYY-MM-DD') AS fecha,
+         COUNT(*)::int AS ordenes, COALESCE(SUM(venta.total), 0)::float AS facturacion
+       FROM public.mercadolibre_venta venta
+       WHERE ${salesWhere}
+       GROUP BY 1 ORDER BY 1 ASC`,
+      params,
+    ),
+    () => query<{ tipo: string; ordenes: number }>(
+      `SELECT ${shippingType} AS tipo, COUNT(*)::int AS ordenes
+       FROM public.mercadolibre_venta venta
+       WHERE ${salesWhere}
+       GROUP BY 1 ORDER BY ordenes DESC, tipo ASC`,
+      params,
+    ),
+    () => query<{ estado: string; ordenes: number }>(
+      `SELECT ${shippingStatus} AS estado, COUNT(*)::int AS ordenes
+       FROM public.mercadolibre_venta venta
+       WHERE ${salesWhere}
+       GROUP BY 1 ORDER BY ordenes DESC, estado ASC`,
+      params,
+    ),
+    () => query<{ item_id: string | null; titulo: string; sku: string | null; thumbnail_url: string | null; unidades: number; ordenes: number }>(
+      `SELECT item->>'itemId' AS item_id,
+         COALESCE(NULLIF(item->>'titulo', ''), 'Item sin titulo') AS titulo,
+         NULLIF(item->>'sku', '') AS sku,
+         publicacion.thumbnail_url,
+         COALESCE(SUM(NULLIF(item->>'cantidad', '')::int), 0)::int AS unidades,
+         COUNT(DISTINCT venta.id)::int AS ordenes
+       FROM public.mercadolibre_venta venta
+       CROSS JOIN LATERAL jsonb_array_elements(venta.items) item
+       LEFT JOIN public.mercadolibre_publicacion publicacion
+         ON publicacion.id_cuenta = venta.id_cuenta AND publicacion.item_id = item->>'itemId'
+       WHERE ${salesWhere}
+       GROUP BY item->>'itemId', item->>'titulo', item->>'sku', publicacion.thumbnail_url
+       ORDER BY unidades DESC, ordenes DESC, titulo ASC
+       LIMIT 10`,
+      params,
+    ),
+    () => query<{ nombre: string; unidades: number }>(
+      `SELECT COALESCE(NULLIF(marca_producto.descripcion, ''), NULLIF(marca_kit.descripcion, ''), 'Sin marca') AS nombre,
+         COALESCE(SUM(NULLIF(item->>'cantidad', '')::int), 0)::int AS unidades
+       FROM public.mercadolibre_venta venta
+       CROSS JOIN LATERAL jsonb_array_elements(venta.items) item
+       LEFT JOIN public.mercadolibre_publicacion publicacion
+         ON publicacion.id_cuenta = venta.id_cuenta AND publicacion.item_id = item->>'itemId'
+       LEFT JOIN public.productos producto ON producto.id = publicacion.id_producto
+       LEFT JOIN public.kits kit ON kit.id = publicacion.id_kit
+       LEFT JOIN public.marcas marca_producto ON marca_producto.id = producto.id_marca
+       LEFT JOIN public.marcas marca_kit ON marca_kit.id = kit.id_marca
+       WHERE ${salesWhere}
+       GROUP BY 1 ORDER BY unidades DESC, nombre ASC LIMIT 5`,
+      params,
+    ),
+    () => query<{ nombre: string; unidades: number }>(
+      `SELECT COALESCE(NULLIF(categoria_producto.descripcion, ''), NULLIF(categoria_kit.descripcion, ''), NULLIF(publicacion.categoria_id, ''), 'Sin categoria') AS nombre,
+         COALESCE(SUM(NULLIF(item->>'cantidad', '')::int), 0)::int AS unidades
+       FROM public.mercadolibre_venta venta
+       CROSS JOIN LATERAL jsonb_array_elements(venta.items) item
+       LEFT JOIN public.mercadolibre_publicacion publicacion
+         ON publicacion.id_cuenta = venta.id_cuenta AND publicacion.item_id = item->>'itemId'
+       LEFT JOIN public.productos producto ON producto.id = publicacion.id_producto
+       LEFT JOIN public.subcategoria subcategoria_producto ON subcategoria_producto.id = producto.id_subcategoria
+       LEFT JOIN public.categoria categoria_producto ON categoria_producto.id = subcategoria_producto.id_categoria
+       LEFT JOIN public.kits kit ON kit.id = publicacion.id_kit
+       LEFT JOIN public.categoria categoria_kit ON categoria_kit.id = kit.id_categoria
+       WHERE ${salesWhere}
+       GROUP BY 1 ORDER BY unidades DESC, nombre ASC LIMIT 5`,
+      params,
+    ),
+    () => query<{ activas: number; pausadas: number; sin_vinculo: number; sin_stock: number; sin_ventas: number }>(
+      `SELECT
+         COUNT(*) FILTER (WHERE LOWER(publicacion.estado) = 'active')::int AS activas,
+         COUNT(*) FILTER (WHERE LOWER(publicacion.estado) = 'paused')::int AS pausadas,
+         COUNT(*) FILTER (WHERE publicacion.tipo_vinculo = 'SIN_VINCULO')::int AS sin_vinculo,
+         COUNT(*) FILTER (WHERE LOWER(publicacion.estado) = 'active' AND COALESCE(publicacion.cantidad_disponible, 0) <= 0)::int AS sin_stock,
+         COUNT(*) FILTER (WHERE LOWER(publicacion.estado) = 'active' AND NOT EXISTS (
+           SELECT 1
+           FROM public.mercadolibre_venta venta
+           CROSS JOIN LATERAL jsonb_array_elements(venta.items) item
+           WHERE venta.id_cuenta = publicacion.id_cuenta
+             AND venta.fecha >= $2::timestamptz AND venta.fecha < $3::timestamptz
+             AND item->>'itemId' = publicacion.item_id
+         ))::int AS sin_ventas
+       FROM public.mercadolibre_publicacion publicacion
+       WHERE publicacion.id_cuenta = $1`,
+      params,
+    ),
+    () => query<{ no_leidos: number; sin_responder: number; respondidos: number }>(
+      `SELECT
+         COUNT(DISTINCT venta_id) FILTER (WHERE leido_at IS NULL OR marcado_no_leido_at IS NOT NULL)::int AS no_leidos,
+         COUNT(DISTINCT venta_id) FILTER (WHERE respondido_at IS NULL)::int AS sin_responder,
+         COUNT(DISTINCT venta_id) FILTER (WHERE respondido_at IS NOT NULL)::int AS respondidos
+       FROM public.mercadolibre_mensaje_postventa_notificado
+       WHERE id_cuenta = $1 AND venta_id IS NOT NULL`,
+      [idCuenta],
+    ),
+    () => query<{ total: number; por_responder: number; respondidas: number; convertidas_en_venta: number }>(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE pregunta.estado = 'UNANSWERED')::int AS por_responder,
+         COUNT(*) FILTER (WHERE pregunta.estado = 'ANSWERED')::int AS respondidas,
+         COUNT(*) FILTER (WHERE pregunta.comprador_id IS NOT NULL AND pregunta.item_id IS NOT NULL AND EXISTS (
+           SELECT 1
+           FROM public.mercadolibre_venta venta
+           CROSS JOIN LATERAL jsonb_array_elements(venta.items) item
+           WHERE venta.id_cuenta = pregunta.id_cuenta
+             AND venta.fecha >= pregunta.fecha
+             AND COALESCE(venta.datos #>> '{buyer,id}', '') = pregunta.comprador_id::text
+             AND item->>'itemId' = pregunta.item_id
+         ))::int AS convertidas_en_venta
+       FROM public.mercadolibre_pregunta pregunta
+       WHERE pregunta.id_cuenta = $1 AND pregunta.fecha >= $2::timestamptz AND pregunta.fecha < $3::timestamptz`,
+      params,
+    ),
+  ] as const);
+  const summary = summaryResult.rows[0];
+  const publications = publicationsResult.rows[0];
+  const postSale = postSaleResult.rows[0];
+  const questions = questionsResult.rows[0];
+  return {
+    periodo: { dias: safeDays, desde: desde.toISOString(), hasta: hasta.toISOString() },
+    resumen: {
+      facturacion: Number(summary?.facturacion ?? 0), ordenes: Number(summary?.ordenes ?? 0), unidades: Number(summary?.unidades ?? 0),
+      ticketPromedio: Number(summary?.ticket_promedio ?? 0), moneda: String(summary?.moneda || "ARS"),
+    },
+    evolucion: evolutionResult.rows.map((row) => ({ fecha: String(row.fecha), ordenes: Number(row.ordenes), facturacion: Number(row.facturacion) })),
+    envios: shippingResult.rows.map((row) => ({ tipo: String(row.tipo), ordenes: Number(row.ordenes) })),
+    estadosEnvio: shippingStatusResult.rows.map((row) => ({ estado: String(row.estado), ordenes: Number(row.ordenes) })),
+    productos: productsResult.rows.map((row) => ({ itemId: row.item_id ? String(row.item_id) : null, titulo: String(row.titulo), sku: row.sku ? String(row.sku) : null, thumbnailUrl: secureThumbnailUrl(row.thumbnail_url), unidades: Number(row.unidades), ordenes: Number(row.ordenes) })),
+    rankings: {
+      marcas: brandsResult.rows.map((row) => ({ nombre: String(row.nombre), unidades: Number(row.unidades) })),
+      categorias: categoriesResult.rows.map((row) => ({ nombre: String(row.nombre), unidades: Number(row.unidades) })),
+    },
+    publicaciones: { activas: Number(publications?.activas ?? 0), pausadas: Number(publications?.pausadas ?? 0), sinVinculo: Number(publications?.sin_vinculo ?? 0), sinStock: Number(publications?.sin_stock ?? 0), sinVentas: Number(publications?.sin_ventas ?? 0) },
+    postventa: { noLeidos: Number(postSale?.no_leidos ?? 0), sinResponder: Number(postSale?.sin_responder ?? 0), respondidos: Number(postSale?.respondidos ?? 0) },
+    preguntas: { total: Number(questions?.total ?? 0), porResponder: Number(questions?.por_responder ?? 0), respondidas: Number(questions?.respondidas ?? 0), convertidasEnVenta: Number(questions?.convertidas_en_venta ?? 0) },
   };
 }
 

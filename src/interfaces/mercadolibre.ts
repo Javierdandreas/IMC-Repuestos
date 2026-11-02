@@ -106,6 +106,19 @@ export type MercadoLibreVentasResult = {
   totalPages: number;
 };
 
+export type MercadoLibreEstadisticas = {
+  periodo: { dias: number; desde: string; hasta: string };
+  resumen: { facturacion: number; ordenes: number; unidades: number; ticketPromedio: number; moneda: string };
+  evolucion: Array<{ fecha: string; ordenes: number; facturacion: number }>;
+  envios: Array<{ tipo: string; ordenes: number }>;
+  estadosEnvio: Array<{ estado: string; ordenes: number }>;
+  productos: Array<{ itemId: string | null; titulo: string; sku: string | null; thumbnailUrl: string | null; unidades: number; ordenes: number }>;
+  rankings: { marcas: Array<{ nombre: string; unidades: number }>; categorias: Array<{ nombre: string; unidades: number }> };
+  publicaciones: { activas: number; pausadas: number; sinVinculo: number; sinStock: number; sinVentas: number };
+  postventa: { noLeidos: number; sinResponder: number; respondidos: number };
+  preguntas: { total: number; porResponder: number; respondidas: number; convertidasEnVenta: number };
+};
+
 export type MercadoLibreMensajePostVenta = {
   id: string;
   texto: string;

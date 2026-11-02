@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { CarFront, CircleDollarSign, ExternalLink, MessageCircle, Settings2, ShoppingCart } from "lucide-react";
+import { BarChart3, CarFront, CircleDollarSign, ExternalLink, MessageCircle, Settings2, ShoppingCart } from "lucide-react";
 
-type Section = "VENTAS" | "PUBLICACIONES" | "COSTOS" | "PREGUNTAS" | "COMPATIBILIDADES" | "SINCRONIZACION";
+type Section = "ESTADISTICAS" | "VENTAS" | "PUBLICACIONES" | "COSTOS" | "PREGUNTAS" | "COMPATIBILIDADES" | "SINCRONIZACION";
 
 const sections: Array<{ id: Section; label: string; icon: typeof ShoppingCart; href: string }> = [
+  { id: "ESTADISTICAS", label: "Estadisticas", icon: BarChart3, href: "/operaciones/mercadolibre?tab=ESTADISTICAS" },
   { id: "VENTAS", label: "Ventas", icon: ShoppingCart, href: "/operaciones/mercadolibre?tab=VENTAS" },
   { id: "PUBLICACIONES", label: "Publicaciones", icon: ExternalLink, href: "/operaciones/mercadolibre?tab=PUBLICACIONES" },
   { id: "COSTOS", label: "Costos ML", icon: CircleDollarSign, href: "/operaciones/mercadolibre?tab=COSTOS" },
