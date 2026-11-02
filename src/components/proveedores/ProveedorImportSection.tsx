@@ -192,10 +192,11 @@ function detectHeader(headers: string[], fieldId: string) {
 
 function parseSupplierPrice(value: unknown): number {
   if (value === null || value === undefined) return 0;
+  const roundPrice = (price: number) => Number.isFinite(price) && price >= 0
+    ? Math.round((price + Number.EPSILON) * 100) / 100
+    : 0;
   if (typeof value === "number") {
-    return Number.isFinite(value) && value >= 0
-      ? Math.round((value + Number.EPSILON) * 100) / 100
-      : 0;
+    return roundPrice(value);
   }
   const raw = String(value).trim();
   if (!raw) return 0;
@@ -212,7 +213,9 @@ function parseSupplierPrice(value: unknown): number {
   const decimalIndex = decimalSeparator ? clean.lastIndexOf(decimalSeparator) : -1;
   const decimalDigits = decimalIndex >= 0 ? clean.length - decimalIndex - 1 : 0;
 
-  if (decimalIndex >= 0 && decimalDigits >= 1 && decimalDigits <= 2) {
+  const hasBothSeparators = lastComma >= 0 && lastDot >= 0;
+  const isTechnicalDecimal = decimalDigits > 3;
+  if (decimalIndex >= 0 && (decimalDigits <= 2 || hasBothSeparators || isTechnicalDecimal)) {
     const integerPart = clean.slice(0, decimalIndex).replace(/[.,]/g, "");
     const fractionPart = clean.slice(decimalIndex + 1).replace(/[.,]/g, "");
     clean = `${integerPart}.${fractionPart}`;
@@ -221,7 +224,7 @@ function parseSupplierPrice(value: unknown): number {
   }
 
   const parsed = Number(clean);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  return roundPrice(parsed);
 }
 
 function formatImportPrice(value: number | null) {
