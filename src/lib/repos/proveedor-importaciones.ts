@@ -1330,6 +1330,19 @@ export type ResumenExportacionCosto = {
   proveedores_detalle: string[];
 };
 
+export type PendienteExportacionCosto = {
+  id_importacion: number | null;
+  proveedor: string;
+  archivo: string;
+  cantidad: number;
+};
+
+export type ResumenPendientesExportacionCosto = {
+  totalCount: number;
+  totalGroups: number;
+  groups: PendienteExportacionCosto[];
+};
+
 async function tieneDetalleProveedoresExportacionCosto() {
   const { rows } = await query<{ existe: boolean }>(`
     SELECT EXISTS (
@@ -1464,6 +1477,56 @@ export async function getPreciosModificadosProveedor(filters: PreciosModificados
     page: currentPage,
     totalPages,
     totalCount,
+  };
+}
+
+export async function getResumenPendientesExportacionCosto(limit = 8): Promise<ResumenPendientesExportacionCosto> {
+  const safeLimit = Math.max(1, Math.min(20, Math.floor(limit)));
+  const source = `
+    FROM public.proveedor_importacion_cambio_costo cambio
+    LEFT JOIN public.proveedor_importacion pi ON pi.id = cambio.id_importacion
+    LEFT JOIN public.proveedores proveedor ON proveedor.id = COALESCE(cambio.id_proveedor, pi.id_proveedor)
+    WHERE (pi.id IS NULL OR pi.estado = 'APLICADA')
+      AND cambio.estado_aprobacion IN ('APROBADO_AUTOMATICO', 'APROBADO_MANUAL')
+  `;
+  const [totals, groups] = await Promise.all([
+    query<{ cantidad: number; grupos: number }>(
+      `SELECT COUNT(*)::int AS cantidad, COUNT(DISTINCT COALESCE(cambio.id_importacion::text, 'sin-importacion'))::int AS grupos ${source}`,
+    ),
+    query<PendienteExportacionCosto>(
+      `SELECT
+         cambio.id_importacion,
+         COALESCE(proveedor.descripcion, 'Sin proveedor') AS proveedor,
+         COALESCE(
+           pi.nombre_archivo,
+           cambio.detalle_origen,
+           CASE cambio.origen
+             WHEN 'CARGA_MANUAL_PROVEEDOR' THEN 'Carga manual de precios'
+             WHEN 'CRITERIO_MASIVO' THEN 'Cambio masivo de criterio'
+             WHEN 'REGLAS_PROVEEDOR' THEN 'Capas de costo'
+             WHEN 'DESCUENTOS_PROVEEDOR' THEN 'Descuentos de proveedor'
+             WHEN 'EDICION_ITEM' THEN 'Edicion de item'
+             ELSE 'Importacion de proveedor'
+           END
+         ) AS archivo,
+         COUNT(*)::int AS cantidad
+       ${source}
+       GROUP BY cambio.id_importacion, proveedor.descripcion, pi.nombre_archivo, cambio.detalle_origen, cambio.origen
+       ORDER BY MAX(COALESCE(pi.updated_at, cambio.created_at)) DESC, cambio.id_importacion DESC NULLS LAST
+       LIMIT $1`,
+      [safeLimit],
+    ),
+  ]);
+  const total = totals.rows[0];
+  return {
+    totalCount: Number(total?.cantidad ?? 0),
+    totalGroups: Number(total?.grupos ?? 0),
+    groups: groups.rows.map((row) => ({
+      id_importacion: row.id_importacion === null ? null : Number(row.id_importacion),
+      proveedor: String(row.proveedor),
+      archivo: String(row.archivo),
+      cantidad: Number(row.cantidad),
+    })),
   };
 }
 

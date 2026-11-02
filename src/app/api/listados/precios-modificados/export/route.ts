@@ -23,6 +23,19 @@ function csvCell(value: string | number | null | undefined) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+function filenameForProviders(providers: string[]) {
+  const provider = [...new Set(providers.map((item) => item.trim()).filter(Boolean))].length === 1
+    ? providers.find((item) => item.trim()) ?? "SIN-PROVEEDOR"
+    : "VARIOS";
+  const safeProvider = provider
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/(^-|-$)/g, "")
+    .toUpperCase();
+  return `COSTO-MODIFICADO-${safeProvider || "SIN-PROVEEDOR"}.csv`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await requireApiWriteSession(request);
@@ -53,11 +66,10 @@ export async function GET(request: NextRequest) {
       ]),
     ].map((row) => row.map(csvCell).join(";")).join("\r\n");
     const exported = await registrarExportacionCambiosCosto(result.data.map((item) => Number(item.id)), session.usuarioId, filters);
-    const date = new Date().toISOString().slice(0, 10);
     return new NextResponse(`\uFEFF${content}`, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="costos_modificados_${date}.csv"`,
+        "Content-Disposition": `attachment; filename="${filenameForProviders(result.data.map((item) => item.proveedor))}"`,
         "X-Costos-Exportados": String(exported.exportedCount),
       },
     });

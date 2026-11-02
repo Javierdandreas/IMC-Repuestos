@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiReadSession } from "@/lib/api-auth";
 import { jsonError } from "@/lib/api-errors";
-import { getPreciosModificadosProveedor, getResumenExportacionesCosto } from "@/lib/repos/proveedor-importaciones";
+import { getPreciosModificadosProveedor, getResumenExportacionesCosto, getResumenPendientesExportacionCosto } from "@/lib/repos/proveedor-importaciones";
 
 function positiveInteger(value: string | null) {
   const parsed = Number(value);
@@ -39,11 +39,12 @@ export async function GET(request: NextRequest) {
       page: positiveInteger(searchParams.get("page")) ?? 1,
       limit: positiveInteger(searchParams.get("limit")) ?? 50,
     };
-    const [result, recentExports] = await Promise.all([
+    const [result, recentExports, pendingExports] = await Promise.all([
       getPreciosModificadosProveedor(filters),
       getResumenExportacionesCosto(),
+      getResumenPendientesExportacionCosto(),
     ]);
-    return NextResponse.json({ ...result, recentExports }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ...result, recentExports, pendingExports }, { headers: { "Cache-Control": "no-store" } });
   } catch (error: unknown) {
     return jsonError(error, "No se pudieron obtener los costos modificados.");
   }

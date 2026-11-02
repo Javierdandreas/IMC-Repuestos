@@ -7,6 +7,7 @@ import {
   HiChevronLeft,
   HiChevronRight,
   HiDownload,
+  HiExclamation,
   HiRefresh,
   HiSearch,
   HiX,
@@ -40,7 +41,9 @@ type Row = {
 };
 
 type ExportSummary = { id: number; created_at: string; cantidad: number; proveedores: number; importaciones: number; proveedores_detalle: string[] };
-type Response = { data: Row[]; page: number; totalPages: number; totalCount: number; recentExports: ExportSummary[] };
+type PendingExport = { id_importacion: number | null; proveedor: string; archivo: string; cantidad: number };
+type PendingExportsSummary = { totalCount: number; totalGroups: number; groups: PendingExport[] };
+type Response = { data: Row[]; page: number; totalPages: number; totalCount: number; recentExports: ExportSummary[]; pendingExports: PendingExportsSummary };
 
 const fetcher = async (url: string) => {
   const response = await fetch(url, { cache: "no-store" });
@@ -243,6 +246,19 @@ export function PriceChangesReportPage() {
             <HiDownload className="h-4 w-4" /> Exportar aprobados
           </button>
         </header>
+
+        {data?.pendingExports.totalCount ? (
+          <section className="flex flex-wrap items-start gap-3 border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-200">
+            <HiExclamation className="mt-0.5 h-5 w-5 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-black">Hay {data.pendingExports.totalCount.toLocaleString("es-AR")} cambio{data.pendingExports.totalCount === 1 ? "" : "s"} aprobado{data.pendingExports.totalCount === 1 ? "" : "s"} pendiente{data.pendingExports.totalCount === 1 ? "" : "s"} de exportar.</p>
+              <p className="mt-1 text-xs font-semibold text-amber-800/85 dark:text-amber-200/80">
+                {data.pendingExports.groups.map((item) => `${item.proveedor}: ${item.cantidad.toLocaleString("es-AR")} (${item.archivo})`).join(" · ")}
+                {data.pendingExports.totalGroups > data.pendingExports.groups.length ? ` · y ${data.pendingExports.totalGroups - data.pendingExports.groups.length} lista(s) mas.` : ""}
+              </p>
+            </div>
+          </section>
+        ) : null}
 
         {data?.recentExports.length ? (
           <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
