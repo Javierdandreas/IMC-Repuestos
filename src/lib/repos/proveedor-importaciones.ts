@@ -1118,6 +1118,7 @@ export async function getImportacionItems(
   page = 1,
   limit = 50,
   search = "",
+  estado = "TODOS",
 ): Promise<PaginaImportacionItems> {
   const safePage = Math.max(1, Math.floor(page) || 1);
   const safeLimit = Math.min(100, Math.max(10, Math.floor(limit) || 50));
@@ -1131,6 +1132,18 @@ export async function getImportacionItems(
       OR COALESCE(pii.estado, '') ILIKE $2 ESCAPE '\\'
     )`
     : "";
+  const estadoFiltro = ["TODOS", "ACTUALIZADO", "A_REVISAR", "COSTO_PENDIENTE", "NO_ENCONTRADO", "DUPLICADO", "INVALIDO", "PROVEEDOR_DISTINTO"].includes(estado)
+    ? estado
+    : "TODOS";
+  const filterEstado = estadoFiltro === "ACTUALIZADO"
+    ? "AND pii.estado = 'ACTUALIZADO'"
+    : estadoFiltro === "COSTO_PENDIENTE"
+      ? "AND cambio.estado_aprobacion = 'PENDIENTE'"
+      : estadoFiltro === "A_REVISAR"
+        ? "AND (pii.estado IN ('NO_ENCONTRADO', 'DUPLICADO', 'INVALIDO', 'PROVEEDOR_DISTINTO') OR cambio.estado_aprobacion = 'PENDIENTE')"
+        : estadoFiltro === "TODOS"
+          ? ""
+          : `AND pii.estado = '${estadoFiltro}'`;
   const [{ rows }, countResult] = await Promise.all([
     query(
     `
@@ -1155,12 +1168,21 @@ export async function getImportacionItems(
         p.descripcion AS producto_descripcion,
         pii.precio_anterior::float AS precio_anterior,
         pii.precio_aplicado::float AS precio_aplicado,
+        cambio.estado_aprobacion AS estado_costo,
         pii.applied_at,
         pii.created_at
       FROM public.proveedor_importacion_item pii
       LEFT JOIN public.productos p ON p.id = pii.id_producto
+      LEFT JOIN LATERAL (
+        SELECT estado_aprobacion
+        FROM public.proveedor_importacion_cambio_costo
+        WHERE id_importacion = pii.id_importacion AND id_producto = pii.id_producto
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      ) cambio ON true
       WHERE pii.id_importacion = $1
       ${filter}
+      ${filterEstado}
       ORDER BY pii.fila NULLS LAST, pii.id ASC
       LIMIT $${searchValue ? 3 : 2} OFFSET $${searchValue ? 4 : 3}
     `,
@@ -1170,8 +1192,16 @@ export async function getImportacionItems(
       `SELECT COUNT(*)::int AS total
        FROM public.proveedor_importacion_item pii
        LEFT JOIN public.productos p ON p.id = pii.id_producto
+       LEFT JOIN LATERAL (
+         SELECT estado_aprobacion
+         FROM public.proveedor_importacion_cambio_costo
+         WHERE id_importacion = pii.id_importacion AND id_producto = pii.id_producto
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1
+       ) cambio ON true
        WHERE pii.id_importacion = $1
-       ${filter}`,
+       ${filter}
+       ${filterEstado}`,
       searchValue ? [id_importacion, searchPattern] : [id_importacion],
     ),
   ]);

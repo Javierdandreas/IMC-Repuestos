@@ -40,13 +40,16 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
   const [detailImport, setDetailImport] = useState<ProveedorImportacion | null>(null);
   const [detailPage, setDetailPage] = useState(1);
   const [detailSearch, setDetailSearch] = useState("");
+  const [detailStatus, setDetailStatus] = useState("TODOS");
 
   const { data: history, error, isLoading } = useSWR<ProveedorImportacion[]>(
     `/api/proveedores/importaciones?id_proveedor=${id_proveedor}`,
     fetcher
   );
   const { data: detailItemsPage, isLoading: isLoadingDetail } = useSWR<ImportacionItemsPage>(
-    detailImport ? `/api/proveedores/importaciones/${detailImport.id}/items?page=${detailPage}&limit=50&q=${encodeURIComponent(detailSearch)}` : null,
+    detailImport
+      ? `/api/proveedores/importaciones/${detailImport.id}/items?page=${detailPage}&limit=50&q=${encodeURIComponent(detailSearch)}&estado=${detailStatus}`
+      : null,
     fetcher
   );
   const detailItems = detailItemsPage?.data ?? [];
@@ -54,6 +57,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
   const openDetail = (item: ProveedorImportacion) => {
     setDetailPage(1);
     setDetailSearch("");
+    setDetailStatus("TODOS");
     setDetailImport(item);
   };
 
@@ -327,28 +331,46 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                     className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 pl-9 pr-3 text-xs font-semibold text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
                   />
                 </label>
+                <label className="shrink-0">
+                  <span className="sr-only">Filtrar filas por estado</span>
+                  <select
+                    value={detailStatus}
+                    onChange={(event) => { setDetailStatus(event.target.value); setDetailPage(1); }}
+                    className="h-9 max-w-[190px] rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs font-bold text-white outline-none transition focus:border-blue-500"
+                  >
+                    <option value="TODOS">Todas las filas</option>
+                    <option value="ACTUALIZADO">Aplicadas</option>
+                    <option value="COSTO_PENDIENTE">Costos a revisar</option>
+                    <option value="A_REVISAR">Todas a revisar</option>
+                    <option value="NO_ENCONTRADO">No encontradas</option>
+                    <option value="DUPLICADO">Duplicadas</option>
+                    <option value="INVALIDO">Invalidas</option>
+                    <option value="PROVEEDOR_DISTINTO">Proveedor distinto</option>
+                  </select>
+                </label>
                 <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-slate-500">50 por pagina</span>
               </div>
               <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/30">
-                <div className="grid min-w-[1040px] grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_minmax(170px,1.6fr)_96px_96px] gap-2 bg-slate-950 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <div className="grid min-w-[1160px] grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_110px_minmax(170px,1.6fr)_96px_96px] gap-2 bg-slate-950 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
                   <span>Fila</span>
                   <span>Proveedor</span>
                   <span>Codigo prov.</span>
                   <span>Precio ARS</span>
                   <span>Stock</span>
                   <span>Estado</span>
+                  <span>Costo</span>
                   <span>Item</span>
                   <span>Anterior</span>
                   <span>Aplicado</span>
                 </div>
-                <div className="max-h-[430px] min-w-[1040px] divide-y divide-slate-800 overflow-y-auto">
+                <div className="max-h-[430px] min-w-[1160px] divide-y divide-slate-800 overflow-y-auto">
                   {isLoadingDetail ? (
                     <div className="px-5 py-8 text-center text-xs font-bold text-slate-500">Cargando detalle...</div>
                   ) : detailItems.length === 0 ? (
                     <div className="px-5 py-8 text-center text-xs font-bold text-slate-500">
                       {detailImport.detalle_disponible === false
                         ? "Detalle depurado: se conserva fecha, archivo, estado y cantidad de la importacion."
-                        : detailSearch.trim()
+                        : detailSearch.trim() || detailStatus !== "TODOS"
                           ? "No hay filas que coincidan con la busqueda."
                           : "Sin detalle disponible."}
                     </div>
@@ -356,7 +378,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                     detailItems.map((row) => (
                       <div
                         key={row.id}
-                        className="grid grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_minmax(170px,1.6fr)_96px_96px] items-center gap-2 px-3 py-4 text-xs transition hover:bg-slate-900/40"
+                        className="grid grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_110px_minmax(170px,1.6fr)_96px_96px] items-center gap-2 px-3 py-4 text-xs transition hover:bg-slate-900/40"
                       >
                         <span className="font-mono font-bold text-slate-500">{row.fila || "-"}</span>
                         <span className="truncate font-bold text-slate-300">{row.proveedor_archivo || "-"}</span>
@@ -372,6 +394,12 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                         </span>
                         <span className={`w-fit rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${getRowStatusBadge(row.estado)}`}>
                           {formatRowStatus(row.estado)}
+                        </span>
+                        <span className={row.estado_costo
+                          ? `w-fit rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${getCostStatusBadge(row.estado_costo)}`
+                          : "text-xs font-bold text-slate-500"}
+                        >
+                          {formatCostStatus(row.estado_costo)}
                         </span>
                         <span className="min-w-0">
                           <span className="block truncate font-bold text-slate-200">
@@ -466,6 +494,36 @@ function getRowStatusBadge(value?: string | null): string {
     case "INVALIDO":
       return "text-red-300 bg-red-500/10 border-red-500/20";
     default:
+      return "text-slate-300 bg-slate-500/10 border-slate-500/20";
+  }
+}
+
+function formatCostStatus(value?: ProveedorImportacionItem["estado_costo"]): string {
+  switch (value) {
+    case "PENDIENTE":
+      return "A revisar";
+    case "APROBADO_AUTOMATICO":
+    case "APROBADO_MANUAL":
+      return "Aprobado";
+    case "RECHAZADO":
+      return "Rechazado";
+    case "REEMPLAZADO":
+      return "Reemplazado";
+    default:
+      return "-";
+  }
+}
+
+function getCostStatusBadge(value: NonNullable<ProveedorImportacionItem["estado_costo"]>): string {
+  switch (value) {
+    case "PENDIENTE":
+      return "text-amber-300 bg-amber-500/10 border-amber-500/20";
+    case "APROBADO_AUTOMATICO":
+    case "APROBADO_MANUAL":
+      return "text-green-300 bg-green-500/10 border-green-500/20";
+    case "RECHAZADO":
+      return "text-red-300 bg-red-500/10 border-red-500/20";
+    case "REEMPLAZADO":
       return "text-slate-300 bg-slate-500/10 border-slate-500/20";
   }
 }
