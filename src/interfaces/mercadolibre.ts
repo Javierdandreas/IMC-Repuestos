@@ -107,16 +107,21 @@ export type MercadoLibreVentasResult = {
 };
 
 export type MercadoLibreEstadisticas = {
-  periodo: { dias: number; desde: string; hasta: string };
-  resumen: { facturacion: number; ordenes: number; unidades: number; ticketPromedio: number; moneda: string };
-  evolucion: Array<{ fecha: string; ordenes: number; facturacion: number }>;
-  envios: Array<{ tipo: string; ordenes: number }>;
-  estadosEnvio: Array<{ estado: string; ordenes: number }>;
+  periodo: { dias: number; desde: string; hasta: string; desdeAnterior: string; hastaAnterior: string };
+  moneda: string;
+  metricas: {
+    ventasBrutas: { actual: number; anterior: number };
+    unidadesVendidas: { actual: number; anterior: number };
+    cantidadVentas: { actual: number; anterior: number };
+    precioPromedioUnidad: { actual: number; anterior: number };
+    precioPromedioVenta: { actual: number; anterior: number };
+    visitas: { actual: number | null; anterior: number | null };
+    conversion: { actual: number | null; anterior: number | null };
+    ventasCanceladas: { cantidadActual: number; cantidadAnterior: number; valorActual: number; valorAnterior: number };
+    ventasDevueltas: { cantidadActual: number; cantidadAnterior: number; valorActual: number; valorAnterior: number };
+  };
+  evolucion: Array<{ fecha: string; facturacion: number; facturacionAnterior: number }>;
   productos: Array<{ itemId: string | null; titulo: string; sku: string | null; thumbnailUrl: string | null; unidades: number; ordenes: number }>;
-  rankings: { marcas: Array<{ nombre: string; unidades: number }>; categorias: Array<{ nombre: string; unidades: number }> };
-  publicaciones: { activas: number; pausadas: number; sinVinculo: number; sinStock: number; sinVentas: number };
-  postventa: { noLeidos: number; sinResponder: number; respondidos: number };
-  preguntas: { total: number; porResponder: number; respondidas: number; convertidasEnVenta: number };
 };
 
 export type MercadoLibreMensajePostVenta = {

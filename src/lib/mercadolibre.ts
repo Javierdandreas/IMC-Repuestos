@@ -540,7 +540,141 @@ async function ejecutarConsultasEnBloques<T extends readonly (() => Promise<unkn
   return results as { [K in keyof T]: Awaited<ReturnType<T[K]>> };
 }
 
+const visitasCache = new Map<string, { expiresAt: number; total: number }>();
+
+function fechaVisitas(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function sumarDias(value: Date, dias: number) {
+  const result = new Date(value);
+  result.setDate(result.getDate() + dias);
+  return result;
+}
+
+async function visitasMercadoLibre(idCuenta: number, desde: Date, hasta: Date) {
+  const cacheKey = `${idCuenta}:${fechaVisitas(desde)}:${fechaVisitas(hasta)}`;
+  const cached = visitasCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.total;
+
+  const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
+  let total = 0;
+  let cursor = new Date(desde);
+  while (cursor <= hasta) {
+    const fin = new Date(Math.min(sumarDias(cursor, 149).getTime(), hasta.getTime()));
+    const payload = await meliGet(
+      `/users/${sellerId}/items_visits?date_from=${encodeURIComponent(fechaVisitas(cursor))}&date_to=${encodeURIComponent(fechaVisitas(fin))}`,
+      idCuenta,
+      accessToken,
+    ) as { total_visits?: unknown };
+    total += Number(payload.total_visits || 0);
+    cursor = sumarDias(fin, 1);
+  }
+  visitasCache.set(cacheKey, { total, expiresAt: Date.now() + 5 * 60_000 });
+  return total;
+}
+
 export async function getMercadoLibreEstadisticas(idCuenta: number, dias = 30): Promise<MercadoLibreEstadisticas> {
+  const safeDays = [7, 30, 90, 365].includes(Math.floor(dias)) ? Math.floor(dias) : 30;
+  const hasta = new Date();
+  const desde = sumarDias(hasta, -safeDays);
+  const desdeAnterior = sumarDias(desde, -safeDays);
+  const params = [idCuenta, desdeAnterior.toISOString(), desde.toISOString(), hasta.toISOString()];
+  const esActual = "venta.fecha >= $3::timestamptz AND venta.fecha < $4::timestamptz";
+  const esAnterior = "venta.fecha >= $2::timestamptz AND venta.fecha < $3::timestamptz";
+  const esPagada = "LOWER(COALESCE(venta.estado, '')) = 'paid'";
+  const unidades = "(SELECT COALESCE(SUM(NULLIF(item->>'cantidad', '')::int), 0) FROM jsonb_array_elements(venta.items) item)";
+  const [metricasResult, evolucionResult, productosResult, visitasResult] = await Promise.all([
+    query<{
+      ventas_actual: number; ventas_anterior: number; ordenes_actual: number; ordenes_anterior: number; unidades_actual: number; unidades_anterior: number;
+      canceladas_actual: number; canceladas_anterior: number; valor_canceladas_actual: number; valor_canceladas_anterior: number;
+      devueltas_actual: number; devueltas_anterior: number; valor_devueltas_actual: number; valor_devueltas_anterior: number; moneda: string | null;
+    }>(
+      `SELECT
+         COALESCE(SUM(venta.total) FILTER (WHERE ${esActual} AND ${esPagada}), 0)::float AS ventas_actual,
+         COALESCE(SUM(venta.total) FILTER (WHERE ${esAnterior} AND ${esPagada}), 0)::float AS ventas_anterior,
+         COUNT(*) FILTER (WHERE ${esActual} AND ${esPagada})::int AS ordenes_actual,
+         COUNT(*) FILTER (WHERE ${esAnterior} AND ${esPagada})::int AS ordenes_anterior,
+         COALESCE(SUM(${unidades}) FILTER (WHERE ${esActual} AND ${esPagada}), 0)::int AS unidades_actual,
+         COALESCE(SUM(${unidades}) FILTER (WHERE ${esAnterior} AND ${esPagada}), 0)::int AS unidades_anterior,
+         COUNT(*) FILTER (WHERE ${esActual} AND LOWER(COALESCE(venta.estado, '')) = 'cancelled')::int AS canceladas_actual,
+         COUNT(*) FILTER (WHERE ${esAnterior} AND LOWER(COALESCE(venta.estado, '')) = 'cancelled')::int AS canceladas_anterior,
+         COALESCE(SUM(venta.total) FILTER (WHERE ${esActual} AND LOWER(COALESCE(venta.estado, '')) = 'cancelled'), 0)::float AS valor_canceladas_actual,
+         COALESCE(SUM(venta.total) FILTER (WHERE ${esAnterior} AND LOWER(COALESCE(venta.estado, '')) = 'cancelled'), 0)::float AS valor_canceladas_anterior,
+         COUNT(*) FILTER (WHERE ${esActual} AND LOWER(COALESCE(venta.estado, '')) IN ('partially_refunded', 'refunded'))::int AS devueltas_actual,
+         COUNT(*) FILTER (WHERE ${esAnterior} AND LOWER(COALESCE(venta.estado, '')) IN ('partially_refunded', 'refunded'))::int AS devueltas_anterior,
+         COALESCE(SUM(venta.total) FILTER (WHERE ${esActual} AND LOWER(COALESCE(venta.estado, '')) IN ('partially_refunded', 'refunded')), 0)::float AS valor_devueltas_actual,
+         COALESCE(SUM(venta.total) FILTER (WHERE ${esAnterior} AND LOWER(COALESCE(venta.estado, '')) IN ('partially_refunded', 'refunded')), 0)::float AS valor_devueltas_anterior,
+         COALESCE(MAX(venta.moneda), 'ARS') AS moneda
+       FROM public.mercadolibre_venta venta
+       WHERE venta.id_cuenta = $1 AND venta.fecha >= $2::timestamptz AND venta.fecha < $4::timestamptz`,
+      params,
+    ),
+    query<{ periodo: "ACTUAL" | "ANTERIOR"; dia: number; fecha: string; facturacion: number }>(
+      `SELECT CASE WHEN ${esActual} THEN 'ACTUAL' ELSE 'ANTERIOR' END AS periodo,
+         FLOOR(EXTRACT(EPOCH FROM (venta.fecha - CASE WHEN ${esActual} THEN $3::timestamptz ELSE $2::timestamptz END)) / 86400)::int AS dia,
+         TO_CHAR(venta.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires', 'YYYY-MM-DD') AS fecha,
+         COALESCE(SUM(venta.total), 0)::float AS facturacion
+       FROM public.mercadolibre_venta venta
+       WHERE venta.id_cuenta = $1 AND venta.fecha >= $2::timestamptz AND venta.fecha < $4::timestamptz AND ${esPagada}
+       GROUP BY 1, 2, 3 ORDER BY 1, 2`,
+      params,
+    ),
+    query<{ item_id: string | null; titulo: string; sku: string | null; thumbnail_url: string | null; unidades: number; ordenes: number }>(
+      `SELECT item->>'itemId' AS item_id,
+         COALESCE(NULLIF(item->>'titulo', ''), 'Item sin titulo') AS titulo,
+         NULLIF(item->>'sku', '') AS sku,
+         publicacion.thumbnail_url,
+         COALESCE(SUM(NULLIF(item->>'cantidad', '')::int), 0)::int AS unidades,
+         COUNT(DISTINCT venta.id)::int AS ordenes
+       FROM public.mercadolibre_venta venta
+       CROSS JOIN LATERAL jsonb_array_elements(venta.items) item
+       LEFT JOIN public.mercadolibre_publicacion publicacion ON publicacion.id_cuenta = venta.id_cuenta AND publicacion.item_id = item->>'itemId'
+       WHERE venta.id_cuenta = $1 AND ${esActual} AND ${esPagada}
+       GROUP BY item->>'itemId', item->>'titulo', item->>'sku', publicacion.thumbnail_url
+       ORDER BY unidades DESC, ordenes DESC, titulo ASC LIMIT 10`,
+      params,
+    ),
+    Promise.all([visitasMercadoLibre(idCuenta, desde, hasta), visitasMercadoLibre(idCuenta, desdeAnterior, desde)]).catch(() => [null, null] as [number | null, number | null]),
+  ]);
+
+  const row = metricasResult.rows[0];
+  const ventasActual = Number(row?.ventas_actual || 0);
+  const ventasAnterior = Number(row?.ventas_anterior || 0);
+  const ordenesActual = Number(row?.ordenes_actual || 0);
+  const ordenesAnterior = Number(row?.ordenes_anterior || 0);
+  const unidadesActual = Number(row?.unidades_actual || 0);
+  const unidadesAnterior = Number(row?.unidades_anterior || 0);
+  const [visitasActual, visitasAnterior] = visitasResult;
+  const actualPorDia = new Map(evolucionResult.rows.filter((item) => item.periodo === "ACTUAL").map((item) => [Number(item.dia), item]));
+  const anteriorPorDia = new Map(evolucionResult.rows.filter((item) => item.periodo === "ANTERIOR").map((item) => [Number(item.dia), item]));
+
+  return {
+    periodo: { dias: safeDays, desde: desde.toISOString(), hasta: hasta.toISOString(), desdeAnterior: desdeAnterior.toISOString(), hastaAnterior: desde.toISOString() },
+    moneda: String(row?.moneda || "ARS"),
+    metricas: {
+      ventasBrutas: { actual: ventasActual, anterior: ventasAnterior },
+      unidadesVendidas: { actual: unidadesActual, anterior: unidadesAnterior },
+      cantidadVentas: { actual: ordenesActual, anterior: ordenesAnterior },
+      precioPromedioUnidad: { actual: unidadesActual ? ventasActual / unidadesActual : 0, anterior: unidadesAnterior ? ventasAnterior / unidadesAnterior : 0 },
+      precioPromedioVenta: { actual: ordenesActual ? ventasActual / ordenesActual : 0, anterior: ordenesAnterior ? ventasAnterior / ordenesAnterior : 0 },
+      visitas: { actual: visitasActual, anterior: visitasAnterior },
+      conversion: { actual: visitasActual ? (ordenesActual / visitasActual) * 100 : null, anterior: visitasAnterior ? (ordenesAnterior / visitasAnterior) * 100 : null },
+      ventasCanceladas: { cantidadActual: Number(row?.canceladas_actual || 0), cantidadAnterior: Number(row?.canceladas_anterior || 0), valorActual: Number(row?.valor_canceladas_actual || 0), valorAnterior: Number(row?.valor_canceladas_anterior || 0) },
+      ventasDevueltas: { cantidadActual: Number(row?.devueltas_actual || 0), cantidadAnterior: Number(row?.devueltas_anterior || 0), valorActual: Number(row?.valor_devueltas_actual || 0), valorAnterior: Number(row?.valor_devueltas_anterior || 0) },
+    },
+    evolucion: Array.from({ length: safeDays }, (_, dia) => ({
+      fecha: actualPorDia.get(dia)?.fecha || anteriorPorDia.get(dia)?.fecha || "",
+      facturacion: Number(actualPorDia.get(dia)?.facturacion || 0),
+      facturacionAnterior: Number(anteriorPorDia.get(dia)?.facturacion || 0),
+    })),
+    productos: productosResult.rows.map((item) => ({ itemId: item.item_id ? String(item.item_id) : null, titulo: String(item.titulo), sku: item.sku ? String(item.sku) : null, thumbnailUrl: secureThumbnailUrl(item.thumbnail_url), unidades: Number(item.unidades), ordenes: Number(item.ordenes) })),
+  };
+}
+
+async function getMercadoLibreEstadisticasLegado(idCuenta: number, dias = 30) {
   const safeDays = [7, 30, 90, 365].includes(Math.floor(dias)) ? Math.floor(dias) : 30;
   const hasta = new Date();
   const desde = new Date(hasta);
@@ -2862,6 +2996,7 @@ export async function sincronizarMercadoLibreLote(idCuenta: number, requestedLim
 type MeliOrder = {
   id?: number | string;
   date_created?: string;
+  date_closed?: string;
   status?: string;
   total_amount?: number;
   currency_id?: string;
@@ -2910,7 +3045,7 @@ async function getPagedMeliResults<T>(path: string, idCuenta: number, accessToke
 }
 
 async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
-  const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&order.status=paid&sort=date_desc`, idCuenta, accessToken, 1000, 50);
+  const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&order.status=paid,cancelled,partially_refunded&sort=date_desc`, idCuenta, accessToken, 1000, 50);
   let configMensaje: ConfigMensajeAutomatico | null = null;
   try { configMensaje = await obtenerConfigMensajeAutomatico(idCuenta); } catch (error) { console.error("[MENSAJES ML] No se pudo consultar la configuracion:", error); }
   for (const venta of ventas) {
@@ -2931,7 +3066,7 @@ async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number,
         fecha = EXCLUDED.fecha, estado = EXCLUDED.estado, comprador = EXCLUDED.comprador, total = EXCLUDED.total,
         moneda = EXCLUDED.moneda, envio = EXCLUDED.envio, retiro_en_persona = EXCLUDED.retiro_en_persona,
         items = EXCLUDED.items, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
-      [idCuenta, String(venta.id), venta.date_created || null, venta.status || "unknown", venta.buyer?.nickname || null,
+      [idCuenta, String(venta.id), venta.date_closed || venta.date_created || null, venta.status || "unknown", venta.buyer?.nickname || null,
         Number.isFinite(Number(venta.total_amount)) ? Number(venta.total_amount) : null, venta.currency_id || null,
         envio, Boolean(shipping?.pickup_id), JSON.stringify(items), JSON.stringify(venta)],
     );
@@ -2960,7 +3095,7 @@ async function guardarVentaMercadoLibre(idCuenta: number, venta: MeliOrder) {
       fecha = EXCLUDED.fecha, estado = EXCLUDED.estado, comprador = EXCLUDED.comprador, total = EXCLUDED.total,
       moneda = EXCLUDED.moneda, envio = EXCLUDED.envio, retiro_en_persona = EXCLUDED.retiro_en_persona,
       items = EXCLUDED.items, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
-    [idCuenta, String(venta.id), venta.date_created || null, venta.status || "unknown", venta.buyer?.nickname || null,
+    [idCuenta, String(venta.id), venta.date_closed || venta.date_created || null, venta.status || "unknown", venta.buyer?.nickname || null,
       Number.isFinite(Number(venta.total_amount)) ? Number(venta.total_amount) : null, venta.currency_id || null,
       envio, Boolean(shipping?.pickup_id), JSON.stringify(items), JSON.stringify(venta)],
   );
