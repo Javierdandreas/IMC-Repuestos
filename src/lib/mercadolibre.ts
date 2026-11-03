@@ -3045,7 +3045,7 @@ async function getPagedMeliResults<T>(path: string, idCuenta: number, accessToke
 }
 
 async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number, accessToken: string) {
-  const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&order.status=paid,cancelled,partially_refunded&sort=date_desc`, idCuenta, accessToken, 1000, 50);
+  const ventas = await getPagedMeliResults<MeliOrder>(`/orders/search?seller=${sellerId}&order.status=paid,cancelled&sort=date_desc`, idCuenta, accessToken, 1000, 50);
   let configMensaje: ConfigMensajeAutomatico | null = null;
   try { configMensaje = await obtenerConfigMensajeAutomatico(idCuenta); } catch (error) { console.error("[MENSAJES ML] No se pudo consultar la configuracion:", error); }
   for (const venta of ventas) {
