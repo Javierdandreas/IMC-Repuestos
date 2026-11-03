@@ -67,7 +67,7 @@ export function ProveedorEditPage({ proveedor }: Props) {
         throw new Error(payload.message || "No se pudieron exportar los costos del proveedor.");
       }
       const disposition = response.headers.get("content-disposition") || "";
-      const fileName = disposition.match(/filename="?([^";]+)"?/)?.[1] || "costos-base-proveedor.xlsx";
+      const fileName = disposition.match(/filename="?([^";]+)"?/)?.[1] || "costos-base-proveedor.csv";
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
       link.href = url;
