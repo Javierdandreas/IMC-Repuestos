@@ -599,6 +599,32 @@ export async function getPreciosProveedoresParaExportar(): Promise<Record<string
   return rows;
 }
 
+export async function getCostosBaseProveedorParaExportar(idProveedor: number) {
+  const { rows } = await query<{
+    proveedor: string;
+    codigo_interno: string;
+    codigo_proveedor: string;
+    costo_base: number | null;
+  }>(`
+    SELECT
+      proveedor.descripcion AS proveedor,
+      producto.cod_unico AS codigo_interno,
+      COALESCE(NULLIF(TRIM(asociacion.codigo_proveedor), ''), '') AS codigo_proveedor,
+      costo.precio::float AS costo_base
+    FROM public.producto_proveedor asociacion
+    INNER JOIN public.productos producto ON producto.id = asociacion.id_producto
+    INNER JOIN public.proveedores proveedor ON proveedor.id = asociacion.id_proveedor
+    LEFT JOIN public.producto_precio costo
+      ON costo.id_producto = producto.id
+      AND costo.id_tipo_precio = 1
+    WHERE asociacion.id_proveedor = $1
+      AND COALESCE(producto.oculto_por_kit, FALSE) = FALSE
+    ORDER BY producto.cod_unico ASC
+  `, [idProveedor]);
+
+  return rows;
+}
+
 type PrecioProveedorImportMappings = Record<string, { csvHeader?: string }>;
 
 type PrecioProveedorImportResult = {
