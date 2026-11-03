@@ -317,7 +317,7 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
     const modo = item.modo_calculo ?? "MARGEN_COSTO";
     
     return (
-      <div key={idTipo} className="group flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700">
+      <div key={idTipo} className="group w-[220px] shrink-0 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700">
         <div className="flex items-center gap-2">
           <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${colorClass} bg-opacity-10 text-opacity-100`}>
             <Icon className="h-4 w-4" />
@@ -375,7 +375,7 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(330px,1.2fr)_3fr]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(330px,1.2fr)_minmax(0,3fr)]">
         {/* Costo Section - Primary */}
         <div className="rounded-xl border-2 border-blue-100 bg-blue-50/30 p-4 dark:border-blue-900/20 dark:bg-blue-900/5">
           <div className="mb-2 flex items-center gap-3">
@@ -459,7 +459,7 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
         </div>
 
         {/* Selling Prices - Horizontal Row */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="flex min-w-0 gap-4 overflow-x-auto pb-2">
           {tiposVenta.map((tipo, index) => {
             const presentation = getPricePresentation(tipo.descripcion, index);
             return renderPriceRow(tipo.id, tipo.descripcion, presentation.Icon, presentation.colorClass);
