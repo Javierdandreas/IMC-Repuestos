@@ -36,7 +36,7 @@ type CostoReferenciaImportacion = {
   codigoItem: string;
   descripcionItem: string;
   codigoProveedor: string;
-  criterioCosto: "PROVEEDOR_UNICO" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
+  criterioCosto: "PROVEEDOR_UNICO" | "MANUAL" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
   costoReferencia: number | null;
 };
 
@@ -79,6 +79,7 @@ async function obtenerCostosReferenciaImportacion(
         ON precio.id_producto = producto.id
        AND precio.id_tipo_precio = tipo_costo.id
       WHERE producto.criterio_costo IN ('PROVEEDOR_UNICO', 'MENOR_PRECIO', 'PROMEDIO_PRECIO', 'MAYOR_PRECIO')
+         OR (producto.criterio_costo = 'MANUAL' AND COALESCE(precio.precio, 0) <= 0)
     `,
     [idImportacion, itemIds?.length ? itemIds : null],
   );
@@ -91,6 +92,63 @@ async function obtenerCostosReferenciaImportacion(
     criterioCosto: row.criterio_costo,
     costoReferencia: row.costo_referencia === null ? null : Number(row.costo_referencia),
   })) as CostoReferenciaImportacion[];
+}
+
+/** A first supplier list can initialize an otherwise empty manual cost. */
+async function obtenerCostosManualesInicialesImportacion(
+  client: DbClient,
+  idImportacion: number,
+  itemIds?: number[],
+) {
+  const result = await client.query<{ id_producto: number; costo: number }>(`
+    WITH tipo_costo AS (
+      SELECT id
+      FROM public.tipo_precio
+      WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+      ORDER BY id
+      LIMIT 1
+    ), items_actualizados AS (
+      SELECT DISTINCT ON (pii.id_producto)
+        pii.id_producto
+      FROM public.proveedor_importacion_item pii
+      WHERE pii.id_importacion = $1
+        AND pii.estado = 'ACTUALIZADO'
+        AND pii.id_producto IS NOT NULL
+        AND ($2::int[] IS NULL OR pii.id = ANY($2::int[]))
+      ORDER BY pii.id_producto, pii.id
+    )
+    SELECT
+      producto.id AS id_producto,
+      COALESCE(asociacion.costo_actual, asociacion.precio_lista_actual)::float AS costo
+    FROM items_actualizados item
+    INNER JOIN public.proveedor_importacion importacion ON importacion.id = $1
+    INNER JOIN public.productos producto ON producto.id = item.id_producto
+    INNER JOIN public.producto_proveedor asociacion
+      ON asociacion.id_producto = producto.id
+      AND asociacion.id_proveedor = importacion.id_proveedor
+    LEFT JOIN tipo_costo ON true
+    LEFT JOIN public.producto_precio precio
+      ON precio.id_producto = producto.id
+      AND precio.id_tipo_precio = tipo_costo.id
+    WHERE producto.criterio_costo = 'MANUAL'
+      AND COALESCE(precio.precio, 0) <= 0
+      AND COALESCE(asociacion.costo_actual, asociacion.precio_lista_actual) > 0
+  `, [idImportacion, itemIds?.length ? itemIds : null]);
+
+  return result.rows.map((row) => ({ idProducto: Number(row.id_producto), costo: Number(row.costo) }))
+    .filter((item) => Number.isInteger(item.idProducto) && item.idProducto > 0 && Number.isFinite(item.costo) && item.costo > 0);
+}
+
+async function obtenerCostosPropuestosImportacion(
+  client: DbClient,
+  idImportacion: number,
+  costosAntes: CostoReferenciaImportacion[],
+  itemIds?: number[],
+) {
+  const ids = [...new Set(costosAntes.map((item) => item.idProducto))];
+  const automaticos = await obtenerCostosReferenciaAutomaticos(client, ids);
+  const manualesIniciales = await obtenerCostosManualesInicialesImportacion(client, idImportacion, itemIds);
+  return new Map([...automaticos, ...manualesIniciales].map((item) => [item.idProducto, item.costo]));
 }
 
 export async function iniciarImportacionProveedor(
@@ -738,12 +796,9 @@ async function aplicarImportacionAlCatalogoCompletaLegacy(id_importacion: number
       });
     }
 
-    const costosPropuestos = await obtenerCostosReferenciaAutomaticos(client, updatedProductIds);
+    const costoPropuestoPorProducto = await obtenerCostosPropuestosImportacion(client, id_importacion, costosAntes);
     const costosAnterioresPorProducto = new Map(
       costosAntes.map((item) => [item.idProducto, item.costoReferencia]),
-    );
-    const costoPropuestoPorProducto = new Map(
-      costosPropuestos.map((item) => [item.idProducto, item.costo]),
     );
     const cambiosDeCosto = costosAntes
       .map((item) => {
@@ -752,8 +807,9 @@ async function aplicarImportacionAlCatalogoCompletaLegacy(id_importacion: number
         const porcentajeVariacion = costoAnterior === null || costoAnterior <= 0 || costoNuevo === null
           ? null
           : ((costoNuevo - costoAnterior) / costoAnterior) * 100;
-        const estadoAprobacion: EstadoAprobacionCambioCosto = porcentajeVariacion !== null
-          && Math.abs(porcentajeVariacion) <= UMBRAL_APROBACION_AUTOMATICA
+        const esCostoInicial = costoAnterior === null || costoAnterior <= 0;
+        const estadoAprobacion: EstadoAprobacionCambioCosto = esCostoInicial
+          || (porcentajeVariacion !== null && Math.abs(porcentajeVariacion) <= UMBRAL_APROBACION_AUTOMATICA)
           ? "APROBADO_AUTOMATICO"
           : "PENDIENTE";
         return {
@@ -963,9 +1019,8 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
       await recalcularCostosProveedorProductos(client, { idProveedor: updatedProviderId, productIds: updatedProductIds });
     }
 
-    const costosPropuestos = await obtenerCostosReferenciaAutomaticos(client, updatedProductIds);
+    const costoPropuestoPorProducto = await obtenerCostosPropuestosImportacion(client, id_importacion, costosAntes, itemIds);
     const costosAnterioresPorProducto = new Map(costosAntes.map((item) => [item.idProducto, item.costoReferencia]));
-    const costoPropuestoPorProducto = new Map(costosPropuestos.map((item) => [item.idProducto, item.costo]));
     const cambiosDeCosto = costosAntes
       .map((item) => {
         const costoAnterior = costosAnterioresPorProducto.get(item.idProducto) ?? null;
@@ -973,8 +1028,9 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
         const porcentajeVariacion = costoAnterior === null || costoAnterior <= 0 || costoNuevo === null
           ? null
           : ((costoNuevo - costoAnterior) / costoAnterior) * 100;
-        const estadoAprobacion: EstadoAprobacionCambioCosto = porcentajeVariacion !== null
-          && Math.abs(porcentajeVariacion) <= UMBRAL_APROBACION_AUTOMATICA
+        const esCostoInicial = costoAnterior === null || costoAnterior <= 0;
+        const estadoAprobacion: EstadoAprobacionCambioCosto = esCostoInicial
+          || (porcentajeVariacion !== null && Math.abs(porcentajeVariacion) <= UMBRAL_APROBACION_AUTOMATICA)
           ? "APROBADO_AUTOMATICO"
           : "PENDIENTE";
         return { ...item, costoAnterior, costoNuevo, porcentajeVariacion, estadoAprobacion };
