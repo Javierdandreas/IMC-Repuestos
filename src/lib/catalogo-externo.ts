@@ -11,6 +11,7 @@ const MAX_GESU_ROWS = 60000;
 const MAX_GESU_PAGES = 60;
 const GESU_REQUEST_TIMEOUT_MS = 15_000;
 const GESU_MIN_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+const GESU_PAGE_CONCURRENCY = 24;
 const SAMPLE_LIMIT = 80;
 const IMPORT_LIMIT = 500;
 
@@ -407,8 +408,9 @@ async function fetchGesuPage(page: number): Promise<GesuResponse> {
 }
 
 /**
- * GESU permite una consulta por pagina cada quince minutos. Esta funcion hace
- * una sola llamada por pagina y no reintenta, para respetar ese limite.
+ * GESU permite una consulta por pagina cada quince minutos. Se hace una sola
+ * llamada por pagina y no se reintenta. Las paginas distintas se consultan en
+ * paralelo para que un cron no exceda el limite de ejecucion de Vercel.
  */
 async function fetchGesuApiSource() {
   const first = await fetchGesuPage(1);
@@ -422,11 +424,17 @@ async function fetchGesuApiSource() {
   const pageCount = Math.ceil(total / pageSize);
   if (pageCount > MAX_GESU_PAGES) throw new AppError("GESU supera la cantidad maxima de paginas permitida.", 422);
 
-  const rows = [...firstRows];
-  for (let page = 2; page <= pageCount; page += 1) {
-    const response = await fetchGesuPage(page);
-    rows.push(...rawRowsFromGesuPage(response, page));
+  const rowsByPage: RawRow[][] = Array.from({ length: pageCount }, () => []);
+  rowsByPage[0] = firstRows;
+  const remainingPages = Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => index + 2);
+
+  for (let offset = 0; offset < remainingPages.length; offset += GESU_PAGE_CONCURRENCY) {
+    const pages = remainingPages.slice(offset, offset + GESU_PAGE_CONCURRENCY);
+    const responses = await Promise.all(pages.map(async (page) => ({ page, response: await fetchGesuPage(page) })));
+    for (const { page, response } of responses) rowsByPage[page - 1] = rawRowsFromGesuPage(response, page);
   }
+
+  const rows = rowsByPage.flat();
   return {
     rows,
     syncRunId: `GESU-${new Date().toISOString()}`,
