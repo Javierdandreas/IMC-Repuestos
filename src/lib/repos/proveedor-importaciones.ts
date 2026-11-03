@@ -1426,6 +1426,32 @@ export type ResumenExportacionCosto = {
   proveedores: number;
   importaciones: number;
   proveedores_detalle: string[];
+  detalle_disponible: boolean;
+  origenes_detalle: DetalleOrigenExportacionCosto[];
+};
+
+export type DetalleOrigenExportacionCosto = {
+  proveedor: string;
+  origen: FiltroOrigenCambioCosto;
+  archivo: string;
+  cantidad: number;
+};
+
+export type FilaExportacionCosto = {
+  fecha_importacion: string | null;
+  proveedor: string;
+  codigo_item: string | null;
+  codigo_proveedor: string | null;
+  costo_anterior: number | null;
+  costo_nuevo: number;
+  diferencia: number | null;
+};
+
+type DetalleExportacionCosto = FilaExportacionCosto & {
+  id_importacion: number | null;
+  id_proveedor: number | null;
+  origen: FiltroOrigenCambioCosto;
+  archivo: string;
 };
 
 export type PendienteExportacionCosto = {
@@ -1450,6 +1476,13 @@ async function tieneDetalleProveedoresExportacionCosto() {
         AND table_name = 'proveedor_importacion_exportacion_costo'
         AND column_name = 'proveedores_detalle'
     ) AS existe
+  `);
+  return Boolean(rows[0]?.existe);
+}
+
+async function tieneHistorialDetalleExportacionCosto() {
+  const { rows } = await query<{ existe: boolean }>(`
+    SELECT to_regclass('public.proveedor_importacion_exportacion_costo_detalle') IS NOT NULL AS existe
   `);
   return Boolean(rows[0]?.existe);
 }
@@ -1630,7 +1663,10 @@ export async function getResumenPendientesExportacionCosto(limit = 8): Promise<R
 
 export async function getResumenExportacionesCosto(limit = 5): Promise<ResumenExportacionCosto[]> {
   const safeLimit = Math.max(1, Math.min(10, Math.floor(limit)));
-  const tieneDetalle = await tieneDetalleProveedoresExportacionCosto();
+  const [tieneDetalle, tieneHistorialDetalle] = await Promise.all([
+    tieneDetalleProveedoresExportacionCosto(),
+    tieneHistorialDetalleExportacionCosto(),
+  ]);
   const result = await query<ResumenExportacionCosto>(
     `SELECT id, created_at, cantidad, proveedores, importaciones, ${tieneDetalle ? "COALESCE(proveedores_detalle, '[]'::jsonb)" : "'[]'::jsonb"} AS proveedores_detalle
      FROM public.proveedor_importacion_exportacion_costo
@@ -1638,6 +1674,34 @@ export async function getResumenExportacionesCosto(limit = 5): Promise<ResumenEx
      LIMIT $1`,
     [safeLimit],
   );
+  const exportIds = result.rows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
+  const detalles = tieneHistorialDetalle && exportIds.length
+    ? await query<DetalleOrigenExportacionCosto & { id_exportacion: number }>(
+      `SELECT
+         id_exportacion,
+         proveedor,
+         origen,
+         archivo_origen AS archivo,
+         COUNT(*)::int AS cantidad
+       FROM public.proveedor_importacion_exportacion_costo_detalle
+       WHERE id_exportacion = ANY($1::bigint[])
+       GROUP BY id_exportacion, proveedor, origen, archivo_origen
+       ORDER BY proveedor, origen, archivo_origen`,
+      [exportIds],
+    )
+    : { rows: [] as Array<DetalleOrigenExportacionCosto & { id_exportacion: number }> };
+  const detallesPorExportacion = new Map<number, DetalleOrigenExportacionCosto[]>();
+  for (const detalle of detalles.rows) {
+    const id = Number(detalle.id_exportacion);
+    const current = detallesPorExportacion.get(id) ?? [];
+    current.push({
+      proveedor: String(detalle.proveedor),
+      origen: detalle.origen,
+      archivo: String(detalle.archivo),
+      cantidad: Number(detalle.cantidad),
+    });
+    detallesPorExportacion.set(id, current);
+  }
   return result.rows.map((row) => ({
     id: Number(row.id),
     created_at: row.created_at,
@@ -1645,6 +1709,40 @@ export async function getResumenExportacionesCosto(limit = 5): Promise<ResumenEx
     proveedores: Number(row.proveedores),
     importaciones: Number(row.importaciones),
     proveedores_detalle: Array.isArray(row.proveedores_detalle) ? row.proveedores_detalle.map(String) : [],
+    detalle_disponible: detallesPorExportacion.has(Number(row.id)),
+    origenes_detalle: detallesPorExportacion.get(Number(row.id)) ?? [],
+  }));
+}
+
+export async function getExportacionCostoParaDescarga(id: number): Promise<FilaExportacionCosto[]> {
+  if (!Number.isInteger(id) || id <= 0) throw new AppError("Exportacion invalida.", 400);
+  if (!await tieneHistorialDetalleExportacionCosto()) {
+    throw new AppError("Esta exportacion no tiene detalle disponible para descargar nuevamente.", 409);
+  }
+  const result = await query<FilaExportacionCosto>(
+    `SELECT
+       fecha_importacion,
+       proveedor,
+       codigo_item,
+       codigo_proveedor,
+       costo_anterior::float AS costo_anterior,
+       costo_nuevo::float AS costo_nuevo,
+       diferencia::float AS diferencia
+     FROM public.proveedor_importacion_exportacion_costo_detalle
+     WHERE id_exportacion = $1
+     ORDER BY id`,
+    [id],
+  );
+  if (!result.rowCount) throw new AppError("Esta exportacion es anterior al historial detallado y no se puede reconstruir.", 409);
+  return result.rows.map((row) => ({
+    ...row,
+    fecha_importacion: row.fecha_importacion ?? null,
+    proveedor: String(row.proveedor),
+    codigo_item: row.codigo_item ?? null,
+    codigo_proveedor: row.codigo_proveedor ?? null,
+    costo_anterior: row.costo_anterior === null ? null : Number(row.costo_anterior),
+    costo_nuevo: Number(row.costo_nuevo),
+    diferencia: row.diferencia === null ? null : Number(row.diferencia),
   }));
 }
 
@@ -1668,6 +1766,43 @@ export async function registrarExportacionCambiosCosto(
       ) AS existe
     `);
     const tieneDetalle = Boolean(detalleColumn.rows[0]?.existe);
+    const detalleHistoricoTable = await client.query<{ existe: boolean }>(`
+      SELECT to_regclass('public.proveedor_importacion_exportacion_costo_detalle') IS NOT NULL AS existe
+    `);
+    const tieneHistorialDetalle = Boolean(detalleHistoricoTable.rows[0]?.existe);
+    const exportRows = await client.query<DetalleExportacionCosto>(
+      `SELECT
+         cambio.id_importacion,
+         COALESCE(cambio.id_proveedor, pi.id_proveedor) AS id_proveedor,
+         COALESCE(pi.updated_at, cambio.created_at) AS fecha_importacion,
+         COALESCE(proveedor.descripcion, 'Sin proveedor') AS proveedor,
+         cambio.origen,
+         COALESCE(
+           pi.nombre_archivo,
+           cambio.detalle_origen,
+           CASE cambio.origen
+             WHEN 'CARGA_MANUAL_PROVEEDOR' THEN 'Carga manual de precios'
+             WHEN 'CRITERIO_MASIVO' THEN 'Cambio masivo de criterio'
+             WHEN 'REGLAS_PROVEEDOR' THEN 'Capas de costo'
+             WHEN 'DESCUENTOS_PROVEEDOR' THEN 'Descuentos de proveedor'
+             WHEN 'EDICION_ITEM' THEN 'Edicion de item'
+             ELSE 'Importacion de proveedor'
+           END
+         ) AS archivo,
+         cambio.codigo_item,
+         cambio.codigo_proveedor,
+         cambio.costo_anterior::float AS costo_anterior,
+         cambio.costo_nuevo::float AS costo_nuevo,
+         CASE WHEN cambio.costo_anterior IS NULL THEN NULL ELSE (cambio.costo_nuevo - cambio.costo_anterior)::float END AS diferencia
+       FROM public.proveedor_importacion_cambio_costo cambio
+       LEFT JOIN public.proveedor_importacion pi ON pi.id = cambio.id_importacion
+       LEFT JOIN public.proveedores proveedor ON proveedor.id = COALESCE(cambio.id_proveedor, pi.id_proveedor)
+       WHERE cambio.id = ANY($1::bigint[])
+         AND cambio.estado_aprobacion IN ('APROBADO_AUTOMATICO', 'APROBADO_MANUAL')
+       FOR UPDATE OF cambio`,
+      [changeIds],
+    );
+    if (!exportRows.rowCount) throw new AppError("Los cambios aprobados ya no estan disponibles para exportar.", 409);
     const deleted = await client.query<{ id: number; id_proveedor: number | null; id_importacion: number | null }>(
       `DELETE FROM public.proveedor_importacion_cambio_costo
        WHERE id = ANY($1::bigint[])
@@ -1675,14 +1810,23 @@ export async function registrarExportacionCambiosCosto(
        RETURNING id, id_proveedor, id_importacion`,
       [changeIds],
     );
-    if (!deleted.rowCount) throw new AppError("Los cambios aprobados ya no estan disponibles para exportar.", 409);
+    if (deleted.rowCount !== exportRows.rowCount) throw new AppError("Algunos cambios ya no estan disponibles para exportar. Actualiza el listado e intenta nuevamente.", 409);
 
-    const proveedores = new Set(deleted.rows.map((row) => Number(row.id_proveedor)).filter((id) => Number.isInteger(id) && id > 0)).size;
-    const importaciones = new Set(deleted.rows.map((row) => Number(row.id_importacion)).filter((id) => Number.isInteger(id) && id > 0)).size;
-    const proveedorIds = [...new Set(deleted.rows.map((row) => Number(row.id_proveedor)).filter((id) => Number.isInteger(id) && id > 0))];
-    const proveedorDetalle = proveedorIds.length
-      ? (await client.query<{ descripcion: string }>(`SELECT descripcion FROM public.proveedores WHERE id = ANY($1::int[]) ORDER BY descripcion ASC`, [proveedorIds])).rows.map((row) => row.descripcion)
-      : [];
+    const proveedores = new Set(exportRows.rows.map((row) => String(row.proveedor))).size;
+    const importaciones = new Set(exportRows.rows.map((row) => Number(row.id_importacion)).filter((id) => Number.isInteger(id) && id > 0)).size;
+    const proveedorDetalle = [...new Set(exportRows.rows.map((row) => String(row.proveedor)))].sort((a, b) => a.localeCompare(b, "es-AR"));
+    const origenesDetalle = Array.from(
+      exportRows.rows.reduce((groups, row) => {
+        const proveedor = String(row.proveedor);
+        const origen = row.origen;
+        const archivo = String(row.archivo);
+        const key = `${proveedor}\u0000${origen}\u0000${archivo}`;
+        const current = groups.get(key) ?? { proveedor, origen, archivo, cantidad: 0 };
+        current.cantidad += 1;
+        groups.set(key, current);
+        return groups;
+      }, new Map<string, DetalleOrigenExportacionCosto>()).values(),
+    );
     const summary = await client.query<ResumenExportacionCosto>(
       `INSERT INTO public.proveedor_importacion_exportacion_costo (usuario_id, cantidad, proveedores, importaciones, filtros${tieneDetalle ? ", proveedores_detalle" : ""})
        VALUES ($1, $2, $3, $4, $5::jsonb${tieneDetalle ? ", $6::jsonb" : ""})
@@ -1691,6 +1835,41 @@ export async function registrarExportacionCambiosCosto(
         ? [usuarioId, deleted.rowCount, proveedores, importaciones, JSON.stringify(filters), JSON.stringify(proveedorDetalle)]
         : [usuarioId, deleted.rowCount, proveedores, importaciones, JSON.stringify(filters)],
     );
+    if (tieneHistorialDetalle) {
+      await client.query(
+        `INSERT INTO public.proveedor_importacion_exportacion_costo_detalle (
+           id_exportacion, id_importacion, id_proveedor, proveedor, origen, archivo_origen,
+           fecha_importacion, codigo_item, codigo_proveedor, costo_anterior, costo_nuevo, diferencia
+         )
+         SELECT
+           $1,
+           detalle.id_importacion,
+           detalle.id_proveedor,
+           detalle.proveedor,
+           detalle.origen,
+           detalle.archivo,
+           detalle.fecha_importacion,
+           detalle.codigo_item,
+           detalle.codigo_proveedor,
+           detalle.costo_anterior,
+           detalle.costo_nuevo,
+           detalle.diferencia
+         FROM jsonb_to_recordset($2::jsonb) AS detalle(
+           id_importacion bigint,
+           id_proveedor integer,
+           proveedor text,
+           origen text,
+           archivo text,
+           fecha_importacion timestamptz,
+           codigo_item text,
+           codigo_proveedor text,
+           costo_anterior numeric,
+           costo_nuevo numeric,
+           diferencia numeric
+         )`,
+        [summary.rows[0].id, JSON.stringify(exportRows.rows)],
+      );
+    }
     await client.query(
       `DELETE FROM public.proveedor_importacion_exportacion_costo
        WHERE id NOT IN (
@@ -1715,6 +1894,8 @@ export async function registrarExportacionCambiosCosto(
         proveedores: Number(summary.rows[0].proveedores),
         importaciones: Number(summary.rows[0].importaciones),
         proveedores_detalle: Array.isArray(summary.rows[0].proveedores_detalle) ? summary.rows[0].proveedores_detalle.map(String) : [],
+        detalle_disponible: tieneHistorialDetalle,
+        origenes_detalle: origenesDetalle,
       },
     };
   });

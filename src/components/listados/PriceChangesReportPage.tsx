@@ -40,7 +40,17 @@ type Row = {
   resuelto_at: string | null;
 };
 
-type ExportSummary = { id: number; created_at: string; cantidad: number; proveedores: number; importaciones: number; proveedores_detalle: string[] };
+type ExportOriginDetail = { proveedor: string; origen: Row["origen"]; archivo: string; cantidad: number };
+type ExportSummary = {
+  id: number;
+  created_at: string;
+  cantidad: number;
+  proveedores: number;
+  importaciones: number;
+  proveedores_detalle: string[];
+  detalle_disponible: boolean;
+  origenes_detalle: ExportOriginDetail[];
+};
 type PendingExport = { id_importacion: number | null; proveedor: string; archivo: string; cantidad: number };
 type PendingExportsSummary = { totalCount: number; totalGroups: number; groups: PendingExport[] };
 type Response = { data: Row[]; page: number; totalPages: number; totalCount: number; recentExports: ExportSummary[]; pendingExports: PendingExportsSummary };
@@ -102,6 +112,7 @@ export function PriceChangesReportPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isResolving, setIsResolving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [downloadingExportId, setDownloadingExportId] = useState<number | null>(null);
   const [confirmingAll, setConfirmingAll] = useState(false);
 
   const params = new URLSearchParams({ page: String(page), limit: String(pageSize), estado: status });
@@ -234,6 +245,32 @@ export function PriceChangesReportPage() {
     }
   }
 
+  async function downloadPreviousExport(item: ExportSummary) {
+    setDownloadingExportId(item.id);
+    try {
+      const response = await fetch(`/api/listados/precios-modificados/export/${item.id}`, { cache: "no-store" });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || "No se pudo descargar la exportacion.");
+      }
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "costos_modificados.csv";
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Exportacion descargada nuevamente.");
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "No se pudo descargar la exportacion.");
+    } finally {
+      setDownloadingExportId(null);
+    }
+  }
+
   return (
     <main className="min-h-[calc(100dvh-4rem)] bg-white p-4 dark:bg-black md:p-6">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
@@ -256,24 +293,6 @@ export function PriceChangesReportPage() {
                 {data.pendingExports.groups.map((item) => `${item.proveedor}: ${item.cantidad.toLocaleString("es-AR")} (${item.archivo})`).join(" · ")}
                 {data.pendingExports.totalGroups > data.pendingExports.groups.length ? ` · y ${data.pendingExports.totalGroups - data.pendingExports.groups.length} lista(s) mas.` : ""}
               </p>
-            </div>
-          </section>
-        ) : null}
-
-        {data?.recentExports.length ? (
-          <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-500">Ultimas exportaciones</span>
-              <span className="text-[11px] font-bold text-slate-400">{data.recentExports.length} recientes</span>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-              {data.recentExports.map((item) => (
-                <article key={item.id} className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/60">
-                  <p className="truncate text-xs font-black text-slate-800 dark:text-slate-100">{formatDate(item.created_at)}</p>
-                  <p className="mt-2 truncate text-[11px] font-bold text-slate-600 dark:text-slate-300" title={item.proveedores_detalle.join(", ")}>{item.proveedores_detalle.length ? item.proveedores_detalle.join(", ") : `${item.proveedores} proveedor${item.proveedores === 1 ? "" : "es"} (sin detalle)`}</p>
-                  <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] font-bold text-slate-500 dark:text-slate-400"><span>{item.cantidad.toLocaleString("es-AR")} items exportados</span><span>{item.importaciones} importacion{item.importaciones === 1 ? "" : "es"} de origen</span></div>
-                </article>
-              ))}
             </div>
           </section>
         ) : null}
@@ -387,6 +406,59 @@ export function PriceChangesReportPage() {
             </div>
           </div>
         </section>
+
+        {data?.recentExports.length ? (
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
+              <div>
+                <h2 className="text-sm font-black text-slate-900 dark:text-white">Ultimas exportaciones</h2>
+                <p className="mt-0.5 text-xs font-medium text-slate-500">Detalle de proveedores, origenes y archivos incluidos en cada CSV.</p>
+              </div>
+              <span className="text-[11px] font-bold text-slate-400">{data.recentExports.length} recientes</span>
+            </div>
+            <div className="divide-y divide-slate-200 dark:divide-slate-800">
+              {data.recentExports.map((item) => (
+                <article key={item.id} className="p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-slate-900 dark:text-white">{formatDate(item.created_at)}</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">{item.cantidad.toLocaleString("es-AR")} items exportados · {item.proveedores} proveedor{item.proveedores === 1 ? "" : "es"} · {item.importaciones} importacion{item.importaciones === 1 ? "" : "es"} de origen</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!item.detalle_disponible || downloadingExportId === item.id}
+                      onClick={() => void downloadPreviousExport(item)}
+                      title={item.detalle_disponible ? "Descargar nuevamente este CSV" : "Esta exportacion es anterior al historial detallado"}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-500/30 px-3 text-[10px] font-black uppercase tracking-wide text-blue-600 transition hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:opacity-70 dark:text-blue-300 dark:disabled:border-slate-800"
+                    >
+                      <HiDownload className="h-4 w-4" />
+                      {downloadingExportId === item.id ? "Descargando" : item.detalle_disponible ? "Descargar CSV" : "Sin detalle"}
+                    </button>
+                  </div>
+
+                  {item.origenes_detalle.length ? (
+                    <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                      {item.origenes_detalle.map((detail) => (
+                        <div key={`${detail.proveedor}-${detail.origen}-${detail.archivo}`} className="min-w-0 border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/45">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="truncate text-xs font-black text-slate-800 dark:text-slate-100" title={detail.proveedor}>{detail.proveedor}</p>
+                            <span className="shrink-0 text-[10px] font-black uppercase tracking-wide text-blue-600 dark:text-blue-300">{originLabel(detail.origen)}</span>
+                          </div>
+                          <p className="mt-1 truncate text-[11px] font-semibold text-slate-500" title={detail.archivo}>{detail.archivo}</p>
+                          <p className="mt-1 text-[11px] font-bold text-slate-500">{detail.cantidad.toLocaleString("es-AR")} item{detail.cantidad === 1 ? "" : "s"}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs font-semibold text-slate-500" title={item.proveedores_detalle.join(", ")}>
+                      {item.proveedores_detalle.length ? `Proveedores: ${item.proveedores_detalle.join(", ")}.` : "No se conservo el detalle de proveedores para esta exportacion anterior."}
+                    </p>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
       <Modal title="Aprobar todos los costos filtrados" open={confirmingAll} onClose={() => setConfirmingAll(false)} width="max-w-md">
         <div className="space-y-4 p-5">
