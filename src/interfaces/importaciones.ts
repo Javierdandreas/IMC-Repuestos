@@ -12,6 +12,7 @@ export interface ProveedorImportacion {
   invalidos?: number;
   duplicados?: number;
   proveedor_distinto?: number;
+  moneda_distinta?: number;
   filas_detalle?: number;
   detalle_disponible?: boolean;
   created_at: string;

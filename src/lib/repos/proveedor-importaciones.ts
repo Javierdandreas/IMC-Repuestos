@@ -11,6 +11,7 @@ import {
 } from "@/lib/cambios-costo-referencia";
 import { AppError } from "@/lib/api-errors";
 import { calcularCotizacionProveedor } from "@/lib/cotizacion-proveedor";
+import { normalizarStockProveedorConCapas } from "@/lib/stock-proveedor";
 import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
 import {
   CreateImportacionInput,
@@ -237,6 +238,30 @@ export async function agregarItemsImportacionProveedor(
       throw new AppError(`El precio de las filas ${filasFueraDeRango.join(", ")} supera el maximo permitido despues de aplicar la cotizacion.`, 422);
     }
 
+    const reglasStock = await client.query<{
+      nombre: string;
+      condicion_valor: string | null;
+      condicion_tipo: string | null;
+      activo: boolean;
+      orden: number;
+      alcance: string;
+    }>(
+      `
+        SELECT nombre, condicion_valor, condicion_tipo, activo, orden, alcance
+        FROM public.proveedor_regla_costo
+        WHERE id_proveedor = $1
+          AND activo = true
+          AND condicion_tipo = 'STOCK_TEXTO'
+        ORDER BY orden ASC, id ASC
+      `,
+      [idProveedor],
+    );
+    const itemsConStockNormalizado = items.map((item) => {
+      if (item.stock_fuente === "COLOR_FILA") return item;
+      const stock = normalizarStockProveedorConCapas(item.stock_original, reglasStock.rows);
+      return { ...item, stock_original: stock.original, stock_estado: stock.estado, stock_cantidad: stock.cantidad };
+    });
+
     await client.query(
       `
         INSERT INTO public.proveedor_importacion_item (
@@ -256,14 +281,14 @@ export async function agregarItemsImportacionProveedor(
       `,
       [
         idImportacion,
-        items.map((item, index) => item.fila || index + 2),
-        items.map((item) => item.proveedor_archivo || ""),
-        items.map((item) => item.codigo_proveedor || ""),
-        items.map((item) => item.precio_lista ?? null),
-        items.map((item) => item.precio_original || ""),
-        items.map((item) => item.stock_original || ""),
-        items.map((item) => item.stock_estado || "DESCONOCIDO"),
-        items.map((item) => item.stock_cantidad ?? null),
+        itemsConStockNormalizado.map((item, index) => item.fila || index + 2),
+        itemsConStockNormalizado.map((item) => item.proveedor_archivo || ""),
+        itemsConStockNormalizado.map((item) => item.codigo_proveedor || ""),
+        itemsConStockNormalizado.map((item) => item.precio_lista ?? null),
+        itemsConStockNormalizado.map((item) => item.precio_original || ""),
+        itemsConStockNormalizado.map((item) => item.stock_original || ""),
+        itemsConStockNormalizado.map((item) => item.stock_estado || "DESCONOCIDO"),
+        itemsConStockNormalizado.map((item) => item.stock_cantidad ?? null),
       ],
     );
 
@@ -533,24 +558,50 @@ async function prepararImportacionParaAplicar(client: DbClient, idImportacion: n
 
   await client.query(
     `
-      WITH matches AS (
+      WITH tipo_costo AS (
+        SELECT id
+        FROM public.tipo_precio
+        WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+        ORDER BY id
+        LIMIT 1
+      ), matches AS (
         SELECT pii.id, COUNT(pp.id_producto)::int AS match_count,
-          MIN(pp.id_producto) AS id_producto, MIN(pp.precio_lista_actual) AS precio_anterior
+          MIN(pp.id_producto) AS id_producto, MIN(pp.precio_lista_actual) AS precio_anterior,
+          MIN(CASE
+            WHEN pi.moneda_origen = 'ARS'
+              AND costo.modo_calculo = 'FIJO_MONEDA'
+              AND COALESCE(costo.moneda_origen, 'ARS') <> 'ARS'
+            THEN costo.moneda_origen
+          END) AS moneda_costo_extranjera
         FROM public.proveedor_importacion_item pii
         INNER JOIN public.proveedor_importacion pi ON pi.id = pii.id_importacion
         LEFT JOIN public.producto_proveedor pp
           ON pp.id_proveedor = pi.id_proveedor
          AND upper(trim(pp.codigo_proveedor)) = upper(trim(pii.codigo_proveedor))
+        LEFT JOIN tipo_costo ON true
+        LEFT JOIN public.producto_precio costo
+          ON costo.id_producto = pp.id_producto
+         AND costo.id_tipo_precio = tipo_costo.id
         WHERE pii.id = ANY($1::int[]) AND pii.estado = 'PENDIENTE'
         GROUP BY pii.id
       )
       UPDATE public.proveedor_importacion_item pii
       SET
-        estado = CASE WHEN matches.match_count = 0 THEN 'NO_ENCONTRADO' WHEN matches.match_count > 1 THEN 'DUPLICADO' ELSE 'ACTUALIZADO' END,
-        mensaje = CASE WHEN matches.match_count = 0 THEN 'No existe un item asociado a este proveedor con ese codigo' WHEN matches.match_count > 1 THEN 'El codigo esta asociado a mas de un item en este proveedor' ELSE 'Pendiente de aplicar' END,
+        estado = CASE
+          WHEN matches.match_count = 0 THEN 'NO_ENCONTRADO'
+          WHEN matches.match_count > 1 THEN 'DUPLICADO'
+          WHEN matches.moneda_costo_extranjera IS NOT NULL THEN 'MONEDA_DISTINTA'
+          ELSE 'ACTUALIZADO'
+        END,
+        mensaje = CASE
+          WHEN matches.match_count = 0 THEN 'No existe un item asociado a este proveedor con ese codigo'
+          WHEN matches.match_count > 1 THEN 'El codigo esta asociado a mas de un item en este proveedor'
+          WHEN matches.moneda_costo_extranjera IS NOT NULL THEN CONCAT('El costo base esta en ', matches.moneda_costo_extranjera, '; una lista en ARS no lo modifica')
+          ELSE 'Pendiente de aplicar'
+        END,
         id_producto = CASE WHEN matches.match_count = 1 THEN matches.id_producto ELSE NULL END,
         precio_anterior = CASE WHEN matches.match_count = 1 THEN matches.precio_anterior ELSE NULL END,
-        precio_aplicado = CASE WHEN matches.match_count = 1 THEN pii.precio_lista ELSE NULL END,
+        precio_aplicado = CASE WHEN matches.match_count = 1 AND matches.moneda_costo_extranjera IS NULL THEN pii.precio_lista ELSE NULL END,
         applied_at = NULL
       FROM matches
       WHERE pii.id = matches.id
@@ -574,7 +625,8 @@ async function resumenAplicacionImportacion(client: DbClient, idImportacion: num
         COUNT(*) FILTER (WHERE estado = 'NO_ENCONTRADO')::int AS not_found_count,
         COUNT(*) FILTER (WHERE estado = 'INVALIDO')::int AS invalid_count,
         COUNT(*) FILTER (WHERE estado = 'DUPLICADO')::int AS duplicate_count,
-        COUNT(*) FILTER (WHERE estado = 'PROVEEDOR_DISTINTO')::int AS provider_mismatch_count
+        COUNT(*) FILTER (WHERE estado = 'PROVEEDOR_DISTINTO')::int AS provider_mismatch_count,
+        COUNT(*) FILTER (WHERE estado = 'MONEDA_DISTINTA')::int AS foreign_currency_count
       FROM public.proveedor_importacion_item
       WHERE id_importacion = $1
     `,
@@ -600,6 +652,7 @@ async function resumenAplicacionImportacion(client: DbClient, idImportacion: num
     invalidCount: Number(summary.rows[0]?.invalid_count || 0),
     duplicateCount: Number(summary.rows[0]?.duplicate_count || 0),
     providerMismatchCount: Number(summary.rows[0]?.provider_mismatch_count || 0),
+    foreignCurrencyCount: Number(summary.rows[0]?.foreign_currency_count || 0),
   };
 }
 
@@ -614,7 +667,8 @@ async function finalizarAplicacionImportacion(client: DbClient, idImportacion: n
               COUNT(*) FILTER (WHERE estado = 'NO_ENCONTRADO'), ' no encontrados, ',
               COUNT(*) FILTER (WHERE estado = 'INVALIDO'), ' invalidos, ',
               COUNT(*) FILTER (WHERE estado = 'DUPLICADO'), ' duplicados, ',
-              COUNT(*) FILTER (WHERE estado = 'PROVEEDOR_DISTINTO'), ' proveedor distinto'
+              COUNT(*) FILTER (WHERE estado = 'PROVEEDOR_DISTINTO'), ' proveedor distinto, ',
+              COUNT(*) FILTER (WHERE estado = 'MONEDA_DISTINTA'), ' moneda distinta'
             )
             FROM public.proveedor_importacion_item WHERE id_importacion = $1
           ),
@@ -1151,7 +1205,8 @@ export async function getImportacionesByProveedor(id_proveedor: number) {
         COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'NO_ENCONTRADO'), 0)::int AS no_encontrados,
         COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'INVALIDO'), 0)::int AS invalidos,
         COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'DUPLICADO'), 0)::int AS duplicados,
-        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'PROVEEDOR_DISTINTO'), 0)::int AS proveedor_distinto
+        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'PROVEEDOR_DISTINTO'), 0)::int AS proveedor_distinto,
+        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'MONEDA_DISTINTA'), 0)::int AS moneda_distinta
       FROM public.proveedor_importacion pi
       LEFT JOIN public.proveedor_importacion_item pii ON pii.id_importacion = pi.id
       WHERE pi.id_proveedor = $1
@@ -1190,7 +1245,7 @@ export async function getImportacionItems(
       OR COALESCE(pii.estado, '') ILIKE $2 ESCAPE '\\'
     )`
     : "";
-  const estadoFiltro = ["TODOS", "ACTUALIZADO", "A_REVISAR", "COSTO_PENDIENTE", "NO_ENCONTRADO", "DUPLICADO", "INVALIDO", "PROVEEDOR_DISTINTO"].includes(estado)
+  const estadoFiltro = ["TODOS", "ACTUALIZADO", "A_REVISAR", "COSTO_PENDIENTE", "NO_ENCONTRADO", "DUPLICADO", "INVALIDO", "PROVEEDOR_DISTINTO", "MONEDA_DISTINTA"].includes(estado)
     ? estado
     : "TODOS";
   const filterEstado = estadoFiltro === "ACTUALIZADO"
@@ -1198,7 +1253,7 @@ export async function getImportacionItems(
     : estadoFiltro === "COSTO_PENDIENTE"
       ? "AND cambio.estado_aprobacion = 'PENDIENTE'"
       : estadoFiltro === "A_REVISAR"
-        ? "AND (pii.estado IN ('NO_ENCONTRADO', 'DUPLICADO', 'INVALIDO', 'PROVEEDOR_DISTINTO') OR cambio.estado_aprobacion = 'PENDIENTE')"
+        ? "AND (pii.estado IN ('NO_ENCONTRADO', 'DUPLICADO', 'INVALIDO', 'PROVEEDOR_DISTINTO', 'MONEDA_DISTINTA') OR cambio.estado_aprobacion = 'PENDIENTE')"
         : estadoFiltro === "TODOS"
           ? ""
           : `AND pii.estado = '${estadoFiltro}'`;
@@ -1378,6 +1433,74 @@ export async function getDetalleImportacionExportable(idImportacion: number): Pr
       costo_anterior: item.costo_anterior === null ? null : Number(item.costo_anterior),
       costo_nuevo: Number(item.costo_nuevo),
       diferencia_porcentaje: item.diferencia_porcentaje === null ? null : Number(item.diferencia_porcentaje),
+    })),
+  };
+}
+
+export type CostosModificadosImportacionExportable = {
+  proveedor: string;
+  items: Array<{
+    codigo_item: string;
+    codigo_proveedor: string;
+    costo_base: number | null;
+  }>;
+};
+
+/** Solo incluye filas aplicadas cuyo precio de proveedor cambio en esta importacion. */
+export async function getCostosModificadosImportacionExportable(
+  idImportacion: number,
+): Promise<CostosModificadosImportacionExportable> {
+  if (!Number.isInteger(idImportacion) || idImportacion <= 0) throw new AppError("Importacion invalida", 400);
+
+  const [headerResult, itemsResult] = await Promise.all([
+    query<{ proveedor: string }>(
+      `
+        SELECT COALESCE(proveedor.descripcion, 'Sin proveedor') AS proveedor
+        FROM public.proveedor_importacion importacion
+        LEFT JOIN public.proveedores proveedor ON proveedor.id = importacion.id_proveedor
+        WHERE importacion.id = $1
+        LIMIT 1
+      `,
+      [idImportacion],
+    ),
+    query<{ codigo_item: string; codigo_proveedor: string; costo_base: number | null }>(
+      `
+        WITH tipo_costo AS (
+          SELECT id
+          FROM public.tipo_precio
+          WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+          ORDER BY id
+          LIMIT 1
+        )
+        SELECT
+          COALESCE(producto.cod_unico, '') AS codigo_item,
+          importado.codigo_proveedor,
+          costo.precio::float AS costo_base
+        FROM public.proveedor_importacion_item importado
+        INNER JOIN public.productos producto ON producto.id = importado.id_producto
+        LEFT JOIN tipo_costo ON true
+        LEFT JOIN public.producto_precio costo
+          ON costo.id_producto = producto.id
+         AND costo.id_tipo_precio = tipo_costo.id
+        WHERE importado.id_importacion = $1
+          AND importado.estado = 'ACTUALIZADO'
+          AND importado.applied_at IS NOT NULL
+          AND importado.precio_anterior IS DISTINCT FROM importado.precio_aplicado
+        ORDER BY producto.cod_unico ASC, importado.codigo_proveedor ASC
+      `,
+      [idImportacion],
+    ),
+  ]);
+
+  const header = headerResult.rows[0];
+  if (!header) throw new AppError("Importacion no encontrada", 404);
+
+  return {
+    proveedor: String(header.proveedor ?? "Sin proveedor"),
+    items: itemsResult.rows.map((item) => ({
+      codigo_item: String(item.codigo_item ?? ""),
+      codigo_proveedor: String(item.codigo_proveedor ?? ""),
+      costo_base: item.costo_base === null ? null : Number(item.costo_base),
     })),
   };
 }

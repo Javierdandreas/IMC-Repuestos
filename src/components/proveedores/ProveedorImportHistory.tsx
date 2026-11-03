@@ -155,7 +155,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
         <div className="divide-y divide-slate-800">
           {rows.map((item, index) => {
             const canApply = index === 0 && item.estado === "PROCESADA";
-            const problemCount = (item.no_encontrados || 0) + (item.invalidos || 0) + (item.duplicados || 0) + (item.proveedor_distinto || 0);
+            const problemCount = (item.no_encontrados || 0) + (item.invalidos || 0) + (item.duplicados || 0) + (item.proveedor_distinto || 0) + (item.moneda_distinta || 0);
             return (
               <div
                 key={item.id}
@@ -306,7 +306,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
               <SummaryBox label="Actualizadas" value={detailImport.actualizados || 0} tone="success" />
               <SummaryBox
                 label="Problemas"
-                value={(detailImport.no_encontrados || 0) + (detailImport.invalidos || 0) + (detailImport.duplicados || 0) + (detailImport.proveedor_distinto || 0)}
+                value={(detailImport.no_encontrados || 0) + (detailImport.invalidos || 0) + (detailImport.duplicados || 0) + (detailImport.proveedor_distinto || 0) + (detailImport.moneda_distinta || 0)}
                 tone="warning"
               />
               <SummaryBox label="Estado" value={detailImport.estado} tone="neutral" />
@@ -346,6 +346,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                     <option value="DUPLICADO">Duplicadas</option>
                     <option value="INVALIDO">Invalidas</option>
                     <option value="PROVEEDOR_DISTINTO">Proveedor distinto</option>
+                    <option value="MONEDA_DISTINTA">Moneda distinta</option>
                   </select>
                 </label>
                 <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-slate-500">50 por pagina</span>
@@ -490,6 +491,7 @@ function getRowStatusBadge(value?: string | null): string {
     case "NO_ENCONTRADO":
     case "DUPLICADO":
     case "PROVEEDOR_DISTINTO":
+    case "MONEDA_DISTINTA":
       return "text-amber-300 bg-amber-500/10 border-amber-500/20";
     case "INVALIDO":
       return "text-red-300 bg-red-500/10 border-red-500/20";

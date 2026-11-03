@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { HiArrowLeft, HiDownload, HiSave } from "react-icons/hi";
+import { HiArrowLeft, HiSave } from "react-icons/hi";
 import { useAppError } from "@/context/AppErrorContext";
 
 import { ProveedorImportHistory } from "@/components/proveedores/ProveedorImportHistory";
@@ -54,36 +54,7 @@ export function ProveedorEditPage({ proveedor }: Props) {
   const [activo, setActivo] = useState(proveedor?.activo ?? true);
   const [observaciones, setObservaciones] = useState(proveedor?.observaciones ?? "");
   const [saving, setSaving] = useState(false);
-  const [exportingCosts, setExportingCosts] = useState(false);
   const [activeTab, setActiveTab] = useState<ProveedorTab>("datos");
-
-  const exportCosts = useCallback(async () => {
-    if (!proveedor || exportingCosts) return;
-    try {
-      setExportingCosts(true);
-      const response = await fetch(`/api/proveedores/${proveedor.id}/precios/export`);
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.message || "No se pudieron exportar los costos del proveedor.");
-      }
-      const disposition = response.headers.get("content-disposition") || "";
-      const fileName = disposition.match(/filename="?([^";]+)"?/)?.[1] || "costos-base-proveedor.csv";
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      link.click();
-      URL.revokeObjectURL(url);
-      toast.success("Costos base exportados correctamente.");
-    } catch (error) {
-      showMessage(
-        error instanceof Error ? error.message : "No se pudieron exportar los costos del proveedor.",
-        "No se pudieron exportar los costos del proveedor."
-      );
-    } finally {
-      setExportingCosts(false);
-    }
-  }, [exportingCosts, proveedor, showMessage]);
 
   const handleSave = useCallback(async () => {
     if (saving) return;
@@ -304,15 +275,6 @@ export function ProveedorEditPage({ proveedor }: Props) {
             <section className={sectionClass}>
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h2 className="text-[11px] font-black uppercase tracking-widest text-white">Importar lista de precios</h2>
-                <button
-                  type="button"
-                  onClick={exportCosts}
-                  disabled={exportingCosts}
-                  className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-emerald-500/40 px-3 text-[9px] font-black uppercase tracking-widest text-emerald-300 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <HiDownload className="h-4 w-4" />
-                  {exportingCosts ? "Exportando" : "Exportar costos"}
-                </button>
               </div>
               <ProveedorImportSection id_proveedor={proveedor.id} nombre_proveedor={descripcion} hideHistory compact />
             </section>

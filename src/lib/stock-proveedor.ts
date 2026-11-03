@@ -17,6 +17,15 @@ export type StockProveedorNormalizado = {
   cantidad: number | null;
 };
 
+type CapaStockTexto = {
+  nombre: string;
+  condicion_valor?: string | null;
+  condicion_tipo?: string | null;
+  activo?: boolean;
+  orden?: number;
+  alcance?: string;
+};
+
 function normalizarTexto(value: string) {
   return value
     .normalize("NFD")
@@ -24,6 +33,21 @@ function normalizarTexto(value: string) {
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, " ")
     .trim();
+}
+
+/** Convierte el nombre visible de una capa en el estado comercial del item. */
+export function estadoStockProveedorDesdeNombreCapa(value: unknown): EstadoStockProveedor | null {
+  const nombre = normalizarTexto(String(value ?? ""));
+  if (!nombre) return null;
+  if (/\b(SIN STOCK|CRITICO|AGOTADO|NO DISPONIBLE)\b/.test(nombre)) return "SIN_STOCK";
+  if (/\bMINIMO\b/.test(nombre)) return "CONSULTE";
+  if (/\bDISPONIBLE\b/.test(nombre)) return "DISPONIBLE";
+  if (/\bPOR PEDIDO\b/.test(nombre)) return "POR_PEDIDO";
+  if (/\bDEMORADO\b/.test(nombre)) return "DEMORADO";
+  if (/\bCONSULTE\b/.test(nombre)) return "CONSULTE";
+  if (/\bPROXIMAMENTE\b/.test(nombre)) return "PROXIMAMENTE";
+  if (/\bPROXIMO INGRESO\b/.test(nombre)) return "PROXIMO_INGRESO";
+  return null;
 }
 
 function parseCantidad(value: string): number | null {
@@ -76,6 +100,36 @@ export function normalizarStockProveedor(value: unknown): StockProveedorNormaliz
   }
 
   return { original, estado: "DESCONOCIDO", cantidad: null };
+}
+
+/**
+ * Las capas con condicion de stock tambien definen como se lee el archivo.
+ * El texto original se conserva; el nombre de la capa define el estado del item.
+ */
+export function normalizarStockProveedorConCapas(
+  value: unknown,
+  capas: CapaStockTexto[],
+): StockProveedorNormalizado {
+  const original = String(value ?? "").trim();
+  const texto = normalizarTexto(original);
+  if (!texto) return normalizarStockProveedor(original);
+
+  const coincideCondicion = (condicion: string) => {
+    if (condicion.length === 1) return texto.split(" ").includes(condicion);
+    return texto.includes(condicion);
+  };
+  const capa = [...capas]
+    .filter((item) => item.activo !== false
+      && item.condicion_tipo === "STOCK_TEXTO"
+      && item.alcance !== "MARCA"
+      && normalizarTexto(String(item.condicion_valor ?? ""))
+      && coincideCondicion(normalizarTexto(String(item.condicion_valor ?? ""))))
+    .sort((a, b) => Number(a.orden ?? 0) - Number(b.orden ?? 0))[0];
+  const estado = capa ? estadoStockProveedorDesdeNombreCapa(capa.nombre) : null;
+
+  return estado
+    ? { original, estado, cantidad: estado === "SIN_STOCK" ? 0 : null }
+    : normalizarStockProveedor(original);
 }
 
 function normalizarColorExcel(value: unknown) {

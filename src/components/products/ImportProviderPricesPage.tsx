@@ -2,16 +2,11 @@
 
 import { ChangeEvent, useMemo, useState } from "react";
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx/dist/xlsx.full.min.js";
 import { toast } from "sonner";
 import { HiArrowLeft, HiCheck, HiCloudUpload, HiPlay, HiRefresh } from "react-icons/hi";
 import { useRouter } from "next/navigation";
 import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
-
-async function loadExcelCodepages() {
-  const { cptable } = await import("xlsx/dist/cpexcel.full.mjs");
-  XLSX.set_cptable(cptable);
-}
 
 type Step = "upload" | "mapping" | "importing" | "results";
 type Mapping = { csvHeader: string };
@@ -149,7 +144,6 @@ export function ImportProviderPricesPage() {
 
     try {
       if (/\.(xlsx|xls)$/i.test(file.name)) {
-        await loadExcelCodepages();
         const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
         const providerSheetNames = new Set(["precios proveedores", "proveedores y precios", "proveedores"]);
         const sheetName = workbook.SheetNames.find((name) => providerSheetNames.has(normalizeHeader(name))) ?? workbook.SheetNames[0];

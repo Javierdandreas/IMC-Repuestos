@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx/dist/xlsx.full.min.js";
 import { toast } from "sonner";
 import { HiCheck, HiChevronLeft, HiChevronRight, HiCloudUpload, HiDownload, HiExclamation, HiPlay, HiSave, HiTable } from "react-icons/hi";
 import useSWR, { mutate } from "swr";
@@ -12,21 +12,11 @@ import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
 import { calcularCotizacionProveedor } from "@/lib/cotizacion-proveedor";
 import {
   labelEstadoStockProveedor,
-  normalizarStockProveedor,
+  normalizarStockProveedorConCapas,
   normalizarStockProveedorPorColor,
   type EstadoStockProveedor,
 } from "@/lib/stock-proveedor";
-
-async function loadExcelCodepages() {
-  try {
-    const { cptable } = await import("xlsx/dist/cpexcel.full.mjs");
-    XLSX.set_cptable(cptable);
-  } catch (error) {
-    // XLSX/XLS modernos se pueden leer sin esta tabla. No bloquear la lista
-    // si el navegador no logra cargar el complemento opcional de codificacion.
-    console.warn("[IMPORTACION PROVEEDOR] No se pudieron cargar las paginas de caracteres de Excel:", error);
-  }
-}
+import type { ReglaCostoProveedor } from "@/lib/reglas-costo-proveedor";
 
 type Step = "upload" | "mapping" | "importing" | "results";
 type DetectedFileFormat = "GESU_ARTICULOS" | "EXPO_LISTA" | "SIN_ENCABEZADO" | null;
@@ -41,6 +31,7 @@ interface ImportResults {
   invalidCount: number;
   duplicateCount: number;
   providerMismatchCount: number;
+  foreignCurrencyCount: number;
 }
 
 interface MappingConfig {
@@ -154,47 +145,6 @@ function getExcelHeaderColumns(worksheet: XLSX.WorkSheet) {
   }
 
   return { range, headerRow, columns };
-}
-
-function detectHeader(headers: string[], fieldId: string) {
-  const candidates = fieldId === "codigo_proveedor"
-    ? [
-        { terms: ["codigo proveedor"], score: 100 },
-        { terms: ["cod proveedor"], score: 95 },
-        { terms: ["codigo prov"], score: 90 },
-        { terms: ["cod prov"], score: 85 },
-        { terms: ["sku"], score: 65 },
-        { terms: ["referencia"], score: 60 },
-        { terms: ["ref"], score: 55 },
-        { terms: ["codigo"], score: 45 },
-      ]
-    : fieldId === "stock_proveedor"
-    ? [
-        { terms: ["stock proveedor"], score: 100 },
-        { terms: ["stock"], score: 95 },
-        { terms: ["disponibilidad"], score: 90 },
-        { terms: ["disponible"], score: 85 },
-        { terms: ["existencia"], score: 80 },
-        { terms: ["cantidad"], score: 75 },
-      ]
-    : [
-        { terms: ["precio lista"], score: 100 },
-        { terms: ["precio proveedor"], score: 95 },
-        { terms: ["lista"], score: 85 },
-        { terms: ["precio compra"], score: 75 },
-        { terms: ["costo"], score: 65 },
-        { terms: ["precio"], score: 55 },
-      ];
-
-  const best = headers
-    .map((header) => {
-      const normalized = normalizeHeader(header);
-      const match = candidates.find((candidate) => candidate.terms.some((term) => normalized.includes(term)));
-      return { header, score: match?.score ?? 0 };
-    })
-    .sort((a, b) => b.score - a.score)[0];
-
-  return best?.score ? best.header : "";
 }
 
 function mostFrequentColumnCount(rows: string[][]) {
@@ -366,6 +316,7 @@ function buildMappedRows(
   mappings: Record<string, MappingConfig>,
   nombreProveedor: string,
   stockColorRules: StockColorRule[],
+  stockTextRules: ReglaCostoProveedor[],
   previewLimit = 6,
 ) {
   const codeHeader = mappings.codigo_proveedor?.csvHeader;
@@ -409,7 +360,7 @@ function buildMappedRows(
         stockColor,
         stockColorRule?.activo === false ? "DESCONOCIDO" : stockColorRule?.estado,
       )
-      : normalizarStockProveedor(stockOriginal);
+      : normalizarStockProveedorConCapas(stockOriginal, stockTextRules);
     let reason = "";
 
     if (!codigo) reason = "Sin codigo";
@@ -486,6 +437,9 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const { data: cotizaciones, error: cotizacionesError } = useSWR<CotizacionProveedor[]>(
     `/api/proveedores/${id_proveedor}/monedas`, stockColorRulesFetcher,
   );
+  const { data: stockTextRules = [] } = useSWR<ReglaCostoProveedor[]>(
+    `/api/proveedores/${id_proveedor}/reglas-costo`, stockColorRulesFetcher,
+  );
   const cotizacionesActivas = useMemo(
     () => (cotizaciones ?? []).filter((item) => item.activa),
     [cotizaciones],
@@ -500,8 +454,8 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const cotizacionValida = codigoCotizacion === "ARS" || cotizacionEfectiva !== null;
 
   const mappedData = useMemo(
-    () => buildMappedRows(rawRows, mappings, nombre_proveedor, stockColorRules),
-    [rawRows, mappings, nombre_proveedor, stockColorRules]
+    () => buildMappedRows(rawRows, mappings, nombre_proveedor, stockColorRules, stockTextRules),
+    [rawRows, mappings, nombre_proveedor, stockColorRules, stockTextRules]
   );
   const previewTotalPages = Math.max(1, Math.ceil(rawRows.length / PREVIEW_PAGE_SIZE));
   const mappedPreviewPage = useMemo(() => buildMappedRows(
@@ -509,8 +463,9 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     mappings,
     nombre_proveedor,
     stockColorRules,
+    stockTextRules,
     PREVIEW_PAGE_SIZE,
-  ).preview, [rawRows, previewPage, mappings, nombre_proveedor, stockColorRules]);
+  ).preview, [rawRows, previewPage, mappings, nombre_proveedor, stockColorRules, stockTextRules]);
   const canImport = Boolean(cotizaciones && !cotizacionesError && cotizacionValida && mappings.codigo_proveedor.csvHeader && mappings.precio_lista.csvHeader && mappedData.items.length > 0);
 
   useEffect(() => {
@@ -553,11 +508,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         : { color, estado: normalizarStockProveedorPorColor(color).estado, activo: true };
     }));
     setResults(null);
-    setMappings({
-      codigo_proveedor: { csvHeader: detectHeader(headers, "codigo_proveedor"), isRequired: true },
-      precio_lista: { csvHeader: "", isRequired: true },
-      stock_proveedor: { csvHeader: detectHeader(headers, "stock_proveedor"), isRequired: false },
-    });
+    setMappings(createInitialMappings());
     setStep("mapping");
   };
 
@@ -604,7 +555,6 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     if (isExcel) {
       try {
         setDetectedFileFormat(null);
-        await loadExcelCodepages();
         const workbook = XLSX.read(await selectedFile.arrayBuffer(), { type: "array", cellStyles: true });
         const firstSheet = workbook.SheetNames[0];
         if (!firstSheet) throw new Error("El archivo no tiene hojas");
@@ -809,6 +759,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       const invalidCount = Number(data.invalidCount || 0);
       const duplicateCount = Number(data.duplicateCount || 0);
       const providerMismatchCount = Number(data.providerMismatchCount || 0);
+      const foreignCurrencyCount = Number(data.foreignCurrencyCount || 0);
 
       setResults({
         idImportacion,
@@ -820,6 +771,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         invalidCount,
         duplicateCount,
         providerMismatchCount,
+        foreignCurrencyCount,
       });
       toast.success(
         pendingApprovalCount > 0
@@ -948,17 +900,26 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
       {detectedFileFormat === "GESU_ARTICULOS" ? (
         <div className="border-l-2 border-blue-500 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-100">
-          Formato GESU detectado. Se omitio la linea de cantidad y se identificaron automaticamente codigo, precio y estado de stock.
+          Formato GESU detectado. Se omitio la linea de cantidad; elegi manualmente las columnas a importar.
         </div>
       ) : detectedFileFormat === "EXPO_LISTA" ? (
         <div className="border-l-2 border-blue-500 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-100">
-          Lista EXPO detectada. Se ignoraron las comillas y comas defectuosas, y se identificaron automaticamente codigo, precio y semaforo de stock.
+          Lista EXPO detectada. Se ignoraron las comillas y comas defectuosas; elegi manualmente las columnas a importar.
         </div>
       ) : detectedFileFormat === "SIN_ENCABEZADO" ? (
         <div className="border-l-2 border-amber-500 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100">
           Archivo sin encabezado. Se omitieron las lineas previas al primer registro y se conservaron todas las filas con la misma estructura.
         </div>
       ) : null}
+
+      <div className="rounded-lg border border-slate-800 bg-slate-950/45 px-3 py-2.5">
+        <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Columnas encontradas ({csvHeaders.length})</div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {csvHeaders.map((header) => (
+            <span key={header} className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-bold text-slate-300">{header}</span>
+          ))}
+        </div>
+      </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
         {SUPPLIER_FIELDS.map((field) => (
@@ -1124,6 +1085,11 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
               {results.notFoundCount} fila(s) no encontraron item con ese codigo en este proveedor.
             </div>
           )}
+          {results.foreignCurrencyCount > 0 && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs font-black text-amber-300">
+              {results.foreignCurrencyCount} item(s) con costo base en moneda extranjera no se modificaron con esta lista en pesos.
+            </div>
+          )}
           {(results.invalidCount > 0 || results.duplicateCount > 0 || results.providerMismatchCount > 0) && (
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs font-black text-amber-300">
               {results.invalidCount} invalida(s), {results.duplicateCount} duplicada(s), {results.providerMismatchCount} de otro proveedor.
@@ -1137,6 +1103,14 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
             >
               <HiDownload className="h-4 w-4" />
               Exportar detalle
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = `/api/proveedores/importaciones/${results.idImportacion}/costos/export`; }}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-500/40 px-3 text-[10px] font-black uppercase tracking-widest text-emerald-300 transition hover:bg-emerald-500/10"
+            >
+              <HiDownload className="h-4 w-4" />
+              Exportar costos modificados
             </button>
             <button
               type="button"

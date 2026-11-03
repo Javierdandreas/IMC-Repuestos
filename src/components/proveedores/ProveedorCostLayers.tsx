@@ -186,7 +186,7 @@ export function ProveedorCostLayers({ id_proveedor }: { id_proveedor: number }) 
         <div className="min-w-[1320px]">
           <div className="grid grid-cols-[54px_minmax(160px,1fr)_190px_minmax(180px,1fr)_minmax(280px,1.5fr)_155px_95px_100px] gap-2 border-b border-slate-800 bg-slate-950/60 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
             <span>Usar</span>
-            <span>Capa</span>
+            <span>Estado de stock / capa</span>
             <span>Alcance</span>
             <span>Marca</span>
             <span>Condicion</span>

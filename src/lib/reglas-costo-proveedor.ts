@@ -54,7 +54,7 @@ export function reglaCostoAplica(
   const texto = normalizarTexto(stockTexto);
   const condicion = normalizarTexto(regla.condicion_valor);
   if (!texto || !condicion) return false;
-  return texto.includes(condicion);
+  return condicion.length === 1 ? texto.split(" ").includes(condicion) : texto.includes(condicion);
 }
 
 export function calcularCostoConReglasProveedor(
