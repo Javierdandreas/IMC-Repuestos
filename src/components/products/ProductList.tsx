@@ -475,7 +475,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               <span className="ml-auto text-xs font-medium text-slate-400 dark:text-slate-500">Resultados: <strong className="text-slate-900 dark:text-white">{totalCount}</strong></span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 [&_label]:sr-only">
+            <div className="flex flex-wrap items-end gap-2">
               {/* Buscador General */}
               <div className="min-w-[230px] flex-1">
                 <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Buscador General</label>
