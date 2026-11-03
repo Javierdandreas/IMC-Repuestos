@@ -111,6 +111,7 @@ export function permisoParaApi(pathname: string, method: string, searchParams: U
   if (pathname.startsWith("/api/kits")) return conAccion("kits", pathname.includes("/import") ? "masivo" : undefined);
   if (pathname.startsWith("/api/series")) return conAccion("codigos_series", pathname.includes("bulk") ? "masivo" : undefined);
   if (pathname.startsWith("/api/proveedores")) {
+    if (pathname.includes("/precios/export")) return conAccion("proveedores_precios", "exportar");
     if (pathname.includes("/export")) return conAccion("proveedores", "exportar");
     if (pathname.includes("/import")) return conAccion("proveedores", "masivo");
     if (pathname.includes("descuentos") || pathname.includes("moneda") || pathname.includes("reglas-costo") || pathname.includes("stock-colores")) return conAccion("proveedores_precios");
