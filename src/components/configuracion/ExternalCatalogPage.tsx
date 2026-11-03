@@ -67,8 +67,9 @@ export function ExternalCatalogPage() {
 
   useEffect(() => {
     let active = true;
-    const load = async () => {
+    const load = async (initial = false) => {
       try {
+        if (initial) setLoading(true);
         const response = await fetch("/api/catalogo-externo/historial", { cache: "no-store" });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.message || "No se pudo consultar el historial de GESU.");
@@ -76,11 +77,12 @@ export function ExternalCatalogPage() {
       } catch (requestError) {
         if (active) setError(requestError instanceof Error ? requestError.message : "No se pudo consultar el historial de GESU.");
       } finally {
-        if (active) setLoading(false);
+        if (active && initial) setLoading(false);
       }
     };
-    void load();
-    return () => { active = false; };
+    void load(true);
+    const interval = window.setInterval(() => void load(), 30_000);
+    return () => { active = false; window.clearInterval(interval); };
   }, []);
 
   const latest = runs[0];
