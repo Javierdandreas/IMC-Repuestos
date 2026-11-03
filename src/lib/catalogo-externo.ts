@@ -144,6 +144,19 @@ export type CatalogImportResponse = CatalogImportResult & { preview: ExternalCat
 export type CatalogGroupImportResult = { created: number; skippedExisting: number; invalidSelection: number; componentsLinked: number; preview: ExternalCatalogPreview };
 export type CatalogKeywordsUpdateResponse = { updated: number; preview: ExternalCatalogPreview };
 export type CatalogExistingUpdateResult = { updated: number; locationsCreated: number };
+export type GesuSyncRun = {
+  id: number;
+  estado: "EN_PROCESO" | "OK" | "ERROR";
+  httpStatus: number | null;
+  totalItemsLeidos: number;
+  productosNuevos: number;
+  kitsNuevos: number;
+  productosModificados: number;
+  errores: string[];
+  errorCount: number;
+  startedAt: string;
+  finishedAt: string | null;
+};
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const nullable = (value: unknown) => clean(value) || null;
@@ -156,6 +169,91 @@ const stockValue = (value: unknown) => {
   const parsed = Number(String(value ?? "").trim().replace(",", "."));
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
 };
+
+function toGesuSyncRun(row: {
+  id: number;
+  estado: GesuSyncRun["estado"];
+  http_status: number | null;
+  total_items_leidos: number;
+  productos_nuevos: number;
+  kits_nuevos: number;
+  productos_modificados: number;
+  errores: unknown;
+  error_count: number;
+  started_at: string;
+  finished_at: string | null;
+}): GesuSyncRun {
+  return {
+    id: Number(row.id),
+    estado: row.estado,
+    httpStatus: row.http_status === null ? null : Number(row.http_status),
+    totalItemsLeidos: Number(row.total_items_leidos),
+    productosNuevos: Number(row.productos_nuevos),
+    kitsNuevos: Number(row.kits_nuevos),
+    productosModificados: Number(row.productos_modificados),
+    errores: errorsFrom(row.errores),
+    errorCount: Number(row.error_count),
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+  };
+}
+
+export async function startGesuSyncRun() {
+  const result = await query<{ id: number }>("INSERT INTO public.gesu_sincronizacion DEFAULT VALUES RETURNING id");
+  return Number(result.rows[0].id);
+}
+
+export async function finishGesuSyncRun(runId: number, data: {
+  totalItemsLeidos: number;
+  productosNuevos: number;
+  kitsNuevos: number;
+  productosModificados: number;
+  errorCount: number;
+  errores: string[];
+}) {
+  await query(
+    `UPDATE public.gesu_sincronizacion
+     SET estado = 'OK', http_status = 200, total_items_leidos = $2,
+       productos_nuevos = $3, kits_nuevos = $4, productos_modificados = $5,
+       errores = $6::jsonb, error_count = $7, finished_at = NOW()
+     WHERE id = $1`,
+    [runId, data.totalItemsLeidos, data.productosNuevos, data.kitsNuevos, data.productosModificados, JSON.stringify(data.errores.slice(0, SAMPLE_LIMIT)), data.errorCount],
+  );
+}
+
+export async function failGesuSyncRun(runId: number, error: unknown) {
+  const message = error instanceof Error ? error.message : "Error desconocido durante la sincronizacion.";
+  await query(
+    `UPDATE public.gesu_sincronizacion
+     SET estado = 'ERROR', errores = $2::jsonb, error_count = 1, finished_at = NOW()
+     WHERE id = $1`,
+    [runId, JSON.stringify([message.slice(0, 2000)])],
+  );
+}
+
+export async function getGesuSyncRuns(limit = 100): Promise<GesuSyncRun[]> {
+  const result = await query<{
+    id: number;
+    estado: GesuSyncRun["estado"];
+    http_status: number | null;
+    total_items_leidos: number;
+    productos_nuevos: number;
+    kits_nuevos: number;
+    productos_modificados: number;
+    errores: unknown;
+    error_count: number;
+    started_at: string;
+    finished_at: string | null;
+  }>(
+    `SELECT id, estado, http_status, total_items_leidos, productos_nuevos, kits_nuevos,
+      productos_modificados, errores, error_count, started_at, finished_at
+     FROM public.gesu_sincronizacion
+     ORDER BY id DESC
+     LIMIT $1`,
+    [Math.max(1, Math.min(250, Math.floor(limit)))],
+  );
+  return result.rows.map(toGesuSyncRun);
+}
 
 function payload(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
