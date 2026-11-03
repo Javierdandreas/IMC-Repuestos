@@ -285,8 +285,9 @@ function parseRow(row: RawRow): Item | null {
     sourceId: String(row.id),
     code,
     title,
-    // La descripcion propia tiene prioridad; el titulo es el respaldo cuando GESU no la informa.
-    description: sourceDescription || title || code,
+    // En Nexo la descripcion corresponde al titulo comercial de GESU. El campo
+    // descripcion de GESU suele contener datos tecnicos y solo sirve de respaldo.
+    description: title || sourceDescription || code,
     brand: pick(data, ["marca"]) || clean(row.marca),
     category: pick(data, ["categoria", "categoría"]),
     subcategory: pick(data, ["subCategoria", "subcategoria", "subCategoría"]),
