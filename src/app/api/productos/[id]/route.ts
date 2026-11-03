@@ -105,7 +105,11 @@ export async function PUT(
       });
     }
 
-    await Promise.all(activities.map((activity) => registrarProductoActividad(activity)));
+    // A Vercel instance uses a deliberately small database pool. Recording the
+    // audit entries sequentially avoids exhausting it when several fields change.
+    for (const activity of activities) {
+      await registrarProductoActividad(activity);
+    }
     return NextResponse.json(product);
   } catch (error: unknown) {
     return jsonError(error, "No se pudo actualizar el item");

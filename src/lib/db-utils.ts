@@ -7,7 +7,7 @@ function esErrorDeConexion(error: unknown) {
   if (!(error instanceof Error)) return false;
   const code = (error as Error & { code?: unknown }).code;
   return ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "57P01", "57P02", "57P03"].includes(String(code))
-    || /connection terminated|connection error|client has encountered a connection error/i.test(error.message);
+    || /connection terminated|connection error|client has encountered a connection error|timeout exceeded when trying to connect/i.test(error.message);
 }
 
 /**
