@@ -23,7 +23,7 @@ async function loadExcelCodepages() {
 }
 
 type Step = "upload" | "mapping" | "importing" | "results";
-type DetectedFileFormat = "GESU_ARTICULOS" | "SIN_ENCABEZADO" | null;
+type DetectedFileFormat = "GESU_ARTICULOS" | "EXPO_LISTA" | "SIN_ENCABEZADO" | null;
 
 interface ImportResults {
   idImportacion: number;
@@ -243,6 +243,7 @@ function parseDelimitedSupplierRows(rows: string[][]) {
 
 const GESU_ARTICLE_HEADERS = ["Codigo proveedor", "Precio de lista", "Stock proveedor"];
 const GESU_ARTICLE_STATUS = /\|(DISPONIBLE|CR[IÍ]TICO|M[IÍ]NIMO)\s*$/i;
+const EXPO_LIST_HEADERS = ["Codigo proveedor", "Precio de lista", "Stock proveedor"];
 
 function isGesuArticlesText(text: string) {
   const firstLine = text.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0]?.trim() ?? "";
@@ -274,6 +275,35 @@ function parseGesuArticlesText(text: string) {
   }
 
   return { headers: GESU_ARTICLE_HEADERS, rows };
+}
+
+function isExpoPriceList(text: string) {
+  const firstLine = text.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0]?.toUpperCase() ?? "";
+  return firstLine.includes("ARTICULO;") && firstLine.includes("PRECIO UNITARIO") && firstLine.includes("SEMAFORO STOCK");
+}
+
+function cleanExpoValue(value: string) {
+  return value.trim().replace(/^"+/, "").replace(/[",\s]+$/, "").replace(/""/g, '"').trim();
+}
+
+function parseExpoPriceList(text: string) {
+  const rows: Array<Record<string, string | number>> = [];
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    const fields = line.split(";");
+    if (fields.length < 7) continue;
+    rows.push({
+      __rowNumber: index + 1,
+      "Codigo proveedor": cleanExpoValue(fields[0]),
+      "Precio de lista": cleanExpoValue(fields[2]),
+      "Stock proveedor": cleanExpoValue(fields.at(-1) ?? ""),
+    });
+  }
+
+  return { headers: EXPO_LIST_HEADERS, rows };
 }
 
 async function readTextFile(file: File) {
@@ -596,6 +626,17 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       return;
     }
 
+    if (isExpoPriceList(text)) {
+      const parsed = parseExpoPriceList(text);
+      if (!parsed.rows.length) {
+        toast.error("No se pudieron leer los articulos de la lista EXPO");
+        return;
+      }
+      setDetectedFileFormat("EXPO_LISTA");
+      applyHeadersAndRows(parsed.headers, parsed.rows, false);
+      return;
+    }
+
     Papa.parse<string[]>(text, {
       header: false,
       skipEmptyLines: "greedy",
@@ -900,6 +941,10 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       {detectedFileFormat === "GESU_ARTICULOS" ? (
         <div className="border-l-2 border-blue-500 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-100">
           Formato GESU detectado. Se omitio la linea de cantidad y se identificaron automaticamente codigo, precio y estado de stock.
+        </div>
+      ) : detectedFileFormat === "EXPO_LISTA" ? (
+        <div className="border-l-2 border-blue-500 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-100">
+          Lista EXPO detectada. Se ignoraron las comillas y comas defectuosas, y se identificaron automaticamente codigo, precio y semaforo de stock.
         </div>
       ) : detectedFileFormat === "SIN_ENCABEZADO" ? (
         <div className="border-l-2 border-amber-500 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100">
