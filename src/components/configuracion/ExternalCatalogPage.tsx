@@ -73,7 +73,10 @@ export function ExternalCatalogPage() {
         const response = await fetch("/api/catalogo-externo/historial", { cache: "no-store" });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.message || "No se pudo consultar el historial de GESU.");
-        if (active) setRuns(Array.isArray(data.ejecuciones) ? data.ejecuciones : []);
+        if (active) {
+          setRuns(Array.isArray(data.ejecuciones) ? data.ejecuciones : []);
+          setError("");
+        }
       } catch (requestError) {
         if (active) setError(requestError instanceof Error ? requestError.message : "No se pudo consultar el historial de GESU.");
       } finally {
@@ -111,8 +114,8 @@ export function ExternalCatalogPage() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4">
               <Metric label="Items leidos" value={latest.totalItemsLeidos} tone="blue" />
-              <Metric label="Nuevos" value={latest.productosNuevos} tone="emerald" />
-              <Metric label="Kits nuevos" value={latest.kitsNuevos} tone="emerald" />
+              <Metric label="Items creados" value={latest.productosNuevos} tone="emerald" />
+              <Metric label="Kits creados" value={latest.kitsNuevos} tone="emerald" />
               <Metric label="Modificados" value={latest.productosModificados} tone="amber" />
             </div>
           </section>
@@ -126,7 +129,7 @@ export function ExternalCatalogPage() {
 
           {loading ? (
             <div className="border border-slate-200 px-5 py-12 text-center text-sm font-semibold text-slate-500 dark:border-slate-800">Cargando registros...</div>
-          ) : error ? (
+          ) : error && !runs.length ? (
             <div className="border border-red-500/30 bg-red-500/5 px-5 py-4 text-sm font-semibold text-red-700 dark:text-red-300">{error}</div>
           ) : !runs.length ? (
             <div className="border border-dashed border-slate-300 px-5 py-12 text-center text-sm font-semibold text-slate-500 dark:border-slate-800">Todavia no hay sincronizaciones registradas.</div>
@@ -135,7 +138,7 @@ export function ExternalCatalogPage() {
               <table className="w-full min-w-[1050px] text-left">
                 <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:bg-slate-950">
                   <tr>
-                    <th className="px-4 py-3">Vuelta</th><th className="px-4 py-3">Inicio</th><th className="px-4 py-3">Finalizo</th><th className="px-4 py-3">Duracion</th><th className="px-4 py-3">Resultado</th><th className="px-4 py-3 text-right">Items</th><th className="px-4 py-3 text-right">Nuevos</th><th className="px-4 py-3 text-right">Kits</th><th className="px-4 py-3 text-right">Modificados</th><th className="px-4 py-3">Errores</th>
+                    <th className="px-4 py-3">Vuelta</th><th className="px-4 py-3">Inicio</th><th className="px-4 py-3">Finalizo</th><th className="px-4 py-3">Duracion</th><th className="px-4 py-3">Resultado</th><th className="px-4 py-3 text-right">Items</th><th className="px-4 py-3 text-right">Items creados</th><th className="px-4 py-3 text-right">Kits creados</th><th className="px-4 py-3 text-right">Modificados</th><th className="px-4 py-3">Errores</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
