@@ -6,7 +6,7 @@ import { requireApiReadSession } from "@/lib/api-auth";
 import { sincronizarVentasMercadoLibreAhora } from "@/lib/mercadolibre";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {

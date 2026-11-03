@@ -18,8 +18,14 @@ import {
 } from "@/lib/stock-proveedor";
 
 async function loadExcelCodepages() {
-  const { cptable } = await import("xlsx/dist/cpexcel.full.mjs");
-  XLSX.set_cptable(cptable);
+  try {
+    const { cptable } = await import("xlsx/dist/cpexcel.full.mjs");
+    XLSX.set_cptable(cptable);
+  } catch (error) {
+    // XLSX/XLS modernos se pueden leer sin esta tabla. No bloquear la lista
+    // si el navegador no logra cargar el complemento opcional de codificacion.
+    console.warn("[IMPORTACION PROVEEDOR] No se pudieron cargar las paginas de caracteres de Excel:", error);
+  }
 }
 
 type Step = "upload" | "mapping" | "importing" | "results";
@@ -605,8 +611,10 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         workbookRef.current = workbook;
         setExcelSheets(workbook.SheetNames);
         loadExcelSheet(workbook, firstSheet);
-      } catch {
-        toast.error("Error al leer el archivo Excel");
+      } catch (error) {
+        console.error("[IMPORTACION PROVEEDOR] No se pudo leer el archivo Excel:", error);
+        const detail = error instanceof Error && error.message ? `: ${error.message}` : "";
+        toast.error(`Error al leer el archivo Excel${detail}`);
       }
       return;
     }
