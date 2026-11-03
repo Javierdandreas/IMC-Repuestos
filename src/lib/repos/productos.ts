@@ -961,7 +961,11 @@ export async function getProductoById(id: string | number): Promise<Producto | n
 /**
  * Verifica si un código de barra ya está en uso.
  */
-export async function isBarcodeDuplicate(barcode: string, excludeId?: string | number): Promise<boolean> {
+export async function isBarcodeDuplicate(
+  barcode: string,
+  excludeId?: string | number,
+  client?: DbClient,
+): Promise<boolean> {
   if (!barcode) return false;
   
   let sql = "SELECT p.id FROM productos p WHERE p.cod_barra = $1";
@@ -972,7 +976,8 @@ export async function isBarcodeDuplicate(barcode: string, excludeId?: string | n
     params.push(excludeId);
   }
 
-  const { rows } = await query(sql, params);
+  const executor = client ?? { query };
+  const { rows } = await executor.query(sql, params);
   return rows.length > 0;
 }
 
@@ -1004,7 +1009,7 @@ export async function createProducto(input: ProductoInput) {
     const payload = sanitizeProductoInput(input);
     
     // Validamos duplicado
-    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra)) {
+    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, undefined, client)) {
       const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro item`);
       (err as any).status = 400;
       throw err;
@@ -1070,7 +1075,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
     const costosAntes = await capturarCostosReferencia(client, [productId]);
 
     // Validamos duplicado si se cambió el código
-    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, id)) {
+    if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, id, client)) {
       const err = new Error(`El código de barra ${payload.cod_barra} ya está en uso por otro item`);
       (err as any).status = 400;
       throw err;
