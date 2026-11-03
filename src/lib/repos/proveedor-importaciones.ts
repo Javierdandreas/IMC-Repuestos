@@ -825,6 +825,7 @@ async function aplicarImportacionAlCatalogoCompletaLegacy(id_importacion: number
         && item.costoNuevo > 0
         && (item.costoAnterior === null || Math.abs(item.costoNuevo - item.costoAnterior) > 0.000001)
       ));
+    const cambiosRegistrables = cambiosDeCosto.filter((item) => item.criterioCosto !== "MANUAL");
 
     const recalculatedCostCount = await aplicarPreciosDesdeCostosReferencia(
       client,
@@ -833,7 +834,7 @@ async function aplicarImportacionAlCatalogoCompletaLegacy(id_importacion: number
         .map((item) => ({ idProducto: item.idProducto, costo: Number(item.costoNuevo) })),
     );
 
-    if (cambiosDeCosto.length > 0) {
+    if (cambiosRegistrables.length > 0) {
       await client.query(
         `
           UPDATE public.proveedor_importacion_cambio_costo
@@ -841,7 +842,7 @@ async function aplicarImportacionAlCatalogoCompletaLegacy(id_importacion: number
           WHERE estado_aprobacion = 'PENDIENTE'
             AND id_producto = ANY($1::int[])
         `,
-        [cambiosDeCosto.map((item) => item.idProducto)],
+        [cambiosRegistrables.map((item) => item.idProducto)],
       );
 
       await client.query(
@@ -876,17 +877,17 @@ async function aplicarImportacionAlCatalogoCompletaLegacy(id_importacion: number
         `,
         [
           id_importacion,
-          cambiosDeCosto.map((item) => item.idProducto),
-          cambiosDeCosto.map((item) => item.codigoItem),
-          cambiosDeCosto.map((item) => item.descripcionItem),
-          cambiosDeCosto.map((item) => item.codigoProveedor),
-          cambiosDeCosto.map((item) => item.criterioCosto),
-          cambiosDeCosto.map((item) => item.costoAnterior),
-          cambiosDeCosto.map((item) => item.costoNuevo),
-          cambiosDeCosto.map((item) => item.estadoAprobacion),
-          cambiosDeCosto.map((item) => item.porcentajeVariacion === null ? null : Math.round(item.porcentajeVariacion * 100) / 100),
-          cambiosDeCosto.map(() => UMBRAL_APROBACION_AUTOMATICA),
-          cambiosDeCosto.map((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" ? new Date() : null),
+          cambiosRegistrables.map((item) => item.idProducto),
+          cambiosRegistrables.map((item) => item.codigoItem),
+          cambiosRegistrables.map((item) => item.descripcionItem),
+          cambiosRegistrables.map((item) => item.codigoProveedor),
+          cambiosRegistrables.map((item) => item.criterioCosto),
+          cambiosRegistrables.map((item) => item.costoAnterior),
+          cambiosRegistrables.map((item) => item.costoNuevo),
+          cambiosRegistrables.map((item) => item.estadoAprobacion),
+          cambiosRegistrables.map((item) => item.porcentajeVariacion === null ? null : Math.round(item.porcentajeVariacion * 100) / 100),
+          cambiosRegistrables.map(() => UMBRAL_APROBACION_AUTOMATICA),
+          cambiosRegistrables.map((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" ? new Date() : null),
         ],
       );
     }
@@ -1037,6 +1038,7 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
       })
       .filter((item) => item.costoNuevo !== null && item.costoNuevo > 0
         && (item.costoAnterior === null || Math.abs(item.costoNuevo - item.costoAnterior) > 0.000001));
+    const cambiosRegistrables = cambiosDeCosto.filter((item) => item.criterioCosto !== "MANUAL");
 
     await aplicarPreciosDesdeCostosReferencia(
       client,
@@ -1045,14 +1047,14 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
         .map((item) => ({ idProducto: item.idProducto, costo: Number(item.costoNuevo) })),
     );
 
-    if (cambiosDeCosto.length > 0) {
+    if (cambiosRegistrables.length > 0) {
       await client.query(
         `
           UPDATE public.proveedor_importacion_cambio_costo
           SET estado_aprobacion = 'REEMPLAZADO', resuelto_at = NOW(), resuelto_por = NULL
           WHERE estado_aprobacion = 'PENDIENTE' AND id_producto = ANY($1::int[])
         `,
-        [cambiosDeCosto.map((item) => item.idProducto)],
+        [cambiosRegistrables.map((item) => item.idProducto)],
       );
       await client.query(
         `
@@ -1077,17 +1079,17 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
         `,
         [
           id_importacion,
-          cambiosDeCosto.map((item) => item.idProducto),
-          cambiosDeCosto.map((item) => item.codigoItem),
-          cambiosDeCosto.map((item) => item.descripcionItem),
-          cambiosDeCosto.map((item) => item.codigoProveedor),
-          cambiosDeCosto.map((item) => item.criterioCosto),
-          cambiosDeCosto.map((item) => item.costoAnterior),
-          cambiosDeCosto.map((item) => item.costoNuevo),
-          cambiosDeCosto.map((item) => item.estadoAprobacion),
-          cambiosDeCosto.map((item) => item.porcentajeVariacion === null ? null : Math.round(item.porcentajeVariacion * 100) / 100),
-          cambiosDeCosto.map(() => UMBRAL_APROBACION_AUTOMATICA),
-          cambiosDeCosto.map((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" ? new Date() : null),
+          cambiosRegistrables.map((item) => item.idProducto),
+          cambiosRegistrables.map((item) => item.codigoItem),
+          cambiosRegistrables.map((item) => item.descripcionItem),
+          cambiosRegistrables.map((item) => item.codigoProveedor),
+          cambiosRegistrables.map((item) => item.criterioCosto),
+          cambiosRegistrables.map((item) => item.costoAnterior),
+          cambiosRegistrables.map((item) => item.costoNuevo),
+          cambiosRegistrables.map((item) => item.estadoAprobacion),
+          cambiosRegistrables.map((item) => item.porcentajeVariacion === null ? null : Math.round(item.porcentajeVariacion * 100) / 100),
+          cambiosRegistrables.map(() => UMBRAL_APROBACION_AUTOMATICA),
+          cambiosRegistrables.map((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" ? new Date() : null),
         ],
       );
     }
