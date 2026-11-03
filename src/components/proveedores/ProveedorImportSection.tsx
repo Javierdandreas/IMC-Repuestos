@@ -190,6 +190,56 @@ function detectHeader(headers: string[], fieldId: string) {
   return best?.score ? best.header : "";
 }
 
+function mostFrequentColumnCount(rows: string[][]) {
+  const counts = new Map<number, number>();
+  rows.forEach((row) => {
+    if (row.length > 1) counts.set(row.length, (counts.get(row.length) ?? 0) + 1);
+  });
+  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] ?? 0;
+}
+
+function isLikelySupplierHeader(row: string[]) {
+  const headerTerms = ["codigo", "cod", "sku", "referencia", "precio", "costo", "stock", "cantidad", "descripcion", "detalle", "producto"];
+  return row.some((cell) => {
+    const normalized = normalizeHeader(cell);
+    return headerTerms.some((term) => normalized === term || normalized.startsWith(`${term} `));
+  });
+}
+
+function uniqueHeaders(values: string[]) {
+  const used = new Map<string, number>();
+  return values.map((value, index) => {
+    const fallback = index === 0 ? "Codigo proveedor" : index === 1 ? "Cantidad" : `Columna ${index + 1}`;
+    const base = String(value ?? "").trim() || fallback;
+    const count = (used.get(base) ?? 0) + 1;
+    used.set(base, count);
+    return count === 1 ? base : `${base} (${count})`;
+  });
+}
+
+function parseDelimitedSupplierRows(rows: string[][]) {
+  const expectedColumns = mostFrequentColumnCount(rows);
+  const firstDataIndex = rows.findIndex((row) => row.length === expectedColumns);
+  if (!expectedColumns || firstDataIndex < 0) return { headers: [] as string[], rows: [] as Array<Record<string, string | number>> };
+
+  const firstRow = rows[firstDataIndex];
+  const hasHeader = firstDataIndex === 0 && isLikelySupplierHeader(firstRow);
+  const headers = uniqueHeaders(hasHeader ? firstRow : Array.from({ length: expectedColumns }, (_, index) => (
+    index === 0 ? "Codigo proveedor" : index === 1 ? "Cantidad" : `Columna ${index + 1}`
+  )));
+  const dataStart = hasHeader ? firstDataIndex + 1 : firstDataIndex;
+  const dataRows = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row, index }) => index >= dataStart && row.length === expectedColumns)
+    .map(({ row, index }) => {
+      const item: Record<string, string | number> = { __rowNumber: index + 1 };
+      headers.forEach((header, column) => { item[header] = row[column] ?? ""; });
+      return item;
+    });
+
+  return { headers, rows: dataRows };
+}
+
 function parseSupplierPrice(value: unknown): number {
   if (value === null || value === undefined) return 0;
   const roundPrice = (price: number) => Number.isFinite(price) && price >= 0
@@ -489,16 +539,17 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     workbookRef.current = null;
     setExcelSheets([]);
     setSelectedExcelSheet("");
-    Papa.parse(selectedFile, {
-      header: true,
-      skipEmptyLines: true,
+    Papa.parse<string[]>(selectedFile, {
+      header: false,
+      skipEmptyLines: "greedy",
       delimiter: "",
       complete: (parseResult) => {
-        if (!parseResult.meta.fields?.length) {
+        const parsed = parseDelimitedSupplierRows(parseResult.data);
+        if (!parsed.headers.length || !parsed.rows.length) {
           toast.error("No se detectaron columnas en el archivo");
           return;
         }
-        applyHeadersAndRows(parseResult.meta.fields, parseResult.data as any[], false);
+        applyHeadersAndRows(parsed.headers, parsed.rows, false);
       },
       error: () => toast.error("Error al leer el archivo CSV o TXT"),
     });
