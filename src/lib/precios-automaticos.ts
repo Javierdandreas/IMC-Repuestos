@@ -96,7 +96,9 @@ export async function aplicarPreciosDesdeCostosReferencia(
           AS valores(id_producto, costo)
       ),
       tipos_venta_activos AS (
-        SELECT tipo.id, COALESCE(tipo.margen_default, 0) AS margen_default
+        SELECT
+          tipo.id,
+          CASE WHEN tipo.margen_default = -100 THEN 0 ELSE COALESCE(tipo.margen_default, 0) END AS margen_default
         FROM public.tipo_precio tipo
         CROSS JOIN tipo_costo
         WHERE tipo.id <> tipo_costo.id
@@ -130,7 +132,7 @@ export async function aplicarPreciosDesdeCostosReferencia(
         SELECT
           precio.id,
           precio.id_producto,
-          ROUND(costos.costo * (1 + COALESCE(precio.porcentaje_ganancia, 0) / 100), 2) AS precio_nuevo
+          ROUND(costos.costo * (1 + CASE WHEN precio.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(precio.porcentaje_ganancia, 0) END / 100), 2) AS precio_nuevo
         FROM public.producto_precio precio
         INNER JOIN costos ON costos.id_producto = precio.id_producto
         CROSS JOIN tipo_costo

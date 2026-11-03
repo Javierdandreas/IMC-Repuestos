@@ -26,7 +26,7 @@ const proveedorProductoSchema = z.object({
 const precioProductoSchema = z.object({
   id_tipo_precio: idSchema,
   valor: z.number().nonnegative(),
-  porcentaje_ganancia: z.number().optional().default(0),
+  porcentaje_ganancia: z.number().optional().default(0).transform((value) => value === -100 ? 0 : value),
   modo_calculo: z.enum(["MARGEN_COSTO", "FIJO_ARS", "FIJO_MONEDA"]).optional().default("MARGEN_COSTO"),
   importe_origen: z.number().nonnegative().nullable().optional(),
   moneda_origen: z.enum(["ARS", "USD", "EUR", "BRL"]).nullable().optional(),

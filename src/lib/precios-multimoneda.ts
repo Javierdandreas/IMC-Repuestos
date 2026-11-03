@@ -68,7 +68,7 @@ export async function recalcularPreciosMargenDesdeCosto(client: DbClient, produc
        SELECT id FROM public.tipo_precio WHERE upper(trim(descripcion)) = 'PRECIO COSTO' ORDER BY id LIMIT 1
      )
      UPDATE public.producto_precio venta
-     SET precio = ROUND(costo.precio * (1 + COALESCE(venta.porcentaje_ganancia, 0) / 100), 2)
+     SET precio = ROUND(costo.precio * (1 + CASE WHEN venta.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(venta.porcentaje_ganancia, 0) END / 100), 2)
      FROM public.producto_precio costo
      CROSS JOIN tipo_costo
      WHERE venta.id_producto = costo.id_producto
@@ -76,7 +76,7 @@ export async function recalcularPreciosMargenDesdeCosto(client: DbClient, produc
        AND costo.id_tipo_precio = tipo_costo.id
        AND venta.id_tipo_precio <> tipo_costo.id
        AND COALESCE(venta.modo_calculo, 'MARGEN_COSTO') = 'MARGEN_COSTO'
-       AND venta.precio IS DISTINCT FROM ROUND(costo.precio * (1 + COALESCE(venta.porcentaje_ganancia, 0) / 100), 2)`,
+       AND venta.precio IS DISTINCT FROM ROUND(costo.precio * (1 + CASE WHEN venta.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(venta.porcentaje_ganancia, 0) END / 100), 2)`,
     [ids]
   );
   return result.rowCount ?? 0;
@@ -90,7 +90,7 @@ async function recalcularPreciosMargenKits(client: DbClient, kitIds: number[]) {
        SELECT id FROM public.tipo_precio WHERE upper(trim(descripcion)) = 'PRECIO COSTO' ORDER BY id LIMIT 1
      )
      UPDATE public.kit_precio venta
-     SET precio = ROUND(costo.precio * (1 + COALESCE(venta.porcentaje_ganancia, 0) / 100), 2)
+     SET precio = ROUND(costo.precio * (1 + CASE WHEN venta.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(venta.porcentaje_ganancia, 0) END / 100), 2)
      FROM public.kit_precio costo
      CROSS JOIN tipo_costo
      WHERE venta.id_kit = costo.id_kit
@@ -98,7 +98,7 @@ async function recalcularPreciosMargenKits(client: DbClient, kitIds: number[]) {
        AND costo.id_tipo_precio = tipo_costo.id
        AND venta.id_tipo_precio <> tipo_costo.id
        AND COALESCE(venta.modo_calculo, 'MARGEN_COSTO') = 'MARGEN_COSTO'
-       AND venta.precio IS DISTINCT FROM ROUND(costo.precio * (1 + COALESCE(venta.porcentaje_ganancia, 0) / 100), 2)`,
+       AND venta.precio IS DISTINCT FROM ROUND(costo.precio * (1 + CASE WHEN venta.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(venta.porcentaje_ganancia, 0) END / 100), 2)`,
     [ids]
   );
   return result.rowCount ?? 0;

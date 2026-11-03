@@ -35,10 +35,6 @@ type PanelMultimoneda = {
 };
 
 const TIPO_COSTO = 1;
-const TIPO_ML = 2;
-const TIPO_MOSTRADOR = 3;
-const TIPO_CUENTA_CORRIENTE_FALLBACK = 4;
-const TIPO_OFERTA_FALLBACK = 5;
 
 const round = (num: number) => Math.round(num * 100) / 100;
 
@@ -130,27 +126,16 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
       .catch(() => setPanelMoneda(null));
   }, []);
 
-  const findTipoPrecio = (descripciones: string[], fallbackId: number, fallbackDescripcion: string) => {
-    const match = descripciones
-      .map(descripcion => descripcion.toUpperCase())
-      .map(descripcion => tiposPrecio.find(item => item.descripcion.toUpperCase() === descripcion))
-      .find(Boolean);
-
-    return {
-      id: match?.id ?? fallbackId,
-      descripcion: match?.descripcion ?? fallbackDescripcion,
-      margen_default: match?.margen_default ?? 0,
-      activo: match?.activo !== false,
-    };
+  const tipoCosto = tiposPrecio.find((item) => item.descripcion.trim().toUpperCase() === "PRECIO COSTO") ?? {
+    id: TIPO_COSTO,
+    descripcion: "PRECIO COSTO",
+    margen_default: 0,
+    activo: true,
+    orden: 1,
   };
-
-  const tipoCosto = findTipoPrecio(["PRECIO COSTO"], TIPO_COSTO, "PRECIO COSTO");
-  const tipoMercadoLibre = findTipoPrecio(["MERCADO LIBRE"], TIPO_ML, "MERCADO LIBRE");
-  const tipoMostrador = findTipoPrecio(["MOSTRADOR"], TIPO_MOSTRADOR, "MOSTRADOR");
-  const tipoCuentaCorriente = findTipoPrecio(["CUENTA CORRIENTE", "MECANICO"], TIPO_CUENTA_CORRIENTE_FALLBACK, "CUENTA CORRIENTE");
-  const tipoOferta = findTipoPrecio(["OFERTA"], TIPO_OFERTA_FALLBACK, "OFERTA");
-
-  const tiposVenta = [tipoMercadoLibre, tipoMostrador, tipoCuentaCorriente, tipoOferta].filter(tipo => tipo.activo);
+  const tiposVenta = tiposPrecio
+    .filter((item) => item.id !== tipoCosto.id && item.activo !== false)
+    .sort((a, b) => (a.orden ?? a.id) - (b.orden ?? b.id));
   const tiposBase = [tipoCosto, ...tiposVenta];
 
   // Inicializamos Costo
@@ -192,7 +177,8 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
     const costo = costoBase ?? currentPrecios.find(p => p.id_tipo_precio === tipoCosto.id)?.valor ?? 0;
     const added: PrecioDetalle[] = missing.map(id => {
       const tipo = tiposBase.find(item => item.id === id);
-      const margen = id === tipoCosto.id ? 0 : tipo?.margen_default ?? 0;
+      const margenDefault = Number(tipo?.margen_default ?? 0);
+      const margen = id === tipoCosto.id || margenDefault === -100 ? 0 : margenDefault;
       return {
         id_tipo_precio: id,
         tipo_descripcion: tipo?.descripcion ?? "PRECIO",
@@ -224,7 +210,8 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
       }
       if (!tiposVentaActivos.has(p.id_tipo_precio)) return p;
       if ((p.modo_calculo ?? "MARGEN_COSTO") !== "MARGEN_COSTO") return p;
-      const nuevoValor = costoArs * (1 + (p.porcentaje_ganancia || 0) / 100);
+      const margen = p.porcentaje_ganancia === -100 ? 0 : p.porcentaje_ganancia || 0;
+      const nuevoValor = costoArs * (1 + margen / 100);
       return { ...p, valor: round(nuevoValor) };
     });
 
@@ -265,8 +252,9 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
         const nuevoMargen = costo > 0 ? ((val / costo) - 1) * 100 : 0;
         return { ...p, valor: round(val), porcentaje_ganancia: round(nuevoMargen) };
       } else {
-        const nuevoPrecio = costo * (1 + val / 100);
-        return { ...p, porcentaje_ganancia: round(val), valor: round(nuevoPrecio) };
+        const margen = val === -100 ? 0 : val;
+        const nuevoPrecio = costo * (1 + margen / 100);
+        return { ...p, porcentaje_ganancia: round(margen), valor: round(nuevoPrecio) };
       }
     });
     
@@ -295,7 +283,8 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
     onChange(basePrecios.map((precio) => {
       if (precio.id_tipo_precio === tipoCosto.id) return { ...precio, ...costoActualizado, valor: costoArs };
       if (!tiposVentaActivos.has(precio.id_tipo_precio) || (precio.modo_calculo ?? "MARGEN_COSTO") !== "MARGEN_COSTO") return precio;
-      return { ...precio, valor: round(costoArs * (1 + (precio.porcentaje_ganancia || 0) / 100)) };
+      const margen = precio.porcentaje_ganancia === -100 ? 0 : precio.porcentaje_ganancia || 0;
+      return { ...precio, valor: round(costoArs * (1 + margen / 100)) };
     }));
   };
 
@@ -309,12 +298,26 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
     onCriterioCostoChange(criterio);
   };
 
+  const getPricePresentation = (label: string, index: number) => {
+    const normalized = label.trim().toUpperCase();
+    if (normalized === "MERCADO LIBRE") return { Icon: ShoppingBag, colorClass: "bg-amber-500 text-amber-500" };
+    if (normalized === "MOSTRADOR") return { Icon: Users, colorClass: "bg-emerald-500 text-emerald-500" };
+    if (normalized === "CUENTA CORRIENTE" || normalized === "MECANICO") return { Icon: CreditCard, colorClass: "bg-indigo-500 text-indigo-500" };
+    if (normalized === "OFERTA") return { Icon: BadgePercent, colorClass: "bg-rose-500 text-rose-500" };
+    const variants = [
+      { Icon: BadgePercent, colorClass: "bg-cyan-500 text-cyan-500" },
+      { Icon: CreditCard, colorClass: "bg-violet-500 text-violet-500" },
+      { Icon: Users, colorClass: "bg-orange-500 text-orange-500" },
+    ];
+    return variants[index % variants.length];
+  };
+
   const renderPriceRow = (idTipo: number, label: string, Icon: any, colorClass: string) => {
     const item: PrecioDetalle = precios.find(p => p.id_tipo_precio === idTipo) || { id_tipo_precio: idTipo, tipo_descripcion: label, valor: 0, porcentaje_ganancia: 0, modo_calculo: "MARGEN_COSTO" as const };
     const modo = item.modo_calculo ?? "MARGEN_COSTO";
     
     return (
-      <div className="group flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700">
+      <div key={idTipo} className="group flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700">
         <div className="flex items-center gap-2">
           <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${colorClass} bg-opacity-10 text-opacity-100`}>
             <Icon className="h-4 w-4" />
@@ -337,7 +340,7 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
               Margen %
             </label>
             <PriceInput
-              value={item.porcentaje_ganancia}
+              value={item.porcentaje_ganancia === -100 ? 0 : item.porcentaje_ganancia}
               onChange={(val) => updatePrecio(idTipo, "porcentaje_ganancia", val)}
               placeholder="0"
               disabled={modo !== "MARGEN_COSTO"}
@@ -457,10 +460,10 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
 
         {/* Selling Prices - Horizontal Row */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {tipoMercadoLibre.activo && renderPriceRow(tipoMercadoLibre.id, tipoMercadoLibre.descripcion, ShoppingBag, "bg-amber-500 text-amber-500")}
-          {tipoMostrador.activo && renderPriceRow(tipoMostrador.id, tipoMostrador.descripcion, Users, "bg-emerald-500 text-emerald-500")}
-          {tipoCuentaCorriente.activo && renderPriceRow(tipoCuentaCorriente.id, tipoCuentaCorriente.descripcion, CreditCard, "bg-indigo-500 text-indigo-500")}
-          {tipoOferta.activo && renderPriceRow(tipoOferta.id, tipoOferta.descripcion, BadgePercent, "bg-rose-500 text-rose-500")}
+          {tiposVenta.map((tipo, index) => {
+            const presentation = getPricePresentation(tipo.descripcion, index);
+            return renderPriceRow(tipo.id, tipo.descripcion, presentation.Icon, presentation.colorClass);
+          })}
         </div>
       </div>
 

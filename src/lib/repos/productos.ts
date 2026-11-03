@@ -112,7 +112,7 @@ async function syncProductoPrecios(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
       `,
       [
-        productId, item.id_tipo_precio, calculado.valor, item.porcentaje_ganancia || 0, modoCalculo,
+        productId, item.id_tipo_precio, calculado.valor, item.porcentaje_ganancia === -100 ? 0 : item.porcentaje_ganancia || 0, modoCalculo,
         calculado.importeOrigen, modoCalculo === "FIJO_ARS" ? "ARS" : item.moneda_origen ?? null,
         modoCalculo === "FIJO_MONEDA" ? item.referencia_cotizacion ?? null : null,
         modoCalculo === "FIJO_MONEDA" ? item.lado_cotizacion ?? null : null,
@@ -131,7 +131,7 @@ async function getProductoPrecios(id: string | number) {
       pp.id_tipo_precio,
       tp.descripcion AS tipo_descripcion,
       pp.precio AS valor,
-      COALESCE(pp.porcentaje_ganancia, 0) AS porcentaje_ganancia,
+      CASE WHEN pp.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(pp.porcentaje_ganancia, 0) END AS porcentaje_ganancia,
       COALESCE(pp.modo_calculo, 'MARGEN_COSTO') AS modo_calculo,
       pp.importe_origen,
       pp.moneda_origen,
@@ -144,7 +144,7 @@ async function getProductoPrecios(id: string | number) {
 
     JOIN tipo_precio tp ON tp.id = pp.id_tipo_precio
     WHERE pp.id_producto = $1
-    ORDER BY tp.id
+    ORDER BY COALESCE(tp.orden, tp.id), tp.id
   `;
 
   const { rows } = await query(querySql, [id]);
@@ -375,7 +375,7 @@ export async function getProductosListado(
             'id_tipo_precio', precio.id_tipo_precio,
             'tipo_descripcion', tipo.descripcion,
             'valor', precio.precio,
-            'porcentaje_ganancia', COALESCE(precio.porcentaje_ganancia, 0),
+            'porcentaje_ganancia', CASE WHEN precio.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(precio.porcentaje_ganancia, 0) END,
             'modo_calculo', COALESCE(precio.modo_calculo, 'MARGEN_COSTO'),
             'importe_origen', precio.importe_origen,
             'moneda_origen', precio.moneda_origen
@@ -1486,7 +1486,7 @@ export async function importProductosConCliente(
               const parsedMargin = parseNullableNumber(rawMargin);
               // An imported margin never prevents the remaining values from applying.
               // Empty or malformed cells explicitly reset that list's margin to zero.
-              const margen = parsedMargin === null || parsedMargin < -100 ? 0 : parsedMargin;
+              const margen = parsedMargin === null || parsedMargin <= -100 ? 0 : parsedMargin;
 
               marginUpdates.push({
                 sku,

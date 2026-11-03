@@ -117,7 +117,7 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
 async function getKitPrecios(id: number) {
   const result = await query<PrecioDetalle>(
     `SELECT kp.id_tipo_precio, tp.descripcion AS tipo_descripcion, kp.precio AS valor,
-       COALESCE(kp.porcentaje_ganancia, 0) AS porcentaje_ganancia,
+       CASE WHEN kp.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(kp.porcentaje_ganancia, 0) END AS porcentaje_ganancia,
        kp.modo_calculo, kp.importe_origen, kp.moneda_origen, kp.referencia_cotizacion,
        kp.lado_cotizacion, kp.tipo_recargo_cotizacion, kp.recargo_cotizacion, kp.cotizacion_usada
      FROM public.kit_precio kp
@@ -148,7 +148,7 @@ async function syncKitPrecios(client: DbClient, idKit: number, precios: PrecioDe
         cotizacion_usada, actualizado_origen_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())`,
       [
-        idKit, item.id_tipo_precio, calculated.valor, item.porcentaje_ganancia || 0, modo,
+        idKit, item.id_tipo_precio, calculated.valor, item.porcentaje_ganancia === -100 ? 0 : item.porcentaje_ganancia || 0, modo,
         calculated.importeOrigen, modo === "FIJO_ARS" ? "ARS" : item.moneda_origen ?? null,
         modo === "FIJO_MONEDA" ? item.referencia_cotizacion ?? null : null,
         modo === "FIJO_MONEDA" ? item.lado_cotizacion ?? null : null,

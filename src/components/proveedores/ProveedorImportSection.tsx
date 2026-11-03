@@ -492,6 +492,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     Papa.parse(selectedFile, {
       header: true,
       skipEmptyLines: true,
+      delimiter: "",
       complete: (parseResult) => {
         if (!parseResult.meta.fields?.length) {
           toast.error("No se detectaron columnas en el archivo");
@@ -499,7 +500,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         }
         applyHeadersAndRows(parseResult.meta.fields, parseResult.data as any[], false);
       },
-      error: () => toast.error("Error al leer el archivo CSV"),
+      error: () => toast.error("Error al leer el archivo CSV o TXT"),
     });
   };
 
@@ -769,7 +770,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
           <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{nombre_proveedor}</div>
         </div>
         <label className="inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-slate-700 px-3 text-[10px] font-black uppercase tracking-widest text-slate-300 transition hover:bg-slate-900">
-          <input type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={handleFileChange} />
+          <input type="file" className="hidden" accept=".csv,.txt,.xlsx,.xls,text/plain" onChange={handleFileChange} />
           Cambiar archivo
         </label>
       </div>
@@ -892,12 +893,12 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     <div className={compact ? "space-y-3" : "flex flex-col gap-4"}>
       <div className={`${compact ? "rounded-xl px-4 py-7" : "rounded-2xl p-6"} border border-dashed border-slate-700 bg-slate-900/35 transition hover:border-blue-500/70 hover:bg-slate-900/55`}>
         <label className="flex cursor-pointer flex-col items-center justify-center text-center">
-          <input type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={handleFileChange} />
+          <input type="file" className="hidden" accept=".csv,.txt,.xlsx,.xls,text/plain" onChange={handleFileChange} />
           <div className={`${compact ? "h-14 w-14 rounded-2xl" : "h-16 w-16 rounded-2xl"} flex items-center justify-center bg-slate-800 text-white ring-1 ring-slate-700`}>
             <HiCloudUpload className={compact ? "h-7 w-7" : "h-8 w-8"} />
           </div>
           <h3 className={`${compact ? "text-sm" : "text-base"} mt-4 font-black uppercase tracking-tight text-white`}>Cargar lista de precios</h3>
-          <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Sube tu archivo CSV o Excel del proveedor</p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Sube tu archivo CSV, TXT o Excel del proveedor</p>
           <span className="mt-4 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-white px-5 text-[10px] font-black uppercase tracking-widest text-black shadow-sm transition hover:bg-slate-100">
             <HiTable className="h-4 w-4" />
             Seleccionar archivo
@@ -911,7 +912,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
           <div>
             <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-300">Recomendaciones</h4>
             <ul className="mt-2 space-y-1 text-[11px] font-bold leading-relaxed text-amber-400">
-              <li>El archivo puede estar en formato CSV o Excel.</li>
+              <li>El archivo puede estar en formato CSV, TXT o Excel.</li>
               <li>Debe tener columnas claras para codigo y precio.</li>
               <li>La columna de stock es opcional.</li>
               <li>Las filas se asignan al proveedor que tenes abierto.</li>

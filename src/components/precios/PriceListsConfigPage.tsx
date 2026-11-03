@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Check, DollarSign, Eye, EyeOff, Percent, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, DollarSign, Eye, EyeOff, Percent, Plus, Save, Trash2 } from "lucide-react";
 import { usePermissions } from "@/components/auth/usePermissions";
 import { useAppError } from "@/context/AppErrorContext";
 import { useMetadata } from "@/context/MetadataContext";
@@ -21,7 +21,7 @@ type EditableTipoPrecio = {
 const toEditable = (item: TipoPrecio): EditableTipoPrecio => ({
   id: item.id,
   descripcion: item.descripcion,
-  margen_default: Number(item.margen_default ?? 0),
+  margen_default: Number(item.margen_default ?? 0) === -100 ? 0 : Number(item.margen_default ?? 0),
   activo: item.activo !== false,
   orden: item.orden ?? item.id,
 });
@@ -52,6 +52,20 @@ export function PriceListsConfigPage() {
 
   const updateItem = (id: number, patch: Partial<EditableTipoPrecio>) => {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const moveList = (id: number, direction: -1 | 1) => {
+    const currentIndex = listasVenta.findIndex((item) => item.id === id);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= listasVenta.length) return;
+
+    const reordered = [...listasVenta];
+    [reordered[currentIndex], reordered[targetIndex]] = [reordered[targetIndex], reordered[currentIndex]];
+    const firstOrder = Math.max(2, (costo?.orden ?? 0) + 1);
+    const orders = new Map(reordered.map((item, index) => [item.id, firstOrder + index]));
+    setItems((previous) => previous.map((item) => (
+      item.id === costo?.id ? { ...item, orden: 1 } : { ...item, orden: orders.get(item.id) ?? item.orden }
+    )));
   };
 
   const handleSave = async () => {
@@ -170,10 +184,11 @@ export function PriceListsConfigPage() {
               </p>
             </div>
 
-            <div className="hidden grid-cols-[minmax(170px,1fr)_140px_120px_44px] gap-3 border-b border-slate-200 px-3 pb-2 text-[10px] font-black uppercase tracking-widest text-slate-400 dark:border-slate-800 md:grid">
+            <div className="hidden grid-cols-[minmax(170px,1fr)_140px_120px_72px_44px] gap-3 border-b border-slate-200 px-3 pb-2 text-[10px] font-black uppercase tracking-widest text-slate-400 dark:border-slate-800 md:grid">
               <span>Lista</span>
               <span>Margen</span>
               <span>Estado</span>
+              <span>Orden</span>
               <span />
             </div>
 
@@ -181,7 +196,7 @@ export function PriceListsConfigPage() {
               {sortedItems.map((item) => {
                 const isCosto = item.id === costo?.id;
                 return (
-                  <div key={item.id} className="grid grid-cols-1 gap-3 px-3 py-3 md:grid-cols-[minmax(170px,1fr)_140px_120px_44px] md:items-center">
+                  <div key={item.id} className="grid grid-cols-1 gap-3 px-3 py-3 md:grid-cols-[minmax(170px,1fr)_140px_120px_72px_44px] md:items-center">
                     <label className="flex flex-col gap-1">
                       <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 md:hidden">Lista</span>
                       <input
@@ -200,7 +215,10 @@ export function PriceListsConfigPage() {
                         type="number"
                         value={item.margen_default}
                         disabled={!canManage || isCosto}
-                        onChange={(event) => updateItem(item.id, { margen_default: Number(event.target.value || 0) })}
+                        onChange={(event) => {
+                          const margen = Number(event.target.value || 0);
+                          updateItem(item.id, { margen_default: margen === -100 ? 0 : margen });
+                        }}
                         className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 pr-9 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 disabled:opacity-60 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                       />
                     </label>
@@ -218,6 +236,29 @@ export function PriceListsConfigPage() {
                       {item.activo ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                       {item.activo ? "Activa" : "Oculta"}
                     </button>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={!canManage || isCosto || listasVenta[0]?.id === item.id}
+                        onClick={() => moveList(item.id, -1)}
+                        className="inline-flex h-10 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+                        title="Subir lista"
+                        aria-label={`Subir ${item.descripcion}`}
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canManage || isCosto || listasVenta[listasVenta.length - 1]?.id === item.id}
+                        onClick={() => moveList(item.id, 1)}
+                        className="inline-flex h-10 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+                        title="Bajar lista"
+                        aria-label={`Bajar ${item.descripcion}`}
+                      >
+                        <ArrowDown className="h-4 w-4" />
+                      </button>
+                    </div>
 
                     <button
                       type="button"

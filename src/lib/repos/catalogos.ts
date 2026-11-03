@@ -885,7 +885,7 @@ export async function getTiposPrecio(): Promise<TipoPrecio[]> {
         SELECT
           id,
           descripcion,
-          margen_default::float AS margen_default,
+          CASE WHEN margen_default = -100 THEN 0 ELSE margen_default END::float AS margen_default,
           activo,
           orden
         FROM tipo_precio
@@ -923,7 +923,8 @@ export async function updateTiposPrecioConfig(
     for (const item of items) {
       const id = Number(item.id);
       const descripcion = cleanDescripcion(item.descripcion);
-      const margen = Number(item.margen_default ?? 0);
+      const margenIngresado = Number(item.margen_default ?? 0);
+      const margen = margenIngresado === -100 ? 0 : margenIngresado;
       const activo = Boolean(item.activo);
       const orden = item.orden === null || item.orden === undefined ? null : Number(item.orden);
 
@@ -964,7 +965,8 @@ export async function createTipoPrecioConfig(input: {
   }
 
   const descripcion = cleanDescripcion(input.descripcion || "NUEVA LISTA");
-  const margen = Number(input.margen_default ?? 0);
+  const margenIngresado = Number(input.margen_default ?? 0);
+  const margen = margenIngresado === -100 ? 0 : margenIngresado;
   const activo = input.activo !== false;
 
   if (!descripcion) throw new Error("El nombre de la lista es obligatorio");
