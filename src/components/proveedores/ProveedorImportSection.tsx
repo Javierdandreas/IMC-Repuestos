@@ -240,6 +240,48 @@ function parseDelimitedSupplierRows(rows: string[][]) {
   return { headers, rows: dataRows };
 }
 
+const GESU_ARTICLE_HEADERS = ["Codigo proveedor", "Precio de lista", "Stock proveedor"];
+const GESU_ARTICLE_STATUS = /\|(DISPONIBLE|CR[IÍ]TICO|M[IÍ]NIMO)\s*$/i;
+
+function isGesuArticlesText(text: string) {
+  const firstLine = text.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0]?.trim() ?? "";
+  return /^cantidad\|\d+$/i.test(firstLine);
+}
+
+function parseGesuArticlesText(text: string) {
+  const rows: Array<Record<string, string | number>> = [];
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  let current: string[] = [];
+  let rowNumber = 2;
+
+  // GESU exports unescaped quotes, pipes and line breaks inside compatibility text.
+  // Every article is reliably closed by its stock status, so rebuild records from it.
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!current.length) rowNumber = index + 1;
+    current.push(line);
+    if (!GESU_ARTICLE_STATUS.test(line)) continue;
+
+    const fields = current.join("\n").split("|");
+    rows.push({
+      __rowNumber: rowNumber,
+      "Codigo proveedor": fields[0]?.trim() ?? "",
+      "Precio de lista": fields[6]?.trim() ?? "",
+      "Stock proveedor": fields.at(-1)?.trim() ?? "",
+    });
+    current = [];
+  }
+
+  return { headers: GESU_ARTICLE_HEADERS, rows };
+}
+
+async function readTextFile(file: File) {
+  const bytes = await file.arrayBuffer();
+  const utf8 = new TextDecoder("utf-8").decode(bytes);
+  // Several GESU TXT exports use Windows-1252 instead of UTF-8.
+  return utf8.includes("\uFFFD") ? new TextDecoder("windows-1252").decode(bytes) : utf8;
+}
+
 function parseSupplierPrice(value: unknown): number {
   if (value === null || value === undefined) return 0;
   const roundPrice = (price: number) => Number.isFinite(price) && price >= 0
@@ -539,7 +581,18 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     workbookRef.current = null;
     setExcelSheets([]);
     setSelectedExcelSheet("");
-    Papa.parse<string[]>(selectedFile, {
+    const text = await readTextFile(selectedFile);
+    if (isGesuArticlesText(text)) {
+      const parsed = parseGesuArticlesText(text);
+      if (!parsed.rows.length) {
+        toast.error("No se pudieron reconstruir los articulos del archivo GESU");
+        return;
+      }
+      applyHeadersAndRows(parsed.headers, parsed.rows, false);
+      return;
+    }
+
+    Papa.parse<string[]>(text, {
       header: false,
       skipEmptyLines: "greedy",
       delimiter: "",

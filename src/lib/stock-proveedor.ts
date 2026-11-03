@@ -54,6 +54,9 @@ export function normalizarStockProveedor(value: unknown): StockProveedorNormaliz
     return { original, estado: "SIN_STOCK", cantidad: 0 };
   }
 
+  if (/\bCRITICO\b/.test(texto)) return { original, estado: "SIN_STOCK", cantidad: 0 };
+  if (/\bMINIMO\b/.test(texto)) return { original, estado: "CONSULTE", cantidad: null };
+
   if (/\bPOR PEDIDO\b/.test(texto)) return { original, estado: "POR_PEDIDO", cantidad: null };
   if (/\bDEMORADO\b/.test(texto)) return { original, estado: "DEMORADO", cantidad: null };
   if (/\bCONSULTE\b/.test(texto)) return { original, estado: "CONSULTE", cantidad: null };
