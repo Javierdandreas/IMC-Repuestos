@@ -23,6 +23,7 @@ async function loadExcelCodepages() {
 }
 
 type Step = "upload" | "mapping" | "importing" | "results";
+type DetectedFileFormat = "GESU_ARTICULOS" | "SIN_ENCABEZADO" | null;
 
 interface ImportResults {
   idImportacion: number;
@@ -220,7 +221,7 @@ function uniqueHeaders(values: string[]) {
 function parseDelimitedSupplierRows(rows: string[][]) {
   const expectedColumns = mostFrequentColumnCount(rows);
   const firstDataIndex = rows.findIndex((row) => row.length === expectedColumns);
-  if (!expectedColumns || firstDataIndex < 0) return { headers: [] as string[], rows: [] as Array<Record<string, string | number>> };
+  if (!expectedColumns || firstDataIndex < 0) return { headers: [] as string[], rows: [] as Array<Record<string, string | number>>, hasHeader: false };
 
   const firstRow = rows[firstDataIndex];
   const hasHeader = firstDataIndex === 0 && isLikelySupplierHeader(firstRow);
@@ -237,7 +238,7 @@ function parseDelimitedSupplierRows(rows: string[][]) {
       return item;
     });
 
-  return { headers, rows: dataRows };
+  return { headers, rows: dataRows, hasHeader };
 }
 
 const GESU_ARTICLE_HEADERS = ["Codigo proveedor", "Precio de lista", "Stock proveedor"];
@@ -422,6 +423,7 @@ function createInitialMappings(): Record<string, MappingConfig> {
 export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSuccess, hideHistory, compact }: Props) {
   const [step, setStep] = useState<Step>("upload");
   const [file, setFile] = useState<File | null>(null);
+  const [detectedFileFormat, setDetectedFileFormat] = useState<DetectedFileFormat>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [rawRows, setRawRows] = useState<any[]>([]);
   const [isExcelFile, setIsExcelFile] = useState(false);
@@ -565,6 +567,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
 
     if (isExcel) {
       try {
+        setDetectedFileFormat(null);
         await loadExcelCodepages();
         const workbook = XLSX.read(await selectedFile.arrayBuffer(), { type: "array", cellStyles: true });
         const firstSheet = workbook.SheetNames[0];
@@ -588,6 +591,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         toast.error("No se pudieron reconstruir los articulos del archivo GESU");
         return;
       }
+      setDetectedFileFormat("GESU_ARTICULOS");
       applyHeadersAndRows(parsed.headers, parsed.rows, false);
       return;
     }
@@ -602,6 +606,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
           toast.error("No se detectaron columnas en el archivo");
           return;
         }
+        setDetectedFileFormat(parsed.hasHeader ? null : "SIN_ENCABEZADO");
         applyHeadersAndRows(parsed.headers, parsed.rows, false);
       },
       error: () => toast.error("Error al leer el archivo CSV o TXT"),
@@ -889,6 +894,16 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
           >
             {excelSheets.map((sheet) => <option key={sheet} value={sheet}>{sheet}</option>)}
           </select>
+        </div>
+      ) : null}
+
+      {detectedFileFormat === "GESU_ARTICULOS" ? (
+        <div className="border-l-2 border-blue-500 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-100">
+          Formato GESU detectado. Se omitio la linea de cantidad y se identificaron automaticamente codigo, precio y estado de stock.
+        </div>
+      ) : detectedFileFormat === "SIN_ENCABEZADO" ? (
+        <div className="border-l-2 border-amber-500 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100">
+          Archivo sin encabezado. Se omitieron las lineas previas al primer registro y se conservaron todas las filas con la misma estructura.
         </div>
       ) : null}
 
