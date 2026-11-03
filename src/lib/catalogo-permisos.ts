@@ -44,7 +44,7 @@ export const CATALOGO_PERMISOS: readonly Apartado[] = [
   { id: "multimoneda", grupo: "Configuracion", nombre: "Multimoneda", acciones: lecturaEscritura },
   { id: "compatibilidades", grupo: "Configuracion", nombre: "Compatibilidades del catalogo", acciones: ["leer", "escribir", "eliminar", "exportar"] },
   { id: "enriquecimiento", grupo: "Configuracion", nombre: "Enriquecimiento", acciones: lecturaEscritura },
-  { id: "catalogo_externo", grupo: "Configuracion", nombre: "Catalogo externo", acciones: ["leer", "escribir", "masivo"] },
+  { id: "catalogo_externo", grupo: "Configuracion", nombre: "GESU", acciones: ["leer", "escribir", "masivo"] },
   { id: "importaciones", grupo: "Configuracion", nombre: "Importaciones", acciones: ["leer", "escribir", "exportar", "masivo"] },
   { id: "usuarios", grupo: "Configuracion", nombre: "Usuarios y permisos", acciones: lecturaEscritura },
 ];

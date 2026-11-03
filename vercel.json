@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/mercadolibre",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/gesu",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

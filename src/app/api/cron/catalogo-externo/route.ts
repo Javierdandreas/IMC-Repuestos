@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { syncExternalCatalogAutomatically } from "@/lib/catalogo-externo";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -19,21 +18,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   }
 
-  try {
-    const result = await syncExternalCatalogAutomatically();
-    return NextResponse.json({
-      ok: true,
-      snapshotId: result.preview.snapshotId,
-      syncRunId: result.preview.syncRunId,
-      products: result.preview.products,
-      groups: result.preview.groups,
-      errorCount: result.preview.errorCount,
-      imported: result.imported,
-      updatedExisting: result.existing,
-      batchLimit: result.batchLimit,
-    }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) {
-    console.error("[CATALOGO EXTERNO CRON] Error al importar la revision:", error);
-    return NextResponse.json({ message: "No se pudo importar el catalogo externo." }, { status: 500 });
-  }
+  // Se conserva temporalmente para que los cron jobs externos antiguos no
+  // consulten GESU una segunda vez. El cron activo es /api/cron/gesu.
+  return NextResponse.json({
+    ok: true,
+    disabled: true,
+    message: "Este cron fue reemplazado por /api/cron/gesu.",
+  }, { headers: { "Cache-Control": "no-store" } });
 }

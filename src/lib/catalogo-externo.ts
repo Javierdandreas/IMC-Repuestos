@@ -1,15 +1,16 @@
 import "server-only";
-import { createClient } from "@supabase/supabase-js";
 import { revalidateTag } from "next/cache";
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
 import { limitarDescripcionCatalogoExterno } from "@/lib/descripcion-catalogo-externo";
 
 const ORIGIN = "GESU_EXTERNO";
-const TABLE = "gesu_items_raw";
 const PAGE_SIZE = 1000;
 const AUTO_IMPORT_LIMIT = 500;
-const MAX_ROWS = 50000;
+const MAX_GESU_ROWS = 60000;
+const MAX_GESU_PAGES = 60;
+const GESU_REQUEST_TIMEOUT_MS = 15_000;
+const GESU_MIN_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const SAMPLE_LIMIT = 80;
 const IMPORT_LIMIT = 500;
 
@@ -175,14 +176,6 @@ function pick(source: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
-function externalSupabaseClient() {
-  const url = clean(process.env.EXTERNAL_SUPABASE_URL);
-  const key = clean(process.env.EXTERNAL_SUPABASE_KEY);
-  if (!url || !key) throw new AppError("Faltan EXTERNAL_SUPABASE_URL o EXTERNAL_SUPABASE_KEY en la configuracion del proyecto.", 503);
-  try { new URL(url); } catch { throw new AppError("EXTERNAL_SUPABASE_URL no tiene un formato valido.", 503); }
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } });
-}
-
 function parseRow(row: RawRow): Item | null {
   const data = payload(row.payload);
   const rawType = normalize(pick(data, ["tipo"]) || row.tipo);
@@ -194,8 +187,8 @@ function parseRow(row: RawRow): Item | null {
     sourceId: String(row.id),
     code,
     title,
-    // GESU mantiene el titulo como la denominacion comercial del item.
-    description: title || sourceDescription || code,
+    // La descripcion propia tiene prioridad; el titulo es el respaldo cuando GESU no la informa.
+    description: sourceDescription || title || code,
     brand: pick(data, ["marca"]) || clean(row.marca),
     category: pick(data, ["categoria", "categoría"]),
     subcategory: pick(data, ["subCategoria", "subcategoria", "subCategoría"]),
@@ -244,25 +237,102 @@ function components(title: string, localProducts: Map<string, number>, configure
   };
 }
 
-async function fetchExternalSupabaseSource() {
-  const api = externalSupabaseClient();
-  const latest = await api.from(TABLE).select("sync_run_id, imported_at").not("sync_run_id", "is", null).order("imported_at", { ascending: false }).limit(1).maybeSingle();
-  if (latest.error || latest.data?.sync_run_id === null || latest.data?.sync_run_id === undefined) {
-    throw new AppError("No se pudo encontrar una sincronizacion disponible en el catalogo externo.", 502);
+type GesuResponse = {
+  header?: { data_tot?: unknown; data_pag?: unknown };
+  data?: unknown[] | Record<string, unknown>;
+};
+
+function gesuItemsUrl(page: number) {
+  const configured = clean(process.env.GESU_ITEMS_API_URL);
+  if (!configured) throw new AppError("Falta GESU_ITEMS_API_URL en la configuracion del proyecto.", 503);
+  try {
+    const url = new URL(configured);
+    url.searchParams.set("pag", String(page));
+    return url;
+  } catch {
+    throw new AppError("GESU_ITEMS_API_URL no tiene un formato valido.", 503);
   }
-  const rows: RawRow[] = [];
-  for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
-    const page = await api.from(TABLE)
-      .select("id, sync_run_id, imported_at, codigo_interno, codigo_barras, stock, marca, titulo, tipo, payload")
-      .eq("sync_run_id", latest.data.sync_run_id)
-      .order("id", { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
-    if (page.error) throw new AppError("No se pudo leer gesu_items_raw. Verifica el acceso de lectura del catalogo externo.", 502);
-    const pageRows = (page.data ?? []) as RawRow[];
-    rows.push(...pageRows);
-    if (pageRows.length < PAGE_SIZE) return { rows, syncRunId: String(latest.data.sync_run_id), importedAt: latest.data.imported_at ?? null };
+}
+
+function rawRowsFromGesuPage(response: GesuResponse, page: number): RawRow[] {
+  const source = response.data;
+  const entries = Array.isArray(source)
+    ? source.map((value, index) => [String(index + 1), value] as const)
+    : source && typeof source === "object"
+      ? Object.entries(source)
+      : [];
+
+  return entries.flatMap(([key, value]) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const item = value as Record<string, unknown>;
+    const code = normalize(item.codigoInterno);
+    const type = normalize(item.tipo);
+    return [{
+      // El codigo es estable entre consultas. Solo se usa el numero de pagina si GESU no entregara codigo.
+      id: code ? `${type || "ITEM"}:${code}` : `${page}:${key}`,
+      sync_run_id: null,
+      imported_at: null,
+      codigo_interno: code || null,
+      codigo_barras: clean(item.codigoBarras) || null,
+      stock: item.stock as string | number | null,
+      marca: clean(item.marca) || null,
+      titulo: clean(item.titulo) || null,
+      tipo: type || null,
+      payload: item,
+    }];
+  });
+}
+
+async function fetchGesuPage(page: number): Promise<GesuResponse> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GESU_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(gesuItemsUrl(page), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new AppError(`GESU devolvio HTTP ${response.status} en la pagina ${page}.`, 502);
+    const data = await response.json() as unknown;
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new AppError(`GESU devolvio una respuesta invalida en la pagina ${page}.`, 502);
+    }
+    return data as GesuResponse;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    const detail = error instanceof Error && error.name === "AbortError" ? "se agotaron los 15 segundos" : "no se pudo conectar";
+    throw new AppError(`No se pudo consultar GESU en la pagina ${page}: ${detail}.`, 502);
+  } finally {
+    clearTimeout(timeout);
   }
-  throw new AppError("La sincronizacion externa supera el limite permitido de 50.000 filas.", 422);
+}
+
+/**
+ * GESU permite una consulta por pagina cada quince minutos. Esta funcion hace
+ * una sola llamada por pagina y no reintenta, para respetar ese limite.
+ */
+async function fetchGesuApiSource() {
+  const first = await fetchGesuPage(1);
+  const firstRows = rawRowsFromGesuPage(first, 1);
+  const total = Number(first.header?.data_tot);
+  const pageSize = Number(first.header?.data_pag) || firstRows.length || PAGE_SIZE;
+  if (!Number.isFinite(total) || total < 0 || !Number.isFinite(pageSize) || pageSize <= 0) {
+    throw new AppError("GESU no informo los encabezados de paginacion esperados.", 502);
+  }
+  if (total > MAX_GESU_ROWS) throw new AppError(`GESU informa ${total.toLocaleString("es-AR")} registros, por encima del limite de seguridad.`, 422);
+  const pageCount = Math.ceil(total / pageSize);
+  if (pageCount > MAX_GESU_PAGES) throw new AppError("GESU supera la cantidad maxima de paginas permitida.", 422);
+
+  const rows = [...firstRows];
+  for (let page = 2; page <= pageCount; page += 1) {
+    const response = await fetchGesuPage(page);
+    rows.push(...rawRowsFromGesuPage(response, page));
+  }
+  return {
+    rows,
+    syncRunId: `GESU-${new Date().toISOString()}`,
+    importedAt: new Date().toISOString(),
+  };
 }
 
 async function existingCodes(table: "productos" | "kits", column: "cod_unico" | "codigo_kit", codes: string[]) {
@@ -498,8 +568,24 @@ async function stageCatalogRows(rows: RawRow[], syncRunId: string, importedAt: s
 }
 
 export async function refreshExternalCatalogPreview() {
-  const externalSource = await fetchExternalSupabaseSource();
-  return stageCatalogRows(externalSource.rows, externalSource.syncRunId, externalSource.importedAt);
+  // A manual consultation must not consume an additional request for every
+  // page. GESU allows four requests per hour per page, so the active GESU
+  // snapshot is reused until the next permitted interval.
+  const latest = await query<{ id: number; consultado_at: string }>(
+    `SELECT id, consultado_at
+     FROM public.catalogo_externo_sincronizacion
+     WHERE origen = $1 AND sync_run_id LIKE 'GESU-%'
+     ORDER BY consultado_at DESC
+     LIMIT 1`,
+    [ORIGIN],
+  );
+  const previous = latest.rows[0];
+  if (previous && Date.now() - new Date(previous.consultado_at).getTime() < GESU_MIN_SYNC_INTERVAL_MS) {
+    return summary(Number(previous.id));
+  }
+
+  const gesuSource = await fetchGesuApiSource();
+  return stageCatalogRows(gesuSource.rows, gesuSource.syncRunId, gesuSource.importedAt);
 }
 
 export async function discardExternalCatalogSnapshot(snapshotId: number) {
@@ -842,7 +928,6 @@ export async function updateExternalCatalogExistingKeywords(snapshotId: number):
          AND item.tipo = 'PRODUCTO'
          AND item.existe_local = TRUE
          AND producto.id = item.id_producto_local
-         AND producto.id_pieza IS NULL
          AND NULLIF(BTRIM(item.palabras_clave), '') IS NOT NULL
          AND producto.palabra_clave IS DISTINCT FROM NULLIF(BTRIM(item.palabras_clave), '')
        RETURNING producto.id`,
@@ -855,8 +940,9 @@ export async function updateExternalCatalogExistingKeywords(snapshotId: number):
 }
 
 /**
- * GESU remains the source of stock for all non-serialized items. Product data
- * other than stock stays protected once an item has a piece number assigned.
+ * Para productos ya existentes GESU solo puede modificar descripcion, stock y
+ * palabras clave. No toca costos, precios, proveedores, categoria, ubicacion
+ * ni los saldos por ubicacion definidos en Nexo.
  */
 async function updateExternalCatalogExistingItems(snapshotId: number): Promise<CatalogExistingUpdateResult> {
   const result = await withTransaction(async (db) => {
@@ -866,103 +952,33 @@ async function updateExternalCatalogExistingItems(snapshotId: number): Promise<C
     );
     if (!snapshot.rowCount) throw new AppError("La consulta externa ya no esta disponible.", 404);
 
-    const locations = await db.query<{ id: number }>(
-      `INSERT INTO public.ubicaciones (descripcion)
-       SELECT DISTINCT BTRIM(item.ubicacion)
-       FROM public.catalogo_externo_item AS item
-       JOIN public.productos AS producto ON producto.id = item.id_producto_local
-       WHERE item.id_sincronizacion = $1
-         AND item.tipo = 'PRODUCTO'
-         AND item.existe_local = TRUE
-         AND producto.id_pieza IS NULL
-         AND COALESCE(producto.usa_numero_serie, FALSE) = FALSE
-         AND NULLIF(BTRIM(item.ubicacion), '') IS NOT NULL
-       ON CONFLICT (descripcion) DO NOTHING
-       RETURNING id`,
-      [snapshotId],
-    );
-
     const updated = await db.query<{ id: number }>(
       `WITH source AS (
          SELECT item.id_producto_local AS id_producto,
            GREATEST(item.stock, 0) AS stock,
            NULLIF(BTRIM(item.descripcion), '') AS descripcion,
-           NULLIF(BTRIM(item.palabras_clave), '') AS palabra_clave,
-           NULLIF(BTRIM(item.ubicacion), '') AS ubicacion,
-           CASE WHEN item.estado_clasificacion = 'LISTA' THEN item.id_subcategoria ELSE NULL END AS id_subcategoria
+           NULLIF(BTRIM(item.palabras_clave), '') AS palabra_clave
          FROM public.catalogo_externo_item AS item
          JOIN public.productos AS producto ON producto.id = item.id_producto_local
          WHERE item.id_sincronizacion = $1
            AND item.tipo = 'PRODUCTO'
            AND item.existe_local = TRUE
-           AND COALESCE(producto.usa_numero_serie, FALSE) = FALSE
-       ), target AS (
-         SELECT source.*, ubicacion.id AS id_ubicacion
-         FROM source
-         LEFT JOIN public.ubicaciones AS ubicacion ON UPPER(BTRIM(ubicacion.descripcion)) = UPPER(source.ubicacion)
        )
        UPDATE public.productos AS producto
-       SET stock = target.stock,
-           descripcion = CASE WHEN producto.id_pieza IS NULL THEN COALESCE(LEFT(target.descripcion, 150), producto.descripcion) ELSE producto.descripcion END,
-           palabra_clave = CASE WHEN producto.id_pieza IS NULL THEN COALESCE(target.palabra_clave, producto.palabra_clave) ELSE producto.palabra_clave END,
-           id_subcategoria = CASE WHEN producto.id_pieza IS NULL THEN COALESCE(target.id_subcategoria, producto.id_subcategoria) ELSE producto.id_subcategoria END,
-           id_ubicacion = CASE WHEN producto.id_pieza IS NULL THEN COALESCE(target.id_ubicacion, producto.id_ubicacion) ELSE producto.id_ubicacion END
-       FROM target
-       WHERE producto.id = target.id_producto
+       SET stock = source.stock,
+           descripcion = COALESCE(LEFT(source.descripcion, 150), producto.descripcion),
+           palabra_clave = COALESCE(source.palabra_clave, producto.palabra_clave)
+       FROM source
+       WHERE producto.id = source.id_producto
          AND (
-           producto.stock IS DISTINCT FROM target.stock
-           OR (producto.id_pieza IS NULL AND (
-             producto.descripcion IS DISTINCT FROM COALESCE(LEFT(target.descripcion, 150), producto.descripcion)
-             OR producto.palabra_clave IS DISTINCT FROM COALESCE(target.palabra_clave, producto.palabra_clave)
-             OR producto.id_subcategoria IS DISTINCT FROM COALESCE(target.id_subcategoria, producto.id_subcategoria)
-             OR producto.id_ubicacion IS DISTINCT FROM COALESCE(target.id_ubicacion, producto.id_ubicacion)
-           ))
+           producto.stock IS DISTINCT FROM source.stock
+           OR producto.descripcion IS DISTINCT FROM COALESCE(LEFT(source.descripcion, 150), producto.descripcion)
+           OR producto.palabra_clave IS DISTINCT FROM COALESCE(source.palabra_clave, producto.palabra_clave)
          )
        RETURNING producto.id`,
       [snapshotId],
     );
-
-    // The source stock represents one operational location, so previous location
-    // balances are reset before assigning the current external balance.
-    await db.query(
-      `WITH source AS (
-         SELECT producto.id AS id_producto, GREATEST(item.stock, 0) AS stock,
-           COALESCE(producto.id_ubicacion, sin_ubicacion.id) AS id_ubicacion
-         FROM public.catalogo_externo_item AS item
-         JOIN public.productos AS producto ON producto.id = item.id_producto_local
-         CROSS JOIN LATERAL (SELECT id FROM public.ubicaciones WHERE descripcion = 'SIN UBICACION' LIMIT 1) AS sin_ubicacion
-         WHERE item.id_sincronizacion = $1
-           AND item.tipo = 'PRODUCTO'
-           AND item.existe_local = TRUE
-           AND COALESCE(producto.usa_numero_serie, FALSE) = FALSE
-       )
-       UPDATE public.producto_stock_ubicacion AS stock_ubicacion
-       SET cantidad = CASE WHEN stock_ubicacion.id_ubicacion = source.id_ubicacion THEN source.stock ELSE 0 END
-       FROM source
-       WHERE stock_ubicacion.id_producto = source.id_producto
-         AND stock_ubicacion.cantidad IS DISTINCT FROM CASE WHEN stock_ubicacion.id_ubicacion = source.id_ubicacion THEN source.stock ELSE 0 END`,
-      [snapshotId],
-    );
-    await db.query(
-      `WITH source AS (
-         SELECT producto.id AS id_producto, GREATEST(item.stock, 0) AS stock,
-           COALESCE(producto.id_ubicacion, sin_ubicacion.id) AS id_ubicacion
-         FROM public.catalogo_externo_item AS item
-         JOIN public.productos AS producto ON producto.id = item.id_producto_local
-         CROSS JOIN LATERAL (SELECT id FROM public.ubicaciones WHERE descripcion = 'SIN UBICACION' LIMIT 1) AS sin_ubicacion
-         WHERE item.id_sincronizacion = $1
-           AND item.tipo = 'PRODUCTO'
-           AND item.existe_local = TRUE
-           AND COALESCE(producto.usa_numero_serie, FALSE) = FALSE
-       )
-       INSERT INTO public.producto_stock_ubicacion (id_producto, id_ubicacion, cantidad)
-       SELECT id_producto, id_ubicacion, stock FROM source
-       ON CONFLICT (id_producto, id_ubicacion) DO UPDATE
-       SET cantidad = EXCLUDED.cantidad
-       WHERE public.producto_stock_ubicacion.cantidad IS DISTINCT FROM EXCLUDED.cantidad`,
-      [snapshotId],
-    );
-    return { updated: updated.rowCount ?? 0, locationsCreated: locations.rowCount ?? 0 };
+    return { updated: updated.rowCount ?? 0, locationsCreated: 0 };
   });
   revalidateTag("meta");
   return result;

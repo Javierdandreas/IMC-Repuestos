@@ -269,7 +269,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
 
   const loadPreview = async () => {
     if (!canManage) {
-      toast.error("Solo administradores pueden consultar el catalogo externo.");
+      toast.error("Solo administradores pueden consultar GESU.");
       return;
     }
 
@@ -277,7 +277,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
       setLoading(true);
       const response = await fetch("/api/catalogo-externo/resumen", { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || "No se pudo consultar el catalogo externo.");
+      if (!response.ok) throw new Error(data.message || "No se pudo consultar GESU.");
       const nextPreview = data as Preview;
       setPreview(nextPreview);
       setProductSearch("");
@@ -292,7 +292,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
         loadGroups(nextPreview.snapshotId, 1, "", ""),
       ]);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo consultar el catalogo externo.");
+      toast.error(error instanceof Error ? error.message : "No se pudo consultar GESU.");
     } finally {
       setLoading(false);
     }
@@ -526,16 +526,16 @@ export function ExternalCatalogPage({ canManage }: Props) {
       setFinishing(true);
       const response = await fetch(`/api/catalogo-externo/sesion?snapshot=${preview.snapshotId}`, { method: "DELETE" });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || "No se pudo finalizar la consulta externa.");
+      if (!response.ok) throw new Error(data.message || "No se pudo finalizar la consulta de GESU.");
       setPreview(null);
       setProductsPage(null);
       setGroupsPage(null);
       setSelectedIds([]);
       setSelectedGroupIds([]);
       setConfirmingFinish(false);
-      toast.success("Consulta finalizada. La proxima revision consultara la base externa.");
+      toast.success("Consulta finalizada. La proxima revision consultara GESU.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo finalizar la consulta externa.");
+      toast.error(error instanceof Error ? error.message : "No se pudo finalizar la consulta de GESU.");
     } finally {
       setFinishing(false);
     }
@@ -554,8 +554,8 @@ export function ExternalCatalogPage({ canManage }: Props) {
               <HiArrowLeft className="h-4 w-4" />
               Volver a catalogo
             </button>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white">Catalogo externo</h1>
-            <p className="mt-1 text-sm font-medium text-slate-500">Revision de productos y grupos antes de integrarlos a IMC.</p>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white">GESU</h1>
+            <p className="mt-1 text-sm font-medium text-slate-500">Revision de productos y grupos sincronizados desde GESU.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -565,7 +565,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-blue-500/40 px-4 text-xs font-black uppercase tracking-wide text-blue-600 transition hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-300"
             >
               <HiRefresh className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              Consultar base externa
+              Consultar GESU
             </button>
           </div>
         </header>
@@ -939,7 +939,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
       <Modal title="Actualizar palabras clave existentes" open={confirmingKeywordsUpdate} onClose={updatingKeywords ? () => {} : () => setConfirmingKeywordsUpdate(false)} width="max-w-lg">
         <div className="space-y-4 p-6">
           <p className="text-sm font-medium leading-6 text-slate-600 dark:text-slate-300">
-            Se actualizaran las palabras clave de los items existentes sin numero de pieza que coincidan por codigo con esta consulta externa.
+            Se actualizaran las palabras clave de los items existentes que coincidan por codigo con esta consulta de GESU.
           </p>
           <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs font-semibold leading-5 text-violet-800 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-200">
             Solo se usa una palabra clave externa con contenido. No se modificaran piezas, precios, stock, descripcion, marca ni clasificacion local.
@@ -951,7 +951,7 @@ export function ExternalCatalogPage({ canManage }: Props) {
         </div>
       </Modal>
 
-      <Modal title="Finalizar consulta externa" open={confirmingFinish} onClose={finishing ? () => {} : () => setConfirmingFinish(false)} width="max-w-lg">
+      <Modal title="Finalizar consulta de GESU" open={confirmingFinish} onClose={finishing ? () => {} : () => setConfirmingFinish(false)} width="max-w-lg">
         <div className="space-y-4 p-6">
           <p className="text-sm font-medium leading-6 text-slate-600 dark:text-slate-300">
             Se eliminaran todos los resultados de esta consulta, tanto los ya importados como los que decidiste no importar.
@@ -1025,8 +1025,8 @@ export function ExternalCatalogPage({ canManage }: Props) {
 
       <TransferProgressModal
         open={loading || importing || importingGroups}
-        title={importingGroups ? "Importando kits externos" : importing ? "Importando productos externos" : "Consultando base externa"}
-        description={importingGroups ? "Creando los kits y vinculando sus componentes." : importing ? "Creando los items seleccionados en el catalogo propio." : "Leyendo la ultima sincronizacion de gesu_items_raw."}
+        title={importingGroups ? "Importando kits de GESU" : importing ? "Importando productos de GESU" : "Consultando GESU"}
+        description={importingGroups ? "Creando los kits y vinculando sus componentes." : importing ? "Creando los items seleccionados en el catalogo propio." : "Leyendo todas las paginas de la API de GESU."}
       />
     </main>
   );

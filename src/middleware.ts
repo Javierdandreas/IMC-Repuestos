@@ -27,6 +27,7 @@ export async function middleware(request: NextRequest) {
   // Ninguno puede depender de una sesion de usuario del navegador.
   if (
     pathname === "/api/cron/catalogo-externo" ||
+    pathname === "/api/cron/gesu" ||
     pathname === "/api/cron/mercadolibre" ||
     pathname === "/api/cron/multimoneda" ||
     pathname === "/api/integraciones/mercadolibre/notificaciones"
