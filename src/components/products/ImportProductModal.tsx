@@ -64,6 +64,16 @@ type ImportField = {
   aliases: string[];
 };
 
+type CotizacionImportacion = {
+  codigo: string;
+  etiqueta: string;
+  moneda: "USD" | "EUR" | "BRL";
+  referencia: "OFICIAL" | "BLUE" | "MEP" | "CCL";
+  valorVenta: number | null;
+};
+
+const ORDEN_COTIZACIONES = ["USD_BLUE", "USD_CCL", "USD_MEP", "USD_OFICIAL", "EUR_OFICIAL", "BRL_OFICIAL"];
+
 const SYSTEM_FIELDS: ImportField[] = [
   { id: 'cod_unico', label: 'Código interno', description: 'Identificador único del item', group: 'Datos principales', required: true, aliases: ['codigo', 'codigo unico', 'codigo único', 'codigo interno', 'cod unico', 'cod_unico', 'sku', 'item', 'codigo producto', 'id producto'] },
   { id: 'titulo', label: 'Descripción', description: 'Nombre o título del item', group: 'Datos principales', aliases: ['titulo', 'descripcion', 'descripción', 'nombre', 'producto', 'articulo', 'artículo', 'detalle'] },
@@ -212,10 +222,25 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [preview, setPreview] = useState<any[]>([]);
   const [mappings, setMappings] = useState<Record<string, MappingConfig>>(createInitialMappings);
+  const [codigoCotizacionPrecioProveedor, setCodigoCotizacionPrecioProveedor] = useState("ARS");
+  const [cotizacionesImportacion, setCotizacionesImportacion] = useState<CotizacionImportacion[]>([]);
+  const [cotizacionesError, setCotizacionesError] = useState(false);
 
   const { proveedores, tiposPrecio } = useMetadata();
   const [isReplaceMode, setIsReplaceMode] = useState(false);
   const [onlyUpdateExisting, setOnlyUpdateExisting] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/multimoneda", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("No se pudieron cargar las cotizaciones.");
+        const panel = await response.json() as { cotizaciones?: CotizacionImportacion[] };
+        setCotizacionesImportacion([...(panel.cotizaciones ?? [])]
+          .sort((left, right) => ORDEN_COTIZACIONES.indexOf(left.codigo) - ORDEN_COTIZACIONES.indexOf(right.codigo)));
+        setCotizacionesError(false);
+      })
+      .catch(() => setCotizacionesError(true));
+  }, []);
 
   const marginFields = useMemo<ImportField[]>(() => (
     tiposPrecio
@@ -241,6 +266,8 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     [marginFields, mappings]
   );
   const isMarginImport = mappedMarginFields.length > 0;
+  const precioProveedorMapeado = Boolean(mappings.precio_lista_proveedor?.csvHeader);
+  const cotizacionImportacionSeleccionada = cotizacionesImportacion.find((item) => item.codigo === codigoCotizacionPrecioProveedor);
 
   useEffect(() => {
     setMappings((previous) => {
@@ -433,12 +460,10 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
                 items: chunk,
                 mappings,
                 fileName: file.name,
-                options: isMarginImport
-                  ? {
-                      onlyExisting: onlyUpdateExisting,
-                      blockKitCodes: true,
-                    }
-                  : undefined,
+                options: {
+                  ...(isMarginImport ? { onlyExisting: onlyUpdateExisting, blockKitCodes: true } : {}),
+                  codigoCotizacionPrecioProveedor,
+                },
               }),
             });
 
@@ -621,6 +646,14 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
       });
     }
 
+    if (precioProveedorMapeado && codigoCotizacionPrecioProveedor !== "ARS") {
+      if (cotizacionesError || !cotizacionImportacionSeleccionada) {
+        issues.push({ type: "error", message: "No se pudo obtener la cotizacion elegida para el precio de proveedor." });
+      } else if (!cotizacionImportacionSeleccionada.valorVenta || cotizacionImportacionSeleccionada.valorVenta <= 0) {
+        issues.push({ type: "error", message: "La cotizacion de venta elegida no tiene un valor vigente." });
+      }
+    }
+
     if (isMarginImport) {
       const disabledMargins = mappedMarginFields.filter((field) => mappings[field.id]?.updateExisting === false);
       if (disabledMargins.length > 0) {
@@ -665,7 +698,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     }
 
     return issues;
-  }, [importFields, isMarginImport, isReplaceMode, mappedMarginFields, mappings, missingRequiredFields, onlyUpdateExisting]);
+  }, [codigoCotizacionPrecioProveedor, cotizacionImportacionSeleccionada, cotizacionesError, importFields, isMarginImport, isReplaceMode, mappedMarginFields, mappings, missingRequiredFields, onlyUpdateExisting, precioProveedorMapeado]);
 
   const blockingImportIssues = useMemo(
     () => importValidationIssues.filter((issue) => issue.type === "error"),
@@ -779,6 +812,32 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
         ) : (
           <div className="flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-[9px] font-black uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500">
             Identificador
+          </div>
+        )}
+
+        {field.id === "precio_lista_proveedor" && isMapped && (
+          <div className="flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-800 md:col-span-4 md:flex-row md:items-center">
+            <label htmlFor="importacion-items-moneda" className="shrink-0 text-[10px] font-black uppercase tracking-widest text-blue-500">
+              Moneda del importe
+            </label>
+            <select
+              id="importacion-items-moneda"
+              value={codigoCotizacionPrecioProveedor}
+              onChange={(event) => setCodigoCotizacionPrecioProveedor(event.target.value)}
+              className="h-9 min-w-0 rounded-md border border-blue-500/30 bg-white px-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:bg-slate-950 dark:text-white"
+            >
+              <option value="ARS">0. Pesos argentinos (ARS)</option>
+              {cotizacionesImportacion.map((cotizacion, index) => (
+                <option key={cotizacion.codigo} value={cotizacion.codigo}>
+                  {index + 1}. {cotizacion.etiqueta} venta
+                </option>
+              ))}
+            </select>
+            {codigoCotizacionPrecioProveedor !== "ARS" && cotizacionImportacionSeleccionada?.valorVenta && (
+              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                1 {cotizacionImportacionSeleccionada.moneda} = $ {cotizacionImportacionSeleccionada.valorVenta.toLocaleString("es-AR", { maximumFractionDigits: 4 })}
+              </span>
+            )}
           </div>
         )}
       </div>

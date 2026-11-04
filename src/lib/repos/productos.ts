@@ -16,6 +16,7 @@ import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
 import { capturarCostosReferencia, registrarCambiosCostoReferencia } from "@/lib/cambios-costo-referencia";
 import { condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
 import { calcularPrecioArsDesdeOrigen, recalcularPreciosMargenDesdeCosto } from "@/lib/precios-multimoneda";
+import { AppError } from "@/lib/api-errors";
 
 export type ProductoInput = {
   cod_unico: string;
@@ -1245,7 +1246,7 @@ export async function importProductos(
   usuario: string, 
   archivo: string,
   mappings: Record<string, { csvHeader: string; updateExisting: boolean }>,
-  options: { onlyExisting?: boolean; blockKitCodes?: boolean } = {}
+  options: { onlyExisting?: boolean; blockKitCodes?: boolean; codigoCotizacionPrecioProveedor?: string } = {}
 ) {
   return withTransaction((client) => importProductosConCliente(client, items, usuario, archivo, mappings, options));
 }
@@ -1256,7 +1257,7 @@ export async function importProductosConCliente(
   usuario: string,
   archivo: string,
   mappings: Record<string, { csvHeader: string; updateExisting: boolean }>,
-  options: { onlyExisting?: boolean; blockKitCodes?: boolean } = {}
+  options: { onlyExisting?: boolean; blockKitCodes?: boolean; codigoCotizacionPrecioProveedor?: string } = {}
 ) {
     // 1. Cargar metadatos para resolución rápida
     const [marcas, categorias, subcategorias, ubicaciones, piezas, proveedores, tiposPrecio] = await Promise.all([
@@ -1289,6 +1290,30 @@ export async function importProductosConCliente(
       .filter((tipo) => tipo.idTipoPrecio > 0 && normalize(tipo.descripcion) !== "PRECIO COSTO")
       .filter((tipo) => Boolean(mappings[tipo.mappingId]?.csvHeader));
 
+    let cotizacionPrecioProveedor = 1;
+    const codigoCotizacionPrecioProveedor = String(options.codigoCotizacionPrecioProveedor ?? "ARS").trim();
+    if (mappings.precio_lista_proveedor?.csvHeader && codigoCotizacionPrecioProveedor !== "ARS") {
+      const cotizacion = await client.query<{ valor_venta: string | null }>(`
+        SELECT ultima.valor_venta
+        FROM public.moneda_cotizacion_configuracion configuracion
+        LEFT JOIN LATERAL (
+          SELECT valor_venta
+          FROM public.moneda_cotizacion
+          WHERE moneda = configuracion.moneda
+            AND referencia = configuracion.referencia
+            AND estado = 'VIGENTE'
+          ORDER BY actualizado_at DESC, id DESC
+          LIMIT 1
+        ) ultima ON TRUE
+        WHERE configuracion.codigo = $1
+      `, [codigoCotizacionPrecioProveedor]);
+      const valorVenta = Number(cotizacion.rows[0]?.valor_venta);
+      if (!cotizacion.rowCount || !Number.isFinite(valorVenta) || valorVenta <= 0) {
+        throw new AppError("La cotizacion seleccionada no tiene un valor de venta vigente.", 409);
+      }
+      cotizacionPrecioProveedor = valorVenta;
+    }
+
     const defaultSubcatId = subMap.get(normalize("SIN SUBCATEGORIA"));
     const startTime = Date.now();
 
@@ -1318,6 +1343,12 @@ export async function importProductosConCliente(
           : raw;
       const parsed = Number.parseFloat(normalized);
       return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const convertirPrecioProveedorAArs = (value: any) => {
+      const precio = parseNullableNumber(value);
+      if (precio === null) return null;
+      return Math.round((precio * cotizacionPrecioProveedor + Number.EPSILON) * 100) / 100;
     };
 
     // Para relación proveedores
@@ -1494,7 +1525,7 @@ export async function importProductosConCliente(
                   provName: provName.toString(), 
                   codProv: mappings.codigo_proveedor?.csvHeader ? supplierItem[mappings.codigo_proveedor.csvHeader]?.toString() : null,
                   precioLista: mappings.precio_lista_proveedor?.csvHeader
-                    ? parseNullableNumber(supplierItem[mappings.precio_lista_proveedor.csvHeader])
+                    ? convertirPrecioProveedorAArs(supplierItem[mappings.precio_lista_proveedor.csvHeader])
                     : null,
                   rowNum: supplierRowNum,
                 });

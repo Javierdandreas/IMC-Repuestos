@@ -10,7 +10,6 @@ import {
   registrarCambiosCostoReferencia,
 } from "@/lib/cambios-costo-referencia";
 import { AppError } from "@/lib/api-errors";
-import { calcularCotizacionProveedor } from "@/lib/cotizacion-proveedor";
 import { normalizarStockProveedorConCapas } from "@/lib/stock-proveedor";
 import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
 import {
@@ -156,7 +155,6 @@ export async function iniciarImportacionProveedor(
   idProveedor: number,
   nombreArchivo: string,
   totalItems: number,
-  codigoCotizacion = "ARS",
 ): Promise<ProveedorImportacion> {
   if (!Number.isInteger(idProveedor) || idProveedor <= 0) throw new Error("Proveedor invalido");
   if (!Number.isInteger(totalItems) || totalItems <= 0) throw new Error("La lista de items no puede estar vacia");
@@ -169,36 +167,6 @@ export async function iniciarImportacionProveedor(
     let recargo = 0;
     let cotizacionUsada = 1;
     let idCotizacion: number | null = null;
-    if (codigoCotizacion !== "ARS") {
-      const quote = await client.query<{
-        moneda: string; referencia: string; lado: string; tipo_recargo: string; recargo: string;
-        id_cotizacion: number | null; valor_compra: string | null; valor_venta: string | null;
-      }>(`
-        SELECT config.moneda, config.referencia,
-               COALESCE(selected.lado, 'VENTA') AS lado,
-               COALESCE(selected.tipo_recargo, 'PORCENTAJE') AS tipo_recargo,
-               COALESCE(selected.recargo, 0) AS recargo,
-               latest.id AS id_cotizacion, latest.valor_compra, latest.valor_venta
-        FROM public.moneda_cotizacion_configuracion config
-        LEFT JOIN public.proveedor_cotizacion_configuracion selected
-          ON selected.codigo = config.codigo AND selected.id_proveedor = $1
-        LEFT JOIN LATERAL (
-          SELECT id, valor_compra, valor_venta FROM public.moneda_cotizacion
-          WHERE moneda = config.moneda AND referencia = config.referencia AND estado = 'VIGENTE'
-          ORDER BY actualizado_at DESC, id DESC LIMIT 1
-        ) latest ON TRUE
-        WHERE config.codigo = $2
-      `, [idProveedor, codigoCotizacion]);
-      const selected = quote.rows[0];
-      if (!selected) throw new AppError("La cotizacion seleccionada no existe.", 400);
-      const base = Number(selected.lado === "COMPRA" ? selected.valor_compra : selected.valor_venta);
-      if (!Number.isFinite(base) || base <= 0 || !selected.id_cotizacion) throw new AppError("La cotizacion seleccionada no tiene un valor vigente para el lado elegido.", 409);
-      moneda = selected.moneda; referencia = selected.referencia; lado = selected.lado;
-      tipoRecargo = selected.tipo_recargo; recargo = Number(selected.recargo); idCotizacion = Number(selected.id_cotizacion);
-      const calculada = calcularCotizacionProveedor(base, tipoRecargo, recargo);
-      if (calculada === null) throw new AppError("La cotizacion calculada no es valida.", 400);
-      cotizacionUsada = calculada;
-    }
     const result = await client.query(
       `
         INSERT INTO public.proveedor_importacion (id_proveedor, nombre_archivo, total_items, estado,

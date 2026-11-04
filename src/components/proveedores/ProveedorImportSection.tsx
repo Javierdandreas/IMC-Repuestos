@@ -9,7 +9,6 @@ import useSWR, { mutate } from "swr";
 
 import { ProveedorImportHistory } from "./ProveedorImportHistory";
 import { TransferProgressModal } from "@/components/ui/TransferProgressModal";
-import { calcularCotizacionProveedor } from "@/lib/cotizacion-proveedor";
 import {
   labelEstadoStockProveedor,
   normalizarStockProveedorConCapas,
@@ -45,14 +44,8 @@ type StockColorRule = {
   activo: boolean;
 };
 
-type CotizacionProveedor = {
-  codigo: string; etiqueta: string; moneda: string; activa: boolean; lado: "COMPRA" | "VENTA";
-  tipoRecargo: "PORCENTAJE" | "MONTO_FIJO"; recargo: number; valorCompra: number | null; valorVenta: number | null;
-};
-
 const STOCK_COLOR_ROW = "__COLOR_FILA_EXCEL__";
 const PREVIEW_PAGE_SIZE = 50;
-const ORDEN_COTIZACIONES = ["USD_BLUE", "USD_CCL", "USD_MEP", "USD_OFICIAL", "EUR_OFICIAL", "BRL_OFICIAL"];
 
 async function requestImportJson(url: string, init: RequestInit) {
   const response = await fetch(url, init);
@@ -307,10 +300,9 @@ function parseSupplierPrice(value: unknown): number {
   return roundPrice(parsed);
 }
 
-function formatImportPrice(value: number | null, moneda = "ARS") {
+function formatImportPrice(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "-";
-  const formatted = value.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return moneda === "ARS" ? `$ ${formatted}` : `${moneda} ${formatted}`;
+  return `$ ${value.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function buildMappedRows(
@@ -421,7 +413,6 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
   const [savingStockColorRules, setSavingStockColorRules] = useState(false);
   const [excelSheets, setExcelSheets] = useState<string[]>([]);
   const [selectedExcelSheet, setSelectedExcelSheet] = useState("");
-  const [codigoCotizacion, setCodigoCotizacion] = useState("");
   const workbookRef = useRef<XLSX.WorkBook | null>(null);
   const [mappings, setMappings] = useState<Record<string, MappingConfig>>(() => createInitialMappings());
   const [importing, setImporting] = useState(false);
@@ -436,24 +427,9 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     `/api/proveedores/${id_proveedor}/stock-colores`,
     stockColorRulesFetcher,
   );
-  const { data: cotizaciones, error: cotizacionesError } = useSWR<CotizacionProveedor[]>(
-    `/api/proveedores/${id_proveedor}/monedas`, stockColorRulesFetcher,
-  );
   const { data: stockTextRules = [] } = useSWR<ReglaCostoProveedor[]>(
     `/api/proveedores/${id_proveedor}/reglas-costo`, stockColorRulesFetcher,
   );
-  const cotizacionesDisponibles = useMemo(
-    () => [...(cotizaciones ?? [])].sort((left, right) => ORDEN_COTIZACIONES.indexOf(left.codigo) - ORDEN_COTIZACIONES.indexOf(right.codigo)),
-    [cotizaciones],
-  );
-  const cotizacionSeleccionada = cotizacionesDisponibles.find((item) => item.codigo === codigoCotizacion);
-  const valorCotizacion = cotizacionSeleccionada
-    ? cotizacionSeleccionada.lado === "COMPRA" ? cotizacionSeleccionada.valorCompra : cotizacionSeleccionada.valorVenta
-    : null;
-  const cotizacionEfectiva = cotizacionSeleccionada && valorCotizacion !== null
-    ? calcularCotizacionProveedor(valorCotizacion, cotizacionSeleccionada.tipoRecargo, cotizacionSeleccionada.recargo)
-    : null;
-  const cotizacionValida = codigoCotizacion === "ARS" || cotizacionEfectiva !== null;
 
   const mappedData = useMemo(
     () => buildMappedRows(rawRows, mappings, nombre_proveedor, stockColorRules, stockTextRules),
@@ -468,7 +444,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
     stockTextRules,
     PREVIEW_PAGE_SIZE,
   ).preview, [rawRows, previewPage, mappings, nombre_proveedor, stockColorRules, stockTextRules]);
-  const canImport = Boolean(cotizaciones && !cotizacionesError && cotizacionValida && mappings.codigo_proveedor.csvHeader && mappings.precio_lista.csvHeader && mappedData.items.length > 0);
+  const canImport = Boolean(mappings.codigo_proveedor.csvHeader && mappings.precio_lista.csvHeader && mappedData.items.length > 0);
 
   useEffect(() => {
     if (stockColorRules.length === 0 || savedStockColorRules.length === 0) return;
@@ -477,14 +453,6 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       return savedRule ? { ...savedRule, color: rule.color } : rule;
     }));
   }, [savedStockColorRules]);
-
-  useEffect(() => {
-    if (!cotizaciones || cotizacionesError) return;
-    setCodigoCotizacion((current) => {
-      if (current === "ARS" || cotizacionesDisponibles.some((item) => item.codigo === current)) return current;
-      return "ARS";
-    });
-  }, [cotizaciones, cotizacionesDisponibles, cotizacionesError]);
 
   useEffect(() => {
     if (!importing) return;
@@ -695,7 +663,6 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
           id_proveedor,
           nombre_archivo: file.name,
           total_items: mappedData.items.length,
-          codigo_cotizacion: codigoCotizacion,
         }),
       });
       const idImportacion = Number(importacion.id);
@@ -829,7 +796,7 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
               <span className="font-mono font-bold text-slate-500">{row.row}</span>
               <span className="truncate font-bold text-slate-300">{row.proveedor || "-"}</span>
               <span className="truncate font-black text-white">{row.codigo || "-"}</span>
-              <span className="font-mono font-black text-blue-300">{formatImportPrice(row.precio, cotizacionSeleccionada?.moneda ?? "ARS")}</span>
+              <span className="font-mono font-black text-blue-300">{formatImportPrice(row.precio)}</span>
               <span className="truncate font-bold text-slate-400">{row.stock}</span>
               <span className={row.status === "OK" ? "font-black text-green-300" : "font-black text-amber-300"}>
                 {row.reason}
@@ -941,15 +908,6 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
             </select>
           </div>
         ))}
-        <div className="min-w-0 space-y-1.5">
-          <label htmlFor="importacion-cotizacion" className="text-[10px] font-black uppercase tracking-widest text-blue-400">Moneda</label>
-          <select id="importacion-cotizacion" value={codigoCotizacion} onChange={(event) => setCodigoCotizacion(event.target.value)} disabled={!cotizaciones || Boolean(cotizacionesError)} className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 text-xs font-black text-white outline-none focus:border-blue-500 disabled:opacity-50">
-            <option value="ARS">0. Pesos argentinos (ARS)</option>
-            {cotizacionesDisponibles.map((item, index) => <option key={item.codigo} value={item.codigo}>{index + 1}. {item.etiqueta} - {item.lado === "COMPRA" ? "Compra" : "Venta"}</option>)}
-          </select>
-          {cotizacionesError && <p className="text-xs font-bold text-red-300">No se pudieron cargar las monedas del proveedor.</p>}
-          {cotizacionSeleccionada && <p className="text-xs font-semibold text-slate-400">{cotizacionEfectiva !== null && valorCotizacion !== null ? `Cotizacion base: ${valorCotizacion.toLocaleString("es-AR", { maximumFractionDigits: 4 })}; recargo: ${cotizacionSeleccionada.recargo}${cotizacionSeleccionada.tipoRecargo === "PORCENTAJE" ? "%" : " ARS"}; cotizacion a aplicar: ${cotizacionEfectiva.toLocaleString("es-AR", { maximumFractionDigits: 4 })} ARS. La cotizacion se fija al iniciar la importacion.` : "No hay cotizacion vigente para el lado seleccionado."}</p>}
-        </div>
       </div>
 
       {mappings.stock_proveedor.csvHeader === STOCK_COLOR_ROW ? (
