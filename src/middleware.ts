@@ -23,9 +23,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Los cron validan su propio Bearer token y el webhook valida la aplicacion de Mercado Libre.
-  // Ninguno puede depender de una sesion de usuario del navegador.
+  // Los cron validan su propio Bearer token, el catalogo de socios su X-API-Key y el
+  // webhook valida la aplicacion de Mercado Libre. Ninguno depende de una sesion web.
   if (
+    pathname.startsWith("/api/partner/") ||
     pathname === "/api/cron/catalogo-externo" ||
     pathname === "/api/cron/gesu" ||
     pathname === "/api/cron/mercadolibre" ||
