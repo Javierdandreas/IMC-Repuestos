@@ -23,6 +23,7 @@ interface ImportResults {
   updated: number;
   ignored: number;
   providerPricesUpdated: number;
+  baseCostsUpdated: number;
   marginsUpdated: number;
   recalculatedCostCount: number;
   errors: ImportError[];
@@ -87,6 +88,7 @@ const SYSTEM_FIELDS: ImportField[] = [
   { id: 'proveedor', label: 'Proveedor', description: 'Proveedor asociado al item', group: 'Item asociado y proveedor', aliases: ['proveedor', 'supplier', 'vendor'] },
   { id: 'codigo_proveedor', label: 'Código proveedor', description: 'Código del item en el proveedor', group: 'Item asociado y proveedor', aliases: ['codigo proveedor', 'codigo en proveedor', 'cod proveedor', 'sku proveedor', 'item proveedor', 'referencia proveedor', 'codigo lista'] },
   { id: 'precio_lista_proveedor', label: 'Precio lista proveedor', description: 'Precio informado por el proveedor', group: 'Item asociado y proveedor', aliases: ['precio lista proveedor', 'precio proveedor', 'lista proveedor', 'precio lista', 'costo proveedor', 'precio de proveedor'] },
+  { id: 'costo_base', label: 'Costo base', description: 'Costo directo del item; establece criterio Manual', group: 'Precios y margenes', aliases: ['costo base', 'precio costo', 'costo', 'cost', 'costo directo'] },
 ];
 
 const normalizeHeader = (value: string) =>
@@ -222,7 +224,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [preview, setPreview] = useState<any[]>([]);
   const [mappings, setMappings] = useState<Record<string, MappingConfig>>(createInitialMappings);
-  const [codigoCotizacionPrecioProveedor, setCodigoCotizacionPrecioProveedor] = useState("ARS");
+  const [codigoCotizacionCostoBase, setCodigoCotizacionCostoBase] = useState("ARS");
   const [cotizacionesImportacion, setCotizacionesImportacion] = useState<CotizacionImportacion[]>([]);
   const [cotizacionesError, setCotizacionesError] = useState(false);
 
@@ -266,8 +268,8 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     [marginFields, mappings]
   );
   const isMarginImport = mappedMarginFields.length > 0;
-  const precioProveedorMapeado = Boolean(mappings.precio_lista_proveedor?.csvHeader);
-  const cotizacionImportacionSeleccionada = cotizacionesImportacion.find((item) => item.codigo === codigoCotizacionPrecioProveedor);
+  const costoBaseMapeado = Boolean(mappings.costo_base?.csvHeader);
+  const cotizacionImportacionSeleccionada = cotizacionesImportacion.find((item) => item.codigo === codigoCotizacionCostoBase);
 
   useEffect(() => {
     setMappings((previous) => {
@@ -445,6 +447,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
           updated: 0,
           ignored: 0,
           providerPricesUpdated: 0,
+          baseCostsUpdated: 0,
           marginsUpdated: 0,
           recalculatedCostCount: 0,
           errors: [],
@@ -462,7 +465,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
                 fileName: file.name,
                 options: {
                   ...(isMarginImport ? { onlyExisting: onlyUpdateExisting, blockKitCodes: true } : {}),
-                  codigoCotizacionPrecioProveedor,
+                  codigoCotizacionCostoBase,
                 },
               }),
             });
@@ -473,6 +476,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
               accumulatedResults.updated += (data.updated || 0);
               accumulatedResults.ignored += (data.ignored || 0);
               accumulatedResults.providerPricesUpdated += (data.providerPricesUpdated || 0);
+              accumulatedResults.baseCostsUpdated += (data.baseCostsUpdated || 0);
               accumulatedResults.marginsUpdated += (data.marginsUpdated || 0);
               accumulatedResults.recalculatedCostCount += (data.recalculatedCostCount || 0);
               accumulatedResults.errors = [...accumulatedResults.errors, ...data.errors];
@@ -646,9 +650,9 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
       });
     }
 
-    if (precioProveedorMapeado && codigoCotizacionPrecioProveedor !== "ARS") {
+    if (costoBaseMapeado && codigoCotizacionCostoBase !== "ARS") {
       if (cotizacionesError || !cotizacionImportacionSeleccionada) {
-        issues.push({ type: "error", message: "No se pudo obtener la cotizacion elegida para el precio de proveedor." });
+        issues.push({ type: "error", message: "No se pudo obtener la cotizacion elegida para el costo base." });
       } else if (!cotizacionImportacionSeleccionada.valorVenta || cotizacionImportacionSeleccionada.valorVenta <= 0) {
         issues.push({ type: "error", message: "La cotizacion de venta elegida no tiene un valor vigente." });
       }
@@ -698,7 +702,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     }
 
     return issues;
-  }, [codigoCotizacionPrecioProveedor, cotizacionImportacionSeleccionada, cotizacionesError, importFields, isMarginImport, isReplaceMode, mappedMarginFields, mappings, missingRequiredFields, onlyUpdateExisting, precioProveedorMapeado]);
+  }, [codigoCotizacionCostoBase, cotizacionImportacionSeleccionada, cotizacionesError, costoBaseMapeado, importFields, isMarginImport, isReplaceMode, mappedMarginFields, mappings, missingRequiredFields, onlyUpdateExisting]);
 
   const blockingImportIssues = useMemo(
     () => importValidationIssues.filter((issue) => issue.type === "error"),
@@ -815,15 +819,15 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
           </div>
         )}
 
-        {field.id === "precio_lista_proveedor" && isMapped && (
+        {field.id === "costo_base" && isMapped && (
           <div className="flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-800 md:col-span-4 md:flex-row md:items-center">
             <label htmlFor="importacion-items-moneda" className="shrink-0 text-[10px] font-black uppercase tracking-widest text-blue-500">
               Moneda del importe
             </label>
             <select
               id="importacion-items-moneda"
-              value={codigoCotizacionPrecioProveedor}
-              onChange={(event) => setCodigoCotizacionPrecioProveedor(event.target.value)}
+              value={codigoCotizacionCostoBase}
+              onChange={(event) => setCodigoCotizacionCostoBase(event.target.value)}
               className="h-9 min-w-0 rounded-md border border-blue-500/30 bg-white px-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 dark:bg-slate-950 dark:text-white"
             >
               <option value="ARS">0. Pesos argentinos (ARS)</option>
@@ -833,7 +837,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
                 </option>
               ))}
             </select>
-            {codigoCotizacionPrecioProveedor !== "ARS" && cotizacionImportacionSeleccionada?.valorVenta && (
+            {codigoCotizacionCostoBase !== "ARS" && cotizacionImportacionSeleccionada?.valorVenta && (
               <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                 1 {cotizacionImportacionSeleccionada.moneda} = $ {cotizacionImportacionSeleccionada.valorVenta.toLocaleString("es-AR", { maximumFractionDigits: 4 })}
               </span>
@@ -863,12 +867,18 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
           </div>
         </div>
 
-        {(results.providerPricesUpdated > 0 || results.marginsUpdated > 0 || results.recalculatedCostCount > 0) && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {(results.providerPricesUpdated > 0 || results.baseCostsUpdated > 0 || results.marginsUpdated > 0 || results.recalculatedCostCount > 0) && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             {results.providerPricesUpdated > 0 && (
               <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
                 <span className="block text-2xl font-black text-blue-300">{results.providerPricesUpdated}</span>
                 <span className="text-[10px] font-bold uppercase tracking-widest text-blue-300/70">Precios de proveedor actualizados</span>
+              </div>
+            )}
+            {results.baseCostsUpdated > 0 && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+                <span className="block text-2xl font-black text-amber-300">{results.baseCostsUpdated}</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-300/70">Costos base actualizados</span>
               </div>
             )}
             {results.marginsUpdated > 0 && (

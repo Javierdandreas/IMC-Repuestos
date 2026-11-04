@@ -11,7 +11,7 @@ import { deleteFileFromStorage } from "@/lib/storage-cleanup";
 import { SERIE_ESTADOS_CON_STOCK_FISICO } from "@/lib/serie-estados";
 import { getTiposPrecio } from "@/lib/repos/catalogos";
 import { normalizarCriterioCosto } from "@/lib/costos";
-import { recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
+import { aplicarPreciosDesdeCostosReferencia, recalcularPreciosAutomaticos } from "@/lib/precios-automaticos";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
 import { capturarCostosReferencia, registrarCambiosCostoReferencia } from "@/lib/cambios-costo-referencia";
 import { condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
@@ -1246,7 +1246,7 @@ export async function importProductos(
   usuario: string, 
   archivo: string,
   mappings: Record<string, { csvHeader: string; updateExisting: boolean }>,
-  options: { onlyExisting?: boolean; blockKitCodes?: boolean; codigoCotizacionPrecioProveedor?: string } = {}
+  options: { onlyExisting?: boolean; blockKitCodes?: boolean; codigoCotizacionCostoBase?: string } = {}
 ) {
   return withTransaction((client) => importProductosConCliente(client, items, usuario, archivo, mappings, options));
 }
@@ -1257,7 +1257,7 @@ export async function importProductosConCliente(
   usuario: string,
   archivo: string,
   mappings: Record<string, { csvHeader: string; updateExisting: boolean }>,
-  options: { onlyExisting?: boolean; blockKitCodes?: boolean; codigoCotizacionPrecioProveedor?: string } = {}
+  options: { onlyExisting?: boolean; blockKitCodes?: boolean; codigoCotizacionCostoBase?: string } = {}
 ) {
     // 1. Cargar metadatos para resolución rápida
     const [marcas, categorias, subcategorias, ubicaciones, piezas, proveedores, tiposPrecio] = await Promise.all([
@@ -1290,9 +1290,9 @@ export async function importProductosConCliente(
       .filter((tipo) => tipo.idTipoPrecio > 0 && normalize(tipo.descripcion) !== "PRECIO COSTO")
       .filter((tipo) => Boolean(mappings[tipo.mappingId]?.csvHeader));
 
-    let cotizacionPrecioProveedor = 1;
-    const codigoCotizacionPrecioProveedor = String(options.codigoCotizacionPrecioProveedor ?? "ARS").trim();
-    if (mappings.precio_lista_proveedor?.csvHeader && codigoCotizacionPrecioProveedor !== "ARS") {
+    let cotizacionCostoBase = 1;
+    const codigoCotizacionCostoBase = String(options.codigoCotizacionCostoBase ?? "ARS").trim();
+    if (mappings.costo_base?.csvHeader && codigoCotizacionCostoBase !== "ARS") {
       const cotizacion = await client.query<{ valor_venta: string | null }>(`
         SELECT ultima.valor_venta
         FROM public.moneda_cotizacion_configuracion configuracion
@@ -1306,12 +1306,12 @@ export async function importProductosConCliente(
           LIMIT 1
         ) ultima ON TRUE
         WHERE configuracion.codigo = $1
-      `, [codigoCotizacionPrecioProveedor]);
+      `, [codigoCotizacionCostoBase]);
       const valorVenta = Number(cotizacion.rows[0]?.valor_venta);
       if (!cotizacion.rowCount || !Number.isFinite(valorVenta) || valorVenta <= 0) {
         throw new AppError("La cotizacion seleccionada no tiene un valor de venta vigente.", 409);
       }
-      cotizacionPrecioProveedor = valorVenta;
+      cotizacionCostoBase = valorVenta;
     }
 
     const defaultSubcatId = subMap.get(normalize("SIN SUBCATEGORIA"));
@@ -1345,14 +1345,15 @@ export async function importProductosConCliente(
       return Number.isFinite(parsed) ? parsed : null;
     };
 
-    const convertirPrecioProveedorAArs = (value: any) => {
+    const convertirCostoBaseAArs = (value: any) => {
       const precio = parseNullableNumber(value);
       if (precio === null) return null;
-      return Math.round((precio * cotizacionPrecioProveedor + Number.EPSILON) * 100) / 100;
+      return Math.round((precio * cotizacionCostoBase + Number.EPSILON) * 100) / 100;
     };
 
     // Para relación proveedores
     const supplierLinks: { sku: string; provName: string; codProv: string | null; precioLista: number | null; rowNum: number }[] = [];
+    const baseCostUpdates: { sku: string; rowNum: number; costo: number; updateExisting: boolean }[] = [];
     const marginUpdates: {
       sku: string;
       rowNum: number;
@@ -1366,6 +1367,7 @@ export async function importProductosConCliente(
       updated: 0,
       ignored: 0,
       providerPricesUpdated: 0,
+      baseCostsUpdated: 0,
       marginsUpdated: 0,
       recalculatedCostCount: 0,
       errors: [] as { row: number; error: string; cod_unico: string }[],
@@ -1416,6 +1418,7 @@ export async function importProductosConCliente(
       { id: "ubicacion", label: "Ubicacion" },
       { id: "codigo_pieza", label: "Codigo de item asociado" },
       { id: "palabra_clave", label: "Palabras clave" },
+      { id: "costo_base", label: "Costo base" },
       ...marginMappings.map((tipo) => ({ id: tipo.mappingId, label: `Margen ${tipo.descripcion}` })),
     ];
     const groupedItems: GroupedImportItem[] = [];
@@ -1515,6 +1518,18 @@ export async function importProductosConCliente(
             v_id_pieza.push(idPieza);
             v_palabra_clave.push(keyword);
 
+            const costoBase = mappings.costo_base?.csvHeader
+              ? convertirCostoBaseAArs(item[mappings.costo_base.csvHeader])
+              : null;
+            if (costoBase !== null) {
+              baseCostUpdates.push({
+                sku,
+                rowNum,
+                costo: costoBase,
+                updateExisting: mappings.costo_base.updateExisting ?? true,
+              });
+            }
+
             // Relación proveedor
             groupedItem.rows.forEach(({ item: supplierItem, rowNum: supplierRowNum }) => {
                 const provName = mappings.proveedor?.csvHeader ? supplierItem[mappings.proveedor.csvHeader] : null;
@@ -1525,7 +1540,7 @@ export async function importProductosConCliente(
                   provName: provName.toString(), 
                   codProv: mappings.codigo_proveedor?.csvHeader ? supplierItem[mappings.codigo_proveedor.csvHeader]?.toString() : null,
                   precioLista: mappings.precio_lista_proveedor?.csvHeader
-                    ? convertirPrecioProveedorAArs(supplierItem[mappings.precio_lista_proveedor.csvHeader])
+                    ? parseNullableNumber(supplierItem[mappings.precio_lista_proveedor.csvHeader])
                     : null,
                   rowNum: supplierRowNum,
                 });
@@ -1770,6 +1785,23 @@ export async function importProductosConCliente(
             applicableMarginUpdates.map((item) => item.idTipoPrecio),
           ],
         );
+      }
+
+      const costosBasePorProducto = new Map<number, number>();
+      for (const update of baseCostUpdates) {
+        const productId = skuToIdMap.get(update.sku);
+        if (!productId || (!update.updateExisting && skuIsNewMap.get(update.sku) !== true)) continue;
+        costosBasePorProducto.set(productId, update.costo);
+      }
+
+      const costosBaseDirectos = Array.from(costosBasePorProducto, ([idProducto, costo]) => ({ idProducto, costo }));
+      if (costosBaseDirectos.length > 0) {
+        await client.query(
+          "UPDATE public.productos SET criterio_costo = 'MANUAL' WHERE id = ANY($1::int[])",
+          [costosBaseDirectos.map((item) => item.idProducto)],
+        );
+        results.baseCostsUpdated += costosBaseDirectos.length;
+        results.recalculatedCostCount += await aplicarPreciosDesdeCostosReferencia(client, costosBaseDirectos);
       }
     } catch (dbErr: any) {
       console.error("❌ Error en DB Bulk Upsert:", dbErr.message, dbErr.detail);
