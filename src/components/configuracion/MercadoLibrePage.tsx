@@ -604,15 +604,24 @@ function VentasTable({
       hasRows={ventas.length > 0}
       empty={loading ? "Cargando ventas..." : "No hay ventas sincronizadas."}
     >
-      <table className="w-full min-w-[1240px] text-left text-[13px] [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800">
+      <table className="w-full min-w-[1280px] table-fixed text-left text-[13px] [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800">
+        <colgroup>
+          <col className="w-[210px]" />
+          <col className="w-[170px]" />
+          <col />
+          <col className="w-[130px]" />
+          <col className="w-[160px]" />
+          <col className="w-[90px]" />
+          <col className="w-[140px]" />
+        </colgroup>
         <thead>
           <tr>
-            <th className="w-56">Fecha y compra</th>
-            <th className="w-44">Cliente</th>
+            <th>Fecha y compra</th>
+            <th>Cliente</th>
             <th>Items</th>
-            <th className="w-36">Envio</th>
-            <th className="w-40">Estado</th>
-            <th>Mensaje</th>
+            <th>Envio</th>
+            <th className="text-center">Estado</th>
+            <th className="text-center">Mensaje</th>
             <th className="text-right">Total</th>
           </tr>
         </thead>
@@ -623,13 +632,13 @@ function VentasTable({
                 <div className="font-bold text-slate-800 dark:text-white">
                   {date(venta.fecha, "-")}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-slate-500">
-                  <span><span className="text-slate-400">Orden</span> #{venta.ventaId}</span>
-                  {venta.packId && <span><span className="text-slate-400">Paquete</span> #{venta.packId}</span>}
-                  {venta.ventaIds.length > 1 && <span>Carrito {venta.ventaIds.length}</span>}
+                <div className="mt-1 space-y-0.5 font-mono text-[11px] text-slate-500">
+                  <div className="whitespace-nowrap"><span className="text-slate-400">Orden</span> #{venta.ventaId}</div>
+                  {venta.packId && <div className="whitespace-nowrap"><span className="text-slate-400">Paquete</span> #{venta.packId}</div>}
+                  {venta.ventaIds.length > 1 && <div>Carrito {venta.ventaIds.length}</div>}
                 </div>
               </td>
-              <td className="w-44 align-top">
+              <td className="align-middle">
                 <div className="break-words font-bold leading-5 text-slate-800 dark:text-white">
                   {venta.comprador || "-"}
                 </div>
@@ -657,8 +666,8 @@ function VentasTable({
                   </div>
                 )}
               </td>
-              <td className="w-40 align-top">
-                <div className="flex flex-wrap items-center gap-1.5">
+              <td className="align-middle text-center">
+                <div className="flex flex-wrap items-center justify-center gap-1.5">
                   <StateBadge value={venta.estadoEnvio} className="min-w-32 justify-center text-center" />
                   {!venta.retiroEnPersona && venta.tipoEnvio && (
                     <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-black uppercase text-blue-700 dark:text-blue-300">
@@ -667,8 +676,8 @@ function VentasTable({
                   )}
                 </div>
               </td>
-              <td>
-                <div className="flex items-center gap-1">
+              <td className="align-middle">
+                <div className="flex items-center justify-center gap-1">
                   <EstadoMensajeIcono
                     estado={venta.mensajeEstado}
                     detalle={venta.mensajeDetalle}

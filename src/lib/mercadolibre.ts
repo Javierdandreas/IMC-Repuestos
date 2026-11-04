@@ -355,12 +355,64 @@ function etiquetaTipoEnvio(shipping: Record<string, unknown>) {
   return typeof shipping.logistic_type === "string" ? shipping.logistic_type.replaceAll("_", " ").toUpperCase() : null;
 }
 
-function nombreComprador(buyer: Record<string, unknown>, fallback: string | null) {
-  const fullName = [buyer.first_name, buyer.last_name]
+function nombreCompletoComprador(buyer: Record<string, unknown>) {
+  const savedName = typeof buyer.full_name === "string" ? buyer.full_name.trim() : "";
+  if (savedName) return savedName;
+  return [buyer.first_name, buyer.last_name]
     .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
     .join(" ")
     .trim();
-  return fullName || fallback;
+}
+
+function nombreComprador(buyer: Record<string, unknown>, fallback: string | null) {
+  return nombreCompletoComprador(buyer) || fallback;
+}
+
+async function enriquecerNombresCompradoresVentas(idCuenta: number, rows: Array<Record<string, unknown>>) {
+  const pending = new Set<string>();
+  for (const row of rows) {
+    const datos = row.datos && typeof row.datos === "object" && !Array.isArray(row.datos) ? row.datos as Record<string, unknown> : {};
+    const buyer = datos.buyer && typeof datos.buyer === "object" && !Array.isArray(datos.buyer) ? datos.buyer as Record<string, unknown> : {};
+    const ventaId = idSeguro(row.venta_id);
+    if (ventaId && !nombreCompletoComprador(buyer)) pending.add(ventaId);
+  }
+  if (!pending.size) return new Map<string, string>();
+
+  const { accessToken } = await accessTokenForCuenta(idCuenta);
+  const names = new Map<string, string>();
+  const candidates = [...pending];
+  const batchSize = 5;
+  for (let index = 0; index < candidates.length; index += batchSize) {
+    await Promise.all(candidates.slice(index, index + batchSize).map(async (ventaId) => {
+      try {
+        const order = await meliGet(`/orders/${encodeURIComponent(ventaId)}`, idCuenta, accessToken) as Record<string, unknown>;
+        const buyer = order.buyer && typeof order.buyer === "object" && !Array.isArray(order.buyer) ? order.buyer as Record<string, unknown> : {};
+        const nombre = nombreCompletoComprador(buyer);
+        if (!nombre) return;
+        names.set(ventaId, nombre);
+        await query(
+          `UPDATE public.mercadolibre_venta
+           SET comprador = $3,
+               datos = jsonb_set(
+                 datos,
+                 '{buyer}',
+                 COALESCE(datos->'buyer', '{}'::jsonb) || $4::jsonb,
+                 true
+               ),
+               updated_at = NOW()
+           WHERE id_cuenta = $1 AND venta_id = $2`,
+          [idCuenta, ventaId, nombre, JSON.stringify({
+            first_name: typeof buyer.first_name === "string" ? buyer.first_name : null,
+            last_name: typeof buyer.last_name === "string" ? buyer.last_name : null,
+            full_name: nombre,
+          })],
+        );
+      } catch (error) {
+        console.warn(`[MERCADOLIBRE] No se pudo completar el nombre de la venta ${ventaId}:`, error instanceof Error ? error.message : error);
+      }
+    }));
+  }
+  return names;
 }
 
 async function mensajesNoLeidosPorPack(idCuenta: number) {
@@ -555,6 +607,7 @@ export async function getMercadoLibreVentas(
      ORDER BY paquete.fecha DESC NULLS LAST, venta.fecha DESC NULLS LAST, venta.id DESC`,
     [...params, limit, (safePage - 1) * limit],
   );
+  const enrichedBuyerNames = await enriquecerNombresCompradoresVentas(idCuenta, rows);
   const itemIds = [...new Set(rows.flatMap((row) => Array.isArray(row.items) ? row.items.map((item) => item && typeof item === "object" ? String((item as Record<string, unknown>).itemId || "") : "") : []).filter(Boolean))];
   const publicationRows = itemIds.length ? await query<{ item_id: string; thumbnail_url: string | null }>(
     "SELECT item_id, thumbnail_url FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = ANY($2::text[])",
@@ -576,7 +629,7 @@ export async function getMercadoLibreVentas(
     if (!existing) {
       grouped.set(packIdVenta, {
         id: Number(row.id), ventaId, ventaIds: [ventaId], packId: packIdVenta === ventaId ? null : packIdVenta, fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
-        estado: String(row.estado), comprador: nombreComprador(buyer, row.comprador ? String(row.comprador) : null),
+        estado: String(row.estado), comprador: enrichedBuyerNames.get(ventaId) || nombreComprador(buyer, row.comprador ? String(row.comprador) : null),
         total: row.total === null ? null : Number(row.total), moneda: row.moneda ? String(row.moneda) : null,
         envio: row.envio ? String(row.envio) : null, estadoEnvio: estadoPaquete(shipping, Boolean(row.retiro_en_persona)), tipoEnvio: tipoEnvioVenta(shipping), retiroEnPersona: Boolean(row.retiro_en_persona),
         mensajeEstado: row.mensaje_estado ? String(row.mensaje_estado) : null,
@@ -3106,7 +3159,7 @@ type MeliOrder = {
   status?: string;
   total_amount?: number;
   currency_id?: string;
-  buyer?: { nickname?: string | null };
+  buyer?: { nickname?: string | null; first_name?: string | null; last_name?: string | null };
   shipping?: { id?: number | string; logistic_type?: string | null; shipping_option?: { name?: string | null }; pickup_id?: string | null };
   order_items?: Array<{ item?: { id?: string; title?: string; seller_sku?: string | null }; quantity?: number }>;
 };
@@ -3169,11 +3222,17 @@ async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number,
         id_cuenta, venta_id, fecha, estado, comprador, total, moneda, envio, retiro_en_persona, items, datos, sincronizada_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, NOW(), NOW())
       ON CONFLICT (id_cuenta, venta_id) DO UPDATE SET
-        fecha = EXCLUDED.fecha, estado = EXCLUDED.estado, comprador = EXCLUDED.comprador, total = EXCLUDED.total,
+        fecha = EXCLUDED.fecha, estado = EXCLUDED.estado,
+        comprador = COALESCE(NULLIF(mercadolibre_venta.datos #>> '{buyer,full_name}', ''), EXCLUDED.comprador), total = EXCLUDED.total,
         moneda = EXCLUDED.moneda, envio = EXCLUDED.envio, retiro_en_persona = EXCLUDED.retiro_en_persona,
         items = EXCLUDED.items,
         datos = jsonb_set(
-          EXCLUDED.datos,
+          jsonb_set(
+            EXCLUDED.datos,
+            '{buyer}',
+            COALESCE(mercadolibre_venta.datos->'buyer', '{}'::jsonb) || COALESCE(EXCLUDED.datos->'buyer', '{}'::jsonb),
+            true
+          ),
           '{shipping}',
           jsonb_strip_nulls(jsonb_build_object(
             'status', mercadolibre_venta.datos #> '{shipping,status}',
@@ -3208,11 +3267,17 @@ async function guardarVentaMercadoLibre(idCuenta: number, venta: MeliOrder) {
       id_cuenta, venta_id, fecha, estado, comprador, total, moneda, envio, retiro_en_persona, items, datos, sincronizada_at, updated_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, NOW(), NOW())
     ON CONFLICT (id_cuenta, venta_id) DO UPDATE SET
-      fecha = EXCLUDED.fecha, estado = EXCLUDED.estado, comprador = EXCLUDED.comprador, total = EXCLUDED.total,
+      fecha = EXCLUDED.fecha, estado = EXCLUDED.estado,
+      comprador = COALESCE(NULLIF(mercadolibre_venta.datos #>> '{buyer,full_name}', ''), EXCLUDED.comprador), total = EXCLUDED.total,
       moneda = EXCLUDED.moneda, envio = EXCLUDED.envio, retiro_en_persona = EXCLUDED.retiro_en_persona,
       items = EXCLUDED.items,
       datos = jsonb_set(
-        EXCLUDED.datos,
+        jsonb_set(
+          EXCLUDED.datos,
+          '{buyer}',
+          COALESCE(mercadolibre_venta.datos->'buyer', '{}'::jsonb) || COALESCE(EXCLUDED.datos->'buyer', '{}'::jsonb),
+          true
+        ),
         '{shipping}',
         jsonb_strip_nulls(jsonb_build_object(
           'status', mercadolibre_venta.datos #> '{shipping,status}',
