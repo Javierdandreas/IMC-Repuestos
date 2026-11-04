@@ -54,6 +54,7 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
   const [selectedMatches, setSelectedMatches] = useState<Set<string>>(new Set());
   const [matchesPage, setMatchesPage] = useState(1);
   const [savedPage, setSavedPage] = useState(1);
+  const [savedExpanded, setSavedExpanded] = useState(false);
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
@@ -142,7 +143,24 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
     onChange([...value, ...next.map((match) => ({ id_vehiculo: match.id_vehiculo ?? null, atributos: match.atributos }))]);
     setSelectedMatches(new Set());
     setSavedPage(Math.max(1, Math.ceil((value.length + next.length) / PAGE_SIZE)));
+    setSavedExpanded(true);
     toast.success(`${next.length} compatibilidades agregadas.`);
+  };
+
+  const toggleMatchesSelection = (scope: Compatibility[]) => {
+    const existing = new Set(value.map((compatibility) => firma(compatibility.atributos)));
+    const selectable = scope.map((match) => firma(match.atributos)).filter((key) => !existing.has(key));
+    if (!selectable.length) return;
+
+    setSelectedMatches((current) => {
+      const allSelected = selectable.every((key) => current.has(key));
+      const next = new Set(current);
+      for (const key of selectable) {
+        if (allSelected) next.delete(key);
+        else next.add(key);
+      }
+      return next;
+    });
   };
 
   const renderField = (attribute: AttributeId) => {
@@ -177,6 +195,11 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
   const visibleMatches = matches.slice(matchStart, matchStart + PAGE_SIZE);
   const visibleSaved = value.slice(savedStart, savedStart + PAGE_SIZE);
   const selectedCount = useMemo(() => selectedMatches.size, [selectedMatches]);
+  const existingMatchKeys = useMemo(() => new Set(value.map((compatibility) => firma(compatibility.atributos))), [value]);
+  const selectableMatches = useMemo(() => matches.filter((match) => !existingMatchKeys.has(firma(match.atributos))), [matches, existingMatchKeys]);
+  const selectablePageMatches = useMemo(() => visibleMatches.filter((match) => !existingMatchKeys.has(firma(match.atributos))), [visibleMatches, existingMatchKeys]);
+  const pageFullySelected = selectablePageMatches.length > 0 && selectablePageMatches.every((match) => selectedMatches.has(firma(match.atributos)));
+  const searchFullySelected = selectableMatches.length > 0 && selectableMatches.every((match) => selectedMatches.has(firma(match.atributos)));
 
   return <section className="border-t border-slate-200 pt-8 dark:border-slate-800">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-black text-slate-900 dark:text-white">Compatibilidades de vehículos</h2><p className="mt-1 text-sm text-slate-500">Buscá aplicaciones enriquecidas o con avance parcial, seleccioná cuáles corresponden y guardalas en este número de pieza.</p></div><span className="rounded-md bg-blue-500/10 px-2 py-1 text-xs font-black text-blue-700 dark:text-blue-300">{value.length} cargadas</span></div>
@@ -186,10 +209,10 @@ export function PiezaCompatibilidadesSection({ value, onChange, disabled }: Prop
       <button type="button" onClick={() => void searchMatches()} disabled={disabled || searching || !selected.BRAND?.length || !selected.MODEL?.length} className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">{searching ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}{searching ? "Buscando..." : "Buscar aplicaciones"}</button>
     </div>
     {matches.length > 0 && <div className="mt-5 overflow-hidden rounded-md border border-slate-200 dark:border-slate-800">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3 py-2 dark:border-slate-800"><p className="text-xs font-black text-slate-900 dark:text-white">{matches.length} aplicaciones encontradas</p><button type="button" onClick={addSelectedMatches} disabled={disabled || selectedCount === 0} className="inline-flex h-8 items-center gap-2 rounded-md border border-blue-500 px-3 text-xs font-black text-blue-600 disabled:opacity-50 dark:text-blue-300"><Plus className="h-4 w-4" />Agregar seleccionadas ({selectedCount})</button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3 py-2 dark:border-slate-800"><p className="text-xs font-black text-slate-900 dark:text-white">{matches.length} aplicaciones encontradas</p><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => toggleMatchesSelection(visibleMatches)} disabled={disabled || selectablePageMatches.length === 0} className="inline-flex h-8 items-center rounded-md border border-slate-300 px-3 text-xs font-black text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200">{pageFullySelected ? "Quitar pagina" : `Seleccionar pagina (${selectablePageMatches.length})`}</button><button type="button" onClick={() => toggleMatchesSelection(matches)} disabled={disabled || selectableMatches.length === 0} className="inline-flex h-8 items-center rounded-md border border-slate-300 px-3 text-xs font-black text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200">{searchFullySelected ? "Quitar busqueda" : `Seleccionar busqueda (${selectableMatches.length})`}</button><button type="button" onClick={addSelectedMatches} disabled={disabled || selectedCount === 0} className="inline-flex h-8 items-center gap-2 rounded-md border border-blue-500 px-3 text-xs font-black text-blue-600 disabled:opacity-50 dark:text-blue-300"><Plus className="h-4 w-4" />Agregar seleccionadas ({selectedCount})</button></div></div>
       <div className="max-h-[32rem] overflow-auto"><table className="w-full min-w-[1460px] table-fixed text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-[9px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-950"><tr><th className="w-11 px-2 py-2" /><th className="w-24 px-2 py-2">ID vehículo</th>{ATRIBUTOS_VEHICULO_ML.map((attribute) => <th key={attribute.id} className="w-24 px-2 py-2 leading-tight">{attribute.nombre}</th>)}</tr></thead><tbody>{visibleMatches.map((match, index) => { const key = firma(match.atributos); const exists = value.some((compatibility) => firma(compatibility.atributos) === key); const attributes = new Map(match.atributos.map((attribute) => [attribute.id, attribute])); return <tr key={`${key}-${matchStart + index}`} className="border-t border-slate-200 align-top dark:border-slate-800"><td className="px-2 py-2"><input type="checkbox" checked={selectedMatches.has(key)} disabled={disabled || exists} onChange={() => setSelectedMatches((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; })} className="h-4 w-4 accent-blue-600" /></td><td className="px-2 py-2 font-mono text-[11px] font-bold text-blue-700 dark:text-blue-300">{match.id_vehiculo ?? "-"}</td>{ATRIBUTOS_VEHICULO_ML.map((attribute) => { const item = attributes.get(attribute.id); return <td key={attribute.id} className="px-2 py-2 text-[11px] leading-tight"><span title={item?.valueName} className="block break-words font-semibold text-slate-700 dark:text-slate-200">{item?.valueName ?? "-"}</span></td>; })}</tr>; })}</tbody></table></div>
       <PaginationControls page={matchesPage} total={matches.length} onPageChange={setMatchesPage} />
     </div>}
-    {value.length > 0 && <div className="mt-5 overflow-hidden rounded-md border border-slate-200 dark:border-slate-800"><div className="border-b border-slate-200 px-3 py-2 text-xs font-black text-slate-900 dark:border-slate-800 dark:text-white">Compatibilidades guardadas</div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-950"><tr><th className="w-28 px-3 py-2">ID vehículo</th><th className="px-3 py-2">Aplicación</th><th className="w-12 px-3 py-2" /></tr></thead><tbody>{visibleSaved.map((compatibility, index) => <tr key={`${compatibility.id ?? "new"}-${savedStart + index}`} className="border-t border-slate-200 dark:border-slate-800"><td className="px-3 py-3 font-mono font-bold text-blue-700 dark:text-blue-300">{compatibility.id_vehiculo ?? "-"}</td><td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-200">{compatibility.atributos.map((attribute) => `${labels.get(attribute.id) || attribute.id}: ${attribute.valueName}`).join(" · ")}</td><td className="px-3 py-2 text-right"><button type="button" onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== savedStart + index))} disabled={disabled} title="Quitar compatibilidad" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:border-red-900"><Trash2 className="h-4 w-4" /></button></td></tr>)}</tbody></table></div><PaginationControls page={savedPage} total={value.length} onPageChange={setSavedPage} /></div>}
+    {value.length > 0 && <details open={savedExpanded} onToggle={(event) => setSavedExpanded(event.currentTarget.open)} className="mt-5 overflow-hidden rounded-md border border-slate-200 dark:border-slate-800"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-xs font-black text-slate-900 marker:content-none dark:text-white"><span>Compatibilidades guardadas</span><span className="inline-flex items-center gap-2 text-blue-700 dark:text-blue-300">{value.length} cargadas <ChevronDown className={`h-4 w-4 transition-transform ${savedExpanded ? "rotate-180" : ""}`} /></span></summary><div className="border-t border-slate-200 dark:border-slate-800"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-950"><tr><th className="w-28 px-3 py-2">ID vehículo</th><th className="px-3 py-2">Aplicación</th><th className="w-12 px-3 py-2" /></tr></thead><tbody>{visibleSaved.map((compatibility, index) => <tr key={`${compatibility.id ?? "new"}-${savedStart + index}`} className="border-t border-slate-200 dark:border-slate-800"><td className="px-3 py-3 font-mono font-bold text-blue-700 dark:text-blue-300">{compatibility.id_vehiculo ?? "-"}</td><td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-200">{compatibility.atributos.map((attribute) => `${labels.get(attribute.id) || attribute.id}: ${attribute.valueName}`).join(" · ")}</td><td className="px-3 py-2 text-right"><button type="button" onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== savedStart + index))} disabled={disabled} title="Quitar compatibilidad" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:border-red-900"><Trash2 className="h-4 w-4" /></button></td></tr>)}</tbody></table></div><PaginationControls page={savedPage} total={value.length} onPageChange={setSavedPage} /></div></details>}
   </section>;
 }
