@@ -604,14 +604,14 @@ function VentasTable({
       hasRows={ventas.length > 0}
       empty={loading ? "Cargando ventas..." : "No hay ventas sincronizadas."}
     >
-      <table className="w-full min-w-[1120px] text-left text-[13px] [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800">
+      <table className="w-full min-w-[1240px] text-left text-[13px] [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 dark:[&_th]:bg-slate-900 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800">
         <thead>
           <tr>
-            <th>Fecha</th>
-            <th>Cliente</th>
+            <th className="w-56">Fecha y compra</th>
+            <th className="w-44">Cliente</th>
             <th>Items</th>
-            <th>Envio</th>
-            <th>Estado</th>
+            <th className="w-36">Envio</th>
+            <th className="w-40">Estado</th>
             <th>Mensaje</th>
             <th className="text-right">Total</th>
           </tr>
@@ -619,18 +619,20 @@ function VentasTable({
         <tbody>
           {ventas.map((venta) => (
             <tr key={venta.id}>
-              <td>
+              <td className="align-top">
                 <div className="font-bold text-slate-800 dark:text-white">
                   {date(venta.fecha, "-")}
                 </div>
-                <div className="mt-1 space-y-0.5 font-mono text-[11px] text-slate-500">
-                  <div>Orden #{venta.ventaId}</div>
-                  {venta.packId && <div>Paquete #{venta.packId}</div>}
-                  {venta.ventaIds.length > 1 && <div>Carrito: {venta.ventaIds.length} ordenes</div>}
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-slate-500">
+                  <span><span className="text-slate-400">Orden</span> #{venta.ventaId}</span>
+                  {venta.packId && <span><span className="text-slate-400">Paquete</span> #{venta.packId}</span>}
+                  {venta.ventaIds.length > 1 && <span>Carrito {venta.ventaIds.length}</span>}
                 </div>
               </td>
-              <td className="font-bold text-slate-800 dark:text-white">
-                {venta.comprador || "-"}
+              <td className="w-44 align-top">
+                <div className="break-words font-bold leading-5 text-slate-800 dark:text-white">
+                  {venta.comprador || "-"}
+                </div>
               </td>
               <td>
                 <div className="max-w-md space-y-2">
@@ -655,9 +657,9 @@ function VentasTable({
                   </div>
                 )}
               </td>
-              <td>
+              <td className="w-40 align-top">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <StateBadge value={venta.estadoEnvio} />
+                  <StateBadge value={venta.estadoEnvio} className="min-w-32 justify-center text-center" />
                   {!venta.retiroEnPersona && venta.tipoEnvio && (
                     <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-black uppercase text-blue-700 dark:text-blue-300">
                       {venta.tipoEnvio}
@@ -727,6 +729,7 @@ function VentaConversationModal({
   const [sending, setSending] = useState(false);
   const [texto, setTexto] = useState("");
   const [preguntasAbiertas, setPreguntasAbiertas] = useState(false);
+  const [showShippingData, setShowShippingData] = useState(false);
   const loadConversation = useCallback(async () => {
     try {
       setLoading(true);
@@ -1012,11 +1015,20 @@ function VentaConversationModal({
           <aside className="min-h-0 overflow-y-auto bg-slate-50 p-4 dark:bg-slate-900/40">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">
-                Envio
+                {showShippingData ? "Datos de envio" : "Venta"}
               </h3>
-              <StateBadge value={conversation?.envioDetalle.estado || venta.estadoEnvio} />
+              <div className="flex items-center gap-2">
+                <StateBadge value={conversation?.envioDetalle.estado || venta.estadoEnvio} />
+                <button
+                  type="button"
+                  onClick={() => setShowShippingData((value) => !value)}
+                  className="text-[10px] font-black uppercase tracking-wide text-blue-600 hover:text-blue-500 dark:text-blue-300"
+                >
+                  {showShippingData ? "Ver compra" : "Ver datos de envio"}
+                </button>
+              </div>
             </div>
-            <dl className="mt-3 space-y-2 text-xs">
+            <dl className={showShippingData ? "mt-3 space-y-2 text-xs" : "hidden"}>
               <div>
                 <dt className="text-slate-500">Tipo de envio</dt>
                 <dd className="font-bold text-slate-800 dark:text-white">
@@ -1030,10 +1042,6 @@ function VentaConversationModal({
                 <dt className="text-slate-500">Estado del paquete</dt>
                 <dd className="font-bold text-slate-800 dark:text-white">{conversation?.envioDetalle.estado || venta.estadoEnvio}</dd>
               </div>
-              {conversation?.envioDetalle.subestado && <div>
-                <dt className="text-slate-500">Detalle</dt>
-                <dd className="font-semibold text-slate-800 dark:text-white">{conversation.envioDetalle.subestado}</dd>
-              </div>}
               {conversation?.envioDetalle.seguimiento && <div>
                 <dt className="text-slate-500">Seguimiento</dt>
                 <dd className="font-mono font-bold text-slate-800 dark:text-white">{conversation.envioDetalle.seguimiento}</dd>
@@ -1051,10 +1059,11 @@ function VentaConversationModal({
                 <dd className="font-semibold text-slate-800 dark:text-white">{conversation.envioDetalle.transportista}</dd>
               </div>}
             </dl>
-            <h3 className="mt-6 text-xs font-black uppercase tracking-widest text-slate-500">
-              Publicacion
-            </h3>
-            <div className="mt-2 space-y-2">
+            <div className={showShippingData ? "hidden" : ""}>
+              <h3 className="mt-6 text-xs font-black uppercase tracking-widest text-slate-500">
+                Publicacion
+              </h3>
+              <div className="mt-2 space-y-2">
               {conversationItems.map((item, index) => (
                 <div
                   key={`${item.itemId || item.titulo}-${index}`}
@@ -1089,8 +1098,8 @@ function VentaConversationModal({
                   </div>
                 </div>
               ))}
-            </div>
-            <section className="mt-6">
+              </div>
+              <section className="mt-6">
               <button
                 type="button"
                 onClick={() => setPreguntasAbiertas((value) => !value)}
@@ -1134,7 +1143,8 @@ function VentaConversationModal({
                   No hay preguntas previas sincronizadas.
                 </p>
               )}
-            </section>
+              </section>
+            </div>
           </aside>
         </div>
       </div>
@@ -1512,6 +1522,6 @@ function TableShell({ children, empty, hasRows }: { children: React.ReactNode; e
   return <section className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 [&_thead]:bg-slate-50 dark:[&_thead]:bg-slate-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-black [&_th]:uppercase [&_th]:tracking-widest [&_th]:text-slate-500 [&_td]:border-t [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-3 dark:[&_td]:border-slate-800"><div className="overflow-x-auto">{hasRows ? children : <div className="px-4 py-16 text-center text-sm font-semibold text-slate-400">{empty}</div>}</div></section>;
 }
 
-function StateBadge({ value }: { value: string }) {
-  return <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-700 dark:bg-slate-800 dark:text-slate-200">{value}</span>;
+function StateBadge({ value, className = "" }: { value: string; className?: string }) {
+  return <span className={`inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-700 dark:bg-slate-800 dark:text-slate-200 ${className}`}>{value}</span>;
 }

@@ -442,7 +442,6 @@ function direccionEnvio(shipment: Record<string, unknown>) {
 }
 
 function detalleEnvio(shipment: Record<string, unknown>, retiroEnPersona: boolean) {
-  const option = objetoEnvio(shipment.shipping_option);
   const carrier = objetoEnvio(shipment.carrier_info);
   return {
     id: textoEnvio(shipment.id),
@@ -451,7 +450,7 @@ function detalleEnvio(shipment: Record<string, unknown>, retiroEnPersona: boolea
     seguimiento: textoEnvio(shipment.tracking_number) || textoEnvio(shipment.tracking_method),
     direccion: direccionEnvio(shipment),
     destinatario: textoEnvio(objetoEnvio(shipment.receiver_address).receiver_name),
-    transportista: textoEnvio(carrier.name) || textoEnvio(option.name) || textoEnvio(shipment.logistic_type),
+    transportista: textoEnvio(carrier.name) || textoEnvio(carrier.carrier_name) || textoEnvio(shipment.carrier) || textoEnvio(objetoEnvio(shipment.delivery_person).name),
   };
 }
 
@@ -566,6 +565,7 @@ export async function getMercadoLibreVentas(
   for (const row of rows) {
     const datos = row.datos && typeof row.datos === "object" && !Array.isArray(row.datos) ? row.datos as Record<string, unknown> : {};
     const shipping = datos.shipping && typeof datos.shipping === "object" && !Array.isArray(datos.shipping) ? datos.shipping as Record<string, unknown> : {};
+    const buyer = datos.buyer && typeof datos.buyer === "object" && !Array.isArray(datos.buyer) ? datos.buyer as Record<string, unknown> : {};
     const ventaId = String(row.venta_id);
     const packIdVenta = String(row.pack_id || ventaId);
     const items = Array.isArray(row.items) ? row.items.map((item: Record<string, unknown>) => {
@@ -576,7 +576,7 @@ export async function getMercadoLibreVentas(
     if (!existing) {
       grouped.set(packIdVenta, {
         id: Number(row.id), ventaId, ventaIds: [ventaId], packId: packIdVenta === ventaId ? null : packIdVenta, fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
-        estado: String(row.estado), comprador: row.comprador ? String(row.comprador) : null,
+        estado: String(row.estado), comprador: nombreComprador(buyer, row.comprador ? String(row.comprador) : null),
         total: row.total === null ? null : Number(row.total), moneda: row.moneda ? String(row.moneda) : null,
         envio: row.envio ? String(row.envio) : null, estadoEnvio: estadoPaquete(shipping, Boolean(row.retiro_en_persona)), tipoEnvio: tipoEnvioVenta(shipping), retiroEnPersona: Boolean(row.retiro_en_persona),
         mensajeEstado: row.mensaje_estado ? String(row.mensaje_estado) : null,
