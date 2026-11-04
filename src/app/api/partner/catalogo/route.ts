@@ -21,6 +21,7 @@ type CatalogRow = {
   marca: string | null;
   categoria: string | null;
   subcategoria: string | null;
+  ubicacion: string | null;
   stock_total: number | string | null;
   precio_mostrador: number | string | null;
   proveedores?: unknown;
@@ -63,6 +64,7 @@ async function findProducts(search: string, rawSearch: string, limit: number) {
       marca.descripcion AS marca,
       categoria.descripcion AS categoria,
       subcategoria.descripcion AS subcategoria,
+      ubicacion.descripcion AS ubicacion,
       COALESCE(p.stock, 0) AS stock_total,
       COALESCE(precio_mostrador.precio, 0) AS precio_mostrador,
       COALESCE(proveedores.proveedores, '[]'::jsonb) AS proveedores,
@@ -71,6 +73,7 @@ async function findProducts(search: string, rawSearch: string, limit: number) {
     LEFT JOIN public.marcas marca ON marca.id = p.id_marca
     LEFT JOIN public.subcategoria subcategoria ON subcategoria.id = p.id_subcategoria
     LEFT JOIN public.categoria categoria ON categoria.id = subcategoria.id_categoria
+    LEFT JOIN public.ubicaciones ubicacion ON ubicacion.id = p.id_ubicacion
     LEFT JOIN LATERAL (
       SELECT pp.precio
       FROM public.producto_precio pp
@@ -127,6 +130,7 @@ async function findProducts(search: string, rawSearch: string, limit: number) {
     marca: row.marca,
     categoria: row.categoria,
     subcategoria: row.subcategoria,
+    ubicacion: row.ubicacion,
     stockTotal: toNumber(row.stock_total),
     precioMostrador: toNumber(row.precio_mostrador),
     proveedores: jsonArray(row.proveedores),
@@ -145,6 +149,7 @@ async function findKits(search: string, rawSearch: string, limit: number) {
       marca.descripcion AS marca,
       COALESCE(categoria_kit.descripcion, categoria_subcategoria.descripcion) AS categoria,
       subcategoria.descripcion AS subcategoria,
+      NULL::text AS ubicacion,
       COALESCE(MIN(FLOOR(producto.stock / detalle.cantidad)), 0)::int AS stock_total,
       CASE
         WHEN k.criterio_costo = 'MANUAL' THEN COALESCE(MAX(precio_manual.precio), 0)
@@ -218,6 +223,7 @@ async function findKits(search: string, rawSearch: string, limit: number) {
     marca: row.marca,
     categoria: row.categoria,
     subcategoria: row.subcategoria,
+    ubicacion: null,
     stockTotal: toNumber(row.stock_total),
     precioMostrador: toNumber(row.precio_mostrador),
     componentes: jsonArray(row.componentes),
