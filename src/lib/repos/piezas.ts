@@ -899,6 +899,15 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
       throw err;
     }
 
+    await client.query(
+      `UPDATE public.productos
+       SET descripcion = $1,
+           id_subcategoria = $2,
+           palabra_clave = NULL
+       WHERE id_pieza = $3`,
+      [payload.descripcion, payload.idSubcategoria, numericId],
+    );
+
     await replacePiezaCodigos(client, id, payload.originales, payload.equivalentes, payload.sustitutos);
     await replacePiezaCompatibilidades(client, numericId, payload.compatibilidades);
     

@@ -88,6 +88,26 @@ function sanitizeProductoInput(input: ProductoInput) {
   };
 }
 
+async function aplicarDatosCanonicosPieza(client: DbClient, payload: ReturnType<typeof sanitizeProductoInput>) {
+  if (!payload.id_pieza) return payload;
+  const result = await client.query<{ descripcion: string; id_subcategoria: number }>(
+    "SELECT descripcion, id_subcategoria FROM public.pieza WHERE id = $1 AND activo = TRUE",
+    [payload.id_pieza],
+  );
+  const pieza = result.rows[0];
+  if (!pieza) {
+    const error = new Error("El item asociado seleccionado no existe o esta inactivo.");
+    (error as Error & { status?: number }).status = 422;
+    throw error;
+  }
+  return {
+    ...payload,
+    descripcion: pieza.descripcion,
+    id_subcategoria: pieza.id_subcategoria,
+    palabra_clave: null,
+  };
+}
+
 async function syncProductoPrecios(
   client: DbClient,
   productId: number | string,
@@ -1032,7 +1052,7 @@ export async function generateUniqueBarcode(): Promise<string> {
 
 export async function createProducto(input: ProductoInput) {
   return await withTransaction(async (client) => {
-    const payload = sanitizeProductoInput(input);
+    const payload = await aplicarDatosCanonicosPieza(client, sanitizeProductoInput(input));
     
     // Validamos duplicado
     if (payload.cod_barra && await isBarcodeDuplicate(payload.cod_barra, undefined, client)) {
@@ -1096,7 +1116,7 @@ export async function updateProducto(id: string | number, input: ProductoInput) 
   const oldImageUrl = existingProduct?.imagen_url;
 
   const result = await withTransaction(async (client) => {
-    const payload = sanitizeProductoInput(input);
+    const payload = await aplicarDatosCanonicosPieza(client, sanitizeProductoInput(input));
     const productId = Number(id);
     const costosAntes = await capturarCostosReferencia(client, [productId]);
 
