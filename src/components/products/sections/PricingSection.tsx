@@ -27,6 +27,7 @@ type PanelMultimoneda = {
     recargoDefault: number;
   };
   cotizaciones: Array<{
+    codigo: string;
     moneda: MonedaOrigen;
     referencia: ReferenciaCotizacion;
     valorCompra: number | null;
@@ -35,6 +36,7 @@ type PanelMultimoneda = {
 };
 
 const TIPO_COSTO = 1;
+const ORDEN_COTIZACIONES = ["USD_BLUE", "USD_CCL", "USD_MEP", "USD_OFICIAL", "EUR_OFICIAL", "BRL_OFICIAL"];
 
 const round = (num: number) => Math.round(num * 100) / 100;
 
@@ -94,7 +96,7 @@ function PriceInput({ value, onChange, prefix, className, placeholder, disabled 
   return (
     <div className="relative w-full">
       {prefix && (
-        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
           {prefix}
         </span>
       )}
@@ -106,7 +108,7 @@ function PriceInput({ value, onChange, prefix, className, placeholder, disabled 
         onBlur={handleBlur}
         placeholder={placeholder}
         disabled={disabled}
-        className={`${className} ${prefix ? "pl-8" : ""}`}
+        className={`${className} ${prefix ? "pl-14" : ""}`}
       />
     </div>
   );
@@ -147,13 +149,24 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
     modo_calculo: "MARGEN_COSTO" as const,
   };
 
-  const cotizacionPredeterminada = () => ({
-    moneda_origen: panelMoneda?.configuracion.monedaDefault ?? "USD" as MonedaOrigen,
-    referencia_cotizacion: panelMoneda?.configuracion.referenciaDefault ?? "OFICIAL" as ReferenciaCotizacion,
-    lado_cotizacion: panelMoneda?.configuracion.ladoDefault ?? "VENTA" as LadoCotizacion,
+  const cotizacionesDisponibles = [...(panelMoneda?.cotizaciones ?? [])]
+    .sort((left, right) => ORDEN_COTIZACIONES.indexOf(left.codigo) - ORDEN_COTIZACIONES.indexOf(right.codigo));
+
+  const cotizacionPredeterminada = () => {
+    const configurada = panelMoneda?.configuracion.monedaDefault !== "ARS"
+      ? cotizacionesDisponibles.find((item) => item.moneda === panelMoneda?.configuracion.monedaDefault
+        && item.referencia === panelMoneda?.configuracion.referenciaDefault)
+      : undefined;
+    const cotizacion = configurada ?? cotizacionesDisponibles[0];
+
+    return {
+    moneda_origen: cotizacion?.moneda ?? "USD" as MonedaOrigen,
+    referencia_cotizacion: cotizacion?.referencia ?? "BLUE" as ReferenciaCotizacion,
+    lado_cotizacion: "VENTA" as LadoCotizacion,
     tipo_recargo_cotizacion: panelMoneda?.configuracion.tipoRecargoDefault ?? "PORCENTAJE" as const,
     recargo_cotizacion: panelMoneda?.configuracion.recargoDefault ?? 0,
-  });
+    };
+  };
 
   const estimarArs = (precio: PrecioDetalle, importe?: number) => {
     const modo = precio.modo_calculo ?? "MARGEN_COSTO";
@@ -274,10 +287,19 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
     onChange(nuevosPrecios);
   };
 
-  const updateCostoMoneda = (field: keyof PrecioDetalle, value: string | number) => {
+  const updateCostoMoneda = (patch: Partial<PrecioDetalle>) => {
     const basePrecios = syncAllPrices(precios);
     const precioCosto = basePrecios.find((precio) => precio.id_tipo_precio === tipoCosto.id) ?? costoItem;
-    const costoActualizado = { ...precioCosto, modo_calculo: "FIJO_MONEDA" as const, ...cotizacionPredeterminada(), [field]: value } as PrecioDetalle;
+    const esMonedaExtranjeraActual = precioCosto.modo_calculo === "FIJO_MONEDA"
+      && precioCosto.moneda_origen
+      && precioCosto.moneda_origen !== "ARS";
+    const costoActualizado = {
+      ...cotizacionPredeterminada(),
+      ...precioCosto,
+      modo_calculo: "FIJO_MONEDA" as const,
+      importe_origen: esMonedaExtranjeraActual ? precioCosto.importe_origen ?? precioCosto.valor : 0,
+      ...patch,
+    } as PrecioDetalle;
     const costoArs = estimarArs(costoActualizado);
     const tiposVentaActivos = new Set(tiposVenta.map((tipo) => tipo.id));
     onChange(basePrecios.map((precio) => {
@@ -296,6 +318,31 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
         : precio));
     }
     onCriterioCostoChange(criterio);
+  };
+
+  const codigoCotizacionCosto = costoItem.modo_calculo === "FIJO_MONEDA"
+    ? cotizacionesDisponibles.find((cotizacion) => (
+      cotizacion.moneda === costoItem.moneda_origen
+      && cotizacion.referencia === costoItem.referencia_cotizacion
+    ))?.codigo ?? ""
+    : "ARS";
+
+  const cambiarCotizacionCosto = (codigo: string) => {
+    if (codigo === "ARS") {
+      const basePrecios = syncAllPrices(precios);
+      onChange(basePrecios.map((precio) => precio.id_tipo_precio === tipoCosto.id
+        ? { ...precio, modo_calculo: "FIJO_ARS" as const, importe_origen: precio.valor, moneda_origen: "ARS" as const, referencia_cotizacion: null, lado_cotizacion: null, tipo_recargo_cotizacion: null, recargo_cotizacion: null, cotizacion_usada: 1 }
+        : precio));
+      return;
+    }
+
+    const cotizacion = cotizacionesDisponibles.find((item) => item.codigo === codigo);
+    if (!cotizacion) return;
+    updateCostoMoneda({
+      moneda_origen: cotizacion.moneda,
+      referencia_cotizacion: cotizacion.referencia,
+      lado_cotizacion: "VENTA",
+    });
   };
 
   const getPricePresentation = (label: string, index: number) => {
@@ -425,32 +472,22 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
             disabled={criterioCosto !== "MANUAL"}
             prefix={costoItem.modo_calculo === "FIJO_MONEDA" ? costoItem.moneda_origen ?? "USD" : "$"}
             placeholder="0.00"
-            className="h-12 w-full rounded-lg border-none bg-white pr-4 text-lg font-bold text-slate-900 shadow-sm outline-none transition focus:ring-4 focus:ring-blue-200 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-900/30"
+            className="h-12 w-full rounded-lg border-none bg-white pr-4 text-right text-lg font-bold text-slate-900 shadow-sm outline-none transition focus:ring-4 focus:ring-blue-200 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-900/30"
           />
           {criterioCosto === "MANUAL" && (
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="mt-3">
               <select
-                value={costoItem.modo_calculo === "FIJO_MONEDA" ? costoItem.moneda_origen ?? "USD" : "ARS"}
-                onChange={(event) => {
-                  if (event.target.value === "ARS") {
-                    const basePrecios = syncAllPrices(precios);
-                    onChange(basePrecios.map((precio) => precio.id_tipo_precio === tipoCosto.id
-                      ? { ...precio, modo_calculo: "FIJO_ARS" as const, importe_origen: precio.valor, moneda_origen: "ARS" as const, cotizacion_usada: 1 }
-                      : precio));
-                  } else updateCostoMoneda("moneda_origen", event.target.value as MonedaOrigen);
-                }}
+                value={codigoCotizacionCosto}
+                onChange={(event) => cambiarCotizacionCosto(event.target.value)}
                 className="h-9 rounded-md border border-blue-100 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
               >
-                <option value="ARS">ARS</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="BRL">BRL</option>
+                <option value="ARS">0. Pesos argentinos (ARS)</option>
+                {cotizacionesDisponibles.map((cotizacion, index) => (
+                  <option key={cotizacion.codigo} value={cotizacion.codigo}>
+                    {index + 1}. {cotizacion.codigo === "USD_BLUE" ? "Dolar Blue venta" : `${cotizacion.codigo === "USD_CCL" ? "Dolar contado con liqui" : cotizacion.codigo === "USD_MEP" ? "Dolar MEP" : cotizacion.codigo === "USD_OFICIAL" ? "Dolar oficial" : cotizacion.codigo === "EUR_OFICIAL" ? "Euro Banco" : "Real brasileno"} venta`}
+                  </option>
+                ))}
               </select>
-              {costoItem.modo_calculo === "FIJO_MONEDA" && <>
-                <select value={costoItem.referencia_cotizacion ?? "OFICIAL"} onChange={(event) => updateCostoMoneda("referencia_cotizacion", event.target.value as ReferenciaCotizacion)} className="h-9 rounded-md border border-blue-100 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                  <option value="OFICIAL">Oficial</option><option value="BLUE">Blue</option><option value="MEP">MEP</option><option value="CCL">CCL</option>
-                </select>
-                <select value={costoItem.lado_cotizacion ?? "VENTA"} onChange={(event) => updateCostoMoneda("lado_cotizacion", event.target.value as LadoCotizacion)} className="h-9 rounded-md border border-blue-100 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                  <option value="VENTA">Venta</option><option value="COMPRA">Compra</option>
-                </select>
-              </>}
             </div>
           )}
           {criterioCosto === "MANUAL" && costoItem.modo_calculo === "FIJO_MONEDA" && (

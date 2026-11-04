@@ -174,19 +174,23 @@ export async function iniciarImportacionProveedor(
         moneda: string; referencia: string; lado: string; tipo_recargo: string; recargo: string;
         id_cotizacion: number | null; valor_compra: string | null; valor_venta: string | null;
       }>(`
-        SELECT config.moneda, config.referencia, selected.lado, selected.tipo_recargo, selected.recargo,
+        SELECT config.moneda, config.referencia,
+               COALESCE(selected.lado, 'VENTA') AS lado,
+               COALESCE(selected.tipo_recargo, 'PORCENTAJE') AS tipo_recargo,
+               COALESCE(selected.recargo, 0) AS recargo,
                latest.id AS id_cotizacion, latest.valor_compra, latest.valor_venta
-        FROM public.proveedor_cotizacion_configuracion selected
-        JOIN public.moneda_cotizacion_configuracion config ON config.codigo = selected.codigo
+        FROM public.moneda_cotizacion_configuracion config
+        LEFT JOIN public.proveedor_cotizacion_configuracion selected
+          ON selected.codigo = config.codigo AND selected.id_proveedor = $1
         LEFT JOIN LATERAL (
           SELECT id, valor_compra, valor_venta FROM public.moneda_cotizacion
           WHERE moneda = config.moneda AND referencia = config.referencia AND estado = 'VIGENTE'
           ORDER BY actualizado_at DESC, id DESC LIMIT 1
         ) latest ON TRUE
-        WHERE selected.id_proveedor = $1 AND selected.codigo = $2
+        WHERE config.codigo = $2
       `, [idProveedor, codigoCotizacion]);
       const selected = quote.rows[0];
-      if (!selected) throw new AppError("La cotizacion no esta habilitada para este proveedor.", 400);
+      if (!selected) throw new AppError("La cotizacion seleccionada no existe.", 400);
       const base = Number(selected.lado === "COMPRA" ? selected.valor_compra : selected.valor_venta);
       if (!Number.isFinite(base) || base <= 0 || !selected.id_cotizacion) throw new AppError("La cotizacion seleccionada no tiene un valor vigente para el lado elegido.", 409);
       moneda = selected.moneda; referencia = selected.referencia; lado = selected.lado;
