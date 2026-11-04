@@ -265,7 +265,7 @@ export function ImportProviderPricesPage() {
             </section>
           )}
 
-          <button type="button" onClick={() => router.push("/configuracion/datos")} className="h-11 rounded-lg bg-white px-5 text-xs font-black uppercase tracking-wide text-slate-950 transition hover:bg-slate-200">Volver a datos</button>
+          <button type="button" onClick={() => router.push("/proveedores")} className="h-11 rounded-lg bg-white px-5 text-xs font-black uppercase tracking-wide text-slate-950 transition hover:bg-slate-200">Volver a proveedores</button>
         </div>
       </main>
     );
@@ -275,7 +275,7 @@ export function ImportProviderPricesPage() {
     <main className="min-h-[calc(100dvh-4rem)] bg-white p-4 dark:bg-black md:p-6">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5">
         <header className="border-b border-slate-200 pb-4 dark:border-slate-800">
-          <button type="button" onClick={() => router.push("/configuracion/datos")} className="mb-3 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:text-slate-900 dark:hover:text-white"><HiArrowLeft className="h-4 w-4" /> Volver a datos</button>
+          <button type="button" onClick={() => router.push("/proveedores")} className="mb-3 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:text-slate-900 dark:hover:text-white"><HiArrowLeft className="h-4 w-4" /> Volver a proveedores</button>
           <h1 className="text-2xl font-black text-slate-900 dark:text-white">Importar proveedores y precios</h1>
           <p className="mt-1 text-sm font-medium text-slate-500">Codigo Item y Proveedor son obligatorios. Codigo de proveedor, precio y stock son opcionales.</p>
         </header>

@@ -94,7 +94,7 @@ export function ExternalCatalogPage() {
     <main className="min-h-[calc(100dvh-4rem)] bg-white p-4 dark:bg-black md:p-6">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-5">
         <header className="border-b border-slate-200 pb-4 dark:border-slate-800">
-          <button type="button" onClick={() => router.push("/configuracion/datos")} className="mb-3 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:text-slate-900 dark:hover:text-white">
+          <button type="button" onClick={() => router.push("/configuracion/precios")} className="mb-3 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:text-slate-900 dark:hover:text-white">
             <HiArrowLeft className="h-4 w-4" /> Volver a catalogo
           </button>
           <div className="flex flex-wrap items-end justify-between gap-3">

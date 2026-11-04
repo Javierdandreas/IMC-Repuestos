@@ -73,6 +73,7 @@ export function permisoParaPagina(pathname: string, searchParams: URLSearchParam
   }
   if (pathname.startsWith("/listados/precios-modificados")) return requisito("costos_modificados", "leer");
   if (pathname.startsWith("/listados/movimientos-stock")) return requisito("movimientos_stock", "leer");
+  if (pathname.startsWith("/listados/items-sin-costo") || pathname.startsWith("/listados/respaldo-completo")) return requisito("productos", "exportar");
   if (pathname === "/listados") return ["productos:leer", "movimientos_stock:leer", "inventario_ubicacion:leer", "costos_modificados:leer", "marcas:leer", "categorias:leer", "ubicaciones:leer"];
   if (pathname.startsWith("/listados/base-de-datos")) return ["marcas:leer", "categorias:leer", "ubicaciones:leer"];
   if (pathname.startsWith("/listados/importar-exportar")) return requisito("importaciones", "leer");
@@ -127,6 +128,7 @@ export function permisoParaApi(pathname: string, method: string, searchParams: U
   if (pathname.startsWith("/api/ubicaciones/inventario")) return conAccion("inventario_ubicacion", pathname.includes("/export") ? "exportar" : pathname.includes("/import") ? "masivo" : undefined);
   if (pathname.startsWith("/api/listados/precios-modificados")) return conAccion("costos_modificados", pathname.includes("/export") ? "exportar" : undefined);
   if (pathname.startsWith("/api/listados/movimientos-stock")) return conAccion("movimientos_stock", pathname.includes("/export") ? "exportar" : undefined);
+  if (pathname.startsWith("/api/listados/items-sin-costo")) return conAccion("productos", "exportar");
   if (pathname.startsWith("/api/listados/base-de-datos")) {
     const tipo = searchParams.get("tipo");
     const apartado = tipo === "marcas" ? "marcas" : tipo === "categorias" ? "categorias" : tipo === "ubicaciones" ? "ubicaciones" : null;

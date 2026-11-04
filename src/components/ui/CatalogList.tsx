@@ -51,6 +51,8 @@ type Props = {
   importPath?: string;
   /** Pantalla opcional para exportar el catalogo */
   exportPath?: string;
+  /** Acciones adicionales junto al buscador */
+  extraActions?: Array<{ label: string; href: string; icon?: "import" | "export" }>;
 };
 
 /**
@@ -68,6 +70,7 @@ export function CatalogList({
   createPath,
   importPath,
   exportPath,
+  extraActions = [],
 }: Props) {
   const router = useRouter();
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -159,6 +162,17 @@ export function CatalogList({
                 Importar
               </Link>
             ) : null}
+
+            {canManage && extraActions.map((action) => (
+              <Link
+                key={action.href}
+                href={action.href}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-widest text-slate-700 transition hover:border-blue-200 hover:text-blue-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-blue-500/50 dark:hover:text-blue-400"
+              >
+                {action.icon === "export" ? <HiCloudDownload className="h-4 w-4" /> : <HiCloudUpload className="h-4 w-4" />}
+                {action.label}
+              </Link>
+            ))}
 
             {canManage ? createPath ? (
               <Link

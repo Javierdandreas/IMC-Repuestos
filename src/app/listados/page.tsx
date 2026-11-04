@@ -7,7 +7,11 @@ export default async function ListadosPage() {
   const can = (permiso: string) => puedeAccederPermisos(session?.rol, session?.permisos, [permiso]);
   const disponibles = [
     can("movimientos_stock:leer") && "movimientos",
-    can("importaciones:leer") && "importar-exportar",
+    can("productos:exportar") && "items",
+    can("productos:exportar") && "items-sin-costo",
+    can("proveedores:exportar") && "proveedores",
+    can("productos:exportar") && "respaldo-completo",
+    can("importaciones:leer") && "registro-importaciones",
     can("inventario_ubicacion:leer") && "inventario",
     can("costos_modificados:leer") && "costos",
     can("marcas:leer") && "marcas",

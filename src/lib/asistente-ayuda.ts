@@ -17,12 +17,8 @@ const PAGE_CONTEXTS: Array<{ match: (pathname: string) => boolean; context: Help
     context: { title: "Proveedores", capabilities: "crear y editar proveedores, configurar capas de costo y estados de stock, e importar listas de precios por proveedor" },
   },
   {
-    match: (pathname) => pathname.startsWith("/configuracion/datos"),
-    context: { title: "Datos", capabilities: "importar y exportar catalogo, proveedores, inventario, consultar historial e ingresar a integraciones" },
-  },
-  {
     match: (pathname) => pathname.startsWith("/configuracion/catalogo-externo"),
-    context: { title: "GESU", capabilities: "consultar GESU, revisar productos y kits nuevos, clasificar productos y validar componentes antes de importarlos" },
+    context: { title: "GESU", capabilities: "consultar el estado y el historial de la sincronizacion automatica con GESU" },
   },
   {
     match: (pathname) => pathname.startsWith("/configuracion/mercadolibre"),
@@ -63,15 +59,19 @@ Alcance del asistente:
 - Presenta respuestas cortas y faciles de escanear: separa las ideas con una linea en blanco y usa listas con "- " cuando haya pasos o requisitos. No superes seis puntos salvo que el usuario pida detalle.
 
 Navegacion y funciones conocidas:
-- Configuracion > Datos > Importar: items, items asociados, kits, GESU, proveedores, codigos y precios, y series por ubicacion.
-- Configuracion > Datos > Exportar > Catalogo personalizado: filtra por marca, categoria, subcategoria o proveedor y permite elegir columnas. Para una lista de precios de venta se usan Codigo Unico, Descripcion, Marca y el campo "[Lista] - Precio Final" deseado. Costo Base es el costo de referencia elegido.
-- Configuracion > Datos > Exportar > Respaldo completo: exporta items con asociados, proveedores y precios, y/o kits con componentes.
+ - Items: permite importar items y kits desde los botones del listado. Items asociados permite crear, importar y enriquecer referencias.
+ - Contactos > Proveedores: permite importar proveedores e importar items por proveedor, con codigo, precio y stock.
+ - Listados > Items: filtra los items y permite elegir las columnas de la exportacion. Para una lista de precios de venta se usan Codigo Unico, Descripcion, Marca y el campo "[Lista] - Precio Final" deseado.
+ - Listados > Proveedores: permite elegir las columnas antes de exportar proveedores.
+ - Listados > Respaldo completo: exporta items, asociados, proveedores, precios, kits y componentes en un unico Excel.
+ - Listados > Items sin costo base: exporta los items con costo base cero o nulo e informa sus vinculos y costos de proveedor para revisarlos.
+ - Listados > Registro de importaciones: muestra los archivos y resultados de importaciones generales.
 - Las listas de precios de proveedor se importan desde la ficha de cada proveedor. Ahi se definen columnas, capas de descuentos o recargos y estados de stock.
 - Listados > Costos modificados: muestra cambios detectados por listas de proveedor. Los cambios se aprueban o rechazan y solo los aprobados se exportan.
 - Listados > Inventario por ubicacion: consulta y exporta inventario, ubicacion y series.
 - Listados > Movimientos de stock: consulta y exporta compras, ventas, ajustes y movimientos de series. Se puede filtrar por fecha, ubicacion y tipo de movimiento.
-- Configuracion > Datos > Integraciones > Mercado Libre: conecta una cuenta vendedora e importa publicaciones existentes. La sincronizacion inicial solo lee informacion de Mercado Libre y propone vinculos cuando el SKU coincide exactamente con un Codigo Unico de IMC.
-- GESU: consulta directa de la API de items. Los productos y kits se revisan antes de importarse. No se copian precios ni fotos.
+ - Configuracion > Mercado Libre: conecta una cuenta vendedora e importa publicaciones existentes. La sincronizacion inicial solo lee informacion de Mercado Libre y propone vinculos cuando el SKU coincide exactamente con un Codigo Unico de IMC.
+ - Configuracion > GESU: permite consultar el historial de la sincronizacion automatica. No importa precios ni fotos.
 - En un item, el costo base puede elegirse como unico, manual, menor, promedio o mayor. Menor, promedio y mayor consideran los proveedores con precio valido; un proveedor sin precio no participa. Actualmente no se toma el stock para esa eleccion.
 - Una capa de proveedor se aplica en orden. Puede ser descuento, recargo o coeficiente; puede alcanzar todas las marcas o una marca. Las condiciones de texto de stock usan coincidencia por contenido.
 - Para crear un item en Items > Crear > Item son obligatorios Codigo unico, Descripcion y Subcategoria. El codigo de barras, marca, proveedor, ubicacion, foto, palabra clave, precios y series son opcionales; el stock inicia en cero si no se informa.

@@ -22,6 +22,8 @@ export default async function ProveedoresPage({ searchParams }: Props) {
       createLabel="Nuevo proveedor"
       createPath="/proveedores/nuevo"
       editPathBase="/proveedores/editar"
+      importPath="/proveedores/importar"
+      extraActions={[{ label: "Items por proveedor", href: "/productos/importar/precios-proveedores" }]}
     />
   );
 }

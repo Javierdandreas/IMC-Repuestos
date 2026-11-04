@@ -11,7 +11,7 @@ import { CategoriaOption, Pieza, PiezaListado, SubcategoriaOption } from "@/inte
 import { toast } from "sonner";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { HiPhotograph } from "react-icons/hi";
+import { HiCloudUpload, HiPhotograph } from "react-icons/hi";
 import Image from "next/image";
 
 type Props = {
@@ -156,15 +156,19 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
             </div>
             
             {canManage && (
-              <button
-                onClick={() => router.push("/piezas/nueva")}
-                className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-900 px-6 text-sm font-bold text-white shadow-lg transition hover:bg-slate-800 active:scale-95 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                Crear item asociado
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => router.push("/piezas/nueva")}
+                  className="inline-flex h-12 items-center gap-2 rounded-xl bg-slate-900 px-6 text-sm font-bold text-white shadow-lg transition hover:bg-slate-800 active:scale-95 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  Crear item asociado
+                </button>
+                <button type="button" onClick={() => router.push("/piezas/importar")} className="inline-flex h-12 items-center gap-2 rounded-xl border border-slate-300 px-5 text-sm font-bold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiCloudUpload className="h-4 w-4" /> Importar</button>
+                <button type="button" onClick={() => router.push("/configuracion/enriquecimiento")} className="inline-flex h-12 items-center gap-2 rounded-xl border border-slate-300 px-5 text-sm font-bold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300">Enriquecimiento</button>
+              </div>
             )}
           </div>
 

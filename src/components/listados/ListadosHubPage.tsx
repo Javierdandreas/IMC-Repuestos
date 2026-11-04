@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeftRight, Boxes, ClipboardList, DollarSign, FolderTree, MapPin, Search, Tags } from "lucide-react";
+import { ArchiveRestore, ArrowLeftRight, ClipboardList, DollarSign, FileSpreadsheet, FolderTree, MapPin, PackageSearch, Search, Tags, Truck } from "lucide-react";
 
 type Grupo = "OPERACIONES" | "ITEMS" | "INVENTARIO" | "CATALOGOS";
 type Listado = {
@@ -28,7 +28,11 @@ export function ListadosHubPage({ disponibles }: { disponibles: string[] }) {
   const permitidos = new Set(disponibles);
   const listados: Listado[] = [
     { id: "movimientos", titulo: "Movimientos de stock", href: "/listados/movimientos-stock", grupo: "OPERACIONES", icono: ArrowLeftRight, color: "text-blue-600 bg-blue-500/10 dark:text-blue-300" },
-    { id: "importar-exportar", titulo: "Importar y exportar", href: "/listados/importar-exportar", grupo: "ITEMS", icono: Boxes, color: "text-violet-600 bg-violet-500/10 dark:text-violet-300" },
+    { id: "items", titulo: "Items", href: "/productos/exportar", grupo: "ITEMS", icono: FileSpreadsheet, color: "text-violet-600 bg-violet-500/10 dark:text-violet-300" },
+    { id: "items-sin-costo", titulo: "Items sin costo base", href: "/listados/items-sin-costo", grupo: "ITEMS", icono: PackageSearch, color: "text-rose-600 bg-rose-500/10 dark:text-rose-300" },
+    { id: "proveedores", titulo: "Proveedores", href: "/proveedores/exportar", grupo: "CATALOGOS", icono: Truck, color: "text-cyan-600 bg-cyan-500/10 dark:text-cyan-300" },
+    { id: "respaldo-completo", titulo: "Respaldo completo", href: "/listados/respaldo-completo", grupo: "ITEMS", icono: ArchiveRestore, color: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300" },
+    { id: "registro-importaciones", titulo: "Registro de importaciones", href: "/importaciones", grupo: "ITEMS", icono: ClipboardList, color: "text-blue-600 bg-blue-500/10 dark:text-blue-300" },
     { id: "inventario", titulo: "Inventario por ubicacion", href: "/ubicaciones/inventario", grupo: "INVENTARIO", icono: ClipboardList, color: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300" },
     { id: "costos", titulo: "Costos modificados", href: "/listados/precios-modificados", grupo: "OPERACIONES", icono: DollarSign, color: "text-amber-600 bg-amber-500/10 dark:text-amber-300" },
     { id: "marcas", titulo: "Marcas", href: "/marcas", grupo: "CATALOGOS", icono: Tags, color: "text-rose-600 bg-rose-500/10 dark:text-rose-300" },

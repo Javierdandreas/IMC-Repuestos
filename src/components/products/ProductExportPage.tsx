@@ -146,13 +146,13 @@ export function ProductExportPage() {
           <div>
             <button
               type="button"
-              onClick={() => router.push("/configuracion/datos")}
+              onClick={() => router.push("/listados")}
               className="mb-3 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:text-slate-900 dark:hover:text-white"
             >
               <HiArrowLeft className="h-4 w-4" />
-              Volver a catalogo
+              Volver a listados
             </button>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white">Catálogo personalizado</h1>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white">Items</h1>
             <p className="mt-1 text-sm font-medium text-slate-500">Filtrá qué items entran al archivo y elegí las columnas.</p>
           </div>
 

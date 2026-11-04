@@ -8,11 +8,25 @@ import { jsonError } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
+const columnasDisponibles = [
+  "Nombre", "CUIT / DNI", "Condición IVA", "Comprobante predeterminado",
+  "Contacto principal", "Telefono", "Email", "Domicilio fiscal",
+  "Provincia", "Localidad", "Codigo postal", "Estado", "Observaciones",
+] as const;
+
 export async function GET(request: NextRequest) {
   try {
     await requireApiReadSession(request);
-    const format = new URL(request.url).searchParams.get("format") || "excel";
-    const data = await getProveedoresParaExportar();
+    const params = new URL(request.url).searchParams;
+    const format = params.get("format") || "excel";
+    const requestedColumns = (params.get("columns") || "").split(",").map((column) => column.trim()).filter(Boolean);
+    const selectedColumns = requestedColumns.length
+      ? columnasDisponibles.filter((column) => requestedColumns.includes(column))
+      : [...columnasDisponibles];
+    if (!selectedColumns.length) {
+      return NextResponse.json({ message: "Selecciona al menos una columna para exportar." }, { status: 400 });
+    }
+    const data = (await getProveedoresParaExportar()).map((row) => Object.fromEntries(selectedColumns.map((column) => [column, row[column] ?? ""])));
     const date = new Date().toISOString().split("T")[0];
 
     if (format === "excel") {
@@ -37,11 +51,7 @@ export async function GET(request: NextRequest) {
 
       worksheet["!rows"] = [{ hpt: 30 }];
       worksheet["!autofilter"] = { ref: XLSX.utils.encode_range(range) };
-      worksheet["!cols"] = [
-        { wch: 42 }, { wch: 18 }, { wch: 26 }, { wch: 28 },
-        { wch: 26 }, { wch: 20 }, { wch: 32 }, { wch: 42 },
-        { wch: 22 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 44 },
-      ];
+      worksheet["!cols"] = selectedColumns.map((column) => ({ wch: column === "Nombre" ? 42 : column === "Observaciones" || column === "Domicilio fiscal" ? 44 : 22 }));
 
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Proveedores");
