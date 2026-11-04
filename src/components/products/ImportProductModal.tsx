@@ -89,6 +89,7 @@ const SYSTEM_FIELDS: ImportField[] = [
   { id: 'codigo_proveedor', label: 'Código proveedor', description: 'Código del item en el proveedor', group: 'Item asociado y proveedor', aliases: ['codigo proveedor', 'codigo en proveedor', 'cod proveedor', 'sku proveedor', 'item proveedor', 'referencia proveedor', 'codigo lista'] },
   { id: 'precio_lista_proveedor', label: 'Precio lista proveedor', description: 'Precio informado por el proveedor', group: 'Item asociado y proveedor', aliases: ['precio lista proveedor', 'precio proveedor', 'lista proveedor', 'precio lista', 'costo proveedor', 'precio de proveedor'] },
   { id: 'costo_base', label: 'Costo base', description: 'Costo directo del item; establece criterio Manual', group: 'Precios y margenes', aliases: ['costo base', 'precio costo', 'costo', 'cost', 'costo directo'] },
+  { id: 'moneda_costo_base', label: 'Moneda del costo', description: 'Moneda indicada para el costo base de cada fila', group: 'Precios y margenes', aliases: ['moneda', 'moneda costo', 'moneda del costo', 'divisa', 'currency', 'currencia'] },
 ];
 
 const normalizeHeader = (value: string) =>
@@ -177,6 +178,10 @@ const scoreHeaderForField = (header: string, field: ImportField) => {
     normalizedHeader.includes('precio') &&
     normalizedHeader.includes('lista')
   ) {
+    return 0;
+  }
+
+  if (field.id === 'costo_base' && normalizedHeader.includes('moneda')) {
     return 0;
   }
 
@@ -269,6 +274,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
   );
   const isMarginImport = mappedMarginFields.length > 0;
   const costoBaseMapeado = Boolean(mappings.costo_base?.csvHeader);
+  const monedaCostoBaseMapeada = Boolean(mappings.moneda_costo_base?.csvHeader);
   const cotizacionImportacionSeleccionada = cotizacionesImportacion.find((item) => item.codigo === codigoCotizacionCostoBase);
 
   useEffect(() => {
@@ -650,7 +656,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
       });
     }
 
-    if (costoBaseMapeado && codigoCotizacionCostoBase !== "ARS") {
+    if (costoBaseMapeado && !monedaCostoBaseMapeada && codigoCotizacionCostoBase !== "ARS") {
       if (cotizacionesError || !cotizacionImportacionSeleccionada) {
         issues.push({ type: "error", message: "No se pudo obtener la cotizacion elegida para el costo base." });
       } else if (!cotizacionImportacionSeleccionada.valorVenta || cotizacionImportacionSeleccionada.valorVenta <= 0) {
@@ -702,11 +708,16 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
     }
 
     return issues;
-  }, [codigoCotizacionCostoBase, cotizacionImportacionSeleccionada, cotizacionesError, costoBaseMapeado, importFields, isMarginImport, isReplaceMode, mappedMarginFields, mappings, missingRequiredFields, onlyUpdateExisting]);
+  }, [codigoCotizacionCostoBase, cotizacionImportacionSeleccionada, cotizacionesError, costoBaseMapeado, importFields, isMarginImport, isReplaceMode, mappedMarginFields, mappings, missingRequiredFields, monedaCostoBaseMapeada, onlyUpdateExisting]);
 
   const blockingImportIssues = useMemo(
     () => importValidationIssues.filter((issue) => issue.type === "error"),
     [importValidationIssues]
+  );
+
+  const previewColumns = useMemo(
+    () => importFields.filter((field) => Boolean(mappings[field.id]?.csvHeader)),
+    [importFields, mappings],
   );
 
   const interpretedPreview = useMemo(() => {
@@ -720,14 +731,9 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
 
     return preview.slice(0, 6).map((row, index) => ({
       rowNumber: index + 2,
-      cod_unico: getValue(row, "cod_unico"),
-      descripcion: getValue(row, "titulo"),
-      stock: getValue(row, "stock"),
-      proveedor: getValue(row, "proveedor"),
-      codigo_proveedor: getValue(row, "codigo_proveedor"),
-      precio_lista_proveedor: getValue(row, "precio_lista_proveedor"),
+      values: previewColumns.map((field) => ({ id: field.id, value: getValue(row, field.id) })),
     }));
-  }, [mappings, preview]);
+  }, [mappings, preview, previewColumns]);
 
   const runAutoMapping = () => {
     setMappings(autoMapHeaders(csvHeaders, importFields));
@@ -822,7 +828,7 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
         {field.id === "costo_base" && isMapped && (
           <div className="flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-800 md:col-span-4 md:flex-row md:items-center">
             <label htmlFor="importacion-items-moneda" className="shrink-0 text-[10px] font-black uppercase tracking-widest text-blue-500">
-              Moneda del importe
+              {monedaCostoBaseMapeada ? "Moneda predeterminada" : "Moneda del importe"}
             </label>
             <select
               id="importacion-items-moneda"
@@ -840,6 +846,11 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
             {codigoCotizacionCostoBase !== "ARS" && cotizacionImportacionSeleccionada?.valorVenta && (
               <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                 1 {cotizacionImportacionSeleccionada.moneda} = $ {cotizacionImportacionSeleccionada.valorVenta.toLocaleString("es-AR", { maximumFractionDigits: 4 })}
+              </span>
+            )}
+            {monedaCostoBaseMapeada && (
+              <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-300">
+                Cada fila usa la columna &quot;{mappings.moneda_costo_base.csvHeader}&quot;. Este selector se usa si la fila no informa moneda.
               </span>
             )}
           </div>
@@ -1134,28 +1145,29 @@ export function ImportProductModal({ onClose, variant = "modal" }: { onClose: ()
             </span>
           </div>
 
-          <div className="grid grid-cols-[64px_minmax(120px,0.9fr)_minmax(180px,1.4fr)_80px_minmax(140px,1fr)_minmax(130px,1fr)_minmax(120px,0.8fr)] border-b border-slate-200 bg-slate-100 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:bg-slate-900">
-            <span>Fila</span>
-            <span>Codigo</span>
-            <span>Descripcion</span>
-            <span>Stock</span>
-            <span>Proveedor</span>
-            <span>Codigo prov.</span>
-            <span>Precio prov.</span>
-          </div>
-
-          <div>
-            {interpretedPreview.map((row) => (
-              <div key={row.rowNumber} className="grid grid-cols-[64px_minmax(120px,0.9fr)_minmax(180px,1.4fr)_80px_minmax(140px,1fr)_minmax(130px,1fr)_minmax(120px,0.8fr)] border-b border-slate-200 px-3 py-2 text-[11px] font-bold text-slate-700 last:border-b-0 dark:border-slate-800 dark:text-slate-200">
-                <span className="text-slate-400">{row.rowNumber}</span>
-                <span className="truncate font-mono" title={row.cod_unico}>{row.cod_unico}</span>
-                <span className="truncate" title={row.descripcion}>{row.descripcion}</span>
-                <span className="truncate" title={row.stock}>{row.stock}</span>
-                <span className="truncate" title={row.proveedor}>{row.proveedor}</span>
-                <span className="truncate" title={row.codigo_proveedor}>{row.codigo_proveedor}</span>
-                <span className="truncate" title={row.precio_lista_proveedor}>{row.precio_lista_proveedor}</span>
+          <div className="overflow-x-auto">
+            <div className="min-w-max">
+              <div
+                className="grid border-b border-slate-200 bg-slate-100 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:bg-slate-900"
+                style={{ gridTemplateColumns: `64px repeat(${previewColumns.length}, minmax(150px, 1fr))` }}
+              >
+                <span>Fila</span>
+                {previewColumns.map((field) => <span key={field.id}>{field.label}</span>)}
               </div>
-            ))}
+
+              {interpretedPreview.map((row) => (
+                <div
+                  key={row.rowNumber}
+                  className="grid border-b border-slate-200 px-3 py-2 text-[11px] font-bold text-slate-700 last:border-b-0 dark:border-slate-800 dark:text-slate-200"
+                  style={{ gridTemplateColumns: `64px repeat(${previewColumns.length}, minmax(150px, 1fr))` }}
+                >
+                  <span className="text-slate-400">{row.rowNumber}</span>
+                  {row.values.map((value) => (
+                    <span key={value.id} className="truncate" title={value.value}>{value.value}</span>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 

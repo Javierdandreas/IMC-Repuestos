@@ -68,6 +68,28 @@ export type ImportProductoInput = {
   Proveedor?: string | null;
 };
 
+const CODIGOS_COTIZACION_COSTO_BASE = ["USD_BLUE", "USD_CCL", "USD_MEP", "USD_OFICIAL", "EUR_OFICIAL", "BRL_OFICIAL"] as const;
+
+function resolverCodigoCotizacionCostoBase(value: unknown, fallback: string): string | null {
+  const normalized = String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase();
+  if (!normalized) return fallback;
+
+  const compact = normalized.replace(/[^A-Z0-9]/g, "");
+  if (["0", "ARS", "PESO", "PESOS", "PESOARGENTINO", "PESOSARGENTINOS"].includes(compact)) return "ARS";
+  if (["1", "USDBLUE", "DOLARBLUE", "DOLARESBLUE"].includes(compact) || compact.includes("BLUE")) return "USD_BLUE";
+  if (["2", "USDCCL", "DOLARCCL"].includes(compact) || compact.includes("CCL") || compact.includes("LIQUI")) return "USD_CCL";
+  if (["3", "USDMEP", "DOLARMEP"].includes(compact) || compact.includes("MEP")) return "USD_MEP";
+  if (["4", "USDOFICIAL", "DOLAROFICIAL"].includes(compact) || compact.includes("OFICIAL")) return "USD_OFICIAL";
+  if (["5", "EUR", "EURO", "EUROS", "EUROOFICIAL"].includes(compact) || compact.startsWith("EUR") || compact.includes("EURO")) return "EUR_OFICIAL";
+  if (["6", "BRL", "REAL", "REALES", "REALBRASILENO"].includes(compact) || compact.startsWith("BRL") || compact.includes("REAL")) return "BRL_OFICIAL";
+  if (["USD", "DOLAR", "DOLARES", "US"].includes(compact) || compact.startsWith("USD")) return "USD_BLUE";
+  return null;
+}
+
 
 function sanitizeProductoInput(input: ProductoInput) {
   return {
@@ -1290,11 +1312,17 @@ export async function importProductosConCliente(
       .filter((tipo) => tipo.idTipoPrecio > 0 && normalize(tipo.descripcion) !== "PRECIO COSTO")
       .filter((tipo) => Boolean(mappings[tipo.mappingId]?.csvHeader));
 
-    let cotizacionCostoBase = 1;
     const codigoCotizacionCostoBase = String(options.codigoCotizacionCostoBase ?? "ARS").trim();
-    if (mappings.costo_base?.csvHeader && codigoCotizacionCostoBase !== "ARS") {
-      const cotizacion = await client.query<{ valor_venta: string | null }>(`
-        SELECT ultima.valor_venta
+    const monedaCostoBasePorFila = Boolean(mappings.moneda_costo_base?.csvHeader);
+    const codigosCotizacionNecesarios = mappings.costo_base?.csvHeader
+      ? (monedaCostoBasePorFila
+          ? [...CODIGOS_COTIZACION_COSTO_BASE]
+          : codigoCotizacionCostoBase === "ARS" ? [] : [codigoCotizacionCostoBase])
+      : [];
+    const cotizacionesCostoBase = new Map<string, number>();
+    if (codigosCotizacionNecesarios.length > 0) {
+      const cotizaciones = await client.query<{ codigo: string; valor_venta: string | null }>(`
+        SELECT configuracion.codigo, ultima.valor_venta
         FROM public.moneda_cotizacion_configuracion configuracion
         LEFT JOIN LATERAL (
           SELECT valor_venta
@@ -1305,13 +1333,17 @@ export async function importProductosConCliente(
           ORDER BY actualizado_at DESC, id DESC
           LIMIT 1
         ) ultima ON TRUE
-        WHERE configuracion.codigo = $1
-      `, [codigoCotizacionCostoBase]);
-      const valorVenta = Number(cotizacion.rows[0]?.valor_venta);
-      if (!cotizacion.rowCount || !Number.isFinite(valorVenta) || valorVenta <= 0) {
+        WHERE configuracion.codigo = ANY($1::text[])
+      `, [codigosCotizacionNecesarios]);
+      cotizaciones.rows.forEach((cotizacion) => {
+        const valorVenta = Number(cotizacion.valor_venta);
+        if (Number.isFinite(valorVenta) && valorVenta > 0) {
+          cotizacionesCostoBase.set(cotizacion.codigo, valorVenta);
+        }
+      });
+    }
+    if (!monedaCostoBasePorFila && codigoCotizacionCostoBase !== "ARS" && !cotizacionesCostoBase.has(codigoCotizacionCostoBase)) {
         throw new AppError("La cotizacion seleccionada no tiene un valor de venta vigente.", 409);
-      }
-      cotizacionCostoBase = valorVenta;
     }
 
     const defaultSubcatId = subMap.get(normalize("SIN SUBCATEGORIA"));
@@ -1345,10 +1377,14 @@ export async function importProductosConCliente(
       return Number.isFinite(parsed) ? parsed : null;
     };
 
-    const convertirCostoBaseAArs = (value: any) => {
+    const convertirCostoBaseAArs = (value: any, monedaFila: unknown) => {
       const precio = parseNullableNumber(value);
       if (precio === null) return null;
-      return Math.round((precio * cotizacionCostoBase + Number.EPSILON) * 100) / 100;
+      const codigoMoneda = resolverCodigoCotizacionCostoBase(monedaFila, codigoCotizacionCostoBase);
+      if (!codigoMoneda) throw new Error(`Moneda de costo no reconocida: ${String(monedaFila ?? "")}`);
+      const cotizacion = codigoMoneda === "ARS" ? 1 : cotizacionesCostoBase.get(codigoMoneda);
+      if (!cotizacion) throw new Error(`La cotizacion de venta para ${codigoMoneda} no esta vigente.`);
+      return Math.round((precio * cotizacion + Number.EPSILON) * 100) / 100;
     };
 
     // Para relación proveedores
@@ -1419,6 +1455,7 @@ export async function importProductosConCliente(
       { id: "codigo_pieza", label: "Codigo de item asociado" },
       { id: "palabra_clave", label: "Palabras clave" },
       { id: "costo_base", label: "Costo base" },
+      { id: "moneda_costo_base", label: "Moneda del costo" },
       ...marginMappings.map((tipo) => ({ id: tipo.mappingId, label: `Margen ${tipo.descripcion}` })),
     ];
     const groupedItems: GroupedImportItem[] = [];
@@ -1519,7 +1556,10 @@ export async function importProductosConCliente(
             v_palabra_clave.push(keyword);
 
             const costoBase = mappings.costo_base?.csvHeader
-              ? convertirCostoBaseAArs(item[mappings.costo_base.csvHeader])
+              ? convertirCostoBaseAArs(
+                  item[mappings.costo_base.csvHeader],
+                  mappings.moneda_costo_base?.csvHeader ? item[mappings.moneda_costo_base.csvHeader] : null,
+                )
               : null;
             if (costoBase !== null) {
               baseCostUpdates.push({
