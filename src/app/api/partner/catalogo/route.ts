@@ -1,15 +1,25 @@
 import { timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { condicionBusquedaKit, condicionBusquedaProducto, parametroBusquedaItems } from "@/lib/busqueda-items";
+import { condicionBusquedaKit, condicionBusquedaProducto, parametroBusquedaItems, terminosDescripcionBusqueda } from "@/lib/busqueda-items";
 import { query } from "@/lib/db-utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const MAX_CODIGOS_POR_CONSULTA = 100;
+
 const searchSchema = z.object({
-  q: z.string().trim().min(2, "La busqueda debe tener al menos 2 caracteres.").max(120),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
+  q: z.string().trim().min(2, "La busqueda debe tener al menos 2 caracteres.").max(120).optional(),
+  codes: z.array(z.string().trim().min(1).max(120)).max(MAX_CODIGOS_POR_CONSULTA, "Se permiten hasta 100 codigos por consulta.").optional(),
+  limit: z.coerce.number().int().min(1).max(100, "El limite maximo es 100.").optional(),
+}).superRefine((value, context) => {
+  if (!value.q && (!value.codes || value.codes.length === 0)) {
+    context.addIssue({ code: "custom", message: "Indica q o codes para consultar el catalogo." });
+  }
+  if (value.q && value.codes?.length) {
+    context.addIssue({ code: "custom", message: "Usa q para una busqueda o codes para una consulta por lote, no ambos." });
+  }
 });
 
 type CatalogRow = {
@@ -27,6 +37,12 @@ type CatalogRow = {
   proveedores?: unknown;
   pieza?: unknown;
   componentes?: unknown;
+};
+
+type CatalogSearch = {
+  rawSearch: string | null;
+  codes: string[] | null;
+  limit: number;
 };
 
 function keyIsValid(received: string | null) {
@@ -50,10 +66,157 @@ function jsonArray(value: unknown) {
 }
 
 function jsonObject(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
-async function findProducts(search: string, rawSearch: string, limit: number) {
+function numeroPieza(value: unknown) {
+  return typeof value === "number" || (typeof value === "string" && value.trim()) ? value : null;
+}
+
+function splitCodes(values: string[]) {
+  return [...new Set(values
+    .flatMap((value) => value.split(/[,;\r\n]+/))
+    .map((value) => value.trim().toUpperCase())
+    .filter(Boolean))];
+}
+
+function condicionCodigosProducto(parameter: number, alias: "p" | "componente" = "p") {
+  const matches = (column: string) => `UPPER(TRIM(${column}::text)) = ANY($${parameter}::text[])`;
+  return `(
+    ${matches(`${alias}.cod_unico`)}
+    OR ${matches(`${alias}.cod_barra`)}
+    OR EXISTS (
+      SELECT 1
+      FROM public.pieza buscar_pieza
+      WHERE buscar_pieza.id = ${alias}.id_pieza
+        AND ${matches("buscar_pieza.codigo_pieza")}
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.producto_proveedor buscar_pp
+      WHERE buscar_pp.id_producto = ${alias}.id
+        AND ${matches("buscar_pp.codigo_proveedor")}
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.pieza_codigo_referencia buscar_pcr
+      INNER JOIN public.codigo_referencia buscar_referencia ON buscar_referencia.id = buscar_pcr.id_codigo_referencia
+      WHERE buscar_pcr.id_pieza = ${alias}.id_pieza
+        AND ${matches("buscar_referencia.codigo")}
+    )
+  )`;
+}
+
+function productSearchSql(search: CatalogSearch) {
+  if (search.codes) {
+    return {
+      where: condicionCodigosProducto(1),
+      params: [search.codes, search.limit],
+      order: `
+        CASE WHEN UPPER(TRIM(p.cod_unico)) = ANY($1::text[]) THEN 0 ELSE 1 END,
+        CASE WHEN COALESCE(p.stock, 0) > 0 THEN 0 ELSE 1 END,
+        COALESCE(p.stock, 0) DESC,
+        p.cod_unico ASC NULLS LAST,
+        p.id ASC`,
+      limitParameter: 2,
+    };
+  }
+
+  const terms = terminosDescripcionBusqueda(search.rawSearch || "");
+  const patterns = terms.map((term) => parametroBusquedaItems(term));
+  const rawParameter = patterns.length + 1;
+  return {
+    where: patterns.map((_, index) => condicionBusquedaProducto(index + 1)).join(" AND "),
+    params: [...patterns, search.rawSearch, search.limit],
+    order: `
+      CASE WHEN UPPER(TRIM(p.cod_unico)) = UPPER(TRIM($${rawParameter}::text)) THEN 0 ELSE 1 END,
+      CASE WHEN COALESCE(p.stock, 0) > 0 THEN 0 ELSE 1 END,
+      COALESCE(p.stock, 0) DESC,
+      p.cod_unico ASC NULLS LAST,
+      p.id ASC`,
+    limitParameter: rawParameter + 1,
+  };
+}
+
+function kitSearchSql(search: CatalogSearch) {
+  if (search.codes) {
+    return {
+      where: `(
+        UPPER(TRIM(k.codigo_kit)) = ANY($1::text[])
+        OR EXISTS (
+          SELECT 1
+          FROM public.kit_detalle buscar_detalle
+          INNER JOIN public.productos componente ON componente.id = buscar_detalle.id_producto
+          WHERE buscar_detalle.id_kit = k.id
+            AND COALESCE(componente.oculto_por_kit, FALSE) = FALSE
+            AND ${condicionCodigosProducto(1, "componente")}
+        )
+      )`,
+      params: [search.codes, search.limit],
+      order: `
+        CASE WHEN UPPER(TRIM(k.codigo_kit)) = ANY($1::text[]) THEN 0 ELSE 1 END,
+        CASE WHEN COALESCE(MIN(FLOOR(producto.stock / NULLIF(detalle.cantidad, 0))), 0) > 0 THEN 0 ELSE 1 END,
+        stock_total DESC,
+        k.codigo_kit ASC NULLS LAST,
+        k.id ASC`,
+      limitParameter: 2,
+    };
+  }
+
+  const terms = terminosDescripcionBusqueda(search.rawSearch || "");
+  const patterns = terms.map((term) => parametroBusquedaItems(term));
+  const rawParameter = patterns.length + 1;
+  return {
+    where: patterns.map((_, index) => `(
+      ${condicionBusquedaKit(index + 1)}
+      OR EXISTS (
+        SELECT 1
+        FROM public.kit_detalle buscar_detalle
+        INNER JOIN public.productos componente ON componente.id = buscar_detalle.id_producto
+        WHERE buscar_detalle.id_kit = k.id
+          AND COALESCE(componente.oculto_por_kit, FALSE) = FALSE
+          AND ${condicionBusquedaProducto(index + 1, false, "componente")}
+      )
+    )`).join(" AND "),
+    params: [...patterns, search.rawSearch, search.limit],
+    order: `
+      CASE WHEN UPPER(TRIM(k.codigo_kit)) = UPPER(TRIM($${rawParameter}::text)) THEN 0 ELSE 1 END,
+      CASE WHEN COALESCE(MIN(FLOOR(producto.stock / NULLIF(detalle.cantidad, 0))), 0) > 0 THEN 0 ELSE 1 END,
+      stock_total DESC,
+      k.codigo_kit ASC NULLS LAST,
+      k.id ASC`,
+    limitParameter: rawParameter + 1,
+  };
+}
+
+function serializeProduct(row: CatalogRow) {
+  const pieza = jsonObject(row.pieza);
+  return {
+    tipo: "ITEM" as const,
+    id: row.id,
+    codigo: row.codigo,
+    descripcion: row.descripcion,
+    palabraClave: row.palabra_clave,
+    codigoBarras: row.codigo_barras,
+    marca: row.marca,
+    categoria: row.categoria,
+    subcategoria: row.subcategoria,
+    ubicacion: row.ubicacion,
+    stockTotal: toNumber(row.stock_total),
+    precioMostrador: toNumber(row.precio_mostrador),
+    proveedores: jsonArray(row.proveedores),
+    numeroPieza: numeroPieza(pieza?.numero),
+    oem: jsonArray(pieza?.oem),
+    equivalentes: jsonArray(pieza?.equivalentes),
+    sustitutos: jsonArray(pieza?.sustitutos),
+    pieza,
+  };
+}
+
+async function findProducts(search: CatalogSearch) {
+  const condition = productSearchSql(search);
   const result = await query<CatalogRow>(`
     SELECT
       p.id,
@@ -112,45 +275,25 @@ async function findProducts(search: string, rawSearch: string, limit: number) {
       WHERE pi.id = p.id_pieza
       GROUP BY pi.id, pi.codigo_pieza, pi.descripcion
     ) pieza ON true
-    WHERE ${condicionBusquedaProducto(1)}
-    ORDER BY
-      CASE WHEN UPPER(TRIM(p.cod_unico)) = UPPER(TRIM($2)) THEN 0 ELSE 1 END,
-      p.cod_unico ASC NULLS LAST,
-      p.id ASC
-    LIMIT $3
-  `, [search, rawSearch, limit]);
+    WHERE ${condition.where}
+    ORDER BY ${condition.order}
+    LIMIT $${condition.limitParameter}
+  `, condition.params);
 
-  return result.rows.map((row) => ({
-    tipo: "ITEM" as const,
-    id: row.id,
-    codigo: row.codigo,
-    descripcion: row.descripcion,
-    palabraClave: row.palabra_clave,
-    codigoBarras: row.codigo_barras,
-    marca: row.marca,
-    categoria: row.categoria,
-    subcategoria: row.subcategoria,
-    ubicacion: row.ubicacion,
-    stockTotal: toNumber(row.stock_total),
-    precioMostrador: toNumber(row.precio_mostrador),
-    proveedores: jsonArray(row.proveedores),
-    pieza: jsonObject(row.pieza),
-  }));
+  return result.rows.map(serializeProduct);
 }
 
-async function findKits(search: string, rawSearch: string, limit: number) {
+async function findKits(search: CatalogSearch) {
+  const condition = kitSearchSql(search);
   const result = await query<CatalogRow>(`
     SELECT
       k.id,
       k.codigo_kit AS codigo,
       COALESCE(NULLIF(TRIM(k.descripcion), ''), k.nombre) AS descripcion,
-      NULL::text AS palabra_clave,
-      NULL::text AS codigo_barras,
       marca.descripcion AS marca,
       COALESCE(categoria_kit.descripcion, categoria_subcategoria.descripcion) AS categoria,
       subcategoria.descripcion AS subcategoria,
-      NULL::text AS ubicacion,
-      COALESCE(MIN(FLOOR(producto.stock / detalle.cantidad)), 0)::int AS stock_total,
+      COALESCE(MIN(FLOOR(producto.stock / NULLIF(detalle.cantidad, 0))), 0)::int AS stock_total,
       CASE
         WHEN k.criterio_costo = 'MANUAL' THEN COALESCE(MAX(precio_manual.precio), 0)
         ELSE COALESCE(SUM(precio_componente.precio * detalle.cantidad), 0)
@@ -186,17 +329,7 @@ async function findKits(search: string, rawSearch: string, limit: number) {
       LEFT JOIN public.pieza pieza_componente ON pieza_componente.id = componente.id_pieza
       WHERE componente_detalle.id_kit = k.id
     ) componentes ON true
-    WHERE k.activo = true
-      AND (
-        ${condicionBusquedaKit(1)}
-        OR EXISTS (
-          SELECT 1
-          FROM public.kit_detalle componente_detalle
-          INNER JOIN public.productos componente ON componente.id = componente_detalle.id_producto
-          WHERE componente_detalle.id_kit = k.id
-            AND ${condicionBusquedaProducto(1, false, "componente")}
-        )
-      )
+    WHERE k.activo = true AND ${condition.where}
     GROUP BY
       k.id,
       k.codigo_kit,
@@ -208,12 +341,9 @@ async function findKits(search: string, rawSearch: string, limit: number) {
       categoria_subcategoria.descripcion,
       subcategoria.descripcion,
       componentes.componentes
-    ORDER BY
-      CASE WHEN UPPER(TRIM(k.codigo_kit)) = UPPER(TRIM($2)) THEN 0 ELSE 1 END,
-      k.codigo_kit ASC NULLS LAST,
-      k.id ASC
-    LIMIT $3
-  `, [search, rawSearch, limit]);
+    ORDER BY ${condition.order}
+    LIMIT $${condition.limitParameter}
+  `, condition.params);
 
   return result.rows.map((row) => ({
     tipo: "KIT" as const,
@@ -230,7 +360,16 @@ async function findKits(search: string, rawSearch: string, limit: number) {
   }));
 }
 
-export async function GET(request: NextRequest) {
+function buildSearch(input: { q?: string; codes?: string[]; limit?: number }) {
+  const codes = input.codes?.length ? splitCodes(input.codes) : null;
+  return {
+    rawSearch: input.q || null,
+    codes,
+    limit: input.limit ?? (codes ? Math.max(20, codes.length) : 20),
+  } satisfies CatalogSearch;
+}
+
+async function handleCatalogRequest(request: NextRequest, payload: unknown) {
   if (!process.env.PARTNER_CATALOG_API_KEY?.trim()) {
     console.error("[PARTNER CATALOG] Falta configurar PARTNER_CATALOG_API_KEY.");
     return NextResponse.json({ message: "API de catalogo no configurada." }, { status: 503 });
@@ -240,35 +379,53 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   }
 
-  const parsed = searchSchema.safeParse({
-    q: request.nextUrl.searchParams.get("q") ?? "",
-    limit: request.nextUrl.searchParams.get("limit") ?? undefined,
-  });
-
+  const parsed = searchSchema.safeParse(payload);
   if (!parsed.success) {
-    return NextResponse.json({
-      message: parsed.error.issues[0]?.message ?? "Parametros invalidos.",
-    }, { status: 400 });
+    return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Parametros invalidos." }, { status: 400 });
+  }
+
+  const normalizedCodes = splitCodes(parsed.data.codes || []);
+  if (normalizedCodes.length > MAX_CODIGOS_POR_CONSULTA) {
+    return NextResponse.json({ message: "Se permiten hasta 100 codigos por consulta." }, { status: 400 });
   }
 
   try {
-    const rawSearch = parsed.data.q;
-    const search = parametroBusquedaItems(rawSearch);
-    const [items, kits] = await Promise.all([
-      findProducts(search, rawSearch, parsed.data.limit),
-      findKits(search, rawSearch, parsed.data.limit),
-    ]);
-
+    const search = buildSearch({ ...parsed.data, codes: normalizedCodes });
+    const [items, kits] = await Promise.all([findProducts(search), findKits(search)]);
     return NextResponse.json({
-      consulta: rawSearch,
-      limitePorTipo: parsed.data.limit,
+      modo: search.codes ? "CODIGOS" : "BUSQUEDA",
+      consulta: search.rawSearch,
+      codigosConsultados: search.codes || [],
+      limitePorTipo: search.limit,
       items,
       kits,
-    }, {
-      headers: { "Cache-Control": "private, no-store" },
-    });
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("[PARTNER CATALOG] Error al consultar catalogo:", error);
     return NextResponse.json({ message: "No se pudo consultar el catalogo." }, { status: 500 });
+  }
+}
+
+export async function GET(request: NextRequest) {
+  return handleCatalogRequest(request, {
+    q: request.nextUrl.searchParams.get("q")?.trim() || undefined,
+    codes: splitCodes(request.nextUrl.searchParams.getAll("codes")),
+    limit: request.nextUrl.searchParams.get("limit") ?? undefined,
+  });
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json() as { q?: unknown; codes?: unknown; limit?: unknown };
+    const rawCodes = Array.isArray(body.codes)
+      ? body.codes.filter((value): value is string => typeof value === "string")
+      : typeof body.codes === "string" ? [body.codes] : [];
+    return handleCatalogRequest(request, {
+      q: typeof body.q === "string" ? body.q.trim() || undefined : undefined,
+      codes: splitCodes(rawCodes),
+      limit: body.limit,
+    });
+  } catch {
+    return NextResponse.json({ message: "El cuerpo debe ser JSON valido." }, { status: 400 });
   }
 }
