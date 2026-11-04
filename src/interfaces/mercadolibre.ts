@@ -83,6 +83,7 @@ export type MercadoLibrePublicacionesResult = {
 export type MercadoLibreVentaListado = {
   id: number;
   ventaId: string;
+  ventaIds: string[];
   packId: string | null;
   fecha: string | null;
   estado: string;
@@ -90,6 +91,7 @@ export type MercadoLibreVentaListado = {
   total: number | null;
   moneda: string | null;
   envio: string | null;
+  estadoEnvio: string;
   tipoEnvio: "FLEX" | "COLECTA" | "FULL" | "DROP OFF" | "OTRO" | null;
   numeroEnvio: string | null;
   retiroEnPersona: boolean;
@@ -140,9 +142,18 @@ export type MercadoLibreVentaConversacion = {
   envio: string | null;
   tipoEnvio: string | null;
   estado: string | null;
+  envioDetalle: {
+    id: string | null;
+    estado: string;
+    subestado: string | null;
+    seguimiento: string | null;
+    direccion: string | null;
+    destinatario: string | null;
+    transportista: string | null;
+  };
   permiteResponder: boolean;
   limiteRespuesta: number;
-  items: Array<{ itemId: string | null; titulo: string; sku: string | null; permalink: string | null; thumbnailUrl: string | null }>;
+  items: Array<{ itemId: string | null; titulo: string; cantidad: number; sku: string | null; permalink: string | null; thumbnailUrl: string | null }>;
   mensajes: MercadoLibreMensajePostVenta[];
   preguntasPrevias: Array<{ preguntaId: string; itemId: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: string | null }>;
 };

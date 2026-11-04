@@ -411,6 +411,50 @@ function tipoEnvioVenta(shipping: Record<string, unknown>): MercadoLibreVentaLis
   return tipo ? "OTRO" : null;
 }
 
+function textoEnvio(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function objetoEnvio(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function estadoPaquete(shipping: Record<string, unknown>, retiroEnPersona: boolean) {
+  if (retiroEnPersona || shipping.local_pick_up === true || shipping.pickup_id) return "RETIRO EN LOCAL";
+  const status = String(shipping.status || shipping.substatus || "").trim().toLowerCase();
+  if (["delivered", "delivered_to_buyer"].includes(status)) return "ENTREGADO";
+  if (["shipped", "in_transit", "out_for_delivery", "at_the_branch"].includes(status)) return "EN CAMINO";
+  if (["to_be_agreed", "not_specified", "custom"].includes(status)) return "ACORDAR CON EL COMPRADOR";
+  if (["cancelled", "canceled", "returned"].includes(status)) return "CANCELADO";
+  const mode = String(shipping.mode || shipping.logistic_type || "").trim().toLowerCase();
+  if (!shipping.id && (mode.includes("not_specified") || mode.includes("custom") || !mode)) return "ACORDAR CON EL COMPRADOR";
+  return "EN PREPARACION";
+}
+
+function direccionEnvio(shipment: Record<string, unknown>) {
+  const address = objetoEnvio(shipment.receiver_address);
+  const city = objetoEnvio(address.city);
+  const state = objetoEnvio(address.state);
+  const street = [textoEnvio(address.street_name), textoEnvio(address.street_number)].filter(Boolean).join(" ");
+  const locality = [textoEnvio(city.name), textoEnvio(state.name), textoEnvio(address.zip_code)].filter(Boolean).join(", ");
+  const reference = textoEnvio(address.comment);
+  return [street, locality, reference].filter(Boolean).join(" - ") || null;
+}
+
+function detalleEnvio(shipment: Record<string, unknown>, retiroEnPersona: boolean) {
+  const option = objetoEnvio(shipment.shipping_option);
+  const carrier = objetoEnvio(shipment.carrier_info);
+  return {
+    id: textoEnvio(shipment.id),
+    estado: estadoPaquete(shipment, retiroEnPersona),
+    subestado: textoEnvio(shipment.substatus),
+    seguimiento: textoEnvio(shipment.tracking_number) || textoEnvio(shipment.tracking_method),
+    direccion: direccionEnvio(shipment),
+    destinatario: textoEnvio(objetoEnvio(shipment.receiver_address).receiver_name),
+    transportista: textoEnvio(carrier.name) || textoEnvio(option.name) || textoEnvio(shipment.logistic_type),
+  };
+}
+
 export async function getMercadoLibreVentas(
   idCuenta: number,
   page = 1,
@@ -479,21 +523,37 @@ export async function getMercadoLibreVentas(
     ? "EXISTS (SELECT 1 FROM public.mercadolibre_mensaje_postventa_notificado notificado WHERE notificado.id_cuenta = venta.id_cuenta AND notificado.venta_id = venta.venta_id AND notificado.respondido_at IS NULL)"
     : hasNotifiedMessage);
 
-  const totalResult = await query<{ total_count: number }>(`SELECT COUNT(*)::int AS total_count FROM public.mercadolibre_venta venta WHERE ${where.join(" AND ")}`, params);
+  const totalResult = await query<{ total_count: number }>(`
+    SELECT COUNT(*)::int AS total_count
+    FROM (
+      SELECT ${packId} AS pack_id
+      FROM public.mercadolibre_venta venta
+      WHERE ${where.join(" AND ")}
+      GROUP BY ${packId}
+    ) paquetes`, params);
   const totalCount = Number(totalResult.rows[0]?.total_count || 0);
   if (!totalCount) return { data: [], totalCount: 0, totalPages: 0 };
   const safePage = Math.max(1, page);
   const { rows } = await query<Record<string, unknown>>(
-    `SELECT venta.id, venta.venta_id, venta.fecha, venta.estado, venta.comprador, venta.total, venta.moneda, venta.envio, venta.retiro_en_persona, venta.datos,
+    `WITH paquetes AS (
+       SELECT ${packId} AS pack_id, MAX(venta.fecha) AS fecha
+       FROM public.mercadolibre_venta venta
+       WHERE ${where.join(" AND ")}
+       GROUP BY ${packId}
+       ORDER BY MAX(venta.fecha) DESC NULLS LAST, ${packId} DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+     )
+     SELECT venta.id, venta.venta_id, venta.fecha, venta.estado, venta.comprador, venta.total, venta.moneda, venta.envio, venta.retiro_en_persona, venta.datos,
             NULLIF(venta.datos #>> '{shipping,id}', '') AS numero_envio,
             ${packId} AS pack_id, venta.items, venta.sincronizada_at,
             COALESCE(mensaje.estado, evento.estado) AS mensaje_estado,
             COALESCE(mensaje.detalle, evento.detalle) AS mensaje_detalle
      FROM public.mercadolibre_venta venta
+     JOIN paquetes paquete ON paquete.pack_id = ${packId}
      LEFT JOIN public.mercadolibre_mensaje_prueba mensaje ON mensaje.id_cuenta = venta.id_cuenta AND mensaje.pack_id = ${packId}
      LEFT JOIN public.mercadolibre_mensaje_automatico_evento evento ON evento.id_cuenta = venta.id_cuenta AND evento.venta_id = venta.venta_id
      WHERE ${where.join(" AND ")}
-     ORDER BY venta.fecha DESC NULLS LAST, venta.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+     ORDER BY paquete.fecha DESC NULLS LAST, venta.fecha DESC NULLS LAST, venta.id DESC`,
     [...params, limit, (safePage - 1) * limit],
   );
   const itemIds = [...new Set(rows.flatMap((row) => Array.isArray(row.items) ? row.items.map((item) => item && typeof item === "object" ? String((item as Record<string, unknown>).itemId || "") : "") : []).filter(Boolean))];
@@ -502,34 +562,47 @@ export async function getMercadoLibreVentas(
     [idCuenta, itemIds],
   ) : { rows: [] as Array<{ item_id: string; thumbnail_url: string | null }> };
   const thumbnailByItem = new Map(publicationRows.rows.map((publication) => [publication.item_id, secureThumbnailUrl(publication.thumbnail_url)]));
-  return {
-    data: rows.map((row): MercadoLibreVentaListado => {
-      const datos = row.datos && typeof row.datos === "object" && !Array.isArray(row.datos) ? row.datos as Record<string, unknown> : {};
-      const shipping = datos.shipping && typeof datos.shipping === "object" && !Array.isArray(datos.shipping) ? datos.shipping as Record<string, unknown> : {};
-      const ventaId = String(row.venta_id);
-      const packIdVenta = String(row.pack_id || ventaId);
-      return {
-        id: Number(row.id), ventaId, packId: packIdVenta === ventaId ? null : packIdVenta, fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
+  const grouped = new Map<string, MercadoLibreVentaListado>();
+  for (const row of rows) {
+    const datos = row.datos && typeof row.datos === "object" && !Array.isArray(row.datos) ? row.datos as Record<string, unknown> : {};
+    const shipping = datos.shipping && typeof datos.shipping === "object" && !Array.isArray(datos.shipping) ? datos.shipping as Record<string, unknown> : {};
+    const ventaId = String(row.venta_id);
+    const packIdVenta = String(row.pack_id || ventaId);
+    const items = Array.isArray(row.items) ? row.items.map((item: Record<string, unknown>) => {
+      const itemId = item.itemId ? String(item.itemId) : null;
+      return { itemId, titulo: String(item.titulo || "Sin titulo"), cantidad: Number(item.cantidad || 0), sku: item.sku ? String(item.sku) : null, thumbnailUrl: itemId ? thumbnailByItem.get(itemId) || null : null };
+    }) : [];
+    const existing = grouped.get(packIdVenta);
+    if (!existing) {
+      grouped.set(packIdVenta, {
+        id: Number(row.id), ventaId, ventaIds: [ventaId], packId: packIdVenta === ventaId ? null : packIdVenta, fecha: row.fecha ? new Date(String(row.fecha)).toISOString() : null,
         estado: String(row.estado), comprador: row.comprador ? String(row.comprador) : null,
         total: row.total === null ? null : Number(row.total), moneda: row.moneda ? String(row.moneda) : null,
-        envio: row.envio ? String(row.envio) : null, tipoEnvio: tipoEnvioVenta(shipping), retiroEnPersona: Boolean(row.retiro_en_persona),
+        envio: row.envio ? String(row.envio) : null, estadoEnvio: estadoPaquete(shipping, Boolean(row.retiro_en_persona)), tipoEnvio: tipoEnvioVenta(shipping), retiroEnPersona: Boolean(row.retiro_en_persona),
         mensajeEstado: row.mensaje_estado ? String(row.mensaje_estado) : null,
         mensajeDetalle: row.mensaje_detalle ? String(row.mensaje_detalle) : null,
-        mensajesNoLeidos: Math.max(
-          unreadByPack.get(String(row.pack_id || row.venta_id)) || 0,
-          manuallyUnreadSales.has(String(row.venta_id)) ? 1 : 0,
-        ),
+        mensajesNoLeidos: Math.max(unreadByPack.get(packIdVenta) || 0, manuallyUnreadSales.has(ventaId) ? 1 : 0),
         numeroEnvio: row.numero_envio ? String(row.numero_envio) : null,
-        items: Array.isArray(row.items) ? row.items.map((item: Record<string, unknown>) => {
-          const itemId = item.itemId ? String(item.itemId) : null;
-          return { itemId, titulo: String(item.titulo || "Sin titulo"), cantidad: Number(item.cantidad || 0), sku: item.sku ? String(item.sku) : null, thumbnailUrl: itemId ? thumbnailByItem.get(itemId) || null : null };
-        }) : [],
+        items,
         sincronizadaAt: new Date(String(row.sincronizada_at)).toISOString(),
-      };
-    }),
-    totalCount,
-    totalPages: Math.ceil(totalCount / limit),
-  };
+      });
+      continue;
+    }
+
+    existing.ventaIds.push(ventaId);
+    existing.total = (existing.total || 0) + (row.total === null ? 0 : Number(row.total));
+    existing.mensajesNoLeidos = Math.max(existing.mensajesNoLeidos, unreadByPack.get(packIdVenta) || 0, manuallyUnreadSales.has(ventaId) ? 1 : 0);
+    if (!existing.numeroEnvio && row.numero_envio) existing.numeroEnvio = String(row.numero_envio);
+    const itemByKey = new Map(existing.items.map((item) => [`${item.itemId || ""}:${item.sku || ""}:${item.titulo}`, item]));
+    for (const item of items) {
+      const key = `${item.itemId || ""}:${item.sku || ""}:${item.titulo}`;
+      const previous = itemByKey.get(key);
+      if (previous) previous.cantidad += item.cantidad;
+      else { existing.items.push(item); itemByKey.set(key, item); }
+    }
+  }
+
+  return { data: [...grouped.values()], totalCount, totalPages: Math.ceil(totalCount / limit) };
 }
 
 async function ejecutarConsultasEnBloques<T extends readonly (() => Promise<unknown>)[]>(tasks: T, maxConcurrent = 3): Promise<{ [K in keyof T]: Awaited<ReturnType<T[K]>> }> {
@@ -914,8 +987,8 @@ export async function marcarMercadoLibreVentaNoLeida(idCuenta: number, ventaId: 
 export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId: string): Promise<MercadoLibreVentaConversacion> {
   const normalizedVentaId = idSeguro(ventaId);
   if (!normalizedVentaId) throw new AppError("La venta de Mercado Libre no es valida.", 400);
-  const { rows } = await query<{ venta_id: string; comprador: string | null; envio: string | null; estado: string; items: unknown; datos: unknown; site_id: string }>(
-    `SELECT venta.venta_id, venta.comprador, venta.envio, venta.estado, venta.items, venta.datos, cuenta.site_id
+  const { rows } = await query<{ venta_id: string; comprador: string | null; envio: string | null; estado: string; retiro_en_persona: boolean; items: unknown; datos: unknown; site_id: string }>(
+    `SELECT venta.venta_id, venta.comprador, venta.envio, venta.estado, venta.retiro_en_persona, venta.items, venta.datos, cuenta.site_id
      FROM public.mercadolibre_venta venta
      JOIN public.mercadolibre_cuenta cuenta ON cuenta.id = venta.id_cuenta
      WHERE venta.id_cuenta = $1 AND venta.venta_id = $2 LIMIT 1`,
@@ -930,10 +1003,27 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
   const packId = idSeguro(datos.pack_id) || normalizedVentaId;
   const buyerId = idSeguro(buyer.id);
   const shippingId = idSeguro(shipping.id);
-  const items = Array.isArray(venta.items) ? venta.items.map((item) => {
-    const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
-    return { itemId: typeof value.itemId === "string" ? value.itemId : null, titulo: String(value.titulo || "Sin titulo"), sku: typeof value.sku === "string" ? value.sku : null };
-  }) : [];
+  const { rows: packRows } = await query<{ items: unknown }>(
+    `SELECT venta.items
+     FROM public.mercadolibre_venta venta
+     WHERE venta.id_cuenta = $1
+       AND COALESCE(NULLIF(venta.datos->>'pack_id', ''), venta.venta_id) = $2
+     ORDER BY venta.fecha DESC NULLS LAST, venta.id DESC`,
+    [idCuenta, packId],
+  );
+  const itemByKey = new Map<string, { itemId: string | null; titulo: string; cantidad: number; sku: string | null }>();
+  for (const row of packRows) {
+    const entries = Array.isArray(row.items) ? row.items : [];
+    for (const item of entries) {
+      const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
+      const entry = { itemId: typeof value.itemId === "string" ? value.itemId : null, titulo: String(value.titulo || "Sin titulo"), cantidad: Number(value.cantidad || 0), sku: typeof value.sku === "string" ? value.sku : null };
+      const key = `${entry.itemId || ""}:${entry.sku || ""}:${entry.titulo}`;
+      const previous = itemByKey.get(key);
+      if (previous) previous.cantidad += entry.cantidad;
+      else itemByKey.set(key, entry);
+    }
+  }
+  const items = [...itemByKey.values()];
   const itemIds = items.map((item) => item.itemId).filter((itemId): itemId is string => Boolean(itemId));
   const { rows: publicationRows } = itemIds.length ? await query<{ item_id: string; permalink: string | null; thumbnail_url: string | null }>(
     "SELECT item_id, permalink, thumbnail_url FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = ANY($2::text[])",
@@ -949,10 +1039,25 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
   ) : { rows: [] as Array<{ pregunta_id: string; item_id: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: Date | string | null }> };
   const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
   let tipoEnvio = etiquetaTipoEnvio(shipping);
-  if (!tipoEnvio && shippingId) {
+  let envioDetalle = detalleEnvio(shipping, Boolean(venta.retiro_en_persona));
+  if (shippingId) {
     try {
-      const detalleEnvio = await meliGet(`/shipments/${encodeURIComponent(shippingId)}`, idCuenta, accessToken);
-      if (detalleEnvio && typeof detalleEnvio === "object" && !Array.isArray(detalleEnvio)) tipoEnvio = etiquetaTipoEnvio(detalleEnvio as Record<string, unknown>);
+      const respuestaEnvio = await meliGet(`/shipments/${encodeURIComponent(shippingId)}`, idCuenta, accessToken);
+      if (respuestaEnvio && typeof respuestaEnvio === "object" && !Array.isArray(respuestaEnvio)) {
+        const shipment = respuestaEnvio as Record<string, unknown>;
+        tipoEnvio = etiquetaTipoEnvio(shipment) || tipoEnvio;
+        envioDetalle = detalleEnvio(shipment, Boolean(venta.retiro_en_persona));
+        await query(
+          `UPDATE public.mercadolibre_venta
+           SET datos = jsonb_set(
+             jsonb_set(datos, '{shipping,status}', to_jsonb($3::jsonb->>'status'), true),
+             '{shipping,substatus}', to_jsonb($3::jsonb->>'substatus'), true
+           ), updated_at = NOW()
+           WHERE id_cuenta = $1
+             AND COALESCE(NULLIF(datos->>'pack_id', ''), venta_id) = $2`,
+          [idCuenta, packId, JSON.stringify(shipment)],
+        );
+      }
     } catch (error) {
       console.warn("[MERCADOLIBRE] No se pudo obtener el tipo de envio:", error instanceof Error ? error.message : error);
     }
@@ -970,6 +1075,7 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
     envio: venta.envio,
     tipoEnvio,
     estado: typeof conversation.status === "string" ? conversation.status : null,
+    envioDetalle,
     permiteResponder: conversation.status === "active",
     limiteRespuesta: Number.isFinite(Number(payload.seller_max_message_length)) ? Number(payload.seller_max_message_length) : 350,
     items: items.map((item) => {
@@ -3065,7 +3171,17 @@ async function sincronizarVentasMercadoLibre(idCuenta: number, sellerId: number,
       ON CONFLICT (id_cuenta, venta_id) DO UPDATE SET
         fecha = EXCLUDED.fecha, estado = EXCLUDED.estado, comprador = EXCLUDED.comprador, total = EXCLUDED.total,
         moneda = EXCLUDED.moneda, envio = EXCLUDED.envio, retiro_en_persona = EXCLUDED.retiro_en_persona,
-        items = EXCLUDED.items, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
+        items = EXCLUDED.items,
+        datos = jsonb_set(
+          EXCLUDED.datos,
+          '{shipping}',
+          jsonb_strip_nulls(jsonb_build_object(
+            'status', mercadolibre_venta.datos #> '{shipping,status}',
+            'substatus', mercadolibre_venta.datos #> '{shipping,substatus}'
+          )) || COALESCE(EXCLUDED.datos->'shipping', '{}'::jsonb),
+          true
+        ),
+        sincronizada_at = NOW(), updated_at = NOW()`,
       [idCuenta, String(venta.id), venta.date_closed || venta.date_created || null, venta.status || "unknown", venta.buyer?.nickname || null,
         Number.isFinite(Number(venta.total_amount)) ? Number(venta.total_amount) : null, venta.currency_id || null,
         envio, Boolean(shipping?.pickup_id), JSON.stringify(items), JSON.stringify(venta)],
@@ -3094,7 +3210,17 @@ async function guardarVentaMercadoLibre(idCuenta: number, venta: MeliOrder) {
     ON CONFLICT (id_cuenta, venta_id) DO UPDATE SET
       fecha = EXCLUDED.fecha, estado = EXCLUDED.estado, comprador = EXCLUDED.comprador, total = EXCLUDED.total,
       moneda = EXCLUDED.moneda, envio = EXCLUDED.envio, retiro_en_persona = EXCLUDED.retiro_en_persona,
-      items = EXCLUDED.items, datos = EXCLUDED.datos, sincronizada_at = NOW(), updated_at = NOW()`,
+      items = EXCLUDED.items,
+      datos = jsonb_set(
+        EXCLUDED.datos,
+        '{shipping}',
+        jsonb_strip_nulls(jsonb_build_object(
+          'status', mercadolibre_venta.datos #> '{shipping,status}',
+          'substatus', mercadolibre_venta.datos #> '{shipping,substatus}'
+        )) || COALESCE(EXCLUDED.datos->'shipping', '{}'::jsonb),
+        true
+      ),
+      sincronizada_at = NOW(), updated_at = NOW()`,
     [idCuenta, String(venta.id), venta.date_closed || venta.date_created || null, venta.status || "unknown", venta.buyer?.nickname || null,
       Number.isFinite(Number(venta.total_amount)) ? Number(venta.total_amount) : null, venta.currency_id || null,
       envio, Boolean(shipping?.pickup_id), JSON.stringify(items), JSON.stringify(venta)],

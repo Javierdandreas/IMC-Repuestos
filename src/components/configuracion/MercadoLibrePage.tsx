@@ -626,6 +626,7 @@ function VentasTable({
                 <div className="mt-1 space-y-0.5 font-mono text-[11px] text-slate-500">
                   <div>Orden #{venta.ventaId}</div>
                   {venta.packId && <div>Paquete #{venta.packId}</div>}
+                  {venta.ventaIds.length > 1 && <div>Carrito: {venta.ventaIds.length} ordenes</div>}
                 </div>
               </td>
               <td className="font-bold text-slate-800 dark:text-white">
@@ -656,7 +657,7 @@ function VentasTable({
               </td>
               <td>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <StateBadge value={venta.estado} />
+                  <StateBadge value={venta.estadoEnvio} />
                   {!venta.retiroEnPersona && venta.tipoEnvio && (
                     <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-black uppercase text-blue-700 dark:text-blue-300">
                       {venta.tipoEnvio}
@@ -857,6 +858,7 @@ function VentaConversationModal({
             <p className="mt-1 text-xs text-slate-500">
               Orden #{venta.ventaId}{venta.packId ? ` · Paquete #${venta.packId}` : ""}
             </p>
+            {venta.ventaIds.length > 1 && <p className="mt-1 text-xs font-semibold text-slate-500">Carrito con {venta.ventaIds.length} ordenes</p>}
             <p className="mt-1 text-xs text-slate-500">{conversation?.comprador || venta.comprador || "Comprador sin nombre"}</p>
           </div>
           <div className="flex items-center gap-1">
@@ -1010,9 +1012,9 @@ function VentaConversationModal({
           <aside className="min-h-0 overflow-y-auto bg-slate-50 p-4 dark:bg-slate-900/40">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">
-                Venta
+                Envio
               </h3>
-              <StateBadge value={conversation?.estado || venta.estado} />
+              <StateBadge value={conversation?.envioDetalle.estado || venta.estadoEnvio} />
             </div>
             <dl className="mt-3 space-y-2 text-xs">
               <div>
@@ -1024,6 +1026,30 @@ function VentaConversationModal({
                     "-"}
                 </dd>
               </div>
+              <div>
+                <dt className="text-slate-500">Estado del paquete</dt>
+                <dd className="font-bold text-slate-800 dark:text-white">{conversation?.envioDetalle.estado || venta.estadoEnvio}</dd>
+              </div>
+              {conversation?.envioDetalle.subestado && <div>
+                <dt className="text-slate-500">Detalle</dt>
+                <dd className="font-semibold text-slate-800 dark:text-white">{conversation.envioDetalle.subestado}</dd>
+              </div>}
+              {conversation?.envioDetalle.seguimiento && <div>
+                <dt className="text-slate-500">Seguimiento</dt>
+                <dd className="font-mono font-bold text-slate-800 dark:text-white">{conversation.envioDetalle.seguimiento}</dd>
+              </div>}
+              {conversation?.envioDetalle.direccion && <div>
+                <dt className="text-slate-500">Direccion de entrega</dt>
+                <dd className="font-semibold leading-5 text-slate-800 dark:text-white">{conversation.envioDetalle.direccion}</dd>
+              </div>}
+              {conversation?.envioDetalle.destinatario && <div>
+                <dt className="text-slate-500">Recibe</dt>
+                <dd className="font-semibold text-slate-800 dark:text-white">{conversation.envioDetalle.destinatario}</dd>
+              </div>}
+              {conversation?.envioDetalle.transportista && <div>
+                <dt className="text-slate-500">Transportista</dt>
+                <dd className="font-semibold text-slate-800 dark:text-white">{conversation.envioDetalle.transportista}</dd>
+              </div>}
             </dl>
             <h3 className="mt-6 text-xs font-black uppercase tracking-widest text-slate-500">
               Publicacion
@@ -1043,7 +1069,7 @@ function VentaConversationModal({
                   )}
                   <div className="min-w-0">
                     <p className="font-bold text-slate-800 dark:text-white">
-                      {item.titulo}
+                      {item.cantidad}x {item.titulo}
                     </p>
                     {item.sku && (
                       <p className="mt-1 font-mono text-slate-500">
