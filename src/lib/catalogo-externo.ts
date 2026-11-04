@@ -1047,9 +1047,10 @@ export async function updateExternalCatalogExistingKeywords(snapshotId: number):
 }
 
 /**
- * Para productos ya existentes GESU solo puede modificar descripcion, stock y
- * palabras clave. No toca costos, precios, proveedores, categoria, ubicacion
- * ni los saldos por ubicacion definidos en Nexo.
+ * Para productos ya existentes GESU solo puede modificar stock y palabras
+ * clave. La descripcion solo se actualiza cuando el item no tiene una pieza
+ * asociada; no toca costos, precios, proveedores, categoria, ubicacion ni los
+ * saldos por ubicacion definidos en Nexo.
  */
 async function updateExternalCatalogExistingItems(snapshotId: number): Promise<CatalogExistingUpdateResult> {
   const result = await withTransaction(async (db) => {
@@ -1073,13 +1074,19 @@ async function updateExternalCatalogExistingItems(snapshotId: number): Promise<C
        )
        UPDATE public.productos AS producto
        SET stock = source.stock,
-           descripcion = COALESCE(LEFT(source.descripcion, 150), producto.descripcion),
+           descripcion = CASE
+             WHEN producto.id_pieza IS NULL THEN COALESCE(LEFT(source.descripcion, 150), producto.descripcion)
+             ELSE producto.descripcion
+           END,
            palabra_clave = COALESCE(source.palabra_clave, producto.palabra_clave)
        FROM source
        WHERE producto.id = source.id_producto
          AND (
            producto.stock IS DISTINCT FROM source.stock
-           OR producto.descripcion IS DISTINCT FROM COALESCE(LEFT(source.descripcion, 150), producto.descripcion)
+           OR (
+             producto.id_pieza IS NULL
+             AND producto.descripcion IS DISTINCT FROM COALESCE(LEFT(source.descripcion, 150), producto.descripcion)
+           )
            OR producto.palabra_clave IS DISTINCT FROM COALESCE(source.palabra_clave, producto.palabra_clave)
          )
        RETURNING producto.id`,
