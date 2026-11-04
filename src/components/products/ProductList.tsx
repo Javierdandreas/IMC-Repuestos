@@ -65,7 +65,10 @@ function formatPrecioCompra(product: ItemListadoUnificado, tipo?: TipoPrecio | n
     && precio.moneda_origen !== "ARS"
     && Number.isFinite(importeOrigen)
   ) {
-    return `${precio.moneda_origen} ${importeOrigen.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const symbol = precio.moneda_origen === "USD" && precio.referencia_cotizacion === "BLUE"
+      ? "u$B"
+      : precio.moneda_origen;
+    return `${symbol} ${importeOrigen.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
   return formatMoney(obtenerPrecioListado(product, tipo));
 }

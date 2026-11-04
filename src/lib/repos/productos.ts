@@ -69,24 +69,64 @@ export type ImportProductoInput = {
 };
 
 const CODIGOS_COTIZACION_COSTO_BASE = ["USD_BLUE", "USD_CCL", "USD_MEP", "USD_OFICIAL", "EUR_OFICIAL", "BRL_OFICIAL"] as const;
+const MAX_PRECIO_PRODUCTO_ARS = 999_999_999_999.99;
 
-function resolverCodigoCotizacionCostoBase(value: unknown, fallback: string): string | null {
+type CostoBaseImportado = {
+  precioArs: number;
+  importeOrigen: number;
+  modoCalculo: "FIJO_ARS" | "FIJO_MONEDA";
+  monedaOrigen: "ARS" | "USD" | "EUR" | "BRL";
+  referenciaCotizacion: "OFICIAL" | "BLUE" | "MEP" | "CCL" | null;
+  ladoCotizacion: "VENTA" | null;
+  cotizacionUsada: number;
+};
+
+type InfoMonedaCosto = {
+  moneda: "ARS" | "USD" | "EUR" | "BRL";
+  referencia: "OFICIAL" | "BLUE" | "MEP" | "CCL" | null;
+  codigoCotizacion: string;
+};
+
+function resolverCodigoCotizacionCostoBase(value: unknown): InfoMonedaCosto | null {
   const normalized = String(value ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toUpperCase();
-  if (!normalized) return fallback;
+  if (!normalized) return null;
+
+  if (normalized === "$" || normalized.startsWith("$")) {
+    return { moneda: "ARS", referencia: null, codigoCotizacion: "ARS" };
+  }
+  if (normalized.includes("\u20ac")) {
+    return { moneda: "EUR", referencia: "OFICIAL", codigoCotizacion: "EUR_OFICIAL" };
+  }
 
   const compact = normalized.replace(/[^A-Z0-9]/g, "");
-  if (["0", "ARS", "PESO", "PESOS", "PESOARGENTINO", "PESOSARGENTINOS"].includes(compact)) return "ARS";
-  if (["1", "USDBLUE", "DOLARBLUE", "DOLARESBLUE"].includes(compact) || compact.includes("BLUE")) return "USD_BLUE";
-  if (["2", "USDCCL", "DOLARCCL"].includes(compact) || compact.includes("CCL") || compact.includes("LIQUI")) return "USD_CCL";
-  if (["3", "USDMEP", "DOLARMEP"].includes(compact) || compact.includes("MEP")) return "USD_MEP";
-  if (["4", "USDOFICIAL", "DOLAROFICIAL"].includes(compact) || compact.includes("OFICIAL")) return "USD_OFICIAL";
-  if (["5", "EUR", "EURO", "EUROS", "EUROOFICIAL"].includes(compact) || compact.startsWith("EUR") || compact.includes("EURO")) return "EUR_OFICIAL";
-  if (["6", "BRL", "REAL", "REALES", "REALBRASILENO"].includes(compact) || compact.startsWith("BRL") || compact.includes("REAL")) return "BRL_OFICIAL";
-  if (["USD", "DOLAR", "DOLARES", "US"].includes(compact) || compact.startsWith("USD")) return "USD_BLUE";
+  if (["0", "ARS", "PESO", "PESOS", "PESOARGENTINO", "PESOSARGENTINOS", "AR", "ARG"].includes(compact)) {
+    return { moneda: "ARS", referencia: null, codigoCotizacion: "ARS" };
+  }
+  if (["1", "USDBLUE", "DOLARBLUE", "DOLARESBLUE", "UB"].includes(compact) || compact.includes("BLUE") || compact.startsWith("UB")) {
+    return { moneda: "USD", referencia: "BLUE", codigoCotizacion: "USD_BLUE" };
+  }
+  if (["2", "USDCCL", "DOLARCCL"].includes(compact) || compact.includes("CCL") || compact.includes("LIQUI")) {
+    return { moneda: "USD", referencia: "CCL", codigoCotizacion: "USD_CCL" };
+  }
+  if (["3", "USDMEP", "DOLARMEP"].includes(compact) || compact.includes("MEP")) {
+    return { moneda: "USD", referencia: "MEP", codigoCotizacion: "USD_MEP" };
+  }
+  if (["4", "USDOFICIAL", "DOLAROFICIAL"].includes(compact) || compact.includes("OFICIAL")) {
+    return { moneda: "USD", referencia: "OFICIAL", codigoCotizacion: "USD_OFICIAL" };
+  }
+  if (["5", "EUR", "EURO", "EUROS", "EUROOFICIAL"].includes(compact) || compact.startsWith("EUR") || compact.includes("EURO")) {
+    return { moneda: "EUR", referencia: "OFICIAL", codigoCotizacion: "EUR_OFICIAL" };
+  }
+  if (["6", "BRL", "REAL", "REALES", "REALBRASILENO"].includes(compact) || compact.startsWith("BRL") || compact.includes("REAL")) {
+    return { moneda: "BRL", referencia: "OFICIAL", codigoCotizacion: "BRL_OFICIAL" };
+  }
+  if (["USD", "DOLAR", "DOLARES", "US", "UD"].includes(compact) || compact.startsWith("USD")) {
+    return { moneda: "USD", referencia: "BLUE", codigoCotizacion: "USD_BLUE" };
+  }
   return null;
 }
 
@@ -421,7 +461,9 @@ export async function getProductosListado(
             'porcentaje_ganancia', CASE WHEN precio.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(precio.porcentaje_ganancia, 0) END,
             'modo_calculo', COALESCE(precio.modo_calculo, 'MARGEN_COSTO'),
             'importe_origen', precio.importe_origen,
-            'moneda_origen', precio.moneda_origen
+            'moneda_origen', precio.moneda_origen,
+            'referencia_cotizacion', precio.referencia_cotizacion,
+            'lado_cotizacion', precio.lado_cotizacion
           )
           ORDER BY COALESCE(tipo.orden, 0), tipo.id
         ),
@@ -1268,7 +1310,7 @@ export async function importProductos(
   usuario: string, 
   archivo: string,
   mappings: Record<string, { csvHeader: string; updateExisting: boolean }>,
-  options: { onlyExisting?: boolean; blockKitCodes?: boolean; codigoCotizacionCostoBase?: string } = {}
+  options: { onlyExisting?: boolean; blockKitCodes?: boolean } = {}
 ) {
   return withTransaction((client) => importProductosConCliente(client, items, usuario, archivo, mappings, options));
 }
@@ -1279,7 +1321,7 @@ export async function importProductosConCliente(
   usuario: string,
   archivo: string,
   mappings: Record<string, { csvHeader: string; updateExisting: boolean }>,
-  options: { onlyExisting?: boolean; blockKitCodes?: boolean; codigoCotizacionCostoBase?: string } = {}
+  options: { onlyExisting?: boolean; blockKitCodes?: boolean } = {}
 ) {
     // 1. Cargar metadatos para resolución rápida
     const [marcas, categorias, subcategorias, ubicaciones, piezas, proveedores, tiposPrecio] = await Promise.all([
@@ -1312,17 +1354,19 @@ export async function importProductosConCliente(
       .filter((tipo) => tipo.idTipoPrecio > 0 && normalize(tipo.descripcion) !== "PRECIO COSTO")
       .filter((tipo) => Boolean(mappings[tipo.mappingId]?.csvHeader));
 
-    const codigoCotizacionCostoBase = String(options.codigoCotizacionCostoBase ?? "ARS").trim();
-    const monedaCostoBasePorFila = Boolean(mappings.moneda_costo_base?.csvHeader);
-    const codigosCotizacionNecesarios = mappings.costo_base?.csvHeader
-      ? (monedaCostoBasePorFila
-          ? [...CODIGOS_COTIZACION_COSTO_BASE]
-          : codigoCotizacionCostoBase === "ARS" ? [] : [codigoCotizacionCostoBase])
-      : [];
-    const cotizacionesCostoBase = new Map<string, number>();
-    if (codigosCotizacionNecesarios.length > 0) {
-      const cotizaciones = await client.query<{ codigo: string; valor_venta: string | null }>(`
-        SELECT configuracion.codigo, ultima.valor_venta
+    const cotizacionesCostoBase = new Map<string, {
+      moneda: "USD" | "EUR" | "BRL";
+      referencia: "OFICIAL" | "BLUE" | "MEP" | "CCL";
+      valorVenta: number;
+    }>();
+    if (mappings.costo_base?.csvHeader) {
+      const cotizaciones = await client.query<{
+        codigo: string;
+        moneda: "USD" | "EUR" | "BRL";
+        referencia: "OFICIAL" | "BLUE" | "MEP" | "CCL";
+        valor_venta: string | null;
+      }>(`
+        SELECT configuracion.codigo, configuracion.moneda, configuracion.referencia, ultima.valor_venta
         FROM public.moneda_cotizacion_configuracion configuracion
         LEFT JOIN LATERAL (
           SELECT valor_venta
@@ -1334,16 +1378,17 @@ export async function importProductosConCliente(
           LIMIT 1
         ) ultima ON TRUE
         WHERE configuracion.codigo = ANY($1::text[])
-      `, [codigosCotizacionNecesarios]);
+      `, [[...CODIGOS_COTIZACION_COSTO_BASE]]);
       cotizaciones.rows.forEach((cotizacion) => {
         const valorVenta = Number(cotizacion.valor_venta);
         if (Number.isFinite(valorVenta) && valorVenta > 0) {
-          cotizacionesCostoBase.set(cotizacion.codigo, valorVenta);
+          cotizacionesCostoBase.set(cotizacion.codigo, {
+            moneda: cotizacion.moneda,
+            referencia: cotizacion.referencia,
+            valorVenta,
+          });
         }
       });
-    }
-    if (!monedaCostoBasePorFila && codigoCotizacionCostoBase !== "ARS" && !cotizacionesCostoBase.has(codigoCotizacionCostoBase)) {
-        throw new AppError("La cotizacion seleccionada no tiene un valor de venta vigente.", 409);
     }
 
     const defaultSubcatId = subMap.get(normalize("SIN SUBCATEGORIA"));
@@ -1362,34 +1407,112 @@ export async function importProductosConCliente(
     
     const parseNullableNumber = (value: any): number | null => {
       if (value === null || value === undefined || value === "") return null;
-      const raw = String(value)
-        .replace(/[$%]/g, "")
-        .replace(/\s/g, "")
-        .trim();
-      const hasComma = raw.includes(",");
-      const hasDot = raw.includes(".");
-      const normalized = hasComma && hasDot
-        ? raw.replace(/\./g, "").replace(",", ".")
-        : hasComma
-          ? raw.replace(",", ".")
-          : raw;
+      if (typeof value === "number") return Number.isFinite(value) ? value : null;
+
+      if (typeof value === "string") {
+        const sinMoneda = value
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toUpperCase()
+          .replace(/U\$B|US\$|USD|DOLARES?|BLUE|CCL|MEP|OFICIAL|CONTADO\s+CON\s+LIQUI|EUR|EUROS?|BRL|REALES?|ARS|PESOS?|R\$|[$\u20ac]/g, "")
+          .trim();
+
+        if (/[A-Z]/.test(sinMoneda)) return null;
+
+        const cleaned = sinMoneda.replace(/[^\d,.-]/g, "").trim();
+        if (!cleaned) return null;
+        if ((cleaned.match(/-/g) ?? []).length > 1 || (cleaned.includes("-") && !cleaned.startsWith("-"))) return null;
+
+        const separators = [...cleaned.matchAll(/[.,]/g)].map((match) => match.index ?? -1);
+        const lastSeparator = separators[separators.length - 1] ?? -1;
+        const decimals = lastSeparator < 0 ? 0 : cleaned.length - lastSeparator - 1;
+        const hasBothSeparators = cleaned.includes(".") && cleaned.includes(",");
+        const usesDecimalSeparator = lastSeparator >= 0
+          && (hasBothSeparators || decimals <= 2 || (separators.length === 1 && decimals > 3));
+
+        const normalized = usesDecimalSeparator
+          ? `${cleaned.slice(0, lastSeparator).replace(/[.,]/g, "") || "0"}.${cleaned.slice(lastSeparator + 1).replace(/[.,]/g, "")}`
+          : cleaned.replace(/[.,]/g, "");
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+
+      // Strip everything except digits, comma, dot, dash (handles "u$B 16.00", "€ 7.16", "$1.234,56")
+      const cleaned = String(value).replace(/[^\d,.-]/g, "").trim();
+      if (!cleaned) return null;
+
+      const firstDot = cleaned.indexOf(".");
+      const lastDot = cleaned.lastIndexOf(".");
+      const firstComma = cleaned.indexOf(",");
+      const lastComma = cleaned.lastIndexOf(",");
+
+      let normalized = cleaned;
+      if (lastDot !== -1 && lastComma !== -1) {
+        // Both separators present: whichever comes last is the decimal separator
+        if (lastComma > lastDot) {
+          normalized = cleaned.replace(/\./g, "").replace(",", ".");
+        } else {
+          normalized = cleaned.replace(/,/g, "");
+        }
+      } else if (lastComma !== -1) {
+        // Only comma: if multiple commas → thousands separator; single → decimal
+        if (firstComma !== lastComma) {
+          normalized = cleaned.replace(/,/g, "");
+        } else {
+          normalized = cleaned.replace(",", ".");
+        }
+      } else if (lastDot !== -1) {
+        // Only dot: if multiple dots → thousands separator; single → decimal
+        if (firstDot !== lastDot) {
+          normalized = cleaned.replace(/\./g, "");
+        }
+        // else: already valid decimal notation
+      }
+
       const parsed = Number.parseFloat(normalized);
       return Number.isFinite(parsed) ? parsed : null;
     };
 
-    const convertirCostoBaseAArs = (value: any, monedaFila: unknown) => {
+    const convertirCostoBaseAArs = (value: any, monedaFila: unknown): CostoBaseImportado | null => {
       const precio = parseNullableNumber(value);
       if (precio === null) return null;
-      const codigoMoneda = resolverCodigoCotizacionCostoBase(monedaFila, codigoCotizacionCostoBase);
-      if (!codigoMoneda) throw new Error(`Moneda de costo no reconocida: ${String(monedaFila ?? "")}`);
-      const cotizacion = codigoMoneda === "ARS" ? 1 : cotizacionesCostoBase.get(codigoMoneda);
-      if (!cotizacion) throw new Error(`La cotizacion de venta para ${codigoMoneda} no esta vigente.`);
-      return Math.round((precio * cotizacion + Number.EPSILON) * 100) / 100;
+      if (precio < 0) throw new Error("El costo base no puede ser negativo.");
+      const info = resolverCodigoCotizacionCostoBase(monedaFila);
+      if (!info) throw new Error(`Moneda de costo no reconocida: ${String(monedaFila ?? "")}`);
+      if (info.moneda === "ARS") {
+        if (precio > MAX_PRECIO_PRODUCTO_ARS) throw new Error("El costo base supera el importe maximo permitido.");
+        return {
+          precioArs: precio,
+          importeOrigen: precio,
+          modoCalculo: "FIJO_ARS",
+          monedaOrigen: "ARS",
+          referenciaCotizacion: null,
+          ladoCotizacion: null,
+          cotizacionUsada: 1,
+        };
+      }
+
+      const cotizacion = cotizacionesCostoBase.get(info.codigoCotizacion);
+      if (!cotizacion) throw new Error(`La cotizacion de venta para ${info.codigoCotizacion} no esta vigente.`);
+      const precioArs = Math.round((precio * cotizacion.valorVenta + Number.EPSILON) * 100) / 100;
+      if (!Number.isFinite(precioArs) || precioArs > MAX_PRECIO_PRODUCTO_ARS) {
+        throw new Error("El costo base convertido a pesos supera el importe maximo permitido.");
+      }
+      return {
+        precioArs,
+        importeOrigen: precio,
+        modoCalculo: "FIJO_MONEDA",
+        monedaOrigen: info.moneda,
+        referenciaCotizacion: info.referencia,
+        ladoCotizacion: "VENTA",
+        cotizacionUsada: cotizacion.valorVenta,
+      };
     };
 
     // Para relación proveedores
     const supplierLinks: { sku: string; provName: string; codProv: string | null; precioLista: number | null; rowNum: number }[] = [];
-    const baseCostUpdates: { sku: string; rowNum: number; costo: number; updateExisting: boolean }[] = [];
+    type BaseCostUpdate = { sku: string; rowNum: number; updateExisting: boolean } & CostoBaseImportado;
+    const baseCostUpdates: BaseCostUpdate[] = [];
     const marginUpdates: {
       sku: string;
       rowNum: number;
@@ -1544,6 +1667,12 @@ export async function importProductosConCliente(
             const idUbi = mappings.ubicacion?.csvHeader ? ubiMap.get(normalize(item[mappings.ubicacion.csvHeader])) || null : null;
             const idPieza = mappings.codigo_pieza?.csvHeader ? piezaMap.get(normalize(item[mappings.codigo_pieza.csvHeader])) || null : null;
             const keyword = mappings.palabra_clave?.csvHeader ? item[mappings.palabra_clave.csvHeader]?.toString() : null;
+            const costoBase = mappings.costo_base?.csvHeader
+              ? convertirCostoBaseAArs(
+                  item[mappings.costo_base.csvHeader],
+                  mappings.moneda_costo_base?.csvHeader ? item[mappings.moneda_costo_base.csvHeader] : null,
+                )
+              : null;
 
             v_cod_unico.push(sku.substring(0, 50));
             v_desc.push(desc);
@@ -1555,18 +1684,12 @@ export async function importProductosConCliente(
             v_id_pieza.push(idPieza);
             v_palabra_clave.push(keyword);
 
-            const costoBase = mappings.costo_base?.csvHeader
-              ? convertirCostoBaseAArs(
-                  item[mappings.costo_base.csvHeader],
-                  mappings.moneda_costo_base?.csvHeader ? item[mappings.moneda_costo_base.csvHeader] : null,
-                )
-              : null;
             if (costoBase !== null) {
               baseCostUpdates.push({
                 sku,
                 rowNum,
-                costo: costoBase,
                 updateExisting: mappings.costo_base.updateExisting ?? true,
+                ...costoBase,
               });
             }
 
@@ -1827,21 +1950,170 @@ export async function importProductosConCliente(
         );
       }
 
-      const costosBasePorProducto = new Map<number, number>();
+      const costosBasePorProducto = new Map<number, BaseCostUpdate>();
       for (const update of baseCostUpdates) {
         const productId = skuToIdMap.get(update.sku);
         if (!productId || (!update.updateExisting && skuIsNewMap.get(update.sku) !== true)) continue;
-        costosBasePorProducto.set(productId, update.costo);
+        costosBasePorProducto.set(productId, update);
       }
 
-      const costosBaseDirectos = Array.from(costosBasePorProducto, ([idProducto, costo]) => ({ idProducto, costo }));
+      const costosBaseDirectos = Array.from(costosBasePorProducto, ([idProducto, costo]) => ({
+        idProducto,
+        ...costo,
+      }));
+
       if (costosBaseDirectos.length > 0) {
         await client.query(
           "UPDATE public.productos SET criterio_costo = 'MANUAL' WHERE id = ANY($1::int[])",
           [costosBaseDirectos.map((item) => item.idProducto)],
         );
+
+        await client.query(
+          `
+            WITH tipo_costo AS (
+              SELECT id
+              FROM public.tipo_precio
+              WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+              ORDER BY id
+              LIMIT 1
+            ),
+            datos AS (
+              SELECT *
+              FROM UNNEST(
+                $1::int[],
+                $2::numeric[],
+                $3::text[],
+                $4::numeric[],
+                $5::text[],
+                $6::text[],
+                $7::text[],
+                $8::numeric[]
+              ) AS t(id_producto, precio_ars, modo_calculo, importe_origen, moneda_origen, referencia_cotizacion, lado_cotizacion, cotizacion_usada)
+            ),
+            costos_actualizados AS (
+              UPDATE public.producto_precio precio
+              SET precio = datos.precio_ars,
+                  porcentaje_ganancia = 0,
+                  modo_calculo = datos.modo_calculo,
+                  importe_origen = datos.importe_origen,
+                  moneda_origen = datos.moneda_origen,
+                  referencia_cotizacion = datos.referencia_cotizacion,
+                  lado_cotizacion = datos.lado_cotizacion,
+                  tipo_recargo_cotizacion = CASE WHEN datos.modo_calculo = 'FIJO_MONEDA' THEN 'PORCENTAJE' ELSE NULL END,
+                  recargo_cotizacion = CASE WHEN datos.modo_calculo = 'FIJO_MONEDA' THEN 0 ELSE NULL END,
+                  cotizacion_usada = datos.cotizacion_usada,
+                  actualizado_origen_at = NOW()
+              FROM datos
+              CROSS JOIN tipo_costo
+              WHERE precio.id_producto = datos.id_producto
+                AND precio.id_tipo_precio = tipo_costo.id
+              RETURNING precio.id_producto
+            )
+            INSERT INTO public.producto_precio (
+              id_producto, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo,
+              importe_origen, moneda_origen, referencia_cotizacion, lado_cotizacion,
+              tipo_recargo_cotizacion, recargo_cotizacion, cotizacion_usada, actualizado_origen_at
+            )
+            SELECT
+              datos.id_producto,
+              tipo_costo.id,
+              datos.precio_ars,
+              0,
+              datos.modo_calculo,
+              datos.importe_origen,
+              datos.moneda_origen,
+              datos.referencia_cotizacion,
+              datos.lado_cotizacion,
+              CASE WHEN datos.modo_calculo = 'FIJO_MONEDA' THEN 'PORCENTAJE' ELSE NULL END,
+              CASE WHEN datos.modo_calculo = 'FIJO_MONEDA' THEN 0 ELSE NULL END,
+              datos.cotizacion_usada,
+              NOW()
+            FROM datos
+            CROSS JOIN tipo_costo
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM public.producto_precio existente
+              WHERE existente.id_producto = datos.id_producto
+                AND existente.id_tipo_precio = tipo_costo.id
+            );
+          `,
+          [
+            costosBaseDirectos.map((item) => item.idProducto),
+            costosBaseDirectos.map((item) => item.precioArs),
+            costosBaseDirectos.map((item) => item.modoCalculo),
+            costosBaseDirectos.map((item) => item.importeOrigen),
+            costosBaseDirectos.map((item) => item.monedaOrigen),
+            costosBaseDirectos.map((item) => item.referenciaCotizacion),
+            costosBaseDirectos.map((item) => item.ladoCotizacion),
+            costosBaseDirectos.map((item) => item.cotizacionUsada),
+          ],
+        );
+
+        const recalculoVentas = await client.query(
+          `
+            WITH tipo_costo AS (
+              SELECT id
+              FROM public.tipo_precio
+              WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+              ORDER BY id
+              LIMIT 1
+            ),
+            costos AS (
+              SELECT *
+              FROM UNNEST($1::int[], $2::numeric[]) AS t(id_producto, costo_ars)
+            ),
+            tipos_venta_activos AS (
+              SELECT
+                tipo.id,
+                CASE WHEN tipo.margen_default = -100 THEN 0 ELSE COALESCE(tipo.margen_default, 0) END AS margen_default
+              FROM public.tipo_precio tipo
+              CROSS JOIN tipo_costo
+              WHERE tipo.id <> tipo_costo.id
+                AND tipo.activo = true
+            ),
+            precios_actualizados AS (
+              UPDATE public.producto_precio venta
+              SET precio = ROUND(costos.costo_ars * (1 + CASE WHEN venta.porcentaje_ganancia = -100 THEN 0 ELSE COALESCE(venta.porcentaje_ganancia, 0) END / 100), 2)
+              FROM costos
+              CROSS JOIN tipo_costo
+              WHERE venta.id_producto = costos.id_producto
+                AND venta.id_tipo_precio <> tipo_costo.id
+                AND COALESCE(venta.modo_calculo, 'MARGEN_COSTO') = 'MARGEN_COSTO'
+              RETURNING venta.id_producto
+            ),
+            precios_creados AS (
+              INSERT INTO public.producto_precio (id_producto, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo)
+              SELECT
+                costos.id_producto,
+                tipo.id,
+                ROUND(costos.costo_ars * (1 + tipo.margen_default / 100), 2),
+                tipo.margen_default,
+                'MARGEN_COSTO'
+              FROM costos
+              CROSS JOIN tipos_venta_activos tipo
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM public.producto_precio existente
+                WHERE existente.id_producto = costos.id_producto
+                  AND existente.id_tipo_precio = tipo.id
+              )
+              RETURNING id_producto
+            )
+            SELECT COUNT(DISTINCT id_producto)::int AS productos_recalculados
+            FROM (
+              SELECT id_producto FROM precios_actualizados
+              UNION ALL
+              SELECT id_producto FROM precios_creados
+            ) t;
+          `,
+          [
+            costosBaseDirectos.map((item) => item.idProducto),
+            costosBaseDirectos.map((item) => item.precioArs),
+          ],
+        );
+
         results.baseCostsUpdated += costosBaseDirectos.length;
-        results.recalculatedCostCount += await aplicarPreciosDesdeCostosReferencia(client, costosBaseDirectos);
+        results.recalculatedCostCount += Number(recalculoVentas.rows[0]?.productos_recalculados || 0);
       }
     } catch (dbErr: any) {
       console.error("❌ Error en DB Bulk Upsert:", dbErr.message, dbErr.detail);
