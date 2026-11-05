@@ -30,6 +30,7 @@ export function ListadosHubPage({ disponibles }: { disponibles: string[] }) {
     { id: "movimientos", titulo: "Movimientos de stock", href: "/listados/movimientos-stock", grupo: "OPERACIONES", icono: ArrowLeftRight, color: "text-blue-600 bg-blue-500/10 dark:text-blue-300" },
     { id: "items", titulo: "Items", href: "/productos/exportar", grupo: "ITEMS", icono: FileSpreadsheet, color: "text-violet-600 bg-violet-500/10 dark:text-violet-300" },
     { id: "items-sin-costo", titulo: "Items sin costo base", href: "/listados/items-sin-costo", grupo: "ITEMS", icono: PackageSearch, color: "text-rose-600 bg-rose-500/10 dark:text-rose-300" },
+    { id: "items-sin-gesu", titulo: "Items sin vinculo GESU", href: "/listados/items-sin-gesu", grupo: "ITEMS", icono: Link2Off, color: "text-amber-700 bg-amber-500/10 dark:text-amber-300" },
     { id: "proveedores-pendientes", titulo: "Proveedores pendientes", href: "/listados/proveedores-pendientes", grupo: "ITEMS", icono: Link2Off, color: "text-amber-700 bg-amber-500/10 dark:text-amber-300" },
     { id: "proveedores", titulo: "Proveedores", href: "/proveedores/exportar", grupo: "CATALOGOS", icono: Truck, color: "text-cyan-600 bg-cyan-500/10 dark:text-cyan-300" },
     { id: "respaldo-completo", titulo: "Respaldo completo", href: "/listados/respaldo-completo", grupo: "ITEMS", icono: ArchiveRestore, color: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300" },

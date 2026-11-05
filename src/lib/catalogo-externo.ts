@@ -23,6 +23,7 @@ type Component = { code: string; quantity: number };
 type ComponentSummary = { items: Component[]; count: number; unresolved: string[]; status: "LISTO" | "REVISAR"; manual: boolean };
 type RawRow = {
   id: string | number;
+  source_row_id?: string | number | null;
   sync_run_id: string | number | null;
   imported_at: string | null;
   codigo_interno: string | null;
@@ -35,6 +36,7 @@ type RawRow = {
 };
 type Item = {
   sourceId: string;
+  sourceRowId: string;
   code: string;
   title: string;
   description: string;
@@ -295,6 +297,7 @@ function parseRow(row: RawRow): Item | null {
   const sourceDescription = pick(data, ["descripcion"]);
   return {
     sourceId: String(row.id),
+    sourceRowId: clean(row.source_row_id) || String(row.id),
     code,
     title,
     // En Nexo la descripcion corresponde al titulo comercial de GESU. El campo
@@ -384,6 +387,7 @@ function rawRowsFromGesuPage(response: GesuResponse, page: number): RawRow[] {
       // en el futuro un producto y un grupo reutilizaran el mismo valor.
       // El fallback mantiene compatibilidad mientras alguna fila aun no informe id.
       id: gesuId ? `${type || "ITEM"}:${gesuId}` : code ? `${type || "ITEM"}:${code}` : `${page}:${key}`,
+      source_row_id: gesuId || key,
       sync_run_id: null,
       imported_at: null,
       codigo_interno: code || null,
@@ -643,7 +647,7 @@ async function saveSnapshot(syncRunId: string, importedAt: string | null, source
           estado_clasificacion, id_subcategoria, id_marca, existe_local, id_producto_local, componentes
         )`,
         [
-          batch.map(() => snapshotId), batch.map((item) => item.sourceId), batch.map((item) => item.sourceId), batch.map((item) => item.type),
+          batch.map(() => snapshotId), batch.map((item) => item.sourceId), batch.map((item) => item.sourceRowId), batch.map((item) => item.type),
           batch.map((item) => item.code), batch.map((item) => item.title || item.description), batch.map((item) => item.description || item.code),
           batch.map((item) => nullable(item.brand)), batch.map((item) => nullable(item.category)), batch.map((item) => nullable(item.subcategory)),
           batch.map((item) => nullable(item.barcode)), batch.map((item) => nullable(item.keywords)), batch.map((item) => item.stock),
