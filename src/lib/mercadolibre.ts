@@ -1757,6 +1757,11 @@ const SECUENCIA_ENRIQUECIMIENTO_VEHICULOS: AtributoVehiculoId[] = [
   "SHORT_VERSION",
   "FUEL_TYPE",
   "VALVES_PER_CYLINDER",
+  "VEHICLE_BODY_TYPE",
+  "GEAR_NUMBER",
+  "STEERING",
+  "TRACTION_CONTROL",
+  "DOORS",
 ];
 
 function proximoAtributoCarga(attributeId: TareaCargaVehiculo["siguiente_atributo_id"]): TareaCargaVehiculo["siguiente_atributo_id"] {

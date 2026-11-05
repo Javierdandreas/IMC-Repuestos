@@ -128,17 +128,21 @@ export function MassCostsPage() {
   async function run(action: "REPARAR_PRECIOS" | "ASIGNAR_CRITERIO" | "ASIGNAR_PRECIO_UNICO_PROVEEDOR") {
     const total = action === "ASIGNAR_PRECIO_UNICO_PROVEEDOR"
       ? candidatosPrecioUnico
+      : action === "REPARAR_PRECIOS"
+        ? summary?.sinFilaCosto ?? 0
       : summary?.totalItems ?? 0;
     if (total === 0) {
       toast.error(action === "ASIGNAR_PRECIO_UNICO_PROVEEDOR"
         ? "No hay items con un unico precio valido de este proveedor para aplicar."
+        : action === "REPARAR_PRECIOS"
+          ? "No hay items sin fila de costo para corregir."
         : "No hay items que coincidan con los filtros.");
       return;
     }
     const description = action === "ASIGNAR_PRECIO_UNICO_PROVEEDOR"
       ? `Se aplicara el unico precio valido de ${proveedores.find((item) => String(item.id) === filters.proveedor)?.descripcion || "este proveedor"} a ${plural(total, "item")}. Se actualizaran de inmediato el costo de compra y las listas de venta. Los items con mas de un proveedor o sin precio valido no se tocaran.`
       : action === "REPARAR_PRECIOS"
-      ? `Se revisaran ${plural(total, "item")} y se crearan solo las filas de precio faltantes. Los precios que ya existen no se modificaran.`
+      ? `Se crearan las filas de precio faltantes para ${plural(total, "item")}. Los items que ya tienen fila de costo no se consultaran ni modificaran.`
       : `Se asignara ${criterios.find((item) => item.value === criterio)?.label.toLowerCase()} a ${plural(total, "item")} y luego se recalcularan sus precios.`;
     if (!window.confirm(`${description}\n\nContinuar?`)) return;
 
@@ -227,7 +231,7 @@ export function MassCostsPage() {
 
           <div>
             <div className="flex items-start gap-3"><span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"><HiCheck className="h-5 w-5" /></span><div><h2 className="text-sm font-black text-slate-900 dark:text-white">Corregir precios faltantes</h2><p className="mt-1 text-xs font-medium leading-5 text-slate-500">Crea la fila de costo y las listas activas que falten. Las listas nuevas toman su margen por defecto; las existentes conservan su margen propio.</p></div></div>
-            <button type="button" onClick={() => void run("REPARAR_PRECIOS")} disabled={!canManage || isLoading || running !== null || !summary?.totalItems} className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-emerald-500/40 px-4 text-xs font-black uppercase tracking-wide text-emerald-700 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-300">{running === "REPARAR_PRECIOS" ? "Corrigiendo" : "Corregir precios"}</button>
+            <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" onClick={() => void run("REPARAR_PRECIOS")} disabled={!canManage || isLoading || running !== null || !summary?.sinFilaCosto} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-emerald-500/40 px-4 text-xs font-black uppercase tracking-wide text-emerald-700 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-300">{running === "REPARAR_PRECIOS" ? "Corrigiendo" : "Corregir precios"}</button><span className="text-xs font-bold text-slate-500">{Number(summary?.sinFilaCosto || 0).toLocaleString("es-AR")} sin fila de costo</span></div>
           </div>
         </section>
 

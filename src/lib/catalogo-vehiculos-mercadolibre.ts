@@ -83,6 +83,24 @@ function condicionVehiculoConAvance(alias = "") {
   )`;
 }
 
+/**
+ * Cuando una configuracion ya tiene una variante con mas atributos, se usa la
+ * variante mas precisa en el buscador. La fila anterior se conserva porque
+ * puede estar vinculada a compatibilidades ya guardadas.
+ */
+function condicionVehiculoSinVarianteMasEspecifica(alias = "") {
+  const column = (name: string) => `${alias}${name}`;
+  return `NOT EXISTS (
+    SELECT 1
+    FROM public.mercadolibre_catalogo_vehiculo AS variante
+    WHERE variante.dominio_id = ${column("dominio_id")}
+      AND variante.activa = TRUE
+      AND variante.id <> ${column("id")}
+      AND variante.atributos @> ${column("atributos")}
+      AND jsonb_array_length(variante.atributos) > jsonb_array_length(${column("atributos")})
+  )`;
+}
+
 type VehiculoCanonico = {
   id: number;
   firma: string;
@@ -214,9 +232,9 @@ export async function explorarVehiculosCanonicos({
   limit?: number;
   soloConAvance?: boolean;
 } = {}): Promise<CatalogoVehiculosExploracion> {
-  const clauses = ["dominio_id = $1", "activa = TRUE"];
+  const clauses = ["vehiculo.dominio_id = $1", "vehiculo.activa = TRUE"];
   const params: unknown[] = [DOMINIO_VEHICULOS_ML];
-  if (soloConAvance) clauses.push(condicionVehiculoConAvance());
+  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."), condicionVehiculoSinVarianteMasEspecifica("vehiculo."));
   const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
   for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
     const values = groupedFilters.get(filter.id) ?? [];
@@ -239,12 +257,12 @@ export async function explorarVehiculosCanonicos({
   const safeLimit = Math.min(100, Math.max(10, Math.floor(limit)));
   const safePage = Math.max(1, Math.floor(page));
   const [countResult, dataResult, brandsResult] = await Promise.all([
-    query<{ total: string }>(`SELECT COUNT(*)::text AS total FROM public.mercadolibre_catalogo_vehiculo WHERE ${where}`, params),
+    query<{ total: string }>(`SELECT COUNT(*)::text AS total FROM public.mercadolibre_catalogo_vehiculo AS vehiculo WHERE ${where}`, params),
     query<{ id_vehiculo: number; atributos: unknown }>(`
-      SELECT id AS id_vehiculo, atributos
-      FROM public.mercadolibre_catalogo_vehiculo
+      SELECT vehiculo.id AS id_vehiculo, vehiculo.atributos
+      FROM public.mercadolibre_catalogo_vehiculo AS vehiculo
       WHERE ${where}
-      ORDER BY marca_nombre, modelo_nombre, anio_nombre DESC, motor_nombre, potencia_nombre NULLS LAST, id
+      ORDER BY vehiculo.marca_nombre, vehiculo.modelo_nombre, vehiculo.anio_nombre DESC, vehiculo.motor_nombre, vehiculo.potencia_nombre NULLS LAST, vehiculo.id
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `, [...params, safeLimit, (safePage - 1) * safeLimit]),
     query<{ valor_id: string; valor_nombre: string }>(`
@@ -279,7 +297,7 @@ export async function obtenerValoresVehiculosCanonicos(
 ) {
   const clauses = ["vehiculo.dominio_id = $1", "vehiculo.activa = TRUE"];
   const params: unknown[] = [DOMINIO_VEHICULOS_ML];
-  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."));
+  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."), condicionVehiculoSinVarianteMasEspecifica("vehiculo."));
   const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
   for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
     const values = groupedFilters.get(filter.id) ?? [];

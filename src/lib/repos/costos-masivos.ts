@@ -119,6 +119,40 @@ async function obtenerIdsProductos(client: DbClient, filters: FiltrosCostoMasivo
   return result.rows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
 }
 
+/**
+ * Coincide con el contador "Sin fila de costo" del resumen. Se usa para que
+ * reparar precios no recalcule ni toque los items que ya tienen esa fila.
+ */
+async function obtenerIdsProductosSinFilaCosto(client: DbClient, filters: FiltrosCostoMasivo) {
+  const filter = filtroSql(filters);
+  const result = await client.query<{ id: number }>(
+    `
+      WITH tipo_costo AS (
+        SELECT id
+        FROM public.tipo_precio
+        WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+        ORDER BY id
+        LIMIT 1
+      )
+      SELECT p.id
+      FROM public.productos p
+      INNER JOIN public.subcategoria subcategoria ON subcategoria.id = p.id_subcategoria
+      INNER JOIN public.categoria categoria ON categoria.id = subcategoria.id_categoria
+      WHERE ${filter.sql}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.producto_precio costo
+          CROSS JOIN tipo_costo
+          WHERE costo.id_producto = p.id
+            AND costo.id_tipo_precio = tipo_costo.id
+        )
+      ORDER BY p.id
+    `,
+    filter.values,
+  );
+  return result.rows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
+}
+
 function fragmentar<T>(items: T[], size = BATCH_SIZE) {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
@@ -400,7 +434,7 @@ export async function getItemsSinCostoMasivo(
 }
 
 export async function repararPreciosMasivos(client: DbClient, filters: FiltrosCostoMasivo): Promise<ResultadoCostoMasivo> {
-  const productIds = await obtenerIdsProductos(client, filters);
+  const productIds = await obtenerIdsProductosSinFilaCosto(client, filters);
   const result = await recalcularPreciosDeProductos(client, productIds, { actualizarExistentes: false });
   return {
     totalItems: productIds.length,
