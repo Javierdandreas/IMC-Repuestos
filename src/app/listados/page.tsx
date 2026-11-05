@@ -9,6 +9,7 @@ export default async function ListadosPage() {
     can("movimientos_stock:leer") && "movimientos",
     can("productos:exportar") && "items",
     can("productos:exportar") && "items-sin-costo",
+    can("productos:leer") && "proveedores-pendientes",
     can("proveedores:exportar") && "proveedores",
     can("productos:exportar") && "respaldo-completo",
     can("importaciones:leer") && "registro-importaciones",
