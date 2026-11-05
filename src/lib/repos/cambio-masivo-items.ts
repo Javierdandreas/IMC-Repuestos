@@ -1,6 +1,9 @@
 import { withTransaction } from "@/lib/db-utils";
 import { AppError } from "@/lib/api-errors";
 import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
+import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
+import { capturarCostosReferencia, registrarCambiosCostoReferencia } from "@/lib/cambios-costo-referencia";
+import { CRITERIOS_COSTO, type CriterioCosto } from "@/lib/costos";
 
 export type TipoItemMasivo = "ITEM" | "KIT";
 export type CampoCambioMasivo =
@@ -11,7 +14,8 @@ export type CampoCambioMasivo =
   | "STOCK_MINIMO"
   | "OBSERVACION"
   | "PALABRAS_CLAVE"
-  | "PIEZA";
+  | "PIEZA"
+  | "CRITERIO_COSTO";
 
 export type CambioMasivoItemsInput = {
   items: Array<{ id: number; tipo: TipoItemMasivo }>;
@@ -22,6 +26,7 @@ export type CambioMasivoItemsInput = {
   idProveedor?: number;
   idUbicacion?: number;
   idPieza?: number;
+  criterioCosto?: CriterioCosto;
   stockMinimo?: number;
   texto?: string;
   usuarioId?: number | null;
@@ -203,10 +208,37 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
       );
     }
 
+    let seguimientoCosto: { cambios: number; pendientes: number; preciosRecalculados: number; costosDisponibles: number } | null = null;
+    if (input.campo === "CRITERIO_COSTO") {
+      const criterio = input.criterioCosto;
+      if (!criterio || !CRITERIOS_COSTO.includes(criterio)) {
+        throw new AppError("Selecciona un criterio de costo valido", 400);
+      }
+
+      const costosAntes = await capturarCostosReferencia(client, itemIds);
+      await actualizarProductos(
+        `UPDATE public.productos
+         SET criterio_costo = $1
+         WHERE id = ANY($2::int[])
+         RETURNING id, cod_unico`,
+        [criterio, itemIds],
+        "Criterio de costo actualizado masivamente",
+        `Criterio de costo establecido en ${criterio} desde el listado general`,
+      );
+      await recalcularCostosProveedorProductos(client, { productIds: itemIds });
+      seguimientoCosto = await registrarCambiosCostoReferencia(client, costosAntes, {
+        origen: "CRITERIO_MASIVO",
+        detalle: `Criterio de costo asignado desde el listado general: ${criterio}.`,
+      });
+    }
+
     return {
       itemsActualizados: productosActualizados.length,
       kitsActualizados,
-      kitsOmitidos: ["PROVEEDOR", "UBICACION", "PALABRAS_CLAVE", "PIEZA"].includes(input.campo) ? kitIds.length : 0,
+      kitsOmitidos: ["PROVEEDOR", "UBICACION", "PALABRAS_CLAVE", "PIEZA", "CRITERIO_COSTO"].includes(input.campo) ? kitIds.length : 0,
+      cambiosCosto: seguimientoCosto?.cambios ?? 0,
+      cambiosPendientes: seguimientoCosto?.pendientes ?? 0,
+      preciosRecalculados: seguimientoCosto?.preciosRecalculados ?? 0,
     };
   });
 }

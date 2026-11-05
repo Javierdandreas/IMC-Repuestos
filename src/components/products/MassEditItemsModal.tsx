@@ -9,7 +9,7 @@ import { useAppError } from "@/context/AppErrorContext";
 import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
 import type { PiezaBusqueda } from "@/interfaces/productos";
 
-type Campo = "CLASIFICACION" | "MARCA" | "PROVEEDOR" | "UBICACION" | "STOCK_MINIMO" | "OBSERVACION" | "PALABRAS_CLAVE" | "PIEZA";
+type Campo = "CLASIFICACION" | "MARCA" | "PROVEEDOR" | "UBICACION" | "STOCK_MINIMO" | "OBSERVACION" | "PALABRAS_CLAVE" | "PIEZA" | "CRITERIO_COSTO";
 
 type Props = {
   open: boolean;
@@ -32,7 +32,16 @@ const CAMPOS: Array<{ value: Campo; label: string; aplica: string }> = [
   { value: "OBSERVACION", label: "Observacion", aplica: "Items y kits" },
   { value: "PALABRAS_CLAVE", label: "Palabras clave", aplica: "Solo items" },
   { value: "PIEZA", label: "Asignar numero de pieza", aplica: "Solo items" },
+  { value: "CRITERIO_COSTO", label: "Criterio de costo", aplica: "Solo items" },
 ];
+
+const CRITERIOS_COSTO = [
+  { value: "PROVEEDOR_UNICO", label: "Proveedor único" },
+  { value: "MANUAL", label: "Manual" },
+  { value: "MENOR_PRECIO", label: "Menor costo neto" },
+  { value: "PROMEDIO_PRECIO", label: "Promedio de costos netos" },
+  { value: "MAYOR_PRECIO", label: "Mayor costo neto" },
+] as const;
 
 export function MassEditItemsModal({
   open,
@@ -61,7 +70,7 @@ export function MassEditItemsModal({
 
   const totalItems = items.filter((item) => item.tipo === "ITEM").length;
   const totalKits = items.length - totalItems;
-  const soloItems = campo === "PROVEEDOR" || campo === "UBICACION" || campo === "PALABRAS_CLAVE" || campo === "PIEZA";
+  const soloItems = campo === "PROVEEDOR" || campo === "UBICACION" || campo === "PALABRAS_CLAVE" || campo === "PIEZA" || campo === "CRITERIO_COSTO";
   const subcategoriasDisponibles = useMemo(
     () => subcategorias.filter((item) => String(item.id_categoria) === idCategoria),
     [idCategoria, subcategorias],
@@ -111,6 +120,10 @@ export function MassEditItemsModal({
       toast.error("Selecciona un valor");
       return;
     }
+    if (campo === "CRITERIO_COSTO" && !CRITERIOS_COSTO.some((criterio) => criterio.value === valor)) {
+      toast.error("Selecciona un criterio de costo");
+      return;
+    }
     if (campo === "STOCK_MINIMO" && (!/^\d+$/.test(stockMinimo) || Number(stockMinimo) < 0)) {
       toast.error("Ingresa un stock minimo valido");
       return;
@@ -142,13 +155,18 @@ export function MassEditItemsModal({
           idProveedor: campo === "PROVEEDOR" ? Number(valor) : undefined,
           idUbicacion: campo === "UBICACION" ? Number(valor) : undefined,
           idPieza: campo === "PIEZA" ? piezaSeleccionada?.id : undefined,
+          criterioCosto: campo === "CRITERIO_COSTO" ? valor : undefined,
           stockMinimo: campo === "STOCK_MINIMO" ? Number(stockMinimo) : undefined,
           texto: ["OBSERVACION", "PALABRAS_CLAVE"].includes(campo) ? texto : undefined,
         }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudo aplicar el cambio");
-      toast.success("Cambio masivo aplicado");
+      if (Number(result.cambiosPendientes || 0) > 0) {
+        toast.warning(`Criterio aplicado. ${result.cambiosPendientes} cambio(s) de costo esperan aprobacion.`);
+      } else {
+        toast.success("Cambio masivo aplicado");
+      }
       setConfirmingPieza(false);
       onSuccess();
       onClose();
@@ -185,6 +203,16 @@ export function MassEditItemsModal({
         {campo === "MARCA" && <Selector label="Marca" value={valor} onChange={setValor} options={marcas} />}
         {campo === "PROVEEDOR" && <Selector label="Proveedor" value={valor} onChange={setValor} options={proveedores} />}
         {campo === "UBICACION" && <Selector label="Ubicacion" value={valor} onChange={setValor} options={ubicaciones} />}
+        {campo === "CRITERIO_COSTO" && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Criterio de costo</span>
+            <select value={valor} onChange={(event) => setValor(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+              <option value="">Seleccionar</option>
+              {CRITERIOS_COSTO.map((criterio) => <option key={criterio.value} value={criterio.value}>{criterio.label}</option>)}
+            </select>
+            <span className="text-xs leading-5 text-slate-500 dark:text-slate-400">Recalcula desde los proveedores válidos. Los cambios de costo que superen el umbral quedan pendientes de aprobación.</span>
+          </label>
+        )}
         {campo === "PIEZA" && (
           <div className="space-y-2">
             {piezaSeleccionada ? (
