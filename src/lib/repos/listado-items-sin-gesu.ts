@@ -19,10 +19,19 @@ export async function getItemsSinVinculoGesu(options: { page?: number; limit?: n
   const term = normalizeText(options.search || "").slice(0, 100);
   const params: unknown[] = [ORIGIN];
   const filters = [
+    `EXISTS (
+      SELECT 1
+      FROM public.catalogo_externo_sincronizacion AS sincronizacion
+      WHERE sincronizacion.origen = $1
+    )`,
     `NOT EXISTS (
       SELECT 1
-      FROM public.producto_origen_externo AS vinculo
-      WHERE vinculo.id_producto = producto.id AND vinculo.origen = $1
+      FROM public.catalogo_externo_item AS externo
+      JOIN public.catalogo_externo_sincronizacion AS sincronizacion
+        ON sincronizacion.id = externo.id_sincronizacion
+      WHERE sincronizacion.origen = $1
+        AND externo.tipo = 'PRODUCTO'
+        AND UPPER(BTRIM(externo.codigo)) = UPPER(BTRIM(producto.cod_unico))
     )`,
   ];
   if (term) {

@@ -40,8 +40,8 @@ export function ItemsWithoutGesuLinkPage() {
         <header className="mb-5 flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-4 dark:border-slate-800">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Listados</p>
-            <h1 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">Items sin vinculo GESU</h1>
-            <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">Items locales que todavia no estan asociados a un registro de GESU.</p>
+            <h1 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">Items sin correspondencia en GESU</h1>
+            <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">Items locales cuyo codigo interno no aparece en la ultima lectura del catalogo GESU.</p>
           </div>
           <label className="relative w-full max-w-sm">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -51,7 +51,7 @@ export function ItemsWithoutGesuLinkPage() {
 
         <div className="mb-4 flex items-center gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
           <Unlink className="h-4 w-4 text-amber-600 dark:text-amber-300" />
-          <span className="text-xs font-bold text-slate-500">{isLoading ? "Cargando..." : `${(data?.totalCount || 0).toLocaleString("es-AR")} items sin vinculo`}</span>
+          <span className="text-xs font-bold text-slate-500">{isLoading ? "Cargando..." : `${(data?.totalCount || 0).toLocaleString("es-AR")} items sobrantes`}</span>
         </div>
 
         {error && <p className="mb-4 border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error.message}</p>}
@@ -61,7 +61,7 @@ export function ItemsWithoutGesuLinkPage() {
               <thead className="bg-slate-100 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400"><tr><th className="px-4 py-3">Codigo</th><th className="px-4 py-3">Descripcion</th><th className="px-4 py-3">Clasificacion</th><th className="px-4 py-3 text-right">Stock</th><th className="px-4 py-3 text-right">Accion</th></tr></thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {rows.map((row) => <tr key={row.idProducto} className="hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="px-4 py-3 font-mono text-xs font-black text-blue-700 dark:text-blue-300">{row.codigo}</td><td className="max-w-[420px] px-4 py-3 font-bold text-slate-900 dark:text-white">{row.descripcion}</td><td className="px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400"><p>{row.marca || "Sin marca"}</p><p className="mt-1">{[row.categoria, row.subcategoria].filter(Boolean).join(" / ") || "Sin clasificacion"}</p></td><td className="px-4 py-3 text-right font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{row.stock.toLocaleString("es-AR")}</td><td className="px-4 py-3 text-right"><Link href={`/productos/edit/${row.idProducto}`} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-400 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:text-blue-300"><ExternalLink className="h-4 w-4" /> Editar item</Link></td></tr>)}
-                {!isLoading && rows.length === 0 && <tr><td colSpan={5} className="px-4 py-14 text-center text-sm font-semibold text-slate-500">Todos los items locales estan vinculados a GESU.</td></tr>}
+                {!isLoading && rows.length === 0 && <tr><td colSpan={5} className="px-4 py-14 text-center text-sm font-semibold text-slate-500">No hay items locales fuera del ultimo catalogo GESU.</td></tr>}
               </tbody>
             </table>
           </div>
