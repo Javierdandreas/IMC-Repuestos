@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/cron/gesu",
-      "schedule": "*/30 * * * *"
+      "schedule": "15 * * * *"
     }
   ]
 }

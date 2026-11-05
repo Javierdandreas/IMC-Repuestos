@@ -10,7 +10,9 @@ const AUTO_IMPORT_LIMIT = 500;
 const MAX_GESU_ROWS = 60000;
 const MAX_GESU_PAGES = 60;
 const GESU_REQUEST_TIMEOUT_MS = 15_000;
-const GESU_MIN_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+// GESU limita las consultas por pagina. Nexo usa un solo cupo por hora y
+// reutiliza el ultimo snapshot ante consultas manuales o ejecuciones extra.
+const GESU_MIN_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const GESU_PAGE_CONCURRENCY = 25;
 const SAMPLE_LIMIT = 80;
 const IMPORT_LIMIT = 500;
@@ -420,7 +422,7 @@ async function fetchGesuPage(page: number): Promise<GesuResponse> {
 }
 
 /**
- * GESU permite una consulta por pagina cada quince minutos. Se hace una sola
+ * Nexo reserva una sola consulta por pagina cada hora. Se hace una sola
  * llamada por pagina y no se reintenta. Las paginas distintas se consultan en
  * paralelo para que un cron no exceda el limite de ejecucion de Vercel.
  */
@@ -760,8 +762,8 @@ async function stageCatalogRows(rows: RawRow[], syncRunId: string, importedAt: s
 
 export async function refreshExternalCatalogPreview() {
   // A manual consultation must not consume an additional request for every
-  // page. GESU allows four requests per hour per page, so the active GESU
-  // snapshot is reused until the next permitted interval.
+  // page. Nexo usa un solo cupo por hora, por eso el snapshot activo se
+  // reutiliza hasta el siguiente intervalo permitido.
   const latest = await query<{ id: number; consultado_at: string }>(
     `SELECT id, consultado_at
      FROM public.catalogo_externo_sincronizacion
