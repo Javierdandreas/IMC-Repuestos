@@ -54,7 +54,12 @@ type Staged = Item & {
   brandId: number | null;
   exists: boolean;
   localProductId: number | null;
+  localGroupId: number | null;
   components: ComponentSummary;
+};
+type ExternalLinks = {
+  products: Map<string, number>;
+  groups: Map<string, number>;
 };
 type Snapshot = {
   id: number;
@@ -145,6 +150,10 @@ export type CatalogImportResponse = CatalogImportResult & { preview: ExternalCat
 export type CatalogGroupImportResult = { created: number; skippedExisting: number; invalidSelection: number; componentsLinked: number; preview: ExternalCatalogPreview };
 export type CatalogKeywordsUpdateResponse = { updated: number; preview: ExternalCatalogPreview };
 export type CatalogExistingUpdateResult = { updated: number; locationsCreated: number };
+type ExternalCodeSyncResult = {
+  productIds: number[];
+  groupIds: number[];
+};
 export type GesuSyncRun = {
   id: number;
   estado: "EN_PROCESO" | "OK" | "ERROR";
@@ -367,9 +376,12 @@ function rawRowsFromGesuPage(response: GesuResponse, page: number): RawRow[] {
     const item = value as Record<string, unknown>;
     const code = normalize(item.codigoInterno);
     const type = normalize(item.tipo);
+    const gesuId = clean(item.id);
     return [{
-      // El codigo es estable entre consultas. Solo se usa el numero de pagina si GESU no entregara codigo.
-      id: code ? `${type || "ITEM"}:${code}` : `${page}:${key}`,
+      // GESU entrega un id inmutable por registro. El tipo evita colisiones si
+      // en el futuro un producto y un grupo reutilizaran el mismo valor.
+      // El fallback mantiene compatibilidad mientras alguna fila aun no informe id.
+      id: gesuId ? `${type || "ITEM"}:${gesuId}` : code ? `${type || "ITEM"}:${code}` : `${page}:${key}`,
       sync_run_id: null,
       imported_at: null,
       codigo_interno: code || null,
@@ -453,6 +465,33 @@ async function existingCodes(table: "productos" | "kits", column: "cod_unico" | 
   return map;
 }
 
+async function existingExternalLinks(sourceItems: Item[]): Promise<ExternalLinks> {
+  const productIds = Array.from(new Set(sourceItems.filter((item) => item.type === "PRODUCTO").map((item) => item.sourceId)));
+  const groupIds = Array.from(new Set(sourceItems.filter((item) => item.type === "GRUPO").map((item) => item.sourceId)));
+  const [productRows, groupRows] = await Promise.all([
+    productIds.length
+      ? query<{ external_id: string; id_producto: number }>(
+        `SELECT external_id, id_producto
+         FROM public.producto_origen_externo
+         WHERE origen = $1 AND external_id = ANY($2::text[])`,
+        [ORIGIN, productIds],
+      )
+      : Promise.resolve({ rows: [] as Array<{ external_id: string; id_producto: number }> }),
+    groupIds.length
+      ? query<{ external_id: string; id_kit: number }>(
+        `SELECT external_id, id_kit
+         FROM public.kit_origen_externo
+         WHERE origen = $1 AND external_id = ANY($2::text[])`,
+        [ORIGIN, groupIds],
+      )
+      : Promise.resolve({ rows: [] as Array<{ external_id: string; id_kit: number }> }),
+  ]);
+  return {
+    products: new Map(productRows.rows.map((row) => [row.external_id, Number(row.id_producto)])),
+    groups: new Map(groupRows.rows.map((row) => [row.external_id, Number(row.id_kit)])),
+  };
+}
+
 async function lookups() {
   const [subcategories, brands] = await Promise.all([
     query<{ id: number; categoria: string; subcategoria: string }>("SELECT s.id, c.descripcion AS categoria, s.descripcion AS subcategoria FROM public.subcategoria s JOIN public.categoria c ON c.id = s.id_categoria"),
@@ -506,6 +545,7 @@ function stageRows(
   catalog: Awaited<ReturnType<typeof lookups>>,
   products: Map<string, number>,
   groups: Map<string, number>,
+  externalLinks: ExternalLinks,
   manual: Map<string, ManualClassification>,
   manualComponents: Map<string, Component[]>
 ) {
@@ -538,7 +578,12 @@ function stageRows(
     const subcategory = configured?.subcategory ?? item.subcategory;
     const subcategoryId = configured?.subcategoryId ?? (category && subcategory ? catalog.subcategories.get(`${normalize(category)}|${normalize(subcategory)}`) ?? null : null);
     const status: Status = configured ? "LISTA" : !category || !subcategory ? "SIN_DATOS" : subcategoryId ? "LISTA" : "REVISAR";
-    const exists = item.type === "PRODUCTO" ? products.has(item.code) : groups.has(item.code);
+    const localProductId = item.type === "PRODUCTO"
+      ? externalLinks.products.get(item.sourceId) ?? products.get(item.code) ?? null
+      : null;
+    const localGroupId = item.type === "GRUPO"
+      ? externalLinks.groups.get(item.sourceId) ?? groups.get(item.code) ?? null
+      : null;
     return {
       ...item,
       category,
@@ -546,8 +591,9 @@ function stageRows(
       status,
       subcategoryId,
       brandId: catalog.brands.get(normalize(item.brand)) ?? null,
-      exists,
-      localProductId: item.type === "PRODUCTO" ? products.get(item.code) ?? null : null,
+      exists: localProductId !== null || localGroupId !== null,
+      localProductId,
+      localGroupId,
       components: item.type === "GRUPO"
         ? components(item.title || item.description, products, manualComponents.get(item.code) ?? item.sourceComponents)
         : { items: [], count: 0, unresolved: [], status: "REVISAR", manual: false },
@@ -604,6 +650,43 @@ async function saveSnapshot(syncRunId: string, importedAt: string | null, source
           batch.map((item) => item.localProductId), batch.map((item) => JSON.stringify(item.components)),
         ]
       );
+
+      // El vinculo conserva el id inmutable de GESU. En la primera lectura que
+      // trae ids nuevos, localProductId/localGroupId puede venir del codigo
+      // actual; las lecturas siguientes se resuelven por este id.
+      const linkedProducts = batch.filter((item): item is Staged & { localProductId: number } => item.type === "PRODUCTO" && item.localProductId !== null);
+      if (linkedProducts.length) {
+        await db.query(
+          `INSERT INTO public.producto_origen_externo (
+            id_producto, origen, external_id, codigo_externo, sync_run_id, fecha_sincronizacion
+          )
+          SELECT data.id_producto, $1, data.external_id, data.codigo, $2, NOW()
+          FROM UNNEST($3::integer[], $4::text[], $5::text[]) AS data(id_producto, external_id, codigo)
+          ON CONFLICT (origen, external_id) DO UPDATE
+            SET id_producto = EXCLUDED.id_producto,
+                codigo_externo = EXCLUDED.codigo_externo,
+                sync_run_id = EXCLUDED.sync_run_id,
+                fecha_sincronizacion = EXCLUDED.fecha_sincronizacion`,
+          [ORIGIN, syncRunId, linkedProducts.map((item) => item.localProductId), linkedProducts.map((item) => item.sourceId), linkedProducts.map((item) => item.code)],
+        );
+      }
+
+      const linkedGroups = batch.filter((item): item is Staged & { localGroupId: number } => item.type === "GRUPO" && item.localGroupId !== null);
+      if (linkedGroups.length) {
+        await db.query(
+          `INSERT INTO public.kit_origen_externo (
+            id_kit, origen, external_id, codigo_externo, sync_run_id, fecha_sincronizacion
+          )
+          SELECT data.id_kit, $1, data.external_id, data.codigo, $2, NOW()
+          FROM UNNEST($3::integer[], $4::text[], $5::text[]) AS data(id_kit, external_id, codigo)
+          ON CONFLICT (origen, external_id) DO UPDATE
+            SET id_kit = EXCLUDED.id_kit,
+                codigo_externo = EXCLUDED.codigo_externo,
+                sync_run_id = EXCLUDED.sync_run_id,
+                fecha_sincronizacion = EXCLUDED.fecha_sincronizacion`,
+          [ORIGIN, syncRunId, linkedGroups.map((item) => item.localGroupId), linkedGroups.map((item) => item.sourceId), linkedGroups.map((item) => item.code)],
+        );
+      }
     }
     return snapshotId;
   });
@@ -663,14 +746,15 @@ async function stageCatalogRows(rows: RawRow[], syncRunId: string, importedAt: s
   const componentCodes = sourceItems
     .filter((item) => item.type === "GRUPO")
     .flatMap((item) => (item.sourceComponents.length ? item.sourceComponents : parseComponents(item.title || item.description)).map((component) => component.code));
-  const [catalog, products, groups, manual, configuredComponents] = await Promise.all([
+  const [catalog, products, groups, externalLinks, manual, configuredComponents] = await Promise.all([
     lookups(),
     existingCodes("productos", "cod_unico", Array.from(new Set([...productCodes, ...componentCodes]))),
     existingCodes("kits", "codigo_kit", groupCodes),
+    existingExternalLinks(sourceItems),
     manualClassifications(sourceItems.map((item) => item.code).filter(Boolean)),
     manualGroupComponents(groupCodes),
   ]);
-  const snapshotId = await saveSnapshot(syncRunId, importedAt, rows.length, stageRows(rows, catalog, products, groups, manual, configuredComponents));
+  const snapshotId = await saveSnapshot(syncRunId, importedAt, rows.length, stageRows(rows, catalog, products, groups, externalLinks, manual, configuredComponents));
   return summary(snapshotId);
 }
 
@@ -1048,10 +1132,89 @@ export async function updateExternalCatalogExistingKeywords(snapshotId: number):
 }
 
 /**
- * Para productos ya existentes GESU solo puede modificar stock y palabras
- * clave. La descripcion solo se actualiza cuando el item no tiene una pieza
- * asociada; no toca costos, precios, proveedores, categoria, ubicacion ni los
- * saldos por ubicacion definidos en Nexo.
+ * El codigo de GESU se puede editar. Solo se replica cuando el id externo
+ * inmutable ya identifica al mismo registro local, sin reemplazar un codigo
+ * que pertenezca a otro item o kit de Nexo.
+ */
+async function syncExternalCatalogCodes(snapshotId: number): Promise<ExternalCodeSyncResult> {
+  return withTransaction(async (db) => {
+    const [products, groups] = await Promise.all([
+      db.query<{ id: number }>(
+        `WITH source AS (
+           SELECT DISTINCT ON (link.id_producto)
+             link.id_producto,
+             BTRIM(item.codigo) AS codigo
+           FROM public.catalogo_externo_item AS item
+           JOIN public.producto_origen_externo AS link
+             ON link.origen = $2 AND link.external_id = item.external_id
+           WHERE item.id_sincronizacion = $1
+             AND item.tipo = 'PRODUCTO'
+             AND BTRIM(item.codigo) <> ''
+           ORDER BY link.id_producto, item.id
+         ), eligible AS (
+           SELECT source.id_producto, source.codigo
+           FROM source
+           JOIN public.productos AS producto ON producto.id = source.id_producto
+           WHERE UPPER(BTRIM(producto.cod_unico)) IS DISTINCT FROM UPPER(source.codigo)
+             AND NOT EXISTS (
+               SELECT 1
+               FROM public.productos AS conflict
+               WHERE conflict.id <> source.id_producto
+                 AND UPPER(BTRIM(conflict.cod_unico)) = UPPER(source.codigo)
+             )
+         )
+         UPDATE public.productos AS producto
+         SET cod_unico = eligible.codigo
+         FROM eligible
+         WHERE producto.id = eligible.id_producto
+         RETURNING producto.id`,
+        [snapshotId, ORIGIN],
+      ),
+      db.query<{ id: number }>(
+        `WITH source AS (
+           SELECT DISTINCT ON (link.id_kit)
+             link.id_kit,
+             BTRIM(item.codigo) AS codigo
+           FROM public.catalogo_externo_item AS item
+           JOIN public.kit_origen_externo AS link
+             ON link.origen = $2 AND link.external_id = item.external_id
+           WHERE item.id_sincronizacion = $1
+             AND item.tipo = 'GRUPO'
+             AND BTRIM(item.codigo) <> ''
+           ORDER BY link.id_kit, item.id
+         ), eligible AS (
+           SELECT source.id_kit, source.codigo
+           FROM source
+           JOIN public.kits AS kit ON kit.id = source.id_kit
+           WHERE UPPER(BTRIM(kit.codigo_kit)) IS DISTINCT FROM UPPER(source.codigo)
+             AND NOT EXISTS (
+               SELECT 1
+               FROM public.kits AS conflict
+               WHERE conflict.id <> source.id_kit
+                 AND UPPER(BTRIM(conflict.codigo_kit)) = UPPER(source.codigo)
+             )
+         )
+         UPDATE public.kits AS kit
+         SET codigo_kit = eligible.codigo
+         FROM eligible
+         WHERE kit.id = eligible.id_kit
+         RETURNING kit.id`,
+        [snapshotId, ORIGIN],
+      ),
+    ]);
+    return {
+      productIds: products.rows.map((row) => Number(row.id)),
+      groupIds: groups.rows.map((row) => Number(row.id)),
+    };
+  });
+}
+
+/**
+ * El codigo se sincroniza aparte solo por el id inmutable de GESU. Para los
+ * demas campos, GESU solo puede modificar stock y palabras clave. La
+ * descripcion solo se actualiza cuando el item no tiene una pieza asociada;
+ * no toca costos, precios, proveedores, categoria, ubicacion ni los saldos
+ * por ubicacion definidos en Nexo.
  */
 async function updateExternalCatalogExistingItems(snapshotId: number): Promise<CatalogExistingUpdateResult> {
   const result = await withTransaction(async (db) => {
@@ -1126,7 +1289,13 @@ async function readyExternalItemIds(snapshotId: number, type: "PRODUCTO" | "GRUP
  */
 export async function syncExternalCatalogAutomatically() {
   const staged = await refreshExternalCatalogPreview();
+  const codeChanges = await syncExternalCatalogCodes(staged.snapshotId);
   const existing = await updateExternalCatalogExistingItems(staged.snapshotId);
+  let skuSync = { updated: 0, skippedVariations: 0, errors: [] as string[] };
+  if (codeChanges.productIds.length || codeChanges.groupIds.length) {
+    const { actualizarSkusVinculadosPorCambioDeCodigo } = await import("@/lib/mercadolibre");
+    skuSync = await actualizarSkusVinculadosPorCambioDeCodigo(codeChanges.productIds, codeChanges.groupIds);
+  }
   const productIds = await readyExternalItemIds(staged.snapshotId, "PRODUCTO");
   const products = productIds.length
     ? await importExternalCatalogProducts(staged.snapshotId, productIds, null)
@@ -1141,7 +1310,12 @@ export async function syncExternalCatalogAutomatically() {
   return {
     preview: await summary(staged.snapshotId),
     imported: { products, groups },
-    existing,
+    existing: {
+      ...existing,
+      productCodesUpdated: codeChanges.productIds.length,
+      kitCodesUpdated: codeChanges.groupIds.length,
+      skuSync,
+    },
     batchLimit: AUTO_IMPORT_LIMIT,
   };
 }

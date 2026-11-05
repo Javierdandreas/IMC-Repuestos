@@ -1511,6 +1511,49 @@ async function actualizarSkuDeVinculoMercadoLibre(
   return sku;
 }
 
+export async function actualizarSkusVinculadosPorCambioDeCodigo(
+  productIds: number[],
+  kitIds: number[],
+) {
+  const products = Array.from(new Set(productIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)));
+  const kits = Array.from(new Set(kitIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)));
+  if (!products.length && !kits.length) return { updated: 0, skippedVariations: 0, errors: [] as string[] };
+
+  const publications = await query<{ id: number; id_producto: number | null; id_kit: number | null; variaciones: unknown }>(
+    `SELECT id, id_producto, id_kit, variaciones
+     FROM public.mercadolibre_publicacion
+     WHERE id_producto = ANY($1::integer[]) OR id_kit = ANY($2::integer[])
+     ORDER BY id`,
+    [products, kits],
+  );
+  let updated = 0;
+  let skippedVariations = 0;
+  const errors: string[] = [];
+
+  for (const publication of publications.rows) {
+    if (Array.isArray(publication.variaciones) && publication.variaciones.length > 0) {
+      skippedVariations += 1;
+      continue;
+    }
+    const target = publication.id_producto !== null
+      ? { tipo: "ITEM" as const, id: Number(publication.id_producto) }
+      : publication.id_kit !== null
+        ? { tipo: "KIT" as const, id: Number(publication.id_kit) }
+        : null;
+    if (!target) continue;
+    try {
+      await actualizarSkuDeVinculoMercadoLibre(Number(publication.id), target);
+      updated += 1;
+    } catch (error) {
+      if (errors.length < 20) {
+        const message = error instanceof Error ? error.message : "No se pudo actualizar el SKU en Mercado Libre.";
+        errors.push(`Publicacion ${publication.id}: ${message}`);
+      }
+    }
+  }
+  return { updated, skippedVariations, errors };
+}
+
 export async function guardarVinculoRevisadoMercadoLibre(
   idPublicacion: number,
   target: { tipo: "ITEM" | "KIT"; id: number } | null,
