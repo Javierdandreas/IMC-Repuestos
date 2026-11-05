@@ -1134,7 +1134,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                     </div>
                   )}
 
-                  {hoveredProduct.palabra_clave && (
+                  {!hoveredProduct.id_pieza && hoveredProduct.palabra_clave && (
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Palabras clave</p>
                       <p className="mt-1 whitespace-pre-wrap text-xs font-medium text-slate-700 dark:text-slate-200">{hoveredProduct.palabra_clave}</p>

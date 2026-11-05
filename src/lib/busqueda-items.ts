@@ -29,8 +29,8 @@ export function condicionBusquedaProducto(
     ? `UPPER(TRIM(${column}::text)) = UPPER(TRIM($${parameter}::text))`
     : `${column}::text ILIKE $${parameter}`;
   const matchPalabraClave = exact
-    ? `REGEXP_REPLACE(UPPER(COALESCE(${alias}.palabra_clave::text, '')), '\\s+', '', 'g') LIKE '%' || UPPER(TRIM($${parameter}::text)) || '%'`
-    : match(`${alias}.palabra_clave`);
+    ? `(${alias}.id_pieza IS NULL AND REGEXP_REPLACE(UPPER(COALESCE(${alias}.palabra_clave::text, '')), '\\s+', '', 'g') LIKE '%' || UPPER(TRIM($${parameter}::text)) || '%')`
+    : `(${alias}.id_pieza IS NULL AND ${match(`${alias}.palabra_clave`)})`;
   const matchDescription = descriptionTermsParameter
     ? `NOT EXISTS (
       SELECT 1

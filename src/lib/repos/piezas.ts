@@ -17,6 +17,8 @@ type PiezaInput = {
   descripcion: string;
   medida?: string | null;
   imagen_medida_url?: string | null;
+  categoria_mercadolibre_id?: string | null;
+  categoria_mercadolibre_ruta?: Array<{ id: string; nombre: string }>;
   id_subcategoria: number;
   originales?: string[];
   equivalentes?: string[];
@@ -60,6 +62,11 @@ function sanitizePiezaInput(input: PiezaInput) {
     descripcion: sanitizeText(input.descripcion),
     medida: sanitizeText(input.medida) || null,
     imagenMedidaUrl: input.imagen_medida_url || null,
+    categoriaMercadoLibreId: input.categoria_mercadolibre_id?.trim() || null,
+    categoriaMercadoLibreRuta: (input.categoria_mercadolibre_ruta || []).map((categoria) => ({
+      id: categoria.id.trim(),
+      nombre: categoria.nombre.trim(),
+    })),
     idSubcategoria: Number(input.id_subcategoria),
     originales: sanitizeCodes(input.originales),
     equivalentes: sanitizeCodes(input.equivalentes),
@@ -309,6 +316,8 @@ export async function getPiezasListado(
       p.descripcion,
       p.medida,
       p.imagen_medida_url,
+      p.categoria_mercadolibre_id,
+      p.categoria_mercadolibre_ruta,
       p.id_subcategoria,
       s.descripcion AS subcategoria,
       c.descripcion AS categoria,
@@ -333,7 +342,7 @@ export async function getPiezasListado(
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = p.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
-    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.imagen_medida_url, p.id_subcategoria, s.descripcion, c.descripcion
+    GROUP BY p.id, p.codigo_pieza, p.descripcion, p.medida, p.imagen_medida_url, p.categoria_mercadolibre_id, p.categoria_mercadolibre_ruta, p.id_subcategoria, s.descripcion, c.descripcion
     ORDER BY p.codigo_pieza ASC
   `;
 
@@ -779,7 +788,8 @@ export async function reservarCodigoPiezaDisponible(client: DbClient): Promise<n
 
 export async function getPiezaById(id: string | number): Promise<Pieza | null> {
   const piezaQuery = `
-    SELECT p.id, p.codigo_pieza, p.descripcion, p.medida, p.imagen_medida_url, p.id_subcategoria, s.id_categoria
+    SELECT p.id, p.codigo_pieza, p.descripcion, p.medida, p.imagen_medida_url,
+      p.categoria_mercadolibre_id, p.categoria_mercadolibre_ruta, p.id_subcategoria, s.id_categoria
     FROM pieza p
     JOIN subcategoria s ON s.id = p.id_subcategoria
     WHERE p.id = $1
@@ -836,11 +846,11 @@ export async function createPieza(input: PiezaInput) {
 
     const piezaResult = await client.query(
       `
-        INSERT INTO pieza (codigo_pieza, descripcion, medida, imagen_medida_url, id_subcategoria)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO pieza (codigo_pieza, descripcion, medida, imagen_medida_url, categoria_mercadolibre_id, categoria_mercadolibre_ruta, id_subcategoria)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
         RETURNING *
       `,
-      [codigoPieza, payload.descripcion, payload.medida, payload.imagenMedidaUrl, payload.idSubcategoria]
+      [codigoPieza, payload.descripcion, payload.medida, payload.imagenMedidaUrl, payload.categoriaMercadoLibreId, JSON.stringify(payload.categoriaMercadoLibreRuta), payload.idSubcategoria]
     );
 
     const pieza = piezaResult.rows[0];
@@ -885,12 +895,14 @@ export async function updatePieza(id: string | number, input: PiezaInput) {
         SET descripcion = $1,
             medida = $2,
             imagen_medida_url = $3,
-            id_subcategoria = $4,
+            categoria_mercadolibre_id = $4,
+            categoria_mercadolibre_ruta = $5::jsonb,
+            id_subcategoria = $6,
             updated_at = now()
-        WHERE id = $5
+        WHERE id = $7
         RETURNING *
       `,
-      [payload.descripcion, payload.medida, payload.imagenMedidaUrl, payload.idSubcategoria, id]
+      [payload.descripcion, payload.medida, payload.imagenMedidaUrl, payload.categoriaMercadoLibreId, JSON.stringify(payload.categoriaMercadoLibreRuta), payload.idSubcategoria, id]
     );
 
     if ((updateResult.rowCount ?? 0) === 0) {

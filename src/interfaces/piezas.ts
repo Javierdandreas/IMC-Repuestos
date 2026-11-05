@@ -21,6 +21,8 @@ export type Pieza = {
   codigo_pieza: number | null;
   descripcion: string;
   imagen_medida_url?: string | null;
+  categoria_mercadolibre_id?: string | null;
+  categoria_mercadolibre_ruta?: Array<{ id: string; nombre: string }>;
   id_categoria: number | null;
   id_subcategoria: number | null;
   originales: string[];
@@ -39,6 +41,8 @@ export type PiezaListado = {
   codigo_pieza: number;
   descripcion: string;
   imagen_medida_url?: string | null;
+  categoria_mercadolibre_id?: string | null;
+  categoria_mercadolibre_ruta?: Array<{ id: string; nombre: string }>;
   id_subcategoria: number;
   subcategoria: string;
   categoria: string;

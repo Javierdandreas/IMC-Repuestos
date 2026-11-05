@@ -222,7 +222,7 @@ async function findProducts(search: CatalogSearch) {
       p.id,
       p.cod_unico AS codigo,
       p.descripcion,
-      p.palabra_clave,
+      CASE WHEN p.id_pieza IS NULL THEN p.palabra_clave ELSE NULL END AS palabra_clave,
       p.cod_barra AS codigo_barras,
       marca.descripcion AS marca,
       categoria.descripcion AS categoria,

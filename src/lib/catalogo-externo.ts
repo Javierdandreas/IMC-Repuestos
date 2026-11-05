@@ -1035,6 +1035,7 @@ export async function updateExternalCatalogExistingKeywords(snapshotId: number):
          AND item.tipo = 'PRODUCTO'
          AND item.existe_local = TRUE
          AND producto.id = item.id_producto_local
+         AND producto.id_pieza IS NULL
          AND NULLIF(BTRIM(item.palabras_clave), '') IS NOT NULL
          AND producto.palabra_clave IS DISTINCT FROM NULLIF(BTRIM(item.palabras_clave), '')
        RETURNING producto.id`,
@@ -1078,7 +1079,10 @@ async function updateExternalCatalogExistingItems(snapshotId: number): Promise<C
              WHEN producto.id_pieza IS NULL THEN COALESCE(LEFT(source.descripcion, 150), producto.descripcion)
              ELSE producto.descripcion
            END,
-           palabra_clave = COALESCE(source.palabra_clave, producto.palabra_clave)
+           palabra_clave = CASE
+             WHEN producto.id_pieza IS NOT NULL THEN NULL
+             ELSE COALESCE(source.palabra_clave, producto.palabra_clave)
+           END
        FROM source
        WHERE producto.id = source.id_producto
          AND (
@@ -1087,7 +1091,10 @@ async function updateExternalCatalogExistingItems(snapshotId: number): Promise<C
              producto.id_pieza IS NULL
              AND producto.descripcion IS DISTINCT FROM COALESCE(LEFT(source.descripcion, 150), producto.descripcion)
            )
-           OR producto.palabra_clave IS DISTINCT FROM COALESCE(source.palabra_clave, producto.palabra_clave)
+           OR producto.palabra_clave IS DISTINCT FROM CASE
+             WHEN producto.id_pieza IS NOT NULL THEN NULL
+             ELSE COALESCE(source.palabra_clave, producto.palabra_clave)
+           END
          )
        RETURNING producto.id`,
       [snapshotId],

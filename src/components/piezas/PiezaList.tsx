@@ -106,6 +106,8 @@ export function PiezaList({ piezas, categorias, subcategorias, nextCode, totalPa
       codigo_pieza: pieza.codigo_pieza,
       descripcion: pieza.descripcion,
       imagen_medida_url: pieza.imagen_medida_url ?? null,
+      categoria_mercadolibre_id: pieza.categoria_mercadolibre_id ?? null,
+      categoria_mercadolibre_ruta: pieza.categoria_mercadolibre_ruta ?? [],
       id_categoria: subcategoria?.id_categoria ?? null,
       id_subcategoria: pieza.id_subcategoria,
       originales: pieza.originales,

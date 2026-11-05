@@ -11,6 +11,7 @@ import { PiezaBasicInfoSection } from "./sections/PiezaBasicInfoSection";
 import { PiezaDescriptionSection, PiezaImageSection } from "./sections/PiezaDetailsSection";
 import { PiezaCodesSection } from "./sections/PiezaCodesSection";
 import { PiezaCompatibilidadesSection } from "./sections/PiezaCompatibilidadesSection";
+import { PiezaMercadoLibreCategorySection } from "./sections/PiezaMercadoLibreCategorySection";
 import { QuickAddModal, QuickAddType } from "../products/QuickAddModal";
 
 type Props = {
@@ -100,6 +101,8 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
       descripcion: pieza.descripcion.trim().toUpperCase(),
       medida: pieza.medida?.trim().toUpperCase(),
       imagen_medida_url: pieza.imagen_medida_url,
+      categoria_mercadolibre_id: pieza.categoria_mercadolibre_id ?? null,
+      categoria_mercadolibre_ruta: pieza.categoria_mercadolibre_ruta ?? [],
       id_subcategoria: pieza.id_subcategoria,
       originales: splitCodes(originalesTexto),
       equivalentes: splitCodes(equivalentesTexto),
@@ -143,6 +146,17 @@ export function PiezaForm({ onSuccess, onCancel, piezaId, initialPieza, categori
             <PiezaImageSection
               imagen_medida_url={pieza.imagen_medida_url ?? null}
               onImagenMedidaChange={(val) => setPieza((p) => ({ ...p, imagen_medida_url: val }))}
+              disabled={loading}
+            />
+
+            <PiezaMercadoLibreCategorySection
+              categoriaId={pieza.categoria_mercadolibre_id}
+              ruta={pieza.categoria_mercadolibre_ruta}
+              onChange={(categoria_mercadolibre_id, categoria_mercadolibre_ruta) => setPieza((current) => ({
+                ...current,
+                categoria_mercadolibre_id,
+                categoria_mercadolibre_ruta,
+              }))}
               disabled={loading}
             />
           </div>

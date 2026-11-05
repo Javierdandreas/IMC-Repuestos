@@ -98,20 +98,22 @@ export function BasicInfoSection({
         />
       </div>
 
-      <div>
-        <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          Palabra Clave (Temporal)
-        </label>
-        <input
-          type="text"
-          name="palabra_clave"
-          value={palabra_clave}
-          onChange={onChange}
-          placeholder="Ej: Números originales, equivalencias..."
-          className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm uppercase text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-        />
-        <p className="mt-1 text-[10px] font-medium text-slate-400 uppercase tracking-widest">Este campo ayuda a la búsqueda mientras se asocia el item definitivo.</p>
-      </div>
+      {!isPiezaLinked && (
+        <div>
+          <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Palabra Clave (Temporal)
+          </label>
+          <input
+            type="text"
+            name="palabra_clave"
+            value={palabra_clave}
+            onChange={onChange}
+            placeholder="Ej: Números originales, equivalencias..."
+            className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm uppercase text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          />
+          <p className="mt-1 text-[10px] font-medium text-slate-400 uppercase tracking-widest">Este campo ayuda a la búsqueda mientras se asocia el item definitivo.</p>
+        </div>
+      )}
 
     </section>
   );
