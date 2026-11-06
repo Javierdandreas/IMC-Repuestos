@@ -10,9 +10,9 @@ const AUTO_IMPORT_LIMIT = 500;
 const MAX_GESU_ROWS = 60000;
 const MAX_GESU_PAGES = 60;
 const GESU_REQUEST_TIMEOUT_MS = 15_000;
-// GESU limita las consultas por pagina. Nexo usa un solo cupo por hora y
+// GESU limita las consultas por pagina. Nexo usa un solo cupo cada media hora y
 // reutiliza el ultimo snapshot ante consultas manuales o ejecuciones extra.
-const GESU_MIN_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const GESU_MIN_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 const GESU_PAGE_CONCURRENCY = 25;
 const SAMPLE_LIMIT = 80;
 const IMPORT_LIMIT = 500;

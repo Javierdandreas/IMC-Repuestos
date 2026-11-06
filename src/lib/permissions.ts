@@ -1,6 +1,6 @@
 export type AppRole = string | null | undefined;
 export type NormalizedAppRole = "admin" | "empleado" | "";
-export type PermisoAccion = "leer" | "escribir" | "eliminar" | "exportar" | "masivo";
+export type PermisoAccion = "leer" | "escribir" | "eliminar" | "exportar" | "masivo" | "ver_inactivos";
 export type RequisitoPermiso = readonly string[];
 
 const ACCIONES_POR_METODO: Record<string, PermisoAccion> = {
@@ -44,6 +44,11 @@ export function canManageContent(role: AppRole, permisos: readonly string[] | nu
 export function canReadContent(role: AppRole): boolean {
   const normalized = normalizeRole(role);
   return normalized === "admin" || normalized === "empleado";
+}
+
+export function puedeVerProductosInactivos(role: AppRole, permisos: readonly string[] | null | undefined = []): boolean {
+  if (normalizeRole(role) === "admin") return true;
+  return normalizeRole(role) === "empleado" && Boolean(permisos?.includes("productos:ver_inactivos"));
 }
 
 export function puedeAccederPermisos(role: AppRole, permisos: readonly string[] | null | undefined, requisitos: RequisitoPermiso | null): boolean {

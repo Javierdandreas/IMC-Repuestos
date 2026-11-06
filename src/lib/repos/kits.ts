@@ -56,7 +56,32 @@ export async function getKitsListado(page: number = 1, limit: number = 50, searc
        CASE WHEN k.criterio_costo = 'MANUAL' THEN COALESCE(MAX(kme.precio), 0) ELSE COALESCE(SUM(pme.precio * kd.cantidad), 0) END AS precio_mecanico_total,
        precios_kit.precios,
        COALESCE(MIN(FLOOR(p.stock / kd.cantidad)), 0)::int AS stock_kit,
-      STRING_AGG(DISTINCT m.descripcion, ', ') FILTER (WHERE m.descripcion IS NOT NULL) AS marcas_componentes
+      STRING_AGG(DISTINCT m.descripcion, ', ') FILTER (WHERE m.descripcion IS NOT NULL) AS marcas_componentes,
+      COUNT(kd.id_producto) FILTER (WHERE NOT EXISTS (
+        SELECT 1
+        FROM public.producto_precio margen_ml
+        INNER JOIN public.tipo_precio tipo_ml ON tipo_ml.id = margen_ml.id_tipo_precio
+        WHERE margen_ml.id_producto = kd.id_producto
+          AND UPPER(BTRIM(tipo_ml.descripcion)) = 'MERCADO LIBRE'
+          AND (
+            COALESCE(margen_ml.modo_calculo, 'MARGEN_COSTO') <> 'MARGEN_COSTO'
+            OR COALESCE(margen_ml.porcentaje_ganancia, 0) <> 0
+          )
+      ))::int AS componentes_sin_margen_ml,
+      COALESCE(
+        ARRAY_AGG(DISTINCT p.cod_unico) FILTER (WHERE NOT EXISTS (
+          SELECT 1
+          FROM public.producto_precio margen_ml
+          INNER JOIN public.tipo_precio tipo_ml ON tipo_ml.id = margen_ml.id_tipo_precio
+          WHERE margen_ml.id_producto = kd.id_producto
+            AND UPPER(BTRIM(tipo_ml.descripcion)) = 'MERCADO LIBRE'
+            AND (
+              COALESCE(margen_ml.modo_calculo, 'MARGEN_COSTO') <> 'MARGEN_COSTO'
+              OR COALESCE(margen_ml.porcentaje_ganancia, 0) <> 0
+            )
+        )),
+        ARRAY[]::varchar[]
+      ) AS codigos_componentes_sin_margen_ml
     FROM public.kits k
     LEFT JOIN public.categoria c ON k.id_categoria = c.id
     LEFT JOIN public.subcategoria s ON k.id_subcategoria = s.id

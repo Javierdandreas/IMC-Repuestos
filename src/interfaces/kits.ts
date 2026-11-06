@@ -56,6 +56,8 @@ export type KitListado = {
   stock_kit: number;
   stock_minimo: number;
   marcas_componentes?: string | null;
+  componentes_sin_margen_ml?: number;
+  codigos_componentes_sin_margen_ml?: string[];
   created_at: string;
 };
 

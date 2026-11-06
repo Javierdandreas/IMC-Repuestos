@@ -14,6 +14,7 @@ const labels: Record<AccionPermiso, string> = {
   eliminar: "Eliminar",
   exportar: "Exportar",
   masivo: "Masivo",
+  ver_inactivos: "Ver inactivos",
 };
 
 export function UsuariosPage() {

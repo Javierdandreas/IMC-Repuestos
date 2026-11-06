@@ -100,6 +100,7 @@ export type Producto = {
 
 export type ProductoListado = {
   id: number;
+  activo?: boolean;
   cod_unico: string;
   descripcion: string;
   cod_barra: string;

@@ -11,6 +11,8 @@ export type FiltrosItemsUnificados = {
   subcategoria?: string;
   marca?: string;
   proveedor?: string;
+  estado?: "ACTIVOS" | "INACTIVOS" | "TODOS";
+  margenes?: "COMPLETOS" | "FALTA_ALGUNO" | "FALTA_MOSTRADOR" | "FALTA_MECANICO" | "FALTA_MERCADO_LIBRE";
 };
 
 export type ComponenteKitPreview = {
@@ -26,6 +28,8 @@ export type ItemListadoUnificado = ProductoListado & {
   parent_kit_id?: number | null;
   parent_kit_codigo?: string | null;
   componentes_kit?: ComponenteKitPreview[];
+  componentes_sin_margen_ml?: number;
+  codigos_componentes_sin_margen_ml?: string[];
   publicaciones_ml?: Array<{
     item_id: string;
     titulo: string;
@@ -54,7 +58,7 @@ function catalogoBusquedaGeneralRapida() {
   return `
     WITH direct_matching_products AS (
       SELECT p.id FROM public.productos p
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE
         AND (
           p.cod_unico::text ILIKE $1
           OR p.cod_barra::text ILIKE $1
@@ -67,39 +71,39 @@ function catalogoBusquedaGeneralRapida() {
         )
       UNION
       SELECT p.id FROM public.productos p JOIN public.pieza pi ON pi.id = p.id_pieza
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE
         AND (pi.codigo_pieza::text ILIKE $1 OR pi.descripcion::text ILIKE $1 OR pi.medida::text ILIKE $1)
       UNION
       SELECT p.id FROM public.productos p JOIN public.producto_proveedor pp ON pp.id_producto = p.id
       LEFT JOIN public.proveedores prv ON prv.id = pp.id_proveedor
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE
         AND (pp.codigo_proveedor::text ILIKE $1 OR prv.descripcion::text ILIKE $1)
       UNION
       SELECT p.id FROM public.productos p JOIN public.pieza_codigo_referencia pcr ON pcr.id_pieza = p.id_pieza
       JOIN public.codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE
         AND (cr.codigo::text ILIKE $1 OR pcr.observacion::text ILIKE $1)
       UNION
       SELECT p.id FROM public.productos p JOIN public.producto_serie ps ON ps.id_producto = p.id
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND ps.numero_serie::text ILIKE $1
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE AND ps.numero_serie::text ILIKE $1
       UNION
       SELECT p.id FROM public.productos p JOIN public.marcas m ON m.id = p.id_marca
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND m.descripcion::text ILIKE $1
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE AND m.descripcion::text ILIKE $1
       UNION
       SELECT p.id FROM public.productos p JOIN public.subcategoria s ON s.id = p.id_subcategoria
       LEFT JOIN public.categoria c ON c.id = s.id_categoria
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND (s.descripcion::text ILIKE $1 OR c.descripcion::text ILIKE $1)
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE AND (s.descripcion::text ILIKE $1 OR c.descripcion::text ILIKE $1)
       UNION
       SELECT p.id FROM public.productos p JOIN public.ubicaciones u ON u.id = p.id_ubicacion
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND u.descripcion::text ILIKE $1
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE AND u.descripcion::text ILIKE $1
       UNION
       SELECT p.id FROM public.productos p JOIN public.producto_stock_ubicacion psu ON psu.id_producto = p.id
       JOIN public.ubicaciones u ON u.id = psu.id_ubicacion
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND psu.cantidad > 0 AND u.descripcion::text ILIKE $1
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE AND psu.cantidad > 0 AND u.descripcion::text ILIKE $1
       UNION
       SELECT p.id FROM public.productos p JOIN public.producto_serie ps ON ps.id_producto = p.id
       JOIN public.ubicaciones u ON u.id = ps.id_ubicacion
-      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND u.descripcion::text ILIKE $1
+      WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE AND COALESCE(p.activo, TRUE) = TRUE AND u.descripcion::text ILIKE $1
     ), matching_products AS (
       SELECT id, MIN(match_order) AS match_order
       FROM (
@@ -112,6 +116,7 @@ function catalogoBusquedaGeneralRapida() {
           ON equivalente.id_pieza = producto_directo.id_pieza
         WHERE producto_directo.id_pieza IS NOT NULL
           AND COALESCE(equivalente.oculto_por_kit, FALSE) = FALSE
+          AND COALESCE(equivalente.activo, TRUE) = TRUE
       ) productos_relacionados
       GROUP BY id
     ), direct_matching_kits AS (
@@ -169,6 +174,35 @@ export async function getItemsUnificadosListado(
   const params: unknown[] = [];
   const productConditions = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
   const kitConditions: string[] = [];
+  const estado = filters.estado === "INACTIVOS" || filters.estado === "TODOS" ? filters.estado : "ACTIVOS";
+  const margen = filters.margenes;
+  const condicionMargen = (tipo: "MOSTRADOR" | "MECANICO" | "MERCADO LIBRE") => `EXISTS (
+    SELECT 1
+    FROM public.producto_precio margen
+    INNER JOIN public.tipo_precio tipo_precio ON tipo_precio.id = margen.id_tipo_precio
+    WHERE margen.id_producto = p.id
+      AND UPPER(BTRIM(tipo_precio.descripcion)) = '${tipo}'
+      AND (
+        COALESCE(margen.modo_calculo, 'MARGEN_COSTO') <> 'MARGEN_COSTO'
+        OR COALESCE(margen.porcentaje_ganancia, 0) <> 0
+      )
+  )`;
+  const margenMostrador = condicionMargen("MOSTRADOR");
+  const margenMecanico = condicionMargen("MECANICO");
+  const margenMercadoLibre = condicionMargen("MERCADO LIBRE");
+
+  if (estado === "ACTIVOS") productConditions.push("COALESCE(p.activo, TRUE) = TRUE");
+  if (estado === "INACTIVOS") {
+    productConditions.push("COALESCE(p.activo, TRUE) = FALSE");
+    kitConditions.push("FALSE");
+  }
+
+  if (margen === "COMPLETOS") productConditions.push(`${margenMostrador} AND ${margenMecanico} AND ${margenMercadoLibre}`);
+  if (margen === "FALTA_ALGUNO") productConditions.push(`NOT (${margenMostrador} AND ${margenMecanico} AND ${margenMercadoLibre})`);
+  if (margen === "FALTA_MOSTRADOR") productConditions.push(`NOT ${margenMostrador}`);
+  if (margen === "FALTA_MECANICO") productConditions.push(`NOT ${margenMecanico}`);
+  if (margen === "FALTA_MERCADO_LIBRE") productConditions.push(`NOT ${margenMercadoLibre}`);
+  if (margen) kitConditions.push("FALSE");
   const componentCodePrefixes = prefijosCodigosComponentes(filters.search || "");
   const descriptionTerms = terminosDescripcionBusqueda(filters.search || "");
   const useCandidateSearch = Boolean(filters.search?.trim())
@@ -177,7 +211,9 @@ export async function getItemsUnificadosListado(
     && !filters.categoria
     && !filters.subcategoria
     && !filters.marca
-    && !filters.proveedor;
+    && !filters.proveedor
+    && estado === "ACTIVOS"
+    && !margen;
   const includeKitComponents = Boolean(filters.searchSpecific?.trim())
     && !filters.search?.trim()
     && componentCodePrefixes.length === 0;
@@ -315,7 +351,7 @@ export async function getItemsUnificadosListado(
   const productIds = catalogResult.rows.filter((row) => row.tipo === "ITEM").map((row) => row.id);
   const kitIds = catalogResult.rows.filter((row) => row.tipo === "KIT").map((row) => row.id);
   const [productResult, kitResult, kitComponents, meliPublicaciones] = await Promise.all([
-    productIds.length ? getProductosListado(1, productIds.length, { ids: productIds, skipCount: true }) : Promise.resolve({ data: [] as ProductoListado[] }),
+    productIds.length ? getProductosListado(1, productIds.length, { ids: productIds, skipCount: true, includeInactive: estado !== "ACTIVOS" }) : Promise.resolve({ data: [] as ProductoListado[] }),
     kitIds.length ? getKitsListado(1, kitIds.length, undefined, kitIds, true) : Promise.resolve({ data: [] as Awaited<ReturnType<typeof getKitsListado>>["data"] }),
     kitIds.length ? getComponentesParaKitsListado(kitIds) : Promise.resolve([]),
     (productIds.length || kitIds.length) ? query<{ id_producto: number | null; id_kit: number | null; item_id: string; titulo: string; permalink: string | null; estado: string; fecha_creacion_ml: string | null; fecha_actualizacion_ml: string | null; sincronizada_at: string }>(
@@ -391,6 +427,9 @@ export async function getItemsUnificadosListado(
        subcategoria: kit.subcategoria,
        precios: kit.precios ?? [],
        componentes_kit: componentsByKit.get(kit.id) || [],
+       activo: kit.activo,
+       componentes_sin_margen_ml: Number(kit.componentes_sin_margen_ml || 0),
+       codigos_componentes_sin_margen_ml: kit.codigos_componentes_sin_margen_ml || [],
        publicaciones_ml: publicacionesPorItem.get(`KIT-${kit.id}`) || [],
     }];
   });

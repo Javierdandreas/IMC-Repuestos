@@ -317,10 +317,15 @@ export async function getProductosListado(
     proveedor?: string;
     ids?: number[];
     skipCount?: boolean;
+    includeInactive?: boolean;
   } = {}
 ): Promise<{ data: ProductoListado[]; totalCount: number; totalPages: number }> {
   const params: any[] = [];
   let whereClauses = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
+
+  if (!filters.includeInactive) {
+    whereClauses.push("COALESCE(p.activo, TRUE) = TRUE");
+  }
 
   if (filters.search?.trim()) {
     params.push(parametroBusquedaItems(filters.search));
@@ -363,6 +368,7 @@ export async function getProductosListado(
   const sql = `
     SELECT 
       p.id,
+      COALESCE(p.activo, TRUE) AS activo,
       COALESCE(p.cod_unico, '') AS cod_unico,
       p.descripcion,
       p.cod_barra,
@@ -478,6 +484,7 @@ export async function getProductosListado(
     WHERE ${whereClauses.join(" AND ")}
     GROUP BY
       p.id,
+      p.activo,
       p.cod_unico,
       p.descripcion,
       p.cod_barra,
@@ -508,6 +515,17 @@ export async function getProductosListado(
   `;
 
   return await paginateQuery<ProductoListado>("productos", sql, page, limit, params, { skipCount: filters.skipCount });
+}
+
+export async function setProductoActivo(id: number, activo: boolean): Promise<Pick<ProductoListado, "id" | "cod_unico" | "activo"> | null> {
+  const result = await query<Pick<ProductoListado, "id" | "cod_unico" | "activo">>(
+    `UPDATE public.productos
+     SET activo = $2
+     WHERE id = $1
+     RETURNING id, COALESCE(cod_unico, '') AS cod_unico, activo`,
+    [id, activo],
+  );
+  return result.rows[0] || null;
 }
 
 export async function getProductosParaExportar(filters: {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteProducto, getProductoById, updateProducto } from "@/lib/repos/productos";
+import { deleteProducto, getProductoById, setProductoActivo, updateProducto } from "@/lib/repos/productos";
 import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
 import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
 import { validateProductoPayload } from "@/lib/validators/productos";
@@ -128,5 +128,36 @@ export async function DELETE(
     return NextResponse.json({ message: "Item eliminado correctamente" });
   } catch (error: unknown) {
     return jsonError(error, "No se pudo eliminar el item");
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await requireApiWriteSession(request);
+  try {
+    const { id } = await params;
+    const numericId = parseIdParam(id);
+    const body = await request.json();
+    if (typeof body?.activo !== "boolean") {
+      return NextResponse.json({ message: "El estado activo debe ser verdadero o falso." }, { status: 400 });
+    }
+
+    const product = await setProductoActivo(numericId, body.activo);
+    if (!product) return NextResponse.json({ message: "Item no encontrado" }, { status: 404 });
+
+    await registrarProductoActividad({
+      idProducto: numericId,
+      codigoProducto: product.cod_unico,
+      tipo: "EDICION",
+      titulo: body.activo ? "Item activado" : "Item desactivado",
+      detalle: body.activo ? "Vuelve a estar visible en el listado general." : "Deja de mostrarse en el listado general.",
+      usuarioId: session.usuarioId,
+    });
+
+    return NextResponse.json(product);
+  } catch (error: unknown) {
+    return jsonError(error, "No se pudo cambiar el estado del item");
   }
 }

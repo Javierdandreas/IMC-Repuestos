@@ -1790,6 +1790,7 @@ type TareaCargaVehiculo = {
 const LIMITE_RUTAS_POR_CARGA = 50;
 const LIMITE_VEHICULOS_POR_CARGA = 65;
 const ESPERA_ENTRE_CONSULTAS_CATALOGO_MS = 900;
+const CONCURRENCIA_ENRIQUECIMIENTO_VEHICULOS = 4;
 const SECUENCIA_CARGA_BASE: AtributoVehiculoId[] = [
   "MODEL",
   "VEHICLE_YEAR",
@@ -1955,6 +1956,36 @@ async function estadoEnriquecimientoVehiculos() {
   const procesando = Number(current.procesando);
   const errores = Number(current.errores);
   return { pendientes, procesando, errores, completada: !pendientes && !procesando && !errores };
+}
+
+async function encolarVehiculosBasePendientesDeEnriquecimiento() {
+  const result = await query<{ total: string }>(`
+    INSERT INTO public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola AS cola
+      (dominio_id, id_vehiculo_base, atributos, firma, siguiente_atributo_id, prioridad, estado, updated_at)
+    SELECT
+      vehiculo.dominio_id,
+      vehiculo.id,
+      vehiculo.atributos,
+      vehiculo.firma,
+      'SHORT_VERSION',
+      1,
+      'PENDIENTE',
+      NOW()
+    FROM public.mercadolibre_catalogo_vehiculo AS vehiculo
+    WHERE vehiculo.dominio_id = $1
+      AND vehiculo.activa = TRUE
+      AND vehiculo.estado = 'BASE'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola AS existente
+        WHERE existente.dominio_id = vehiculo.dominio_id
+          AND existente.id_vehiculo_base = vehiculo.id
+          AND existente.siguiente_atributo_id = 'SHORT_VERSION'
+      )
+    ON CONFLICT (dominio_id, firma, siguiente_atributo_id) DO NOTHING
+    RETURNING id
+  `, [DOMINIO_VEHICULOS_ML]);
+  return result.rowCount ?? 0;
 }
 
 async function actualizarEstadoCatalogoVehiculos(ids: Iterable<number>, estado: "BASE" | "DETALLADO") {
@@ -2160,14 +2191,15 @@ export async function enriquecerCatalogoVehiculosMercadoLibre() {
       AND ((estado = 'PROCESANDO' AND updated_at < NOW() - INTERVAL '10 minutes')
         OR (estado = 'ERROR' AND intentos < 3))
   `, [DOMINIO_VEHICULOS_ML]);
+  await encolarVehiculosBasePendientesDeEnriquecimiento();
 
   let rutasConsultadas = 0;
   let tareasProcesadas = 0;
   let vehiculosGenerados = 0;
   try {
-    while (rutasConsultadas < LIMITE_RUTAS_POR_CARGA && vehiculosGenerados < LIMITE_VEHICULOS_POR_CARGA) {
+    const procesarTarea = async () => {
       const task = await tomarTareaEnriquecimientoVehiculo();
-      if (!task) break;
+      if (!task) return false;
       try {
         const attributes = normalizarAtributosVehiculo(task.atributos);
         if (task.siguiente_atributo_id === "SAVE") {
@@ -2176,7 +2208,7 @@ export async function enriquecerCatalogoVehiculosMercadoLibre() {
           vehiculosGenerados += saved.size;
           tareasProcesadas += 1;
           await finalizarTareaEnriquecimientoVehiculo(task.id);
-          continue;
+          return true;
         }
 
         const currentAttribute = task.siguiente_atributo_id;
@@ -2187,7 +2219,7 @@ export async function enriquecerCatalogoVehiculosMercadoLibre() {
           await encolarEnriquecimientoVehiculos([{ idVehiculo: idVehiculoBase, atributos: attributes, siguienteAtributo: nextAttribute, prioridad: task.prioridad + 1 }]);
           tareasProcesadas += 1;
           await finalizarTareaEnriquecimientoVehiculo(task.id);
-          continue;
+          return true;
         }
 
         let values: Array<{ id: string; name: string }>;
@@ -2200,7 +2232,7 @@ export async function enriquecerCatalogoVehiculosMercadoLibre() {
           await encolarEnriquecimientoVehiculos([{ idVehiculo: idVehiculoBase, atributos: attributes, siguienteAtributo: nextAttribute, prioridad: task.prioridad + 1 }]);
           tareasProcesadas += 1;
           await finalizarTareaEnriquecimientoVehiculo(task.id);
-          continue;
+          return true;
         }
         rutasConsultadas += 1;
         const children = values.map((value) => ({
@@ -2214,11 +2246,25 @@ export async function enriquecerCatalogoVehiculosMercadoLibre() {
         tareasProcesadas += 1;
         await finalizarTareaEnriquecimientoVehiculo(task.id);
         await new Promise((resolve) => setTimeout(resolve, ESPERA_ENTRE_CONSULTAS_CATALOGO_MS));
+        return true;
       } catch (error) {
         await finalizarTareaEnriquecimientoVehiculo(task.id, error);
         throw error;
       }
-    }
+    };
+
+    // SKIP LOCKED permite que varios workers tomen tareas distintas sin
+    // repetir vehiculos. Se limita a cuatro solicitudes simultaneas para no
+    // saturar la API de Mercado Libre.
+    const workers = Array.from({ length: CONCURRENCIA_ENRIQUECIMIENTO_VEHICULOS }, async () => {
+      while (rutasConsultadas < LIMITE_RUTAS_POR_CARGA && vehiculosGenerados < LIMITE_VEHICULOS_POR_CARGA) {
+        const procesada = await procesarTarea();
+        if (!procesada) break;
+      }
+    });
+    const workersResult = await Promise.allSettled(workers);
+    const workerError = workersResult.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (workerError) throw workerError.reason;
     const status = await estadoEnriquecimientoVehiculos();
     return { rutasConsultadas, tareasProcesadas, vehiculosGenerados, ...status };
   } catch (error) {

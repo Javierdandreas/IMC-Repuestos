@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { PencilButton } from "@/components/ui/PencilButton";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiAdjustments, HiInformationCircle, HiExternalLink, HiLink, HiDotsVertical, HiTrash, HiX, HiCloudUpload } from "react-icons/hi";
+import { HiPhotograph, HiPrinter, HiPlusCircle, HiCollection, HiAdjustments, HiInformationCircle, HiExternalLink, HiLink, HiDotsVertical, HiTrash, HiX, HiCloudUpload, HiEye, HiEyeOff, HiExclamationCircle } from "react-icons/hi";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
@@ -26,6 +26,7 @@ interface Props {
   totalPages?: number;
   currentPage?: number;
   totalCount?: number;
+  canViewInactive?: boolean;
 }
 
 const TOOLTIP_WIDTH = 420;
@@ -123,7 +124,7 @@ function SearchSpeedometer() {
   );
 }
 
-export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0 }: Props) {
+export function ProductList({ products, totalPages = 1, currentPage = 1, totalCount = 0, canViewInactive = false }: Props) {
   const { categorias, subcategorias, marcas, proveedores, ubicaciones, tiposPrecio } = useMetadata();
   const { showError } = useAppError();
   const { canManage } = usePermissions();
@@ -140,6 +141,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [activeTab, setActiveTab] = useState<TabId>("principal");
   const [deletingProduct, setDeletingProduct] = useState<ItemListadoUnificado | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [changingActivity, setChangingActivity] = useState<number | null>(null);
   const [openOptions, setOpenOptions] = useState<{ product: ItemListadoUnificado; top: number; left: number; width: number } | null>(null);
   const optionsButtonRef = useRef<HTMLButtonElement | null>(null);
   const optionsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -180,6 +182,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [subcategoria, setSubcategoria] = useState(searchParams.get("subcategoria") || "");
   const [marca, setMarca] = useState(searchParams.get("marca") || "");
   const [proveedor, setProveedor] = useState(searchParams.get("proveedor") || "");
+  const [estado, setEstado] = useState(canViewInactive ? searchParams.get("estado") || "ACTIVOS" : "ACTIVOS");
+  const [margenes, setMargenes] = useState(searchParams.get("margenes") || "");
 
   const handleGeneralSearchChange = (value: string) => {
     setSearchGeneral(value);
@@ -301,6 +305,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       if (subcategoria) newParams.set("subcategoria", subcategoria);
       if (marca) newParams.set("marca", marca);
       if (proveedor) newParams.set("proveedor", proveedor);
+      if (canViewInactive && estado !== "ACTIVOS") newParams.set("estado", estado);
+      if (margenes) newParams.set("margenes", margenes);
 
       // Si los parámetros cambiaron, volvemos a la página 1
       const paramsChanged = newParams.toString() !== Array.from(currentParams.entries())
@@ -315,7 +321,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchGeneral, searchSpecific, categoria, subcategoria, marca, proveedor, router]);
+  }, [searchGeneral, searchSpecific, categoria, subcategoria, marca, proveedor, estado, margenes, canViewInactive, router]);
 
   const subcategoriasDisponibles = useMemo(() => {
     if (!categoria) return [] as Subcategoria[];
@@ -432,7 +438,31 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     setSubcategoria("");
     setMarca("");
     setProveedor("");
+    setEstado("ACTIVOS");
+    setMargenes("");
     router.push("/");
+  };
+
+  const toggleProductActive = async (product: ItemListadoUnificado) => {
+    if (product.tipo !== "ITEM") return;
+    const nextActive = product.activo === false;
+    try {
+      setChangingActivity(product.id);
+      const response = await fetch(`/api/productos/${product.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activo: nextActive }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "No se pudo cambiar el estado del item");
+      setOpenOptions(null);
+      router.refresh();
+      toast.success(nextActive ? "Item activado" : "Item desactivado y oculto del listado general");
+    } catch (error) {
+      showError(error, "No se pudo cambiar el estado del item");
+    } finally {
+      setChangingActivity(null);
+    }
   };
 
   const handleDelete = async () => {
@@ -628,6 +658,27 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   {tiposVenta.map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.descripcion}</option>)}
                 </select>
               </div>
+
+              {canViewInactive && <div className="w-28">
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Estado</label>
+                <select value={estado} onChange={(event) => setEstado(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+                  <option value="ACTIVOS">ACTIVOS</option>
+                  <option value="INACTIVOS">INACTIVOS</option>
+                  <option value="TODOS">TODOS</option>
+                </select>
+              </div>}
+
+              <div className="w-40">
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Márgenes</label>
+                <select value={margenes} onChange={(event) => setMargenes(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+                  <option value="">TODOS</option>
+                  <option value="COMPLETOS">LOS 3 CONFIGURADOS</option>
+                  <option value="FALTA_ALGUNO">FALTA ALGUNO</option>
+                  <option value="FALTA_MOSTRADOR">FALTA MOSTRADOR</option>
+                  <option value="FALTA_MECANICO">FALTA MECÁNICO</option>
+                  <option value="FALTA_MERCADO_LIBRE">FALTA MERCADO LIBRE</option>
+                </select>
+              </div>
             </div>
 
             <div className="hidden">
@@ -743,6 +794,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                             {product.parent_kit_codigo ? `COMPONENTE DE ${product.parent_kit_codigo}` : product.codigo_pieza}
                           </span>
                         )}
+                        {product.tipo === "ITEM" && product.activo === false && <span className="mt-1 w-fit rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-black text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">INACTIVO</span>}
                       </div>
                     </td>
                     <td
@@ -800,6 +852,12 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       )}
                     </td>
                     <td className="px-1 py-3 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                      {product.tipo === "KIT" && Number(product.componentes_sin_margen_ml || 0) > 0 && (
+                        <span className="inline-flex h-6 w-6 cursor-help items-center justify-center text-amber-500 dark:text-amber-300" title={`${product.componentes_sin_margen_ml} componente(s) sin margen de Mercado Libre: ${(product.codigos_componentes_sin_margen_ml || []).join(", ")}`}>
+                          <HiExclamationCircle className="h-5 w-5" />
+                        </span>
+                      )}
                       {product.publicaciones_ml && product.publicaciones_ml.length > 0 ? (() => {
                         const hasActivePublication = product.publicaciones_ml.some((publication) => publication.estado === "active");
                         return <span
@@ -811,6 +869,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                           <Image src="/mercadolibre-logo.png" alt="Mercado Libre" width={36} height={25} className={`h-auto w-9 ${hasActivePublication ? "" : "opacity-60 grayscale"}`} />
                         </span>;
                       })() : null}
+                      </div>
                     </td>
                     <td className="truncate px-2 py-3 text-[11px] text-slate-600 dark:text-slate-300" title={product.marca ?? ""}>{product.marca ?? "-"}</td>
                     <td className="px-2 py-3">
@@ -859,7 +918,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                                 const button = event.currentTarget;
                                 const rect = button.getBoundingClientRect();
                                 const width = Math.min(208, Math.max(0, window.innerWidth - 16));
-                                const height = 124;
+                                const height = product.tipo === "ITEM" ? 164 : 124;
                                 const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
                                 const top = rect.bottom + 4 + height <= window.innerHeight - 8
                                   ? rect.bottom + 4 : Math.max(8, rect.top - height - 4);
@@ -1313,6 +1372,9 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
           <button type="button" onClick={() => { setReviewPublicationProduct(openOptions.product); setOpenOptions(null); }} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-slate-600 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-300">
             <HiExternalLink className="h-4 w-4 shrink-0" /> Duplicar publicacion ML
           </button>
+          {openOptions.product.tipo === "ITEM" && <button type="button" onClick={() => void toggleProductActive(openOptions.product)} disabled={changingActivity === openOptions.product.id} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-slate-600 transition hover:bg-amber-50 hover:text-amber-700 disabled:cursor-wait disabled:opacity-50 dark:text-slate-300 dark:hover:bg-amber-500/10 dark:hover:text-amber-300">
+            {openOptions.product.activo === false ? <HiEye className="h-4 w-4 shrink-0" /> : <HiEyeOff className="h-4 w-4 shrink-0" />} {openOptions.product.activo === false ? "Activar" : "Desactivar"}
+          </button>}
           <button type="button" onClick={() => { setDeletingProduct(openOptions.product); setOpenOptions(null); }} disabled={isDeleting && deletingProduct?.id === openOptions.product.id && deletingProduct?.tipo === openOptions.product.tipo} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-500/10">
             <HiTrash className="h-4 w-4 shrink-0" /> Borrar
           </button>

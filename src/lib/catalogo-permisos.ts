@@ -1,4 +1,4 @@
-export const ACCIONES_PERMISO = ["leer", "escribir", "eliminar", "exportar", "masivo"] as const;
+export const ACCIONES_PERMISO = ["leer", "escribir", "eliminar", "exportar", "masivo", "ver_inactivos"] as const;
 export type AccionPermiso = typeof ACCIONES_PERMISO[number];
 
 type Apartado = {
@@ -10,6 +10,7 @@ type Apartado = {
 
 const lecturaEscritura = ["leer", "escribir"] as const;
 const gestion = ["leer", "escribir", "eliminar", "exportar", "masivo"] as const;
+const gestionProductos = ["leer", "escribir", "eliminar", "exportar", "masivo", "ver_inactivos"] as const;
 
 // Este catalogo no concede permisos: las acciones deben comprobarse en el servidor.
 export const CATALOGO_PERMISOS: readonly Apartado[] = [
@@ -26,7 +27,7 @@ export const CATALOGO_PERMISOS: readonly Apartado[] = [
   { id: "ml_descripciones", grupo: "Mercado Libre", nombre: "Descripciones con ChatGPT", acciones: lecturaEscritura },
   { id: "ml_costos", grupo: "Mercado Libre", nombre: "Costos", acciones: ["leer", "escribir", "masivo"] },
   { id: "ml_integracion", grupo: "Mercado Libre", nombre: "Conexion y configuracion", acciones: lecturaEscritura },
-  { id: "productos", grupo: "Items y catalogo", nombre: "Items y productos", acciones: gestion },
+  { id: "productos", grupo: "Items y catalogo", nombre: "Items y productos", acciones: gestionProductos },
   { id: "productos_precios", grupo: "Items y catalogo", nombre: "Precios y costos", acciones: ["leer", "escribir", "exportar", "masivo"] },
   { id: "productos_stock", grupo: "Items y catalogo", nombre: "Stock", acciones: ["leer", "escribir", "exportar", "masivo"] },
   { id: "piezas", grupo: "Items y catalogo", nombre: "Items asociados y piezas", acciones: gestion },
