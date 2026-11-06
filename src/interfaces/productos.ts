@@ -133,6 +133,7 @@ export type ProductoListado = {
   id_categoria?: number | null;
   usa_numero_serie?: boolean;
   palabra_clave?: string | null;
+  criterio_costo?: import("@/lib/costos").CriterioCosto;
   precios?: PrecioDetalle[];
   ubicaciones_resumen?: { id_ubicacion: number | null; ubicacion: string; cantidad: number }[];
 };

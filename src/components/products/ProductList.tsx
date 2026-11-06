@@ -31,7 +31,7 @@ interface Props {
 
 const TOOLTIP_WIDTH = 420;
 const TOOLTIP_MARGIN = 16;
-type TooltipContent = "locations" | "details" | "activity" | "mercadolibre";
+type TooltipContent = "locations" | "details" | "activity" | "mercadolibre" | "providers";
 type ProductActivity = {
   id: number;
   tipo: "ALTA" | "EDICION" | "STOCK" | "COSTO" | "PRECIO";
@@ -84,6 +84,24 @@ function formatDateTime(value: string | null | undefined) {
   if (!value) return "Sin dato";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Sin dato" : date.toLocaleString("es-AR");
+}
+
+function formatCriterioCosto(value: ItemListadoUnificado["criterio_costo"]) {
+  const labels: Record<string, string> = {
+    MANUAL: "Manual",
+    PROVEEDOR_UNICO: "Precio único de proveedor",
+    MENOR_PRECIO: "Menor costo neto",
+    PROMEDIO_PRECIO: "Promedio de costos netos",
+    MAYOR_PRECIO: "Mayor costo neto",
+  };
+  return labels[String(value ?? "")] || "Sin criterio";
+}
+
+function formatMargenLista(precio: NonNullable<ItemListadoUnificado["precios"]>[number]) {
+  if (normalizarTipoPrecio(precio.tipo_descripcion) === "COSTO BASE") return "Costo base";
+  if (precio.modo_calculo && precio.modo_calculo !== "MARGEN_COSTO") return "Precio fijo";
+  const margen = Number(precio.porcentaje_ganancia ?? 0);
+  return `${margen.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`;
 }
 
 function getStockStatus(stockValue: number, stockMinimoValue: number) {
@@ -878,7 +896,12 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         <span className="truncate text-[10px] text-slate-400 dark:text-slate-500">{product.subcategoria ?? "-"}</span>
                       </div>
                     </td>
-                    <td className="truncate px-2 py-3 text-[11px] text-slate-600 dark:text-slate-400" title={product.proveedor ?? ""}>
+                    <td
+                      className="truncate px-2 py-3 text-[11px] text-slate-600 dark:text-slate-400"
+                      title={product.proveedor ?? ""}
+                      onMouseEnter={(event) => product.tipo === "ITEM" && handleTooltipEnter(product, "providers", event)}
+                      onMouseLeave={product.tipo === "ITEM" ? handleTooltipLeave : undefined}
+                    >
                       {product.tipo === "KIT" ? `${product.componentes_kit?.length || 0} componentes` : product.proveedor ?? "-"}
                     </td>
                     <td className="px-2 py-3 text-right text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200" title="Costo de compra">
@@ -1179,6 +1202,49 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       Todavia no hay actividad registrada.
                     </p>
                   )}
+                </>
+              ) : tooltipContent === "providers" ? (
+                <>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Costo y márgenes</p>
+                    <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_unico}</p>
+                    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Criterio: <span className="font-bold text-slate-800 dark:text-slate-100">{formatCriterioCosto(hoveredProduct.criterio_costo)}</span></p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Proveedores</p>
+                    {hoveredProduct.proveedores_detalle && hoveredProduct.proveedores_detalle.length > 0 ? (
+                      <div className="mt-1.5 space-y-1.5">
+                        {hoveredProduct.proveedores_detalle.map((item, index) => {
+                          const costoNeto = Number(item.costo_actual);
+                          return (
+                            <div key={`${hoveredProduct.id}-provider-detail-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-700/50">
+                              <span className="truncate font-bold text-slate-700 dark:text-slate-200">{item.proveedor}</span>
+                              <span className="font-mono text-[11px] font-bold text-slate-600 dark:text-slate-300">{item.codigo_proveedor || "Sin código"}</span>
+                              <span className="col-span-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">Costo neto: <span className="font-bold text-slate-700 dark:text-slate-200">{Number.isFinite(costoNeto) ? formatMoney(costoNeto) : "Sin costo"}</span></span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : <p className="mt-1 text-xs text-slate-400">Sin proveedores asociados</p>}
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Listas de precio</p>
+                    {hoveredProduct.precios && hoveredProduct.precios.length > 0 ? (
+                      <div className="mt-1.5 space-y-1">
+                        {hoveredProduct.precios.map((precio) => {
+                          const valor = Number(precio.valor);
+                          return (
+                            <div key={precio.id_tipo_precio} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-700/50">
+                              <span className="min-w-0 truncate font-bold text-slate-700 dark:text-slate-200">{precio.tipo_descripcion}</span>
+                              <span className="shrink-0 text-right text-[11px] text-slate-500 dark:text-slate-400"><b className="text-slate-700 dark:text-slate-200">{formatMargenLista(precio)}</b> · {Number.isFinite(valor) ? formatMoney(valor) : "Sin precio"}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : <p className="mt-1 text-xs text-slate-400">Sin listas configuradas</p>}
+                  </div>
                 </>
               ) : hoveredProduct.tipo === "KIT" ? (
                 <>
