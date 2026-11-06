@@ -218,7 +218,7 @@ export async function saveCotizacionesConfiguradas(input: Array<{
     for (const item of input) {
       const quote = byCode.get(item.codigo);
       if (!quote || !["MANUAL", "AUTOMATICA"].includes(item.modo) || !isOneOf(item.tipoRecargo, TIPOS_RECARGO)
-        || !Number.isFinite(item.recargo) || item.recargo < 0) {
+        || !Number.isFinite(item.recargo)) {
         throw new AppError("Revisa el modo y recargo de las cotizaciones.", 400);
       }
       if (item.modo === "MANUAL" && (!Number.isFinite(item.valorManual) || Number(item.valorManual) <= 0)) {

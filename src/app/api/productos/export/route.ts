@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
     const columnsParam = searchParams.get("columns");
     const selectedColumns = columnsParam?.split(",") ?? [];
-    const supplierColumns = new Set(["Proveedor", "Codigo Proveedor", "Precio Lista Proveedor"]);
+    const supplierColumns = new Set(["Proveedor", "Codigo Proveedor", "Precio Lista Proveedor", "Costo Neto Proveedor"]);
     const dataFull = await getProductosParaExportar(filters, {
       detalleProveedor: selectedColumns.some((column) => supplierColumns.has(column)),
     });
@@ -32,10 +32,20 @@ export async function GET(req: NextRequest) {
     if (columnsParam) {
       data = dataFull.map(row => {
         const filtered: any = {};
+        const includePrices = selectedColumns.includes("Precios y Márgenes");
+        const includeCurrency = selectedColumns.includes("Moneda y Cotización");
         selectedColumns.forEach(col => {
           // Buscamos coincidencia exacta o por el nombre formateado que viene del repo
           if (row[col] !== undefined) {
             filtered[col] = row[col];
+          }
+        });
+        Object.entries(row).forEach(([column, value]) => {
+          const isBasePrice = column === "Costo Base";
+          const isPrice = / - (Margen %|Precio Final \(ARS\))$/.test(column);
+          const isCurrency = / - (Moneda Origen|Importe Origen|Cotizacion Aplicada|Recargo Cotizacion)$/.test(column);
+          if ((includePrices && (isBasePrice || isPrice)) || (includeCurrency && isCurrency)) {
+            filtered[column] = value;
           }
         });
         return filtered;

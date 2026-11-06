@@ -78,6 +78,8 @@ type CostoBaseImportado = {
   monedaOrigen: "ARS" | "USD" | "EUR" | "BRL";
   referenciaCotizacion: "OFICIAL" | "BLUE" | "MEP" | "CCL" | null;
   ladoCotizacion: "VENTA" | null;
+  tipoRecargoCotizacion: "PORCENTAJE" | "MONTO_FIJO" | null;
+  recargoCotizacion: number | null;
   cotizacionUsada: number;
 };
 
@@ -199,8 +201,8 @@ async function syncProductoPrecios(
         calculado.importeOrigen, modoCalculo === "FIJO_ARS" ? "ARS" : item.moneda_origen ?? null,
         modoCalculo === "FIJO_MONEDA" ? item.referencia_cotizacion ?? null : null,
         modoCalculo === "FIJO_MONEDA" ? item.lado_cotizacion ?? null : null,
-        modoCalculo === "FIJO_MONEDA" ? item.tipo_recargo_cotizacion ?? "PORCENTAJE" : null,
-        modoCalculo === "FIJO_MONEDA" ? item.recargo_cotizacion ?? 0 : null,
+        modoCalculo === "FIJO_MONEDA" ? calculado.tipoRecargo : null,
+        modoCalculo === "FIJO_MONEDA" ? calculado.recargo : null,
         calculado.cotizacionUsada,
       ]
     );
@@ -528,6 +530,19 @@ export async function setProductoActivo(id: number, activo: boolean): Promise<Pi
   return result.rows[0] || null;
 }
 
+type PrecioExportacion = {
+  precio?: number | null;
+  porcentaje?: number | null;
+  modo_calculo?: string | null;
+  importe_origen?: number | null;
+  moneda_origen?: string | null;
+  referencia_cotizacion?: string | null;
+  lado_cotizacion?: string | null;
+  tipo_recargo_cotizacion?: string | null;
+  recargo_cotizacion?: number | null;
+  cotizacion_usada?: number | null;
+};
+
 export async function getProductosParaExportar(filters: {
   search?: string;
   searchSpecific?: string;
@@ -574,6 +589,7 @@ export async function getProductosParaExportar(filters: {
       prv.descripcion AS "Proveedor",
       NULLIF(TRIM(pp_prov.codigo_proveedor), '') AS "Codigo Proveedor",
       pp_prov.precio_lista_actual AS "Precio Lista Proveedor",
+      pp_prov.costo_actual AS "Costo Neto Proveedor",
     `
     : `
       COALESCE(
@@ -588,6 +604,10 @@ export async function getProductosParaExportar(filters: {
         STRING_AGG(DISTINCT pp_prov.precio_lista_actual::text, ' | ') FILTER (WHERE pp_prov.precio_lista_actual IS NOT NULL),
         ''
       ) AS "Precio Lista Proveedor",
+      COALESCE(
+        STRING_AGG(DISTINCT pp_prov.costo_actual::text, ' | ') FILTER (WHERE pp_prov.costo_actual IS NOT NULL),
+        ''
+      ) AS "Costo Neto Proveedor",
       COALESCE(
         STRING_AGG(DISTINCT prv.descripcion || ' [' || COALESCE(pp_prov.codigo_proveedor, 'S/C') || ']: $' || COALESCE(pp_prov.precio_lista_actual, 0), ' | '),
         ''
@@ -621,7 +641,15 @@ export async function getProductosParaExportar(filters: {
           tp.id::text,
           JSONB_BUILD_OBJECT(
             'precio', pp_p.precio,
-            'porcentaje', COALESCE(pp_p.porcentaje_ganancia, 0)
+            'porcentaje', COALESCE(pp_p.porcentaje_ganancia, 0),
+            'modo_calculo', COALESCE(pp_p.modo_calculo, 'MARGEN_COSTO'),
+            'importe_origen', pp_p.importe_origen,
+            'moneda_origen', pp_p.moneda_origen,
+            'referencia_cotizacion', pp_p.referencia_cotizacion,
+            'lado_cotizacion', pp_p.lado_cotizacion,
+            'tipo_recargo_cotizacion', pp_p.tipo_recargo_cotizacion,
+            'recargo_cotizacion', pp_p.recargo_cotizacion,
+            'cotizacion_usada', pp_p.cotizacion_usada
           )
         ) FILTER (WHERE tp.id IS NOT NULL),
         '{}'::jsonb
@@ -661,18 +689,26 @@ export async function getProductosParaExportar(filters: {
   return rows.map((row: Record<string, unknown>) => {
     const { precios_exportacion, ...item } = row;
     const precios = typeof precios_exportacion === "string"
-      ? JSON.parse(precios_exportacion) as Record<string, { precio?: number; porcentaje?: number }>
-      : (precios_exportacion ?? {}) as Record<string, { precio?: number; porcentaje?: number }>;
+      ? JSON.parse(precios_exportacion) as Record<string, PrecioExportacion>
+      : (precios_exportacion ?? {}) as Record<string, PrecioExportacion>;
 
     tiposPrecio.forEach((tipo) => {
       const precio = precios[String(tipo.id)];
       if (tipo.id === 1) {
         item["Costo Base"] = precio?.precio ?? "";
+        item["Costo Base - Moneda Origen"] = precio?.moneda_origen ?? "ARS";
+        item["Costo Base - Importe Origen"] = precio?.importe_origen ?? precio?.precio ?? "";
+        item["Costo Base - Cotizacion Aplicada"] = precio?.cotizacion_usada ?? "";
+        item["Costo Base - Recargo Cotizacion"] = precio?.recargo_cotizacion ?? "";
         return;
       }
 
-      item[`${tipo.descripcion} - Porcentaje`] = precio?.porcentaje ?? "";
-      item[`${tipo.descripcion} - Precio Final`] = precio?.precio ?? "";
+      item[`${tipo.descripcion} - Margen %`] = precio?.porcentaje ?? "";
+      item[`${tipo.descripcion} - Precio Final (ARS)`] = precio?.precio ?? "";
+      item[`${tipo.descripcion} - Moneda Origen`] = precio?.moneda_origen ?? "ARS";
+      item[`${tipo.descripcion} - Importe Origen`] = precio?.importe_origen ?? precio?.precio ?? "";
+      item[`${tipo.descripcion} - Cotizacion Aplicada`] = precio?.cotizacion_usada ?? "";
+      item[`${tipo.descripcion} - Recargo Cotizacion`] = precio?.recargo_cotizacion ?? "";
     });
 
     return item;
@@ -1376,6 +1412,8 @@ export async function importProductosConCliente(
       moneda: "USD" | "EUR" | "BRL";
       referencia: "OFICIAL" | "BLUE" | "MEP" | "CCL";
       valorVenta: number;
+      tipoRecargo: "PORCENTAJE" | "MONTO_FIJO";
+      recargo: number;
     }>();
     if (mappings.costo_base?.csvHeader) {
       const cotizaciones = await client.query<{
@@ -1383,8 +1421,11 @@ export async function importProductosConCliente(
         moneda: "USD" | "EUR" | "BRL";
         referencia: "OFICIAL" | "BLUE" | "MEP" | "CCL";
         valor_venta: string | null;
+        tipo_recargo: "PORCENTAJE" | "MONTO_FIJO";
+        recargo: string;
       }>(`
-        SELECT configuracion.codigo, configuracion.moneda, configuracion.referencia, ultima.valor_venta
+        SELECT configuracion.codigo, configuracion.moneda, configuracion.referencia, ultima.valor_venta,
+          configuracion.tipo_recargo, configuracion.recargo
         FROM public.moneda_cotizacion_configuracion configuracion
         LEFT JOIN LATERAL (
           SELECT valor_venta
@@ -1404,6 +1445,8 @@ export async function importProductosConCliente(
             moneda: cotizacion.moneda,
             referencia: cotizacion.referencia,
             valorVenta,
+            tipoRecargo: cotizacion.tipo_recargo,
+            recargo: Number(cotizacion.recargo) || 0,
           });
         }
       });
@@ -1506,13 +1549,21 @@ export async function importProductosConCliente(
           monedaOrigen: "ARS",
           referenciaCotizacion: null,
           ladoCotizacion: null,
+          tipoRecargoCotizacion: null,
+          recargoCotizacion: null,
           cotizacionUsada: 1,
         };
       }
 
       const cotizacion = cotizacionesCostoBase.get(info.codigoCotizacion);
       if (!cotizacion) throw new Error(`La cotizacion de venta para ${info.codigoCotizacion} no esta vigente.`);
-      const precioArs = Math.round((precio * cotizacion.valorVenta + Number.EPSILON) * 100) / 100;
+      const cotizacionAjustada = cotizacion.tipoRecargo === "MONTO_FIJO"
+        ? cotizacion.valorVenta + cotizacion.recargo
+        : cotizacion.valorVenta * (1 + cotizacion.recargo / 100);
+      if (!Number.isFinite(cotizacionAjustada) || cotizacionAjustada <= 0) {
+        throw new Error(`El recargo deja la cotizacion de ${info.codigoCotizacion} en un valor no valido.`);
+      }
+      const precioArs = Math.round((precio * cotizacionAjustada + Number.EPSILON) * 100) / 100;
       if (!Number.isFinite(precioArs) || precioArs > MAX_PRECIO_PRODUCTO_ARS) {
         throw new Error("El costo base convertido a pesos supera el importe maximo permitido.");
       }
@@ -1523,7 +1574,9 @@ export async function importProductosConCliente(
         monedaOrigen: info.moneda,
         referenciaCotizacion: info.referencia,
         ladoCotizacion: "VENTA",
-        cotizacionUsada: cotizacion.valorVenta,
+        tipoRecargoCotizacion: cotizacion.tipoRecargo,
+        recargoCotizacion: cotizacion.recargo,
+        cotizacionUsada: cotizacionAjustada,
       };
     };
 
@@ -2005,8 +2058,10 @@ export async function importProductosConCliente(
                 $5::text[],
                 $6::text[],
                 $7::text[],
-                $8::numeric[]
-              ) AS t(id_producto, precio_ars, modo_calculo, importe_origen, moneda_origen, referencia_cotizacion, lado_cotizacion, cotizacion_usada)
+                $8::text[],
+                $9::numeric[],
+                $10::numeric[]
+              ) AS t(id_producto, precio_ars, modo_calculo, importe_origen, moneda_origen, referencia_cotizacion, lado_cotizacion, tipo_recargo_cotizacion, recargo_cotizacion, cotizacion_usada)
             ),
             costos_actualizados AS (
               UPDATE public.producto_precio precio
@@ -2017,8 +2072,8 @@ export async function importProductosConCliente(
                   moneda_origen = datos.moneda_origen,
                   referencia_cotizacion = datos.referencia_cotizacion,
                   lado_cotizacion = datos.lado_cotizacion,
-                  tipo_recargo_cotizacion = CASE WHEN datos.modo_calculo = 'FIJO_MONEDA' THEN 'PORCENTAJE' ELSE NULL END,
-                  recargo_cotizacion = CASE WHEN datos.modo_calculo = 'FIJO_MONEDA' THEN 0 ELSE NULL END,
+                  tipo_recargo_cotizacion = datos.tipo_recargo_cotizacion,
+                  recargo_cotizacion = datos.recargo_cotizacion,
                   cotizacion_usada = datos.cotizacion_usada,
                   actualizado_origen_at = NOW()
               FROM datos
@@ -2042,8 +2097,8 @@ export async function importProductosConCliente(
               datos.moneda_origen,
               datos.referencia_cotizacion,
               datos.lado_cotizacion,
-              CASE WHEN datos.modo_calculo = 'FIJO_MONEDA' THEN 'PORCENTAJE' ELSE NULL END,
-              CASE WHEN datos.modo_calculo = 'FIJO_MONEDA' THEN 0 ELSE NULL END,
+              datos.tipo_recargo_cotizacion,
+              datos.recargo_cotizacion,
               datos.cotizacion_usada,
               NOW()
             FROM datos
@@ -2063,6 +2118,8 @@ export async function importProductosConCliente(
             costosBaseDirectos.map((item) => item.monedaOrigen),
             costosBaseDirectos.map((item) => item.referenciaCotizacion),
             costosBaseDirectos.map((item) => item.ladoCotizacion),
+            costosBaseDirectos.map((item) => item.tipoRecargoCotizacion),
+            costosBaseDirectos.map((item) => item.recargoCotizacion),
             costosBaseDirectos.map((item) => item.cotizacionUsada),
           ],
         );

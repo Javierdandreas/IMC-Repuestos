@@ -177,8 +177,8 @@ async function syncKitPrecios(client: DbClient, idKit: number, precios: PrecioDe
         calculated.importeOrigen, modo === "FIJO_ARS" ? "ARS" : item.moneda_origen ?? null,
         modo === "FIJO_MONEDA" ? item.referencia_cotizacion ?? null : null,
         modo === "FIJO_MONEDA" ? item.lado_cotizacion ?? null : null,
-        modo === "FIJO_MONEDA" ? item.tipo_recargo_cotizacion ?? "PORCENTAJE" : null,
-        modo === "FIJO_MONEDA" ? item.recargo_cotizacion ?? 0 : null,
+        modo === "FIJO_MONEDA" ? calculated.tipoRecargo : null,
+        modo === "FIJO_MONEDA" ? calculated.recargo : null,
         calculated.cotizacionUsada,
       ]
     );

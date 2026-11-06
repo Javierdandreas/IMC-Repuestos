@@ -23,28 +23,38 @@ function asPositiveNumber(value: unknown) {
  */
 export async function calcularPrecioArsDesdeOrigen(client: DbClient, precio: PrecioCalculable) {
   const modo = precio.modo_calculo ?? "MARGEN_COSTO";
-  const importe = asPositiveNumber(precio.importe_origen) ?? Math.max(0, Number(precio.valor) || 0);
+  const importeOrigen = asPositiveNumber(precio.importe_origen);
+  const importe = importeOrigen ?? Math.max(0, Number(precio.valor) || 0);
 
   if (modo === "MARGEN_COSTO") {
-    return { valor: round(Math.max(0, Number(precio.valor) || 0)), importeOrigen: null, cotizacionUsada: null };
+    return { valor: round(Math.max(0, Number(precio.valor) || 0)), importeOrigen: null, cotizacionUsada: null, tipoRecargo: null, recargo: null };
   }
 
   if (modo === "FIJO_ARS") {
-    return { valor: round(importe), importeOrigen: importe, cotizacionUsada: 1 };
+    return { valor: round(importe), importeOrigen: importe, cotizacionUsada: 1, tipoRecargo: null, recargo: null };
   }
 
   const moneda = precio.moneda_origen;
   const referencia = precio.referencia_cotizacion;
   const lado = precio.lado_cotizacion;
-  if (!moneda || moneda === "ARS" || !referencia || !lado || importe <= 0) {
+  if (!moneda || moneda === "ARS" || !referencia || !lado || !importeOrigen) {
     throw new AppError("Indica importe, moneda y cotizacion para el precio fijo en moneda.", 400);
   }
 
-  const quote = await client.query<{ valor_compra: number | null; valor_venta: number | null }>(
-    `SELECT valor_compra, valor_venta
-     FROM public.moneda_cotizacion
-     WHERE moneda = $1 AND referencia = $2 AND estado = 'VIGENTE'
-     ORDER BY actualizado_at DESC, id DESC
+  const quote = await client.query<{
+    valor_compra: number | null;
+    valor_venta: number | null;
+    tipo_recargo: "PORCENTAJE" | "MONTO_FIJO" | null;
+    recargo: number | null;
+  }>(
+    `SELECT cotizacion.valor_compra, cotizacion.valor_venta,
+       configuracion.tipo_recargo, configuracion.recargo
+     FROM public.moneda_cotizacion cotizacion
+     LEFT JOIN public.moneda_cotizacion_configuracion configuracion
+       ON configuracion.moneda = cotizacion.moneda
+      AND configuracion.referencia = cotizacion.referencia
+     WHERE cotizacion.moneda = $1 AND cotizacion.referencia = $2 AND cotizacion.estado = 'VIGENTE'
+     ORDER BY cotizacion.actualizado_at DESC, cotizacion.id DESC
      LIMIT 1`,
     [moneda, referencia]
   );
@@ -52,11 +62,18 @@ export async function calcularPrecioArsDesdeOrigen(client: DbClient, precio: Pre
   const cotizacion = asPositiveNumber(value);
   if (!cotizacion) throw new AppError(`No hay una cotizacion vigente de ${moneda} ${referencia} (${lado}).`, 409);
 
-  const recargo = Math.max(0, Number(precio.recargo_cotizacion) || 0);
-  const adjustedQuote = precio.tipo_recargo_cotizacion === "MONTO_FIJO"
+  const tipoRecargo = quote.rows[0]?.tipo_recargo ?? precio.tipo_recargo_cotizacion ?? "PORCENTAJE";
+  const recargoConfigurado = quote.rows[0]?.recargo;
+  const recargo = Number.isFinite(Number(recargoConfigurado))
+    ? Number(recargoConfigurado)
+    : Number(precio.recargo_cotizacion) || 0;
+  const adjustedQuote = tipoRecargo === "MONTO_FIJO"
     ? cotizacion + recargo
     : cotizacion * (1 + recargo / 100);
-  return { valor: round(importe * adjustedQuote), importeOrigen: importe, cotizacionUsada: round(adjustedQuote) };
+  if (!Number.isFinite(adjustedQuote) || adjustedQuote <= 0) {
+    throw new AppError("El recargo deja la cotizacion en un valor no valido.", 422);
+  }
+  return { valor: round(importe * adjustedQuote), importeOrigen: importe, cotizacionUsada: round(adjustedQuote), tipoRecargo, recargo };
 }
 
 export async function recalcularPreciosMargenDesdeCosto(client: DbClient, productIds: number[]) {
@@ -139,12 +156,15 @@ export async function recalcularPreciosFijosEnMoneda(client: DbClient) {
     } catch {
       continue;
     }
-    if (Math.abs(Number(row.precio) - calculated.valor) < 0.005) continue;
+    if (Math.abs(Number(row.precio) - calculated.valor) < 0.005
+      && row.tipo_recargo_cotizacion === calculated.tipoRecargo
+      && Number(row.recargo_cotizacion ?? 0) === Number(calculated.recargo ?? 0)) continue;
     await client.query(
       `UPDATE public.producto_precio
-       SET precio = $2, cotizacion_usada = $3, actualizado_origen_at = NOW()
+       SET precio = $2, cotizacion_usada = $3, tipo_recargo_cotizacion = $4,
+         recargo_cotizacion = $5, actualizado_origen_at = NOW()
        WHERE id = $1`,
-      [row.id, calculated.valor, calculated.cotizacionUsada]
+      [row.id, calculated.valor, calculated.cotizacionUsada, calculated.tipoRecargo, calculated.recargo]
     );
     await client.query(
       `INSERT INTO public.precio_moneda_historial
@@ -189,10 +209,15 @@ export async function recalcularPreciosFijosEnMoneda(client: DbClient) {
     } catch {
       continue;
     }
-    if (Math.abs(Number(row.precio) - calculated.valor) < 0.005) continue;
+    if (Math.abs(Number(row.precio) - calculated.valor) < 0.005
+      && row.tipo_recargo_cotizacion === calculated.tipoRecargo
+      && Number(row.recargo_cotizacion ?? 0) === Number(calculated.recargo ?? 0)) continue;
     await client.query(
-      `UPDATE public.kit_precio SET precio = $2, cotizacion_usada = $3, actualizado_origen_at = NOW() WHERE id = $1`,
-      [row.id, calculated.valor, calculated.cotizacionUsada]
+      `UPDATE public.kit_precio
+       SET precio = $2, cotizacion_usada = $3, tipo_recargo_cotizacion = $4,
+         recargo_cotizacion = $5, actualizado_origen_at = NOW()
+       WHERE id = $1`,
+      [row.id, calculated.valor, calculated.cotizacionUsada, calculated.tipoRecargo, calculated.recargo]
     );
     await client.query(
       `INSERT INTO public.precio_moneda_historial
