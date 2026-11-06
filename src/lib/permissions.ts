@@ -70,6 +70,7 @@ export function permisoParaPagina(pathname: string, searchParams: URLSearchParam
   if (pathname.startsWith("/piezas")) return requisito("piezas", pathname.includes("/nueva") || pathname.includes("/editar") ? "escribir" : pathname.includes("/importar") ? "masivo" : "leer");
   if (pathname.startsWith("/kits")) return requisito("kits", pathname.includes("/nuevo") || pathname.includes("/editar") || pathname.includes("/duplicar") ? "escribir" : pathname.includes("/importar") ? "masivo" : "leer");
   if (pathname.startsWith("/proveedores")) return requisito("proveedores", pathname.includes("/nuevo") || pathname.includes("/editar") ? "escribir" : pathname.includes("/importar") ? "masivo" : pathname.includes("/exportar") ? "exportar" : "leer");
+  if (pathname.startsWith("/clientes")) return requisito("clientes", "leer");
   if (pathname.startsWith("/operaciones/mercadolibre/compatibilidades")) return requisito("ml_compatibilidades", "leer");
   if (pathname.startsWith("/operaciones/mercadolibre")) return requisito("ml_ventas", "leer");
   if (pathname.startsWith("/operaciones")) {
@@ -125,6 +126,7 @@ export function permisoParaApi(pathname: string, method: string, searchParams: U
     if (pathname.includes("descuentos") || pathname.includes("moneda") || pathname.includes("reglas-costo") || pathname.includes("stock-colores")) return conAccion("proveedores_precios");
     return conAccion("proveedores");
   }
+  if (pathname.startsWith("/api/clientes")) return conAccion("clientes");
   if (pathname.startsWith("/api/catalogos/marcas")) return conAccion("marcas");
   if (pathname.startsWith("/api/catalogos/proveedores")) return conAccion("proveedores");
   if (pathname.startsWith("/api/catalogos/ubicaciones")) return conAccion("ubicaciones");

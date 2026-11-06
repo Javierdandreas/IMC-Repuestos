@@ -29,6 +29,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/partner/") ||
     pathname === "/api/cron/catalogo-externo" ||
     pathname === "/api/cron/gesu" ||
+    pathname === "/api/cron/gesu-clientes" ||
     pathname === "/api/cron/mercadolibre" ||
     pathname === "/api/cron/multimoneda" ||
     pathname === "/api/integraciones/mercadolibre/notificaciones"

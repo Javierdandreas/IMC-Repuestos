@@ -40,7 +40,7 @@ const navGroups: NavGroup[] = [
     label: "Entidades",
     links: [
       { href: "/proveedores", label: "Proveedores" },
-      { href: "#", label: "Clientes (Próximamente)" },
+      { href: "/clientes", label: "Clientes" },
     ],
   },
   {

@@ -69,7 +69,7 @@ const navGroups: NavGroup[] = [
     icon: HiOutlineUsers,
     links: [
       { href: "/proveedores", label: "Proveedores", permisos: ["proveedores:leer"] },
-      { label: "Clientes", disabled: true },
+      { href: "/clientes", label: "Clientes", permisos: ["clientes:leer"] },
     ],
   },
   {

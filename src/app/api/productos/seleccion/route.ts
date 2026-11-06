@@ -3,19 +3,18 @@ import { jsonError } from "@/lib/api-errors";
 import { requireApiReadSession } from "@/lib/api-auth";
 import { getItemsUnificadosListado } from "@/lib/repos/items-unificados";
 import { puedeVerProductosInactivos } from "@/lib/permissions";
-
-const MAX_SELECTION = 500;
+import { MAX_ITEMS_BUSQUEDA_MASIVA, obtenerItemsDeBusquedaMasiva } from "@/lib/seleccion-items";
 
 export async function GET(request: NextRequest) {
   try {
     const session = await requireApiReadSession(request);
     const params = request.nextUrl.searchParams;
     const requestedStatus = params.get("estado");
-    const estado = puedeVerProductosInactivos(session.rol, session.permisos)
+    const estado: "ACTIVOS" | "INACTIVOS" | "TODOS" = puedeVerProductosInactivos(session.rol, session.permisos)
       && (requestedStatus === "INACTIVOS" || requestedStatus === "TODOS")
       ? requestedStatus
       : "ACTIVOS";
-    const result = await getItemsUnificadosListado(1, MAX_SELECTION, {
+    const filters = {
       search: params.get("search") || undefined,
       searchSpecific: params.get("searchSpecific") || undefined,
       categoria: params.get("categoria") || undefined,
@@ -24,13 +23,25 @@ export async function GET(request: NextRequest) {
       proveedor: params.get("proveedor") || undefined,
       estado,
       margenes: (params.get("margenes") || undefined) as "COMPLETOS" | "FALTA_ALGUNO" | "FALTA_MOSTRADOR" | "FALTA_MECANICO" | "FALTA_MERCADO_LIBRE" | undefined,
-    });
+    };
+
+    if (params.get("modo") === "ITEMS_MASIVO") {
+      const result = await obtenerItemsDeBusquedaMasiva(filters);
+      return NextResponse.json({
+        itemCount: result.itemCount,
+        totalCount: result.totalCount,
+        truncated: result.truncated,
+        maxSelection: MAX_ITEMS_BUSQUEDA_MASIVA,
+      });
+    }
+
+    const result = await getItemsUnificadosListado(1, 500, filters);
 
     return NextResponse.json({
       data: result.data,
       totalCount: result.totalCount,
-      truncated: result.totalCount > MAX_SELECTION,
-      maxSelection: MAX_SELECTION,
+      truncated: result.totalCount > 500,
+      maxSelection: 500,
     });
   } catch (error) {
     return jsonError(error, "No se pudo obtener la seleccion de items.");

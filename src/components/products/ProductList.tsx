@@ -243,6 +243,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   // --- NUEVO: Estado de Selección ---
   const [selectedProductsByKey, setSelectedProductsByKey] = useState<Map<string, ItemListadoUnificado>>(new Map());
   const [selectingSearch, setSelectingSearch] = useState(false);
+  const [selectedSearchItems, setSelectedSearchItems] = useState<{ count: number; filters: Record<string, string> } | null>(null);
   const selectableProducts = products;
   const selectedLabelProducts = useMemo(
     () => Array.from(selectedProductsByKey.values()).filter((product) => product.tipo === "ITEM"),
@@ -257,6 +258,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const selectedCurrentPageCount = selectableProducts.filter(isSelected).length;
 
   const toggleSelect = (product: ItemListadoUnificado) => {
+    setSelectedSearchItems(null);
     const key = `${product.tipo}-${product.id}`;
     setSelectedProductsByKey((current) => {
       const next = new Map(current);
@@ -267,6 +269,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   };
 
   const toggleSelectPage = () => {
+    setSelectedSearchItems(null);
     setSelectedProductsByKey((current) => {
       const next = new Map(current);
       if (selectedCurrentPageCount === selectableProducts.length) {
@@ -283,9 +286,10 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       setSelectingSearch(true);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("page");
+      params.set("modo", "ITEMS_MASIVO");
       const response = await fetch(`/api/productos/seleccion?${params.toString()}`, { cache: "no-store" });
       const result = await response.json().catch(() => ({})) as {
-        data?: ItemListadoUnificado[];
+        itemCount?: number;
         totalCount?: number;
         truncated?: boolean;
         maxSelection?: number;
@@ -293,16 +297,19 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       };
       if (!response.ok) throw new Error(result.message || "No se pudo seleccionar la busqueda.");
       if (result.truncated) {
-        toast.error(`La busqueda tiene ${result.totalCount || 0} resultados. Refina los filtros para seleccionar hasta ${result.maxSelection || 500}.`);
+        toast.error(`La busqueda tiene ${result.totalCount || 0} resultados. Refina los filtros para seleccionar hasta ${result.maxSelection || 30000}.`);
         return;
       }
-      const matches = result.data || [];
-      setSelectedProductsByKey((current) => {
-        const next = new Map(current);
-        matches.forEach((product) => next.set(`${product.tipo}-${product.id}`, product));
-        return next;
-      });
-      toast.success(`${matches.length} resultado(s) seleccionados.`);
+      const filters = Object.fromEntries([...params.entries()].filter(([key]) => key !== "modo"));
+      const itemCount = Number(result.itemCount || 0);
+      if (itemCount === 0) {
+        setSelectedSearchItems(null);
+        toast.error("La busqueda no contiene items para modificar.");
+        return;
+      }
+      setSelectedProductsByKey(new Map());
+      setSelectedSearchItems({ count: itemCount, filters });
+      toast.success(`${itemCount.toLocaleString("es-AR")} item(s) de la busqueda seleccionados.`);
     } catch (error) {
       showError(error, "No se pudo seleccionar toda la busqueda");
     } finally {
@@ -372,7 +379,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     [products, hoveredProductKey]
   );
 
-  const handleTooltipEnter = (product: ItemListadoUnificado, content: TooltipContent, event: React.MouseEvent) => {
+  const handleTooltipEnter = (product: ItemListadoUnificado, content: TooltipContent, event: React.SyntheticEvent<HTMLElement>) => {
     if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
 
     const rect = event.currentTarget.getBoundingClientRect();
@@ -561,13 +568,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   )}
                 </div>
               )}
-              {canManage && totalCount > products.length && <button type="button" disabled={selectingSearch} onClick={selectAllSearchResults} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-300 px-3 text-xs font-black text-blue-700 transition hover:bg-blue-50 disabled:cursor-wait disabled:opacity-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/10"><HiCollection className="h-4 w-4" /> {selectingSearch ? "Seleccionando..." : `Seleccionar busqueda (${totalCount})`}</button>}
-              {canManage && <button type="button" disabled={selectedProducts.length === 0} onClick={() => setOpenMassEdit(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiAdjustments className="h-4 w-4" /> Cambio masivo{selectedProducts.length > 0 ? ` (${selectedProducts.length})` : ""}</button>}
+              {canManage && totalCount > products.length && <button type="button" disabled={selectingSearch} onClick={selectAllSearchResults} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-300 px-3 text-xs font-black text-blue-700 transition hover:bg-blue-50 disabled:cursor-wait disabled:opacity-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/10"><HiCollection className="h-4 w-4" /> {selectingSearch ? "Seleccionando..." : `Seleccionar items de la busqueda (${totalCount})`}</button>}
+              {canManage && <button type="button" disabled={selectedProducts.length === 0 && !selectedSearchItems} onClick={() => setOpenMassEdit(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiAdjustments className="h-4 w-4" /> Cambio masivo{selectedSearchItems ? ` (${selectedSearchItems.count.toLocaleString("es-AR")} items)` : selectedProducts.length > 0 ? ` (${selectedProducts.length})` : ""}</button>}
               {canManage && <button type="button" disabled={selectedLabelProducts.length === 0} onClick={() => setOpenLabelPrinter(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiPrinter className="h-4 w-4" /> Etiquetas{selectedLabelProducts.length > 0 ? ` (${selectedLabelProducts.length})` : ""}</button>}
               <button type="button" disabled title="Proximamente" className="inline-flex h-9 items-center rounded-lg border border-slate-200 px-3 text-xs font-black text-slate-400 disabled:cursor-not-allowed dark:border-slate-800 dark:text-slate-600">Actualizar Mercado Libre</button>
                {canManage && <button type="button" onClick={() => router.push("/productos/importar")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiCloudUpload className="h-4 w-4" /> Importar items</button>}
                {canManage && <button type="button" onClick={() => router.push("/kits/importar")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiCollection className="h-4 w-4" /> Importar kits</button>}
-              {selectedProducts.length > 0 && <button type="button" onClick={() => setSelectedProductsByKey(new Map())} title="Deseleccionar" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"><HiX className="h-4 w-4" /></button>}
+              {(selectedProducts.length > 0 || selectedSearchItems) && <button type="button" onClick={() => { setSelectedProductsByKey(new Map()); setSelectedSearchItems(null); }} title="Deseleccionar" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"><HiX className="h-4 w-4" /></button>}
               <span className="ml-auto text-xs font-medium text-slate-400 dark:text-slate-500">Resultados: <strong className="text-slate-900 dark:text-white">{totalCount}</strong></span>
             </div>
 
@@ -896,13 +903,21 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         <span className="truncate text-[10px] text-slate-400 dark:text-slate-500">{product.subcategoria ?? "-"}</span>
                       </div>
                     </td>
-                    <td
-                      className="truncate px-2 py-3 text-[11px] text-slate-600 dark:text-slate-400"
-                      title={product.proveedor ?? ""}
-                      onMouseEnter={(event) => product.tipo === "ITEM" && handleTooltipEnter(product, "providers", event)}
-                      onMouseLeave={product.tipo === "ITEM" ? handleTooltipLeave : undefined}
-                    >
-                      {product.tipo === "KIT" ? `${product.componentes_kit?.length || 0} componentes` : product.proveedor ?? "-"}
+                    <td className="px-2 py-3 text-[11px] text-slate-600 dark:text-slate-400">
+                      {product.tipo === "ITEM" ? (
+                        <button
+                          type="button"
+                          className="block w-full truncate text-left font-semibold transition hover:text-blue-600 focus:outline-none focus-visible:text-blue-600 dark:hover:text-blue-300 dark:focus-visible:text-blue-300"
+                          title="Ver proveedores, criterio y margenes"
+                          aria-label={`Ver costo y proveedores de ${product.cod_unico}`}
+                          onPointerEnter={(event) => handleTooltipEnter(product, "providers", event)}
+                          onPointerLeave={handleTooltipLeave}
+                          onFocus={(event) => handleTooltipEnter(product, "providers", event)}
+                          onBlur={handleTooltipLeave}
+                        >
+                          {product.proveedor ?? "-"}
+                        </button>
+                      ) : `${product.componentes_kit?.length || 0} componentes`}
                     </td>
                     <td className="px-2 py-3 text-right text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200" title="Costo de compra">
                       {formatPrecioCompra(product, tipoCompra)}
@@ -1021,6 +1036,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               open={openMassEdit}
               onClose={() => setOpenMassEdit(false)}
               items={selectedProducts}
+              searchItemSelection={selectedSearchItems}
               categorias={categorias}
               subcategorias={subcategorias}
               marcas={marcas}
@@ -1028,6 +1044,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               ubicaciones={ubicaciones}
               onSuccess={() => {
                 setSelectedProductsByKey(new Map());
+                setSelectedSearchItems(null);
                 router.refresh();
               }}
             />
@@ -1126,9 +1143,10 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         </div>
       </div>
 
-      {/* Informacion adicional por item */}
-      <AnimatePresence>
-        {hoveredProduct && (
+      {/* Informacion adicional por item. Se renderiza fuera de la tabla para que no quede recortada por su scroll horizontal. */}
+      {typeof document !== "undefined" && createPortal(
+        <AnimatePresence>
+          {hoveredProduct && (
           <motion.div
             initial={{ opacity: 0, scale: 1 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -1348,8 +1366,10 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               )}
             </div>
           </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
 
       <Modal
         open={openCreateChoice}

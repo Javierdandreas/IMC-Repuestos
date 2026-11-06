@@ -1,6 +1,5 @@
-import { withTransaction } from "@/lib/db-utils";
+import { type DbClient, withTransaction } from "@/lib/db-utils";
 import { AppError } from "@/lib/api-errors";
-import { registrarProductoActividad } from "@/lib/repos/producto-actividad";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
 import { capturarCostosReferencia, registrarCambiosCostoReferencia } from "@/lib/cambios-costo-referencia";
 import { CRITERIOS_COSTO, type CriterioCosto } from "@/lib/costos";
@@ -63,14 +62,7 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
       if (itemIds.length === 0) return;
       const result = await client.query<ProductoActualizado>(sql, params);
       productosActualizados = result.rows;
-      await Promise.all(result.rows.map((producto) => registrarProductoActividad({
-        idProducto: producto.id,
-        codigoProducto: producto.cod_unico,
-        tipo: "EDICION",
-        titulo,
-        detalle,
-        usuarioId: input.usuarioId,
-      }, client)));
+      await registrarActividadesMasivas(client, result.rows, titulo, detalle, input.usuarioId);
     };
 
     if (input.campo === "CLASIFICACION") {
@@ -127,14 +119,13 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
           [idProveedor, itemIds],
         );
         productosActualizados = result.rows;
-        await Promise.all(result.rows.map((producto) => registrarProductoActividad({
-          idProducto: producto.id,
-          codigoProducto: producto.cod_unico,
-          tipo: "EDICION",
-          titulo: "Proveedor asociado masivamente",
-          detalle: "Proveedor asociado desde el listado general",
-          usuarioId: input.usuarioId,
-        }, client)));
+        await registrarActividadesMasivas(
+          client,
+          result.rows,
+          "Proveedor asociado masivamente",
+          "Proveedor asociado desde el listado general",
+          input.usuarioId,
+        );
       }
     }
 
@@ -241,4 +232,30 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
       preciosRecalculados: seguimientoCosto?.preciosRecalculados ?? 0,
     };
   });
+}
+
+async function registrarActividadesMasivas(
+  client: DbClient,
+  productos: ProductoActualizado[],
+  titulo: string,
+  detalle: string,
+  usuarioId?: number | null,
+) {
+  if (productos.length === 0) return;
+  await client.query(
+    `
+      INSERT INTO public.producto_actividad (
+        id_producto, codigo_producto, tipo, titulo, detalle, datos, usuario_id
+      )
+      SELECT id_producto, codigo_producto, 'EDICION', $3, $4, '{}'::jsonb, $5
+      FROM UNNEST($1::int[], $2::text[]) AS valores(id_producto, codigo_producto)
+    `,
+    [
+      productos.map((producto) => producto.id),
+      productos.map((producto) => producto.cod_unico),
+      titulo,
+      detalle,
+      usuarioId ?? null,
+    ],
+  );
 }

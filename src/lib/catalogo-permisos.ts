@@ -34,6 +34,7 @@ export const CATALOGO_PERMISOS: readonly Apartado[] = [
   { id: "kits", grupo: "Items y catalogo", nombre: "Kits", acciones: gestion },
   { id: "codigos_series", grupo: "Items y catalogo", nombre: "Codigos de barras y series", acciones: ["leer", "escribir", "masivo"] },
   { id: "proveedores", grupo: "Contactos y listados", nombre: "Proveedores", acciones: gestion },
+  { id: "clientes", grupo: "Contactos y listados", nombre: "Clientes", acciones: gestion },
   { id: "proveedores_precios", grupo: "Contactos y listados", nombre: "Precios y reglas de proveedores", acciones: ["leer", "escribir", "exportar", "masivo"] },
   { id: "costos_modificados", grupo: "Contactos y listados", nombre: "Costos modificados", acciones: ["leer", "escribir", "exportar"] },
   { id: "movimientos_stock", grupo: "Contactos y listados", nombre: "Movimientos de stock", acciones: ["leer", "exportar"] },

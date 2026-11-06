@@ -15,6 +15,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   items: ItemListadoUnificado[];
+  searchItemSelection?: { count: number; filters: Record<string, string> } | null;
   categorias: { id: number; descripcion: string }[];
   subcategorias: { id: number; descripcion: string; id_categoria: number }[];
   marcas: { id: number; descripcion: string }[];
@@ -47,6 +48,7 @@ export function MassEditItemsModal({
   open,
   onClose,
   items,
+  searchItemSelection,
   categorias,
   subcategorias,
   marcas,
@@ -68,8 +70,8 @@ export function MassEditItemsModal({
   const [confirmingPieza, setConfirmingPieza] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const totalItems = items.filter((item) => item.tipo === "ITEM").length;
-  const totalKits = items.length - totalItems;
+  const totalItems = searchItemSelection?.count ?? items.filter((item) => item.tipo === "ITEM").length;
+  const totalKits = searchItemSelection ? 0 : items.length - totalItems;
   const soloItems = campo === "PROVEEDOR" || campo === "UBICACION" || campo === "PALABRAS_CLAVE" || campo === "PIEZA" || campo === "CRITERIO_COSTO";
   const subcategoriasDisponibles = useMemo(
     () => subcategorias.filter((item) => String(item.id_categoria) === idCategoria),
@@ -136,7 +138,7 @@ export function MassEditItemsModal({
       setConfirmingPieza(true);
       return;
     }
-    if (!window.confirm(`Se aplicara ${labelCampo} a ${items.length} seleccionados.${soloItems && totalKits > 0 ? ` ${totalKits} kit(s) no se modificaran.` : ""}\n\nContinuar?`)) return;
+    if (!window.confirm(`Se aplicara ${labelCampo} a ${searchItemSelection?.count ?? items.length} seleccionados.${soloItems && totalKits > 0 ? ` ${totalKits} kit(s) no se modificaran.` : ""}\n\nContinuar?`)) return;
     await applyChange();
   };
 
@@ -148,6 +150,7 @@ export function MassEditItemsModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: items.map((item) => ({ id: item.id, tipo: item.tipo })),
+          filtrosBusqueda: searchItemSelection?.filters,
           campo,
           idCategoria: idCategoria ? Number(idCategoria) : undefined,
           idSubcategoria: idSubcategoria ? Number(idSubcategoria) : undefined,
@@ -181,7 +184,7 @@ export function MassEditItemsModal({
     <Modal open={open} onClose={onClose} title="Cambio masivo" width="w-full max-w-lg">
       <div className="space-y-5 p-5">
         <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-          <span className="rounded-md bg-blue-50 px-2.5 py-1 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{items.length} seleccionados</span>
+          <span className="rounded-md bg-blue-50 px-2.5 py-1 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{searchItemSelection?.count ?? items.length} seleccionados</span>
           {totalItems > 0 && <span>{totalItems} item{totalItems === 1 ? "" : "s"}</span>}
           {totalKits > 0 && <span>{totalKits} kit{totalKits === 1 ? "" : "s"}</span>}
         </div>
