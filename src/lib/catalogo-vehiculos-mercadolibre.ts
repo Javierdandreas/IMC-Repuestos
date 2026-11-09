@@ -83,24 +83,6 @@ function condicionVehiculoConAvance(alias = "") {
   )`;
 }
 
-/**
- * Cuando una configuracion ya tiene una variante con mas atributos, se usa la
- * variante mas precisa en el buscador. La fila anterior se conserva porque
- * puede estar vinculada a compatibilidades ya guardadas.
- */
-function condicionVehiculoSinVarianteMasEspecifica(alias = "") {
-  const column = (name: string) => `${alias}${name}`;
-  return `NOT EXISTS (
-    SELECT 1
-    FROM public.mercadolibre_catalogo_vehiculo AS variante
-    WHERE variante.dominio_id = ${column("dominio_id")}
-      AND variante.activa = TRUE
-      AND variante.id <> ${column("id")}
-      AND variante.atributos @> ${column("atributos")}
-      AND jsonb_array_length(variante.atributos) > jsonb_array_length(${column("atributos")})
-  )`;
-}
-
 type VehiculoCanonico = {
   id: number;
   firma: string;
@@ -234,7 +216,7 @@ export async function explorarVehiculosCanonicos({
 } = {}): Promise<CatalogoVehiculosExploracion> {
   const clauses = ["vehiculo.dominio_id = $1", "vehiculo.activa = TRUE"];
   const params: unknown[] = [DOMINIO_VEHICULOS_ML];
-  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."), condicionVehiculoSinVarianteMasEspecifica("vehiculo."));
+  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."));
   const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
   for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
     const values = groupedFilters.get(filter.id) ?? [];
@@ -297,7 +279,7 @@ export async function obtenerValoresVehiculosCanonicos(
 ) {
   const clauses = ["vehiculo.dominio_id = $1", "vehiculo.activa = TRUE"];
   const params: unknown[] = [DOMINIO_VEHICULOS_ML];
-  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."), condicionVehiculoSinVarianteMasEspecifica("vehiculo."));
+  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."));
   const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
   for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
     const values = groupedFilters.get(filter.id) ?? [];
