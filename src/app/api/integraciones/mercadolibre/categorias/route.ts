@@ -3,7 +3,9 @@ import { jsonError } from "@/lib/api-errors";
 import { CATEGORIA_RAIZ_ACCESORIOS_VEHICULOS, obtenerCategoriaMercadoLibre } from "@/lib/mercadolibre-categorias";
 import { requireApiReadSession } from "@/lib/api-auth";
 
-export const revalidate = 43_200;
+// La sesion se resuelve desde cookies; esta ruta no puede prerenderizarse.
+// La respuesta de categorias conserva su cache de 12 h en la capa de Meli.
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
