@@ -20,6 +20,8 @@ export type ComponenteKitPreview = {
   descripcion: string;
   cantidad: number;
   ubicacion: string;
+  costo: number | null;
+  precioMercadoLibre: number | null;
 };
 
 export type ItemListadoUnificado = ProductoListado & {
@@ -377,6 +379,8 @@ export async function getItemsUnificadosListado(
       descripcion: component.descripcion,
       cantidad: Number(component.cantidad),
       ubicacion: component.ubicacion,
+      costo: component.costo === null ? null : Number(component.costo),
+      precioMercadoLibre: component.precio_mercado_libre === null ? null : Number(component.precio_mercado_libre),
     });
     componentsByKit.set(component.id_kit, current);
   });

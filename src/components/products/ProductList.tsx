@@ -917,7 +917,20 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         >
                           {product.proveedor ?? "-"}
                         </button>
-                      ) : `${product.componentes_kit?.length || 0} componentes`}
+                      ) : (
+                        <button
+                          type="button"
+                          className="block w-full truncate text-left font-semibold transition hover:text-blue-600 focus:outline-none focus-visible:text-blue-600 dark:hover:text-blue-300 dark:focus-visible:text-blue-300"
+                          title="Ver costos y precio de Mercado Libre de los componentes"
+                          aria-label={`Ver precios de componentes del kit ${product.cod_unico}`}
+                          onPointerEnter={(event) => handleTooltipEnter(product, "providers", event)}
+                          onPointerLeave={handleTooltipLeave}
+                          onFocus={(event) => handleTooltipEnter(product, "providers", event)}
+                          onBlur={handleTooltipLeave}
+                        >
+                          {product.componentes_kit?.length || 0} componentes
+                        </button>
+                      )}
                     </td>
                     <td className="px-2 py-3 text-right text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200" title="Costo de compra">
                       {formatPrecioCompra(product, tipoCompra)}
@@ -1220,6 +1233,28 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                       Todavia no hay actividad registrada.
                     </p>
                   )}
+                </>
+              ) : tooltipContent === "providers" && hoveredProduct.tipo === "KIT" ? (
+                <>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Componentes del kit</p>
+                    <p className="mt-1 font-mono text-xs font-bold text-slate-800 dark:text-slate-100">{hoveredProduct.cod_unico}</p>
+                  </div>
+
+                  {hoveredProduct.componentes_kit && hoveredProduct.componentes_kit.length > 0 ? (
+                    <div className="space-y-1.5">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 px-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        <span>Componente</span><span>Costo</span><span>Mercado Libre</span>
+                      </div>
+                      {hoveredProduct.componentes_kit.map((component) => (
+                        <div key={`${hoveredProduct.id}-${component.codigo}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 text-xs dark:border-slate-700 dark:bg-slate-700/50">
+                          <div className="min-w-0"><p className="truncate font-mono font-black text-slate-700 dark:text-slate-200">{component.cantidad}x {component.codigo}</p><p className="mt-0.5 truncate font-bold text-slate-600 dark:text-slate-300">{component.descripcion}</p></div>
+                          <span className="text-right text-[11px] font-black tabular-nums text-slate-700 dark:text-slate-200">{formatMoney(component.costo)}</span>
+                          <span className="text-right text-[11px] font-black tabular-nums text-blue-600 dark:text-blue-300">{formatMoney(component.precioMercadoLibre)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-bold text-slate-400 dark:border-slate-700">Sin componentes asociados</p>}
                 </>
               ) : tooltipContent === "providers" ? (
                 <>

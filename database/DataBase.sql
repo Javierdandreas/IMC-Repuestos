@@ -112,6 +112,7 @@ CREATE TABLE public.productos (
   id_ubicacion integer,
   alegra_id character varying,
   usa_numero_serie boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT productos_pkey PRIMARY KEY (id),
   CONSTRAINT productos_id_marca_fkey FOREIGN KEY (id_marca) REFERENCES public.marcas(id),
   CONSTRAINT productos_id_pieza_fkey FOREIGN KEY (id_pieza) REFERENCES public.pieza(id),

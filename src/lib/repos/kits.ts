@@ -385,6 +385,8 @@ export type KitComponenteListado = {
   descripcion: string;
   cantidad: number;
   ubicacion: string;
+  costo: number | null;
+  precio_mercado_libre: number | null;
 };
 
 export async function getComponentesParaKitsListado(ids: number[]): Promise<KitComponenteListado[]> {
@@ -396,10 +398,30 @@ export async function getComponentesParaKitsListado(ids: number[]): Promise<KitC
       p.cod_unico AS codigo,
       p.descripcion,
       kd.cantidad,
-      COALESCE(u.descripcion, 'Sin ubicacion') AS ubicacion
+      COALESCE(u.descripcion, 'Sin ubicacion') AS ubicacion,
+      costo.precio::float AS costo,
+      mercado_libre.precio::float AS precio_mercado_libre
     FROM public.kit_detalle kd
     JOIN public.productos p ON p.id = kd.id_producto
     LEFT JOIN public.ubicaciones u ON u.id = p.id_ubicacion
+    LEFT JOIN LATERAL (
+      SELECT precio.precio
+      FROM public.producto_precio precio
+      JOIN public.tipo_precio tipo ON tipo.id = precio.id_tipo_precio
+      WHERE precio.id_producto = p.id
+        AND UPPER(BTRIM(tipo.descripcion)) = 'PRECIO COSTO'
+      ORDER BY precio.id DESC
+      LIMIT 1
+    ) AS costo ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT precio.precio
+      FROM public.producto_precio precio
+      JOIN public.tipo_precio tipo ON tipo.id = precio.id_tipo_precio
+      WHERE precio.id_producto = p.id
+        AND UPPER(BTRIM(tipo.descripcion)) = 'MERCADO LIBRE'
+      ORDER BY precio.id DESC
+      LIMIT 1
+    ) AS mercado_libre ON TRUE
     WHERE kd.id_kit = ANY($1::int[])
     ORDER BY kd.id_kit, p.cod_unico
   `, [ids]);
