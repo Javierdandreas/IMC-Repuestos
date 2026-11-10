@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getKitById, updateKit, deleteKit } from "@/lib/repos/kits";
 import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
 import { jsonError } from "@/lib/api-errors";
+import { encolarActualizacionesPrecioMercadoLibre } from "@/lib/mercadolibre";
 
 export async function GET(
   request: NextRequest,
@@ -33,6 +34,11 @@ export async function PUT(
 
     const body = await request.json();
     const updatedKit = await updateKit(id, body);
+    try {
+      await encolarActualizacionesPrecioMercadoLibre([], [id]);
+    } catch (queueError) {
+      console.error("[MERCADOLIBRE] No se pudieron encolar los precios del kit:", queueError);
+    }
     return NextResponse.json(updatedKit);
   } catch (error: unknown) {
     return jsonError(error, "No se pudo actualizar el kit");

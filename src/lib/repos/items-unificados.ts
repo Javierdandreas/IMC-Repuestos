@@ -286,7 +286,7 @@ export async function getItemsUnificadosListado(
       SELECT
         'ITEM'::text AS tipo,
         p.id,
-        ROW_NUMBER() OVER (ORDER BY p.id DESC)::bigint AS sort_order,
+        ROW_NUMBER() OVER (ORDER BY p.created_at DESC NULLS LAST, p.id DESC)::bigint AS sort_order,
         NULL::int AS parent_kit_id,
         NULL::text AS parent_kit_codigo,
         0 AS row_position

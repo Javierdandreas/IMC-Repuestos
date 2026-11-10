@@ -5,6 +5,7 @@ import { requireApiSession, requireApiWriteSession } from "@/lib/api-auth";
 import { validateProductoPayload } from "@/lib/validators/productos";
 import { parseIdParam } from "@/lib/validators/catalogos";
 import { jsonError } from "@/lib/api-errors";
+import { encolarActualizacionesPrecioMercadoLibre } from "@/lib/mercadolibre";
 
 export async function GET(
   request: NextRequest,
@@ -103,6 +104,16 @@ export async function PUT(
         detalle: changedSupplierCost ? "Se modifico el costo de proveedor" : "Se modifico el criterio de costo",
         usuarioId: session.usuarioId,
       });
+    }
+
+    // La lista Mercado Libre contiene el importe objetivo. Si cambia un precio
+    // o su costo de origen, las publicaciones vinculadas se recalculan en cola.
+    if (changedPrices.length > 0 || changedSupplierCost || previousProduct.criterio_costo !== payload.criterio_costo) {
+      try {
+        await encolarActualizacionesPrecioMercadoLibre([numericId], []);
+      } catch (queueError) {
+        console.error("[MERCADOLIBRE] No se pudieron encolar los precios del item:", queueError);
+      }
     }
 
     // A Vercel instance uses a deliberately small database pool. Recording the

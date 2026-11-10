@@ -2,7 +2,12 @@ import "server-only";
 import { revalidateTag } from "next/cache";
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction } from "@/lib/db-utils";
+import type { DbClient } from "@/lib/db-utils";
 import { limitarDescripcionCatalogoExterno } from "@/lib/descripcion-catalogo-externo";
+import {
+  aplicarPreciosDesdeCostosReferencia,
+  obtenerCostosReferenciaAutomaticos,
+} from "@/lib/precios-automaticos";
 
 const ORIGIN = "GESU_EXTERNO";
 const PAGE_SIZE = 1000;
@@ -183,6 +188,98 @@ const stockValue = (value: unknown) => {
   const parsed = Number(String(value ?? "").trim().replace(",", "."));
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
 };
+
+type ProviderAssociationSource = {
+  idProducto: number;
+  proveedor: string | null;
+  codigoProveedor: string | null;
+};
+
+/**
+ * Vincula el proveedor informado por GESU y toma el ultimo costo conocido de
+ * su lista local cuando el codigo de proveedor coincide de forma exacta.
+ */
+async function syncProviderAssociations(
+  db: DbClient,
+  sources: ProviderAssociationSource[],
+) {
+  const candidates = sources
+    .map((source) => ({
+      idProducto: Number(source.idProducto),
+      proveedor: clean(source.proveedor),
+      codigoProveedor: nullable(source.codigoProveedor),
+    }))
+    .filter((source) => source.idProducto > 0 && Boolean(source.proveedor));
+  if (!candidates.length) return { providersCreated: 0, providersLinked: 0 };
+
+  const currentProviders = await db.query<{ id: number; descripcion: string }>(
+    "SELECT id, descripcion FROM public.proveedores",
+  );
+  const providerByName = new Map(currentProviders.rows.map((row) => [normalize(row.descripcion), Number(row.id)]));
+  let providersCreated = 0;
+  for (const provider of Array.from(new Set(candidates.map((source) => source.proveedor)))) {
+    const key = normalize(provider);
+    if (providerByName.has(key)) continue;
+    const inserted = await db.query<{ id: number }>(
+      "INSERT INTO public.proveedores (descripcion) SELECT $1::text WHERE NOT EXISTS (SELECT 1 FROM public.proveedores WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1::text))) RETURNING id",
+      [provider],
+    );
+    if (inserted.rows[0]) {
+      providerByName.set(key, Number(inserted.rows[0].id));
+      providersCreated += 1;
+      continue;
+    }
+    const existing = await db.query<{ id: number }>(
+      "SELECT id FROM public.proveedores WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1::text)) LIMIT 1",
+      [provider],
+    );
+    if (existing.rows[0]) providerByName.set(key, Number(existing.rows[0].id));
+  }
+
+  const resolved = candidates
+    .map((source) => ({ ...source, idProveedor: providerByName.get(normalize(source.proveedor)) ?? null }))
+    .filter((source): source is typeof source & { idProveedor: number } => source.idProveedor !== null);
+  if (!resolved.length) return { providersCreated, providersLinked: 0 };
+
+  await db.query(
+    `WITH source AS (
+       SELECT * FROM UNNEST($1::integer[], $2::integer[], $3::text[])
+         AS data(id_producto, id_proveedor, codigo_proveedor)
+     ), valores AS (
+       SELECT
+         source.id_producto,
+         source.id_proveedor,
+         source.codigo_proveedor,
+         catalogo.precio_lista
+       FROM source
+       LEFT JOIN public.proveedor_catalogo_precio AS catalogo
+         ON catalogo.id_proveedor = source.id_proveedor
+        AND catalogo.codigo_normalizado = UPPER(BTRIM(COALESCE(source.codigo_proveedor, '')))
+     )
+     INSERT INTO public.producto_proveedor (
+       id_producto, id_proveedor, codigo_proveedor, precio_lista_actual, fecha_ultima_actualizacion
+     )
+     SELECT id_producto, id_proveedor, codigo_proveedor, precio_lista, NOW()
+     FROM valores
+     ON CONFLICT (id_producto, id_proveedor) DO UPDATE
+       SET codigo_proveedor = COALESCE(NULLIF(EXCLUDED.codigo_proveedor, ''), producto_proveedor.codigo_proveedor),
+           precio_lista_actual = CASE
+             WHEN COALESCE(EXCLUDED.precio_lista_actual, 0) > 0 THEN EXCLUDED.precio_lista_actual
+             ELSE producto_proveedor.precio_lista_actual
+           END,
+           fecha_ultima_actualizacion = CASE
+             WHEN COALESCE(EXCLUDED.precio_lista_actual, 0) > 0 THEN NOW()
+             ELSE producto_proveedor.fecha_ultima_actualizacion
+           END`,
+    [
+      resolved.map((source) => source.idProducto),
+      resolved.map((source) => source.idProveedor),
+      resolved.map((source) => source.codigoProveedor),
+    ],
+  );
+
+  return { providersCreated, providersLinked: resolved.length };
+}
 
 function toGesuSyncRun(row: {
   id: number;
@@ -980,25 +1077,6 @@ export async function importExternalCatalogProducts(snapshotId: number, rawIds: 
       }
     }
 
-    const currentProviders = await db.query<{ id: number; descripcion: string }>("SELECT id, descripcion FROM public.proveedores");
-    const providerByName = new Map(currentProviders.rows.map((row) => [normalize(row.descripcion), Number(row.id)]));
-    let providersCreated = 0;
-    for (const provider of Array.from(new Set(candidates.map((row) => clean(row.proveedor)).filter(Boolean)))) {
-      const key = normalize(provider);
-      if (providerByName.has(key)) continue;
-      const insertedProvider = await db.query<{ id: number }>(
-        "INSERT INTO public.proveedores (descripcion) SELECT $1::text WHERE NOT EXISTS (SELECT 1 FROM public.proveedores WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1::text))) RETURNING id",
-        [provider]
-      );
-      if (insertedProvider.rows[0]) {
-        providerByName.set(key, Number(insertedProvider.rows[0].id));
-        providersCreated += 1;
-      } else {
-        const existingProvider = await db.query<{ id: number }>("SELECT id FROM public.proveedores WHERE UPPER(TRIM(descripcion)) = UPPER(TRIM($1::text)) LIMIT 1", [provider]);
-        if (existingProvider.rows[0]) providerByName.set(key, Number(existingProvider.rows[0].id));
-      }
-    }
-
     const currentLocations = await db.query<{ id: number; descripcion: string }>("SELECT id, descripcion FROM public.ubicaciones");
     const locationByName = new Map(currentLocations.rows.map((row) => [normalize(row.descripcion), Number(row.id)]));
     let locationsCreated = 0;
@@ -1039,12 +1117,13 @@ export async function importExternalCatalogProducts(snapshotId: number, rawIds: 
       [
         candidates.map((row) => normalize(row.codigo)), candidates.map((row) => limitarDescripcionCatalogoExterno(clean(row.descripcion) || normalize(row.codigo))), barcodes,
         candidates.map((row) => stockValue(row.stock)), candidates.map((row) => clean(row.marca) ? brandByName.get(normalize(row.marca)) ?? null : null),
-        candidates.map((row) => Number(row.id_subcategoria)), candidates.map((row) => nullable(row.palabras_clave)), candidates.map(() => "PROVEEDOR_UNICO"), locationIds,
+        candidates.map((row) => Number(row.id_subcategoria)), candidates.map((row) => nullable(row.palabras_clave)), candidates.map(() => "MAYOR_PRECIO"), locationIds,
       ]
     );
     const createdByCode = new Map(inserted.rows.map((row) => [normalize(row.cod_unico), Number(row.id)]));
     const created = candidates.filter((row) => createdByCode.has(normalize(row.codigo)));
     const locationByCode = new Map(candidates.map((row, index) => [normalize(row.codigo), locationIds[index]]));
+    let providersCreated = 0;
     let providersLinked = 0;
     const stockImported = created.reduce((total, row) => total + stockValue(row.stock), 0);
     if (created.length) {
@@ -1061,24 +1140,25 @@ export async function importExternalCatalogProducts(snapshotId: number, rawIds: 
         );
       }
 
-      const providerRows = created
-        .map((row) => ({
+      const providerSync = await syncProviderAssociations(
+        db,
+        created.map((row) => ({
           idProducto: createdByCode.get(normalize(row.codigo)) ?? 0,
-          idProveedor: providerByName.get(normalize(row.proveedor)),
-          codigoProveedor: nullable(row.codigo_proveedor),
-        }))
-        .filter((row): row is { idProducto: number; idProveedor: number; codigoProveedor: string | null } => Boolean(row.idProveedor));
-      if (providerRows.length) {
-        await db.query(
-          `INSERT INTO public.producto_proveedor (id_producto, id_proveedor, codigo_proveedor)
-           SELECT * FROM UNNEST($1::integer[], $2::integer[], $3::text[])
-             AS data(id_producto, id_proveedor, codigo_proveedor)
-           ON CONFLICT (id_producto, id_proveedor) DO UPDATE
-             SET codigo_proveedor = COALESCE(NULLIF(EXCLUDED.codigo_proveedor, ''), producto_proveedor.codigo_proveedor)`,
-          [providerRows.map((row) => row.idProducto), providerRows.map((row) => row.idProveedor), providerRows.map((row) => row.codigoProveedor)]
-        );
-        providersLinked = providerRows.length;
-      }
+          proveedor: row.proveedor,
+          codigoProveedor: row.codigo_proveedor,
+        })),
+      );
+      providersCreated = providerSync.providersCreated;
+      providersLinked = providerSync.providersLinked;
+
+      // Solo se calcula cuando la lista local del proveedor contiene un costo
+      // valido para el mismo codigo. Sin coincidencia el item queda vinculado,
+      // pero no se inventa un costo ni un precio de venta.
+      const costos = await obtenerCostosReferenciaAutomaticos(
+        db,
+        created.map((row) => createdByCode.get(normalize(row.codigo)) ?? 0),
+      );
+      await aplicarPreciosDesdeCostosReferencia(db, costos);
 
       await db.query(
         "UPDATE public.catalogo_externo_item AS item SET existe_local = TRUE, id_producto_local = data.id_producto FROM UNNEST($1::integer[], $2::integer[]) AS data(id, id_producto) WHERE item.id = data.id",
@@ -1413,6 +1493,90 @@ async function updateExternalCatalogExistingItems(snapshotId: number): Promise<C
   return result;
 }
 
+/** Mantiene en los items ya vinculados el proveedor y codigo que informa GESU. */
+async function syncExternalCatalogExistingProviders(snapshotId: number) {
+  return withTransaction(async (db) => {
+    const sources = await db.query<{
+      id_producto: number;
+      proveedor: string | null;
+      codigo_proveedor: string | null;
+    }>(
+      `SELECT DISTINCT ON (item.id_producto_local)
+         item.id_producto_local AS id_producto,
+         item.proveedor,
+         item.codigo_proveedor
+       FROM public.catalogo_externo_item AS item
+       WHERE item.id_sincronizacion = $1
+         AND item.tipo = 'PRODUCTO'
+         AND item.existe_local = TRUE
+         AND item.id_producto_local IS NOT NULL
+         AND NULLIF(BTRIM(item.proveedor), '') IS NOT NULL
+       ORDER BY item.id_producto_local, item.id`,
+      [snapshotId],
+    );
+    return syncProviderAssociations(
+      db,
+      sources.rows.map((source) => ({
+        idProducto: Number(source.id_producto),
+        proveedor: source.proveedor,
+        codigoProveedor: source.codigo_proveedor,
+      })),
+    );
+  });
+}
+
+/**
+ * Completa una sola vez los items GESU antiguos que no tenian costo base.
+ * Al quedar creado el costo, dejan de ser candidatos en sincronizaciones
+ * posteriores. Los criterios manuales se conservan sin modificarlos.
+ */
+async function initializeExistingGesuPricing(snapshotId: number) {
+  return withTransaction(async (db) => {
+    const candidates = await db.query<{ id_producto: number }>(
+      `WITH tipo_costo AS (
+         SELECT id
+         FROM public.tipo_precio
+         WHERE UPPER(BTRIM(descripcion)) = 'PRECIO COSTO'
+         ORDER BY id
+         LIMIT 1
+       ), source AS (
+         SELECT DISTINCT item.id_producto_local AS id_producto
+         FROM public.catalogo_externo_item AS item
+         WHERE item.id_sincronizacion = $1
+           AND item.tipo = 'PRODUCTO'
+           AND item.existe_local = TRUE
+           AND item.id_producto_local IS NOT NULL
+       )
+       SELECT producto.id AS id_producto
+       FROM source
+       JOIN public.productos AS producto ON producto.id = source.id_producto
+       LEFT JOIN tipo_costo ON TRUE
+       LEFT JOIN public.producto_precio AS costo
+         ON costo.id_producto = producto.id
+        AND costo.id_tipo_precio = tipo_costo.id
+       WHERE producto.criterio_costo <> 'MANUAL'
+         AND COALESCE(costo.precio, 0) <= 0
+         AND EXISTS (
+           SELECT 1
+           FROM public.producto_proveedor AS proveedor
+           WHERE proveedor.id_producto = producto.id
+             AND COALESCE(proveedor.costo_actual, proveedor.precio_lista_actual, 0) > 0
+         )`,
+      [snapshotId],
+    );
+    const productIds = candidates.rows.map((row) => Number(row.id_producto));
+    if (!productIds.length) return { initialized: 0, pricesRecalculated: 0 };
+
+    await db.query(
+      "UPDATE public.productos SET criterio_costo = 'MAYOR_PRECIO' WHERE id = ANY($1::integer[])",
+      [productIds],
+    );
+    const costos = await obtenerCostosReferenciaAutomaticos(db, productIds);
+    const pricesRecalculated = await aplicarPreciosDesdeCostosReferencia(db, costos);
+    return { initialized: costos.length, pricesRecalculated };
+  });
+}
+
 async function readyExternalItemIds(snapshotId: number, type: "PRODUCTO" | "GRUPO") {
   const readiness = type === "PRODUCTO"
     ? "estado_clasificacion = 'LISTA' AND id_subcategoria IS NOT NULL"
@@ -1436,6 +1600,8 @@ export async function syncExternalCatalogAutomatically() {
   const staged = await refreshExternalCatalogPreview();
   const codeChanges = await syncExternalCatalogCodes(staged.snapshotId);
   const existing = await updateExternalCatalogExistingItems(staged.snapshotId);
+  const providerSync = await syncExternalCatalogExistingProviders(staged.snapshotId);
+  const pricingInitialization = await initializeExistingGesuPricing(staged.snapshotId);
   let skuSync = { updated: 0, skippedVariations: 0, errors: [] as string[] };
   if (codeChanges.productIds.length || codeChanges.groupIds.length) {
     const { actualizarSkusVinculadosPorCambioDeCodigo } = await import("@/lib/mercadolibre");
@@ -1458,6 +1624,8 @@ export async function syncExternalCatalogAutomatically() {
     existing: {
       ...existing,
       productCodesUpdated: codeChanges.productIds.length,
+      ...providerSync,
+      ...pricingInitialization,
       kitCodesUpdated: codeChanges.groupIds.length,
       skuSync,
     },

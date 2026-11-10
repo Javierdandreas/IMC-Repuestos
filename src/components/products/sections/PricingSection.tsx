@@ -362,6 +362,7 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
   const renderPriceRow = (idTipo: number, label: string, Icon: any, colorClass: string) => {
     const item: PrecioDetalle = precios.find(p => p.id_tipo_precio === idTipo) || { id_tipo_precio: idTipo, tipo_descripcion: label, valor: 0, porcentaje_ganancia: 0, modo_calculo: "MARGEN_COSTO" as const };
     const modo = item.modo_calculo ?? "MARGEN_COSTO";
+    const esMercadoLibre = label.trim().toUpperCase() === "MERCADO LIBRE";
     
     return (
       <div key={idTipo} className="group w-[220px] shrink-0 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700">
@@ -396,7 +397,7 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="flex h-3 items-center gap-1 px-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-              Final $
+              {esMercadoLibre ? "Objetivo neto $" : "Final $"}
             </label>
             <PriceInput
               value={modo === "MARGEN_COSTO" ? item.valor : Number(item.importe_origen ?? item.valor)}
@@ -409,6 +410,9 @@ export function PricingSection({ precios, proveedores, criterioCosto, onChange, 
         </div>
         {modo === "FIJO_MONEDA" && (
           <p className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">ARS estimado: $ {formatMoney(item.valor)}</p>
+        )}
+        {esMercadoLibre && (
+          <p className="text-[9px] font-semibold leading-4 text-slate-500 dark:text-slate-400">Importe que IMC debe recibir antes de los cargos de Mercado Libre.</p>
         )}
       </div>
     );

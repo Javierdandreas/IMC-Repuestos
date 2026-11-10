@@ -1083,12 +1083,14 @@ export async function getMercadoLibreVentaConversacion(idCuenta: number, ventaId
     [idCuenta, itemIds],
   ) : { rows: [] as Array<{ item_id: string; permalink: string | null; thumbnail_url: string | null }> };
   const publicationByItem = new Map(publicationRows.map((publication) => [publication.item_id, publication]));
-  const { rows: questionRows } = buyerId ? await query<{ pregunta_id: string; item_id: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: Date | string | null }>(
+  const { rows: questionRows } = buyerId && itemIds.length > 0 ? await query<{ pregunta_id: string; item_id: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: Date | string | null }>(
     `SELECT pregunta_id, item_id, titulo, texto, respuesta, fecha
      FROM public.mercadolibre_pregunta
-     WHERE id_cuenta = $1 AND comprador_id::text = $2
+     WHERE id_cuenta = $1
+       AND comprador_id::text = $2
+       AND item_id = ANY($3::text[])
      ORDER BY fecha DESC NULLS LAST, id DESC LIMIT 100`,
-    [idCuenta, buyerId],
+    [idCuenta, buyerId, itemIds],
   ) : { rows: [] as Array<{ pregunta_id: string; item_id: string | null; titulo: string | null; texto: string; respuesta: string | null; fecha: Date | string | null }> };
   const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
   let tipoEnvio = etiquetaTipoEnvio(shipping);
@@ -2752,7 +2754,9 @@ export async function encolarActualizacionesPrecioMercadoLibre(productIds: numbe
        UNION
        SELECT detalle.id_kit FROM public.kit_detalle detalle WHERE detalle.id_producto = ANY($1::int[])
      ), objetivos AS (
-       SELECT publication.id AS id_publicacion, precio.precio
+       -- La lista MERCADO LIBRE representa el neto que IMC debe recibir,
+       -- no el precio final visible al comprador.
+       SELECT publication.id AS id_publicacion, precio.precio AS importe_objetivo
        FROM public.mercadolibre_publicacion publication
        INNER JOIN public.producto_precio precio ON precio.id_producto = publication.id_producto
        CROSS JOIN tipo_ml
@@ -2770,8 +2774,8 @@ export async function encolarActualizacionesPrecioMercadoLibre(productIds: numbe
        GROUP BY publication.id, kit.id, kit.criterio_costo, manual.precio
      )
      INSERT INTO public.mercadolibre_actualizacion_precio (id_publicacion, precio, estado, intentos, ultimo_error, created_at, updated_at)
-     SELECT id_publicacion, ROUND(precio, 2), 'PENDIENTE', 0, NULL, NOW(), NOW()
-     FROM objetivos WHERE precio > 0
+     SELECT id_publicacion, ROUND(importe_objetivo, 2), 'PENDIENTE', 0, NULL, NOW(), NOW()
+     FROM objetivos WHERE importe_objetivo > 0
      ON CONFLICT (id_publicacion) DO UPDATE SET precio = EXCLUDED.precio, estado = 'PENDIENTE', intentos = 0,
        ultimo_error = NULL, procesado_at = NULL, updated_at = NOW()`,
     [products, kits]
@@ -2779,7 +2783,7 @@ export async function encolarActualizacionesPrecioMercadoLibre(productIds: numbe
   return result.rowCount ?? 0;
 }
 
-type PrecioPendiente = { id: number; id_publicacion: number; precio: number; id_cuenta: number; item_id: string };
+type PrecioPendiente = { id: number; id_publicacion: number; importe_objetivo: number; id_cuenta: number; item_id: string };
 
 /** Procesa una tanda acotada; el cron externo la vuelve a ejecutar en el siguiente ciclo. */
 export async function procesarActualizacionesPrecioMercadoLibre(limit = 20) {
@@ -2797,7 +2801,7 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20) {
        SET estado = 'PROCESANDO', intentos = queue.intentos + 1, updated_at = NOW()
        FROM pendientes, public.mercadolibre_publicacion publication
        WHERE queue.id = pendientes.id AND publication.id = queue.id_publicacion
-       RETURNING queue.id, queue.id_publicacion, queue.precio, publication.id_cuenta, publication.item_id`,
+       RETURNING queue.id, queue.id_publicacion, queue.precio AS importe_objetivo, publication.id_cuenta, publication.item_id`,
       [Math.max(1, Math.min(50, Math.floor(limit) || 20))]
     );
     return claimed.rows;
@@ -2807,16 +2811,23 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20) {
   let errores = 0;
   for (const job of jobs) {
     try {
+      const precioResuelto = await resolverPrecioPublicadoMercadoLibre(
+        Number(job.id_cuenta),
+        String(job.item_id),
+        Number(job.importe_objetivo),
+      );
       const { accessToken } = await accessTokenForCuenta(Number(job.id_cuenta));
-      await meliPut(`/items/${encodeURIComponent(String(job.item_id))}`, Number(job.id_cuenta), accessToken, { price: Number(job.precio) });
+      await meliPut(`/items/${encodeURIComponent(String(job.item_id))}`, Number(job.id_cuenta), accessToken, { price: precioResuelto.precioFinal });
       await query(
         `UPDATE public.mercadolibre_actualizacion_precio
          SET estado = 'COMPLETADA', ultimo_error = NULL, procesado_at = NOW(), updated_at = NOW() WHERE id = $1`,
         [job.id]
       );
       await query(
-        `UPDATE public.mercadolibre_publicacion SET precio = $2, updated_at = NOW() WHERE id = $1`,
-        [job.id_publicacion, job.precio]
+        `UPDATE public.mercadolibre_publicacion
+         SET precio = $2, costo_estimado = $3::jsonb, costo_estimado_at = NOW(), updated_at = NOW()
+         WHERE id = $1`,
+        [job.id_publicacion, precioResuelto.precioFinal, JSON.stringify(precioResuelto.costoEstimado)]
       );
       actualizadas += 1;
     } catch (error) {
@@ -2856,7 +2867,20 @@ function shippingEstimate(payload: unknown) {
   };
 }
 
-export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, itemId: string): Promise<MercadoLibreCostoEstimado> {
+type ContextoCostoMercadoLibre = {
+  idCuenta: number;
+  itemId: string;
+  accessToken: string;
+  sellerId: number;
+  siteId: string;
+  item: MeliItem;
+  precioActual: number | null;
+  moneda: string;
+  categoriaId: string | null;
+  tipoPublicacion: string;
+};
+
+async function obtenerContextoCostoMercadoLibre(idCuenta: number, itemId: string): Promise<ContextoCostoMercadoLibre> {
   const publicacion = await query<{
     item_id: string; precio: number | null; moneda: string | null; categoria_id: string | null; tipo_publicacion: string | null;
   }>(
@@ -2871,12 +2895,23 @@ export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, item
   const account = await query<{ site_id: string }>("SELECT site_id FROM public.mercadolibre_cuenta WHERE id = $1", [idCuenta]);
   const siteId = String(account.rows[0]?.site_id || "MLA");
   const item = await meliGet(`/items/${encodeURIComponent(itemId)}`, idCuenta, accessToken) as MeliItem;
-  const precio = toFiniteNumber(item.price) ?? toFiniteNumber(stored.precio);
   const moneda = String(item.currency_id || stored.moneda || "ARS");
   const categoriaId = item.category_id || stored.categoria_id || null;
   const tipoPublicacion = item.listing_type_id || stored.tipo_publicacion || null;
-  if (precio === null || precio <= 0 || !tipoPublicacion) {
-    throw new AppError("La publicacion no tiene precio o tipo de publicacion suficientes para calcular sus costos.", 422);
+  if (!tipoPublicacion) throw new AppError("La publicacion no tiene tipo suficiente para calcular sus costos.", 422);
+  return {
+    idCuenta, itemId, accessToken, sellerId, siteId, item,
+    precioActual: toFiniteNumber(item.price) ?? toFiniteNumber(stored.precio),
+    moneda, categoriaId, tipoPublicacion,
+  };
+}
+
+async function cotizarCostoMercadoLibre(
+  context: ContextoCostoMercadoLibre,
+  precio: number,
+): Promise<MercadoLibreCostoEstimado> {
+  if (!Number.isFinite(precio) || precio <= 0) {
+    throw new AppError("La publicacion no tiene precio suficiente para calcular sus costos.", 422);
   }
 
   const advertencias: string[] = [];
@@ -2886,17 +2921,17 @@ export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, item
     // El peso facturable que devuelve esta consulta debe viajar tambien a
     // listing_prices. En Argentina modifica el cargo fijo de la venta.
     const shippingParams = new URLSearchParams({
-      item_id: item.id,
+      item_id: context.item.id,
       verbose: "true",
       item_price: String(precio),
-      listing_type_id: tipoPublicacion,
-      condition: item.condition || "new",
-      free_shipping: String(Boolean(item.shipping?.free_shipping)),
+      listing_type_id: context.tipoPublicacion,
+      condition: context.item.condition || "new",
+      free_shipping: String(Boolean(context.item.shipping?.free_shipping)),
     });
-    if (item.shipping?.dimensions) shippingParams.set("dimensions", item.shipping.dimensions);
-    if (item.shipping?.mode) shippingParams.set("mode", item.shipping.mode);
-    if (item.shipping?.logistic_type) shippingParams.set("logistic_type", item.shipping.logistic_type);
-    const shippingPayload = await meliGet(`/users/${sellerId}/shipping_options/free?${shippingParams.toString()}`, idCuenta, accessToken);
+    if (context.item.shipping?.dimensions) shippingParams.set("dimensions", context.item.shipping.dimensions);
+    if (context.item.shipping?.mode) shippingParams.set("mode", context.item.shipping.mode);
+    if (context.item.shipping?.logistic_type) shippingParams.set("logistic_type", context.item.shipping.logistic_type);
+    const shippingPayload = await meliGet(`/users/${context.sellerId}/shipping_options/free?${shippingParams.toString()}`, context.idCuenta, context.accessToken);
     const estimate = shippingEstimate(shippingPayload);
     envioEstimado = estimate.costo;
     pesoFacturable = estimate.pesoFacturable;
@@ -2907,15 +2942,15 @@ export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, item
 
   const pricingParams = new URLSearchParams({
     price: String(precio),
-    currency_id: moneda,
-    listing_type_id: tipoPublicacion,
+    currency_id: context.moneda,
+    listing_type_id: context.tipoPublicacion,
   });
-  if (categoriaId) pricingParams.set("category_id", categoriaId);
-  if (item.shipping?.logistic_type) pricingParams.set("logistic_type", item.shipping.logistic_type);
-  if (item.shipping?.mode) pricingParams.set("shipping_mode", item.shipping.mode);
+  if (context.categoriaId) pricingParams.set("category_id", context.categoriaId);
+  if (context.item.shipping?.logistic_type) pricingParams.set("logistic_type", context.item.shipping.logistic_type);
+  if (context.item.shipping?.mode) pricingParams.set("shipping_mode", context.item.shipping.mode);
   if (pesoFacturable !== null && pesoFacturable > 0) pricingParams.set("billable_weight", String(pesoFacturable));
 
-  const pricingPayload = await meliGet(`/sites/${siteId}/listing_prices?${pricingParams.toString()}`, idCuenta, accessToken);
+  const pricingPayload = await meliGet(`/sites/${context.siteId}/listing_prices?${pricingParams.toString()}`, context.idCuenta, context.accessToken);
   const pricing = (Array.isArray(pricingPayload) ? pricingPayload[0] : pricingPayload) as {
     sale_fee_amount?: unknown;
     sale_fee_details?: { percentage_fee?: unknown; fixed_fee?: unknown; financing_add_on_fee?: unknown };
@@ -2929,19 +2964,61 @@ export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, item
   const costoMlTotal = comisionTotal === null ? null : comisionTotal + (envioEstimado || 0);
   const netoEstimado = costoMlTotal === null ? null : Math.round((precio - costoMlTotal) * 100) / 100;
   const consultadoAt = new Date().toISOString();
-  const result: MercadoLibreCostoEstimado = {
-    itemId, precio, moneda, tipoPublicacion, categoriaId, comisionTotal, porcentajeComision, cargoFijo,
-    cargoFinanciacion, envioEstimado, dimensionesEnvio: item.shipping?.dimensions || null, pesoFacturable, costoMlTotal,
+  return {
+    itemId: context.itemId, precio, moneda: context.moneda, tipoPublicacion: context.tipoPublicacion, categoriaId: context.categoriaId, comisionTotal, porcentajeComision, cargoFijo,
+    cargoFinanciacion, envioEstimado, dimensionesEnvio: context.item.shipping?.dimensions || null, pesoFacturable, costoMlTotal,
     impuestosEstimados: null,
     netoEstimado,
     advertencias, consultadoAt,
   };
+}
+
+async function guardarCostoEstimadoMercadoLibre(idCuenta: number, itemId: string, result: MercadoLibreCostoEstimado) {
   await query(
     `UPDATE public.mercadolibre_publicacion
      SET costo_estimado = $3::jsonb, costo_estimado_at = NOW(), updated_at = NOW()
      WHERE id_cuenta = $1 AND item_id = $2`,
     [idCuenta, itemId, JSON.stringify(result)],
   );
+}
+
+type PrecioPublicadoMercadoLibre = {
+  precioFinal: number;
+  costoEstimado: MercadoLibreCostoEstimado;
+};
+
+/** Resuelve un precio que preserve el importe objetivo luego de todos los cargos cotizables de ML. */
+async function resolverPrecioPublicadoMercadoLibre(
+  idCuenta: number,
+  itemId: string,
+  importeObjetivo: number,
+): Promise<PrecioPublicadoMercadoLibre> {
+  if (!Number.isFinite(importeObjetivo) || importeObjetivo <= 0) {
+    throw new AppError("El importe objetivo de Mercado Libre debe ser mayor a cero.", 422);
+  }
+  const context = await obtenerContextoCostoMercadoLibre(idCuenta, itemId);
+  let candidato = Math.ceil(importeObjetivo * 100) / 100;
+
+  for (let intento = 0; intento < 8; intento += 1) {
+    const costoEstimado = await cotizarCostoMercadoLibre(context, candidato);
+    if (costoEstimado.comisionTotal === null || costoEstimado.envioEstimado === null) {
+      throw new AppError("No se pudo cotizar la comision o el envio de Mercado Libre para actualizar esta publicacion.", 422);
+    }
+    const neto = candidato - costoEstimado.comisionTotal - costoEstimado.envioEstimado;
+    if (neto + 0.005 >= importeObjetivo) return { precioFinal: candidato, costoEstimado };
+
+    // Los cargos dependen del precio final. Se vuelve a cotizar hasta que el neto cubra el objetivo.
+    candidato = Math.ceil((candidato + importeObjetivo - neto) * 100) / 100;
+  }
+  throw new AppError("Mercado Libre cambio los cargos durante el calculo y no se pudo estabilizar el precio final.", 422);
+}
+
+export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, itemId: string): Promise<MercadoLibreCostoEstimado> {
+  const context = await obtenerContextoCostoMercadoLibre(idCuenta, itemId);
+  const precio = context.precioActual;
+  if (precio === null || precio <= 0) throw new AppError("La publicacion no tiene precio suficiente para calcular sus costos.", 422);
+  const result = await cotizarCostoMercadoLibre(context, precio);
+  await guardarCostoEstimadoMercadoLibre(idCuenta, itemId, result);
   return result;
 }
 
