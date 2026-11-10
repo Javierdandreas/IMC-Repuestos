@@ -80,8 +80,9 @@ function obtenerFuncionExportada<T extends (...args: never[]) => unknown>(modulo
 }
 
 function mostrarAyuda() {
-  console.log("Uso: npm run catalogo:continuo");
+  console.log("Uso: npm run catalogo:continuo [--reiniciar]");
   console.log("Procesa la carga base de vehiculos hasta terminar, detenerse con Ctrl+C o encontrar errores definitivos.");
+  console.log("--reiniciar vuelve a consultar Mercado Libre desde la base y reinicia tambien la cola de enriquecimiento.");
 }
 
 async function main() {
@@ -89,6 +90,7 @@ async function main() {
     mostrarAyuda();
     return;
   }
+  const reiniciar = process.argv.includes("--reiniciar");
 
   instalarTiempoMaximoFetch();
 
@@ -151,7 +153,9 @@ async function main() {
       const inicio = Date.now();
       console.log(`[${new Date().toLocaleTimeString("es-AR")}] Lote ${lote}: iniciando.`);
       try {
-        const resultado = await sincronizarCatalogoVehiculosMercadoLibre(false) as ResultadoCarga;
+        // Solo el primer lote reinicia las colas. Los siguientes deben retomar
+        // el avance acumulado y no reiniciar miles de rutas otra vez.
+        const resultado = await sincronizarCatalogoVehiculosMercadoLibre(reiniciar && lote === 1) as ResultadoCarga;
         reintentosConsecutivos = 0;
         console.log(
           `[${new Date().toLocaleTimeString("es-AR")}] Lote ${lote}: ${resultado.tareasProcesadas} tareas, ${resultado.vehiculosGenerados} vehiculos, ${resultado.rutasConsultadas} rutas, ${formatoDuracion(Date.now() - inicio)}. Pendientes: ${resultado.pendientes}; errores: ${resultado.errores}.`

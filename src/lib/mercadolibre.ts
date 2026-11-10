@@ -1658,7 +1658,13 @@ export async function consultarProductoCatalogoMercadoLibre(catalogProductId: st
   return payload as Record<string, unknown>;
 }
 
-async function consultarTopValuesVehiculos(idCuenta: number, token: string, attributeId: AtributoVehiculoId, known: ValorVehiculo[]) {
+async function consultarTopValuesVehiculos(
+  idCuenta: number,
+  token: string,
+  attributeId: AtributoVehiculoId,
+  known: ValorVehiculo[],
+  usarCacheAnteError = true
+) {
   try {
     const payload = await meliPost(
       `/catalog_domains/${DOMINIO_VEHICULOS_ML}/attributes/${attributeId}/top_values?limit=1000`,
@@ -1672,8 +1678,13 @@ async function consultarTopValuesVehiculos(idCuenta: number, token: string, attr
       .map((value) => ({ id: String(value.id ?? "").trim(), name: String(value.name ?? "").trim() }))
       .filter((value) => value.id && value.name);
   } catch (error) {
+    // La carga del catalogo debe representar la respuesta actual de ML. Si se
+    // completa una rama con cache antigua, nunca se generan los vehiculos que
+    // ML agrego despues de esa consulta.
+    if (!usarCacheAnteError) throw error;
+
     // ML responde intermitentemente 500 en top_values. Los contextos que ya
-    // fueron obtenidos siguen siendo validos y permiten continuar la cola.
+    // fueron obtenidos siguen siendo utiles para las consultas de interfaz.
     const cached = await obtenerValoresCatalogoVehiculos(attributeId, known);
     if (cached.length) return cached;
     throw error;
@@ -2074,10 +2085,14 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
         OR (estado = 'ERROR' AND intentos < 3))
   `, [DOMINIO_VEHICULOS_ML]);
   if (reiniciar) {
+    // La base puede mantenerse igual mientras ML agrega una version, combustible
+    // o carroceria. Al reconciliar hay que volver a recorrer esos atributos;
+    // las compatibilidades y los vehiculos ya guardados no se eliminan.
+    await query("DELETE FROM public.mercadolibre_catalogo_vehiculo_enriquecimiento_cola WHERE dominio_id = $1", [DOMINIO_VEHICULOS_ML]);
     await query("DELETE FROM public.mercadolibre_catalogo_vehiculo_cola WHERE dominio_id = $1", [DOMINIO_VEHICULOS_ML]);
   }
 
-  const brands = await consultarTopValuesVehiculos(idCuenta, accessToken, "BRAND", []);
+  const brands = await consultarTopValuesVehiculos(idCuenta, accessToken, "BRAND", [], false);
   const targetNames = await marcasObjetivoVehiculos();
   if (!targetNames.length) throw new AppError("No hay marcas seleccionadas para cargar el catalogo de vehiculos.", 422);
   const targets = new Set(targetNames.map(claveMarcaObjetivo));
@@ -2136,7 +2151,7 @@ export async function sincronizarCatalogoVehiculosMercadoLibre(reiniciar = false
 
         let values: Array<{ id: string; name: string }>;
         try {
-          values = await consultarTopValuesVehiculos(idCuenta, accessToken, currentAttribute, attributes);
+          values = await consultarTopValuesVehiculos(idCuenta, accessToken, currentAttribute, attributes, false);
         } catch (error) {
           if (!atributoNoPerteneceAlDominio(error)) throw error;
           available.delete(currentAttribute);
@@ -2224,7 +2239,7 @@ export async function enriquecerCatalogoVehiculosMercadoLibre() {
 
         let values: Array<{ id: string; name: string }>;
         try {
-          values = await consultarTopValuesVehiculos(idCuenta, accessToken, currentAttribute, attributes);
+          values = await consultarTopValuesVehiculos(idCuenta, accessToken, currentAttribute, attributes, false);
         } catch (error) {
           if (!atributoNoPerteneceAlDominio(error)) throw error;
           available.delete(currentAttribute);
@@ -2827,11 +2842,6 @@ function secureThumbnailUrl(value: string | null | undefined) {
   return url ? url.replace(/^http:\/\//i, "https://") : null;
 }
 
-function shippingWeight(dimensions: string | null | undefined) {
-  const value = String(dimensions || "").split(",").at(-1)?.trim() || "";
-  return /^\d+(?:[.,]\d+)?$/.test(value) ? value.replace(",", ".") : null;
-}
-
 function shippingEstimate(payload: unknown) {
   if (!payload || typeof payload !== "object") return { costo: null, pesoFacturable: null };
   const source = payload as {
@@ -2869,29 +2879,12 @@ export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, item
     throw new AppError("La publicacion no tiene precio o tipo de publicacion suficientes para calcular sus costos.", 422);
   }
 
-  const pricingParams = new URLSearchParams({
-    price: String(precio),
-    currency_id: moneda,
-    listing_type_id: tipoPublicacion,
-  });
-  if (categoriaId) pricingParams.set("category_id", categoriaId);
-  if (item.shipping?.logistic_type) pricingParams.set("logistic_type", item.shipping.logistic_type);
-  if (item.shipping?.mode) pricingParams.set("shipping_mode", item.shipping.mode);
-  const weight = shippingWeight(item.shipping?.dimensions);
-  if (weight) pricingParams.set("billable_weight", weight);
-
-  const pricingPayload = await meliGet(`/sites/${siteId}/listing_prices?${pricingParams.toString()}`, idCuenta, accessToken);
-  const pricing = (Array.isArray(pricingPayload) ? pricingPayload[0] : pricingPayload) as {
-    sale_fee_amount?: unknown;
-    sale_fee_details?: { percentage_fee?: unknown; fixed_fee?: unknown; financing_add_on_fee?: unknown };
-  } | undefined;
-  if (!pricing) throw new AppError("Mercado Libre no devolvio un calculo de costos para esta publicacion.", 502);
-
   const advertencias: string[] = [];
   let envioEstimado: number | null = null;
   let pesoFacturable: number | null = null;
   try {
-    // Mercado Libre can resolve an active listing's logistics from its item ID.
+    // El peso facturable que devuelve esta consulta debe viajar tambien a
+    // listing_prices. En Argentina modifica el cargo fijo de la venta.
     const shippingParams = new URLSearchParams({
       item_id: item.id,
       verbose: "true",
@@ -2912,16 +2905,35 @@ export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, item
     advertencias.push("Mercado Libre no pudo estimar el envio de esta publicacion.");
   }
 
+  const pricingParams = new URLSearchParams({
+    price: String(precio),
+    currency_id: moneda,
+    listing_type_id: tipoPublicacion,
+  });
+  if (categoriaId) pricingParams.set("category_id", categoriaId);
+  if (item.shipping?.logistic_type) pricingParams.set("logistic_type", item.shipping.logistic_type);
+  if (item.shipping?.mode) pricingParams.set("shipping_mode", item.shipping.mode);
+  if (pesoFacturable !== null && pesoFacturable > 0) pricingParams.set("billable_weight", String(pesoFacturable));
+
+  const pricingPayload = await meliGet(`/sites/${siteId}/listing_prices?${pricingParams.toString()}`, idCuenta, accessToken);
+  const pricing = (Array.isArray(pricingPayload) ? pricingPayload[0] : pricingPayload) as {
+    sale_fee_amount?: unknown;
+    sale_fee_details?: { percentage_fee?: unknown; fixed_fee?: unknown; financing_add_on_fee?: unknown };
+  } | undefined;
+  if (!pricing) throw new AppError("Mercado Libre no devolvio un calculo de costos para esta publicacion.", 502);
+
   const comisionTotal = toFiniteNumber(pricing.sale_fee_amount);
   const cargoFijo = toFiniteNumber(pricing.sale_fee_details?.fixed_fee);
   const cargoFinanciacion = toFiniteNumber(pricing.sale_fee_details?.financing_add_on_fee);
   const porcentajeComision = toFiniteNumber(pricing.sale_fee_details?.percentage_fee);
   const costoMlTotal = comisionTotal === null ? null : comisionTotal + (envioEstimado || 0);
+  const netoEstimado = costoMlTotal === null ? null : Math.round((precio - costoMlTotal) * 100) / 100;
   const consultadoAt = new Date().toISOString();
   const result: MercadoLibreCostoEstimado = {
     itemId, precio, moneda, tipoPublicacion, categoriaId, comisionTotal, porcentajeComision, cargoFijo,
     cargoFinanciacion, envioEstimado, dimensionesEnvio: item.shipping?.dimensions || null, pesoFacturable, costoMlTotal,
-    netoEstimado: costoMlTotal === null ? null : precio - costoMlTotal,
+    impuestosEstimados: null,
+    netoEstimado,
     advertencias, consultadoAt,
   };
   await query(

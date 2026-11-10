@@ -42,6 +42,9 @@ export type MercadoLibreCostoEstimado = {
   dimensionesEnvio: string | null;
   pesoFacturable: number | null;
   costoMlTotal: number | null;
+  // Mercado Libre no anticipa retenciones/impuestos por una publicacion. Solo
+  // estan disponibles luego de la venta en los reportes de facturacion.
+  impuestosEstimados: number | null;
   netoEstimado: number | null;
   advertencias: string[];
   consultadoAt: string;

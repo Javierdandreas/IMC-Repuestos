@@ -83,6 +83,42 @@ function condicionVehiculoConAvance(alias = "") {
   )`;
 }
 
+/**
+ * El enriquecimiento guarda una fila por cada etapa de una misma ruta. Para
+ * buscar compatibilidades se usan solo las rutas mas completas de cada base,
+ * conservando empates cuando Mercado Libre informa alternativas reales.
+ */
+function fuenteVehiculosCanonicos(soloConAvance: boolean) {
+  if (!soloConAvance) {
+    return {
+      from: "public.mercadolibre_catalogo_vehiculo AS vehiculo",
+      clauses: ["vehiculo.dominio_id = $1", "vehiculo.activa = TRUE"],
+    };
+  }
+
+  return {
+    from: `(
+      SELECT
+        base.*,
+        RANK() OVER (
+          PARTITION BY
+            base.dominio_id,
+            base.marca_id,
+            base.modelo_id,
+            base.anio_id,
+            base.motor_id,
+            base.potencia_id
+          ORDER BY jsonb_array_length(base.atributos) DESC
+        ) AS rango_especificidad
+      FROM public.mercadolibre_catalogo_vehiculo AS base
+      WHERE base.dominio_id = $1
+        AND base.activa = TRUE
+        AND ${condicionVehiculoConAvance("base.")}
+    ) AS vehiculo`,
+    clauses: ["vehiculo.rango_especificidad = 1"],
+  };
+}
+
 type VehiculoCanonico = {
   id: number;
   firma: string;
@@ -214,9 +250,9 @@ export async function explorarVehiculosCanonicos({
   limit?: number;
   soloConAvance?: boolean;
 } = {}): Promise<CatalogoVehiculosExploracion> {
-  const clauses = ["vehiculo.dominio_id = $1", "vehiculo.activa = TRUE"];
+  const fuente = fuenteVehiculosCanonicos(soloConAvance);
+  const clauses = [...fuente.clauses];
   const params: unknown[] = [DOMINIO_VEHICULOS_ML];
-  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."));
   const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
   for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
     const values = groupedFilters.get(filter.id) ?? [];
@@ -239,10 +275,10 @@ export async function explorarVehiculosCanonicos({
   const safeLimit = Math.min(100, Math.max(10, Math.floor(limit)));
   const safePage = Math.max(1, Math.floor(page));
   const [countResult, dataResult, brandsResult] = await Promise.all([
-    query<{ total: string }>(`SELECT COUNT(*)::text AS total FROM public.mercadolibre_catalogo_vehiculo AS vehiculo WHERE ${where}`, params),
+    query<{ total: string }>(`SELECT COUNT(*)::text AS total FROM ${fuente.from} WHERE ${where}`, params),
     query<{ id_vehiculo: number; atributos: unknown }>(`
       SELECT vehiculo.id AS id_vehiculo, vehiculo.atributos
-      FROM public.mercadolibre_catalogo_vehiculo AS vehiculo
+      FROM ${fuente.from}
       WHERE ${where}
       ORDER BY vehiculo.marca_nombre, vehiculo.modelo_nombre, vehiculo.anio_nombre DESC, vehiculo.motor_nombre, vehiculo.potencia_nombre NULLS LAST, vehiculo.id
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
@@ -277,9 +313,9 @@ export async function obtenerValoresVehiculosCanonicos(
   filters: ValorVehiculo[],
   soloConAvance = false
 ) {
-  const clauses = ["vehiculo.dominio_id = $1", "vehiculo.activa = TRUE"];
+  const fuente = fuenteVehiculosCanonicos(soloConAvance);
+  const clauses = [...fuente.clauses];
   const params: unknown[] = [DOMINIO_VEHICULOS_ML];
-  if (soloConAvance) clauses.push(condicionVehiculoConAvance("vehiculo."));
   const groupedFilters = new Map<AtributoVehiculoId, ValorVehiculo[]>();
   for (const filter of filters.flatMap((value) => normalizarAtributosVehiculo([value])).slice(0, 100)) {
     const values = groupedFilters.get(filter.id) ?? [];
@@ -303,7 +339,7 @@ export async function obtenerValoresVehiculosCanonicos(
   const attributeParam = params.length;
   const result = await query<{ value_id: string; value_name: string }>(`
     SELECT DISTINCT attribute->>'valueId' AS value_id, attribute->>'valueName' AS value_name
-    FROM public.mercadolibre_catalogo_vehiculo AS vehiculo
+    FROM ${fuente.from}
     CROSS JOIN LATERAL jsonb_array_elements(vehiculo.atributos) AS attribute
     WHERE ${clauses.join(" AND ")}
       AND attribute->>'id' = $${attributeParam}
