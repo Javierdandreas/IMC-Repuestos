@@ -30,6 +30,7 @@ const INVENTARIO_SQL = `
       lm.created_at AS ultimo_movimiento_at
     FROM producto_serie ps
     JOIN productos p ON p.id = ps.id_producto
+      AND COALESCE(p.usa_numero_serie, false) = true
     LEFT JOIN ubicaciones u ON u.id = ps.id_ubicacion
     LEFT JOIN LATERAL (
       SELECT tipo, observacion, created_at

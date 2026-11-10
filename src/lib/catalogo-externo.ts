@@ -153,7 +153,7 @@ export type CatalogImportResult = {
 export type CatalogImportResponse = CatalogImportResult & { preview: ExternalCatalogPreview };
 export type CatalogGroupImportResult = { created: number; skippedExisting: number; invalidSelection: number; componentsLinked: number; preview: ExternalCatalogPreview };
 export type CatalogKeywordsUpdateResponse = { updated: number; preview: ExternalCatalogPreview };
-export type CatalogExistingUpdateResult = { updated: number; locationsCreated: number };
+export type CatalogExistingUpdateResult = { updated: number; locationsCreated: number; locationsUpdated: number; locationsSkipped: number };
 type ExternalCodeSyncResult = {
   productIds: number[];
   groupIds: number[];
@@ -1217,10 +1217,9 @@ async function syncExternalCatalogCodes(snapshotId: number): Promise<ExternalCod
 
 /**
  * El codigo se sincroniza aparte solo por el id inmutable de GESU. Para los
- * demas campos, GESU solo puede modificar stock y palabras clave. La
- * descripcion solo se actualiza cuando el item no tiene una pieza asociada;
- * no toca costos, precios, proveedores, categoria, ubicacion ni los saldos
- * por ubicacion definidos en Nexo.
+ * demas campos, GESU solo puede modificar datos operativos verificables. La
+ * descripcion y la categoria se conservan desde la pieza cuando hay un item
+ * asociado; costos, precios y proveedores siguen siendo propios de Nexo.
  */
 async function updateExternalCatalogExistingItems(snapshotId: number): Promise<CatalogExistingUpdateResult> {
   const result = await withTransaction(async (db) => {
@@ -1231,16 +1230,24 @@ async function updateExternalCatalogExistingItems(snapshotId: number): Promise<C
     if (!snapshot.rowCount) throw new AppError("La consulta externa ya no esta disponible.", 404);
 
     const updated = await db.query<{ id: number }>(
-      `WITH source AS (
+      `WITH rows AS (
          SELECT item.id_producto_local AS id_producto,
            GREATEST(item.stock, 0) AS stock,
            NULLIF(BTRIM(item.descripcion), '') AS descripcion,
-           NULLIF(BTRIM(item.palabras_clave), '') AS palabra_clave
+           NULLIF(BTRIM(item.palabras_clave), '') AS palabra_clave,
+           item.id_subcategoria,
+           NULLIF(BTRIM(item.codigo_barras), '') AS codigo_barras
          FROM public.catalogo_externo_item AS item
          JOIN public.productos AS producto ON producto.id = item.id_producto_local
          WHERE item.id_sincronizacion = $1
            AND item.tipo = 'PRODUCTO'
            AND item.existe_local = TRUE
+       ), source AS (
+         SELECT DISTINCT ON (id_producto)
+           id_producto, stock, descripcion, palabra_clave, id_subcategoria, codigo_barras,
+           COUNT(*) FILTER (WHERE codigo_barras IS NOT NULL) OVER (PARTITION BY codigo_barras) AS repeticiones_codigo_barras
+         FROM rows
+         ORDER BY id_producto
        )
        UPDATE public.productos AS producto
        SET stock = source.stock,
@@ -1251,6 +1258,21 @@ async function updateExternalCatalogExistingItems(snapshotId: number): Promise<C
            palabra_clave = CASE
              WHEN producto.id_pieza IS NOT NULL THEN NULL
              ELSE COALESCE(source.palabra_clave, producto.palabra_clave)
+           END,
+           id_subcategoria = CASE
+             WHEN producto.id_pieza IS NULL AND source.id_subcategoria IS NOT NULL THEN source.id_subcategoria
+             ELSE producto.id_subcategoria
+           END,
+           cod_barra = CASE
+             WHEN source.codigo_barras ~ '^[0-9]+$'
+               AND source.repeticiones_codigo_barras = 1
+               AND NOT EXISTS (
+                 SELECT 1 FROM public.productos AS conflicto
+                 WHERE conflicto.id <> producto.id
+                   AND conflicto.cod_barra = source.codigo_barras
+               )
+             THEN source.codigo_barras
+             ELSE producto.cod_barra
            END
        FROM source
        WHERE producto.id = source.id_producto
@@ -1264,11 +1286,128 @@ async function updateExternalCatalogExistingItems(snapshotId: number): Promise<C
              WHEN producto.id_pieza IS NOT NULL THEN NULL
              ELSE COALESCE(source.palabra_clave, producto.palabra_clave)
            END
+           OR (
+             producto.id_pieza IS NULL
+             AND source.id_subcategoria IS NOT NULL
+             AND producto.id_subcategoria IS DISTINCT FROM source.id_subcategoria
+           )
+           OR (
+             source.codigo_barras ~ '^[0-9]+$'
+             AND source.repeticiones_codigo_barras = 1
+             AND producto.cod_barra IS DISTINCT FROM source.codigo_barras
+             AND NOT EXISTS (
+               SELECT 1 FROM public.productos AS conflicto
+               WHERE conflicto.id <> producto.id
+                 AND conflicto.cod_barra = source.codigo_barras
+             )
+           )
          )
        RETURNING producto.id`,
       [snapshotId],
     );
-    return { updated: updated.rowCount ?? 0, locationsCreated: 0 };
+
+    const locationSource = await db.query<{
+      id_producto: number;
+      ubicacion: string;
+      stock: number;
+      serializado: boolean;
+      id_ubicacion_actual: number | null;
+      id_ubicacion_stock_actual: number | null;
+      cantidad_actual: number | null;
+      cantidad_ubicaciones: number;
+    }>(
+      `SELECT DISTINCT ON (item.id_producto_local)
+         item.id_producto_local AS id_producto,
+         BTRIM(item.ubicacion) AS ubicacion,
+         GREATEST(item.stock, 0) AS stock,
+         COALESCE(producto.usa_numero_serie, FALSE) AS serializado,
+         producto.id_ubicacion AS id_ubicacion_actual,
+         ubicacion_actual.id_ubicacion AS id_ubicacion_stock_actual,
+         (SELECT COUNT(*)::int FROM public.producto_stock_ubicacion AS stock WHERE stock.id_producto = producto.id) AS cantidad_ubicaciones,
+         ubicacion_actual.cantidad AS cantidad_actual
+       FROM public.catalogo_externo_item AS item
+       JOIN public.productos AS producto ON producto.id = item.id_producto_local
+       LEFT JOIN LATERAL (
+         SELECT stock.id_ubicacion, stock.cantidad
+         FROM public.producto_stock_ubicacion AS stock
+         WHERE stock.id_producto = producto.id
+         LIMIT 1
+       ) AS ubicacion_actual ON TRUE
+       WHERE item.id_sincronizacion = $1
+         AND item.tipo = 'PRODUCTO'
+         AND item.existe_local = TRUE
+         AND NULLIF(BTRIM(item.ubicacion), '') IS NOT NULL
+       ORDER BY item.id_producto_local, item.id`,
+      [snapshotId],
+    );
+
+    const locationByName = new Map<string, number>();
+    const currentLocations = await db.query<{ id: number; descripcion: string }>("SELECT id, descripcion FROM public.ubicaciones");
+    currentLocations.rows.forEach((location) => locationByName.set(normalize(location.descripcion), Number(location.id)));
+    let locationsCreated = 0;
+    for (const row of locationSource.rows) {
+      const key = normalize(row.ubicacion);
+      if (locationByName.has(key)) continue;
+      const inserted = await db.query<{ id: number }>(
+        "INSERT INTO public.ubicaciones (descripcion) VALUES ($1) ON CONFLICT (descripcion) DO UPDATE SET descripcion = EXCLUDED.descripcion RETURNING id",
+        [row.ubicacion],
+      );
+      locationByName.set(key, Number(inserted.rows[0].id));
+      locationsCreated += 1;
+    }
+
+    const locationChanges = locationSource.rows.map((row) => ({
+      ...row,
+      idUbicacion: locationByName.get(normalize(row.ubicacion)) ?? null,
+    })).filter((row): row is typeof row & { idUbicacion: number } => row.idUbicacion !== null)
+      .filter((row) => row.serializado
+        || row.id_ubicacion_actual !== row.idUbicacion
+        || row.cantidad_ubicaciones !== 1
+        || row.id_ubicacion_stock_actual !== row.idUbicacion
+        || row.cantidad_actual !== row.stock);
+
+    if (locationChanges.length) {
+      const productIds = locationChanges.map((row) => row.id_producto);
+      const nonSerialChanges = locationChanges.filter((row) => !row.serializado);
+      const serialChanges = locationChanges.filter((row) => row.serializado);
+      if (nonSerialChanges.length) {
+        const nonSerialIds = nonSerialChanges.map((row) => row.id_producto);
+        // GESU informa una unica ubicacion y su cantidad total: reemplaza por
+        // completo la distribucion local previa para conservar una sola verdad.
+        await db.query("DELETE FROM public.producto_stock_ubicacion WHERE id_producto = ANY($1::integer[])", [nonSerialIds]);
+        await db.query(
+          `INSERT INTO public.producto_stock_ubicacion (id_producto, id_ubicacion, cantidad)
+           SELECT * FROM UNNEST($1::integer[], $2::integer[], $3::integer[])
+             AS data(id_producto, id_ubicacion, cantidad)`,
+          [nonSerialIds, nonSerialChanges.map((row) => row.idUbicacion), nonSerialChanges.map((row) => row.stock)],
+        );
+      }
+      if (serialChanges.length) {
+        await db.query(
+          `UPDATE public.producto_serie AS serie
+           SET id_ubicacion = data.id_ubicacion
+           FROM UNNEST($1::integer[], $2::integer[]) AS data(id_producto, id_ubicacion)
+           WHERE serie.id_producto = data.id_producto
+             AND serie.id_ubicacion IS DISTINCT FROM data.id_ubicacion`,
+          [serialChanges.map((row) => row.id_producto), serialChanges.map((row) => row.idUbicacion)],
+        );
+      }
+      await db.query(
+        `UPDATE public.productos AS producto
+         SET id_ubicacion = data.id_ubicacion
+         FROM UNNEST($1::integer[], $2::integer[]) AS data(id_producto, id_ubicacion)
+         WHERE producto.id = data.id_producto
+           AND producto.id_ubicacion IS DISTINCT FROM data.id_ubicacion`,
+        [productIds, locationChanges.map((row) => row.idUbicacion)],
+      );
+    }
+
+    return {
+      updated: new Set([...updated.rows.map((row) => Number(row.id)), ...locationChanges.map((row) => row.id_producto)]).size,
+      locationsCreated,
+      locationsUpdated: locationChanges.length,
+      locationsSkipped: 0,
+    };
   });
   revalidateTag("meta");
   return result;
