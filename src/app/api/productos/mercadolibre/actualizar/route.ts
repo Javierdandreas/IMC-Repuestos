@@ -27,6 +27,7 @@ const filtersSchema = z.object({
 const selectionSchema = z.object({
   productoIds: z.array(z.coerce.number().int().positive()).max(500).optional(),
   filtrosBusqueda: filtersSchema.optional(),
+  incluirPausadas: z.boolean().optional(),
   limiteInmediato: z.coerce.number().int().min(1).max(50).optional(),
 }).superRefine((value, context) => {
   if (!value.productoIds?.length && !value.filtrosBusqueda) {
@@ -63,7 +64,9 @@ export async function POST(request: NextRequest) {
 
     if (!itemIds.length) return NextResponse.json({ message: "La seleccion no contiene items." }, { status: 422 });
 
-    const queued = await encolarActualizacionesPrecioMercadoLibreDetallado(itemIds, []);
+    const queued = await encolarActualizacionesPrecioMercadoLibreDetallado(itemIds, [], {
+      incluirPausadas: payload.incluirPausadas ?? false,
+    });
     const limiteInmediato = payload.limiteInmediato ?? 50;
     const inmediato = await procesarActualizacionesPrecioMercadoLibre(
       limiteInmediato,

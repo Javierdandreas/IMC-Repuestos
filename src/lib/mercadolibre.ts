@@ -2747,9 +2747,18 @@ export type MercadoLibreActualizacionesEncoladas = {
   publicacionesIds: number[];
 };
 
-export async function encolarActualizacionesPrecioMercadoLibreDetallado(productIds: number[], kitIds: number[]): Promise<MercadoLibreActualizacionesEncoladas> {
+type OpcionesActualizacionPrecioMercadoLibre = {
+  incluirPausadas?: boolean;
+};
+
+export async function encolarActualizacionesPrecioMercadoLibreDetallado(
+  productIds: number[],
+  kitIds: number[],
+  options: OpcionesActualizacionPrecioMercadoLibre = {},
+): Promise<MercadoLibreActualizacionesEncoladas> {
   const products = [...new Set(productIds.filter((id) => Number.isInteger(id) && id > 0))];
   const kits = [...new Set(kitIds.filter((id) => Number.isInteger(id) && id > 0))];
+  const incluirPausadas = options.incluirPausadas ?? true;
   if (!products.length && !kits.length) return { cantidad: 0, publicacionesIds: [] };
   const result = await query<{ id_publicacion: number }>(
     `WITH tipo_ml AS (
@@ -2765,7 +2774,8 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(productI
        FROM public.mercadolibre_publicacion publication
        INNER JOIN public.producto_precio precio ON precio.id_producto = publication.id_producto
        CROSS JOIN tipo_ml
-       WHERE publication.estado IN ('active', 'paused') AND precio.id_tipo_precio = tipo_ml.id
+       WHERE (LOWER(publication.estado) = 'active' OR ($3::boolean AND LOWER(publication.estado) = 'paused'))
+         AND precio.id_tipo_precio = tipo_ml.id
          AND publication.id_producto = ANY($1::int[]) AND precio.precio > 0
        UNION ALL
        SELECT publication.id AS id_publicacion,
@@ -2775,7 +2785,8 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(productI
        LEFT JOIN public.kit_precio manual ON manual.id_kit = kit.id AND manual.id_tipo_precio = (SELECT id FROM tipo_ml)
        LEFT JOIN public.kit_detalle detalle ON detalle.id_kit = kit.id
        LEFT JOIN public.producto_precio componente ON componente.id_producto = detalle.id_producto AND componente.id_tipo_precio = (SELECT id FROM tipo_ml)
-       WHERE publication.estado IN ('active', 'paused') AND publication.id_kit IN (SELECT id_kit FROM kits_afectados)
+       WHERE (LOWER(publication.estado) = 'active' OR ($3::boolean AND LOWER(publication.estado) = 'paused'))
+         AND publication.id_kit IN (SELECT id_kit FROM kits_afectados)
        GROUP BY publication.id, kit.id, kit.criterio_costo, manual.precio
      )
      INSERT INTO public.mercadolibre_actualizacion_precio (id_publicacion, precio, estado, intentos, ultimo_error, created_at, updated_at)
@@ -2784,7 +2795,7 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(productI
      ON CONFLICT (id_publicacion) DO UPDATE SET precio = EXCLUDED.precio, estado = 'PENDIENTE', intentos = 0,
        ultimo_error = NULL, procesado_at = NULL, updated_at = NOW()
      RETURNING id_publicacion`,
-    [products, kits]
+    [products, kits, incluirPausadas]
   );
   return { cantidad: result.rowCount ?? 0, publicacionesIds: result.rows.map((row) => Number(row.id_publicacion)) };
 }
