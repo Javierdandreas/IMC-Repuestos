@@ -35,6 +35,17 @@ type TooltipContent = "locations" | "details" | "activity" | "mercadolibre" | "p
 type MercadoLibreUpdateScope = "SELECCION" | "BUSQUEDA";
 type MercadoLibreUpdateMode = "PRECIOS" | "STOCK" | "STOCK_Y_PRECIOS";
 type MercadoLibreUpdateError = { publicacion: string; mensaje: string };
+type MercadoLibreUpdateProgress = { total: number; procesadas: number; actualizadas: number; errores: number; publicacion?: string; estado?: string };
+type MercadoLibreUpdateResult = {
+  publicacionesEncoladas?: number;
+  procesadas?: number;
+  actualizadas?: number;
+  errores?: number;
+  detallesErrores?: MercadoLibreUpdateError[];
+  advertencias?: MercadoLibreUpdateError[];
+  pendientesEnCola?: number;
+  message?: string;
+};
 type ProductActivity = {
   id: number;
   tipo: "ALTA" | "EDICION" | "STOCK" | "COSTO" | "PRECIO";
@@ -253,6 +264,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [mercadoLibreUpdateMode, setMercadoLibreUpdateMode] = useState<MercadoLibreUpdateMode>("PRECIOS");
   const [mercadoLibreExtraPercentage, setMercadoLibreExtraPercentage] = useState("0");
   const [mercadoLibreUpdateErrors, setMercadoLibreUpdateErrors] = useState<MercadoLibreUpdateError[]>([]);
+  const [mercadoLibreUpdateProgress, setMercadoLibreUpdateProgress] = useState<MercadoLibreUpdateProgress | null>(null);
   const [selectedSearchItems, setSelectedSearchItems] = useState<{ count: number; filters: Record<string, string> } | null>(null);
   const selectableProducts = products;
   const selectedLabelProducts = useMemo(
@@ -354,6 +366,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     try {
       setUpdatingMercadoLibre(true);
       setMercadoLibreUpdateErrors([]);
+      setMercadoLibreUpdateProgress(null);
       const response = await fetch("/api/productos/mercadolibre/actualizar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -361,17 +374,39 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
           ? { filtrosBusqueda: mercadoLibreUpdateScope === "BUSQUEDA" ? currentSearchFilters : selectedSearchItems?.filters, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje }
           : { productoIds: selectedMercadoLibreItems, kitIds: selectedMercadoLibreKits, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje }),
       });
-      const result = await response.json().catch(() => ({})) as {
-        itemsSeleccionados?: number;
-        publicacionesEncoladas?: number;
-        procesadas?: number;
-        actualizadas?: number;
-        errores?: number;
-        detallesErrores?: MercadoLibreUpdateError[];
-        advertencias?: MercadoLibreUpdateError[];
-        pendientesEnCola?: number;
-        message?: string;
-      };
+      let result: MercadoLibreUpdateResult = {};
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/x-ndjson") && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const event = JSON.parse(line) as MercadoLibreUpdateResult & { tipo?: string; publicacion?: string; estado?: string; itemsSeleccionados?: number; kitsSeleccionados?: number };
+            if (event.tipo === "INICIO") {
+              setMercadoLibreUpdateProgress({ total: Number(event.publicacionesEncoladas || 0), procesadas: 0, actualizadas: 0, errores: 0 });
+            } else if (event.tipo === "PROGRESO") {
+              setMercadoLibreUpdateProgress((current) => ({
+                total: current?.total || 0,
+                procesadas: Number(event.procesadas || 0),
+                actualizadas: Number(event.actualizadas || 0),
+                errores: Number(event.errores || 0),
+                publicacion: event.publicacion,
+                estado: event.estado,
+              }));
+            } else if (event.tipo === "FINAL") result = event;
+            else if (event.tipo === "ERROR") throw new Error(event.message || "No se pudieron actualizar las publicaciones seleccionadas en Mercado Libre.");
+          }
+        }
+      } else {
+        result = await response.json().catch(() => ({})) as MercadoLibreUpdateResult;
+      }
       if (!response.ok) throw new Error(result.message || "No se pudieron actualizar las publicaciones seleccionadas en Mercado Libre.");
 
       if (!result.publicacionesEncoladas) {
@@ -386,7 +421,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         setMercadoLibreUpdateErrors(result.detallesErrores || []);
         toast.warning(`${result.actualizadas || 0} publicaciones actualizadas y ${result.errores} con error.${result.pendientesEnCola ? ` ${result.pendientesEnCola} quedaron en cola.` : ""}`);
       } else {
-        toast.success(`${result.actualizadas || 0} publicaciones actualizadas ahora.${result.pendientesEnCola ? ` ${result.pendientesEnCola} quedaron en cola para el proximo ciclo.` : ""}`);
+        toast.success(`Resumen: ${result.actualizadas || 0} actualizadas, ${result.errores || 0} con error${result.pendientesEnCola ? ` y ${result.pendientesEnCola} pendientes` : ""}.`);
         setConfirmingMercadoLibre(false);
       }
     } catch (error) {
@@ -1168,6 +1203,12 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                 </div>
 
                 <div className="mt-3 border-t border-slate-200 pt-2 leading-4 text-slate-500 dark:border-slate-800">Precio: la lista Mercado Libre es el neto objetivo y Nexo calcula comision, cargo y envio por publicacion. Stock: se envia el stock actual, incluido 0; en kits se calcula por componentes.</div>
+
+                {updatingMercadoLibre && mercadoLibreUpdateProgress && <div className="mt-3 border border-blue-200 bg-blue-50 p-2 dark:border-blue-900/70 dark:bg-blue-950/25">
+                  <div className="flex items-center justify-between gap-3 text-[11px] font-black text-blue-800 dark:text-blue-200"><span>Actualizando publicaciones</span><span>{mercadoLibreUpdateProgress.procesadas} / {mercadoLibreUpdateProgress.total}</span></div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-blue-100 dark:bg-blue-950"><div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${mercadoLibreUpdateProgress.total ? Math.min(100, (mercadoLibreUpdateProgress.procesadas / mercadoLibreUpdateProgress.total) * 100) : 0}%` }} /></div>
+                  <p className="mt-1 text-[10px] text-blue-700 dark:text-blue-300">{mercadoLibreUpdateProgress.publicacion ? `${mercadoLibreUpdateProgress.publicacion}: ${mercadoLibreUpdateProgress.estado?.toLowerCase()}` : "Preparando actualizacion..."}</p>
+                </div>}
 
                 {mercadoLibreUpdateErrors.length > 0 && <section role="alert" className="mt-5 border border-red-300 bg-red-50 p-4 text-sm dark:border-red-900/70 dark:bg-red-950/25">
                   <p className="font-black text-red-800 dark:text-red-200">Publicaciones que no se pudieron actualizar</p>

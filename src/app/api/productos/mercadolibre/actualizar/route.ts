@@ -78,22 +78,61 @@ export async function POST(request: NextRequest) {
       actualizarPrecio,
       actualizarStock,
       recargoPorcentaje: payload.recargoPorcentaje ?? 0,
+      incluirKitsAfectados: false,
     });
-    const limiteInmediato = payload.limiteInmediato ?? 50;
-    const inmediato = await procesarActualizacionesPrecioMercadoLibre(
-      limiteInmediato,
-      undefined,
-      queued.publicacionesIds.slice(0, limiteInmediato),
-    );
+    if (!queued.cantidad) {
+      return NextResponse.json({
+        itemsSeleccionados: itemIds.length,
+        kitsSeleccionados: kitIds.length,
+        publicacionesEncoladas: 0,
+        procesadas: 0,
+        actualizadas: 0,
+        errores: 0,
+        pendientesEnCola: 0,
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
 
-    return NextResponse.json({
-      itemsSeleccionados: itemIds.length,
-      kitsSeleccionados: kitIds.length,
-      publicacionesEncoladas: queued.cantidad,
-      ...inmediato,
-      pendientesEnCola: Math.max(0, queued.cantidad - inmediato.procesadas),
-    }, { headers: { "Cache-Control": "no-store" } });
+    const limiteInmediato = payload.limiteInmediato ?? 50;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (event: Record<string, unknown>) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        void (async () => {
+          try {
+            send({
+              tipo: "INICIO",
+              itemsSeleccionados: itemIds.length,
+              kitsSeleccionados: kitIds.length,
+              publicacionesEncoladas: queued.cantidad,
+            });
+            const inmediato = await procesarActualizacionesPrecioMercadoLibre(
+              limiteInmediato,
+              undefined,
+              queued.publicacionesIds.slice(0, limiteInmediato),
+              (progress) => send({ tipo: "PROGRESO", ...progress }),
+            );
+            send({
+              tipo: "FINAL",
+              itemsSeleccionados: itemIds.length,
+              kitsSeleccionados: kitIds.length,
+              publicacionesEncoladas: queued.cantidad,
+              ...inmediato,
+              pendientesEnCola: Math.max(0, queued.cantidad - inmediato.procesadas),
+            });
+          } catch (streamError) {
+            const message = streamError instanceof Error ? streamError.message : "No se pudieron actualizar las publicaciones seleccionadas en Mercado Libre.";
+            send({ tipo: "ERROR", message });
+          } finally {
+            controller.close();
+          }
+        })();
+      },
+    });
+
+    return new NextResponse(stream, {
+      headers: { "Cache-Control": "no-store", "Content-Type": "application/x-ndjson; charset=utf-8" },
+    });
   } catch (error) {
-    return jsonError(error, "No se pudieron actualizar los precios seleccionados en Mercado Libre.");
+    return jsonError(error, "No se pudieron actualizar las publicaciones seleccionadas en Mercado Libre.");
   }
 }

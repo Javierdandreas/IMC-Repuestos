@@ -153,6 +153,7 @@ function mapCuenta(row: Record<string, unknown>): MercadoLibreCuentaEstado {
     sellerId: Number(row.seller_id),
     nickname: row.nickname ? String(row.nickname) : null,
     siteId: String(row.site_id || "MLA"),
+    retencionFiscalPorcentaje: Number(row.retencion_fiscal_porcentaje || 0),
     conectadaAt: new Date(String(row.conectada_at)).toISOString(),
     ultimaSincronizacionAt: row.ultima_sincronizacion_at ? new Date(String(row.ultima_sincronizacion_at)).toISOString() : null,
     ultimoEstadoSincronizacion: row.ultimo_estado_sincronizacion as MercadoLibreCuentaEstado["ultimoEstadoSincronizacion"],
@@ -240,7 +241,7 @@ export async function conectarMercadoLibre(code: string, codeVerifier: string) {
 
 export async function getMercadoLibreCuentas(): Promise<MercadoLibreCuentaEstado[]> {
   const { rows } = await query(
-    `SELECT id, seller_id, nickname, site_id, conectada_at, ultima_sincronizacion_at,
+    `SELECT id, seller_id, nickname, site_id, retencion_fiscal_porcentaje, conectada_at, ultima_sincronizacion_at,
       ultimo_estado_sincronizacion, ultimo_error_sincronizacion
      FROM public.mercadolibre_cuenta
      WHERE conectada = TRUE
@@ -2752,6 +2753,7 @@ type OpcionesActualizacionPrecioMercadoLibre = {
   actualizarPrecio?: boolean;
   actualizarStock?: boolean;
   recargoPorcentaje?: number;
+  incluirKitsAfectados?: boolean;
 };
 
 export async function encolarActualizacionesPrecioMercadoLibreDetallado(
@@ -2765,6 +2767,7 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(
   const actualizarPrecio = options.actualizarPrecio ?? true;
   const actualizarStock = options.actualizarStock ?? false;
   const recargoPorcentaje = Math.max(0, Math.min(1_000, Number(options.recargoPorcentaje) || 0));
+  const incluirKitsAfectados = options.incluirKitsAfectados ?? true;
   if (!products.length && !kits.length) return { cantidad: 0, publicacionesIds: [] };
   const result = await query<{ id_publicacion: number }>(
     `WITH tipo_ml AS (
@@ -2772,7 +2775,7 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(
      ), kits_afectados AS (
        SELECT UNNEST($2::int[]) AS id_kit
        UNION
-       SELECT detalle.id_kit FROM public.kit_detalle detalle WHERE detalle.id_producto = ANY($1::int[])
+       SELECT detalle.id_kit FROM public.kit_detalle detalle WHERE $7::boolean AND detalle.id_producto = ANY($1::int[])
      ), objetivos AS (
        -- La lista MERCADO LIBRE representa el neto que IMC debe recibir,
        -- no el precio final visible al comprador.
@@ -2811,7 +2814,7 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(
        recargo_porcentaje = EXCLUDED.recargo_porcentaje, estado = 'PENDIENTE', intentos = 0,
        ultimo_error = NULL, procesado_at = NULL, updated_at = NOW()
      RETURNING id_publicacion`,
-    [products, kits, incluirPausadas, actualizarPrecio, actualizarStock, recargoPorcentaje]
+    [products, kits, incluirPausadas, actualizarPrecio, actualizarStock, recargoPorcentaje, incluirKitsAfectados]
   );
   return { cantidad: result.rowCount ?? 0, publicacionesIds: result.rows.map((row) => Number(row.id_publicacion)) };
 }
@@ -2831,6 +2834,18 @@ type PrecioPendiente = {
   id_cuenta: number;
   item_id: string;
   variaciones: unknown;
+  precio_actual: number | null;
+  costo_estimado: unknown;
+  costo_estimado_at: string | Date | null;
+};
+
+export type MercadoLibreActualizacionProgreso = {
+  procesadas: number;
+  actualizadas: number;
+  errores: number;
+  publicacion: string;
+  estado: "ACTUALIZADA" | "OMITIDA" | "ERROR";
+  mensaje?: string;
 };
 
 export type MercadoLibreActualizacionPrecioEstado = {
@@ -2862,7 +2877,12 @@ export async function getEstadoActualizacionesPrecioMercadoLibre(idCuenta?: numb
 }
 
 /** Procesa una tanda acotada; el cron externo la vuelve a ejecutar en el siguiente ciclo. */
-export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCuenta?: number, publicacionesIds?: number[]) {
+export async function procesarActualizacionesPrecioMercadoLibre(
+  limit = 20,
+  idCuenta?: number,
+  publicacionesIds?: number[],
+  onProgress?: (progress: MercadoLibreActualizacionProgreso) => void,
+) {
   const publicaciones = [...new Set((publicacionesIds || []).filter((id) => Number.isInteger(id) && id > 0))];
   const jobs = await withTransaction(async (db) => {
     const claimed = await db.query<PrecioPendiente>(
@@ -2883,7 +2903,8 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
        WHERE queue.id = pendientes.id AND publication.id = queue.id_publicacion
        RETURNING queue.id, queue.id_publicacion, queue.precio AS importe_objetivo, queue.stock AS stock_objetivo,
          queue.actualizar_precio, queue.actualizar_stock, queue.recargo_porcentaje,
-         publication.id_cuenta, publication.item_id, publication.variaciones`,
+         publication.id_cuenta, publication.item_id, publication.variaciones, publication.precio AS precio_actual,
+         publication.costo_estimado, publication.costo_estimado_at`,
       [Math.max(1, Math.min(50, Math.floor(limit) || 20)), idCuenta ?? null, publicaciones.length ? publicaciones : null]
     );
     return claimed.rows;
@@ -2893,20 +2914,28 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
   let errores = 0;
   const detallesErrores: Array<{ publicacion: string; mensaje: string }> = [];
   const advertencias: Array<{ publicacion: string; mensaje: string }> = [];
-  for (const job of jobs) {
+  let procesadas = 0;
+  const procesarTrabajo = async (job: PrecioPendiente) => {
     try {
       let precioFinal: number | null = null;
       let costoEstimado: unknown = null;
       if (job.actualizar_precio) {
         if (!job.importe_objetivo || job.importe_objetivo <= 0) throw new AppError("La publicacion no tiene un importe valido en la lista Mercado Libre.", 422);
-        const precioResuelto = await resolverPrecioPublicadoMercadoLibre(
-          Number(job.id_cuenta),
-          String(job.item_id),
-          Number(job.importe_objetivo),
-        );
         const recargo = Math.max(0, Number(job.recargo_porcentaje) || 0);
-        precioFinal = Math.round(precioResuelto.precioFinal * (1 + recargo / 100) * 100) / 100;
-        costoEstimado = precioResuelto.costoEstimado;
+        const cotizacionActual = leerCostoEstimado(job.costo_estimado);
+        const objetivoYaAlcanzado = recargo === 0
+          && cotizacionEsReciente(cotizacionActual, job.costo_estimado_at)
+          && Math.abs(Number(job.precio_actual) - Number(cotizacionActual?.precio)) < 0.01
+          && Math.abs(obtenerNetoCotizado(Number(cotizacionActual?.precio), cotizacionActual) - Number(job.importe_objetivo)) < 0.01;
+        if (!objetivoYaAlcanzado) {
+          const precioResuelto = await resolverPrecioPublicadoMercadoLibre(
+            Number(job.id_cuenta),
+            String(job.item_id),
+            Number(job.importe_objetivo),
+          );
+          precioFinal = Math.round(precioResuelto.precioFinal * (1 + recargo / 100) * 100) / 100;
+          costoEstimado = precioResuelto.costoEstimado;
+        }
       }
 
       const tieneVariaciones = Array.isArray(job.variaciones) && job.variaciones.length > 0;
@@ -2937,7 +2966,10 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
          WHERE id = $1`,
         [job.id_publicacion, precioFinal, costoEstimado === null ? null : JSON.stringify(costoEstimado), actualizarStock ? Math.max(0, Math.floor(Number(job.stock_objetivo))) : null]
       );
-      if (Object.keys(body).length) actualizadas += 1;
+      const omitida = Object.keys(body).length === 0;
+      if (!omitida) actualizadas += 1;
+      procesadas += 1;
+      onProgress?.({ procesadas, actualizadas, errores, publicacion: String(job.item_id), estado: omitida ? "OMITIDA" : "ACTUALIZADA" });
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 900) : "No se pudo actualizar el precio.";
       await query(
@@ -2947,8 +2979,21 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
       );
       errores += 1;
       detallesErrores.push({ publicacion: String(job.item_id), mensaje: message });
+      procesadas += 1;
+      onProgress?.({ procesadas, actualizadas, errores, publicacion: String(job.item_id), estado: "ERROR", mensaje: message });
     }
-  }
+  };
+
+  // Mercado Libre actualiza cada item por separado. Tres workers reducen el
+  // tiempo total sin disparar decenas de solicitudes simultaneas por cuenta.
+  let siguiente = 0;
+  const worker = async () => {
+    while (siguiente < jobs.length) {
+      const job = jobs[siguiente++];
+      await procesarTrabajo(job);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, () => worker()));
   return { procesadas: jobs.length, actualizadas, errores, detallesErrores, advertencias };
 }
 
@@ -2987,13 +3032,37 @@ type ContextoCostoMercadoLibre = {
   moneda: string;
   categoriaId: string | null;
   tipoPublicacion: string;
+  retencionFiscalPorcentaje: number;
+  ultimaCotizacion: MercadoLibreCostoEstimado | null;
 };
+
+function leerCostoEstimado(value: unknown): MercadoLibreCostoEstimado | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const costo = value as Partial<MercadoLibreCostoEstimado>;
+  if (!Number.isFinite(Number(costo.precio)) || Number(costo.precio) <= 0) return null;
+  if (!Number.isFinite(Number(costo.comisionTotal)) || !Number.isFinite(Number(costo.envioEstimado))) return null;
+  return costo as MercadoLibreCostoEstimado;
+}
+
+function cotizacionEsReciente(costo: MercadoLibreCostoEstimado | null, actualizadaAt: string | Date | null) {
+  if (!costo) return false;
+  const fecha = new Date(actualizadaAt || costo.consultadoAt).getTime();
+  return Number.isFinite(fecha) && Date.now() - fecha <= 15 * 60 * 1000;
+}
+
+function obtenerNetoCotizado(precio: number, costo: MercadoLibreCostoEstimado | null) {
+  if (!costo) return Number.NEGATIVE_INFINITY;
+  if (Number.isFinite(Number(costo.netoEstimado))) return Number(costo.netoEstimado);
+  if (Number.isFinite(Number(costo.costoMlTotal))) return precio - Number(costo.costoMlTotal);
+  return Number.NEGATIVE_INFINITY;
+}
 
 async function obtenerContextoCostoMercadoLibre(idCuenta: number, itemId: string): Promise<ContextoCostoMercadoLibre> {
   const publicacion = await query<{
     item_id: string; precio: number | null; moneda: string | null; categoria_id: string | null; tipo_publicacion: string | null;
+    costo_estimado: unknown; costo_estimado_at: string | Date | null;
   }>(
-    `SELECT item_id, precio, moneda, categoria_id, tipo_publicacion
+    `SELECT item_id, precio, moneda, categoria_id, tipo_publicacion, costo_estimado, costo_estimado_at
      FROM public.mercadolibre_publicacion WHERE id_cuenta = $1 AND item_id = $2 LIMIT 1`,
     [idCuenta, itemId],
   );
@@ -3001,7 +3070,7 @@ async function obtenerContextoCostoMercadoLibre(idCuenta: number, itemId: string
   if (!stored) throw new AppError("La publicacion no pertenece a esta cuenta de Mercado Libre.", 404);
 
   const { accessToken, sellerId } = await accessTokenForCuenta(idCuenta);
-  const account = await query<{ site_id: string }>("SELECT site_id FROM public.mercadolibre_cuenta WHERE id = $1", [idCuenta]);
+  const account = await query<{ site_id: string; retencion_fiscal_porcentaje: number | null }>("SELECT site_id, retencion_fiscal_porcentaje FROM public.mercadolibre_cuenta WHERE id = $1", [idCuenta]);
   const siteId = String(account.rows[0]?.site_id || "MLA");
   const item = await meliGet(`/items/${encodeURIComponent(itemId)}`, idCuenta, accessToken) as MeliItem;
   const moneda = String(item.currency_id || stored.moneda || "ARS");
@@ -3012,6 +3081,8 @@ async function obtenerContextoCostoMercadoLibre(idCuenta: number, itemId: string
     idCuenta, itemId, accessToken, sellerId, siteId, item,
     precioActual: toFiniteNumber(item.price) ?? toFiniteNumber(stored.precio),
     moneda, categoriaId, tipoPublicacion,
+    retencionFiscalPorcentaje: Math.max(0, Number(account.rows[0]?.retencion_fiscal_porcentaje) || 0),
+    ultimaCotizacion: leerCostoEstimado(stored.costo_estimado),
   };
 }
 
@@ -3070,13 +3141,14 @@ async function cotizarCostoMercadoLibre(
   const cargoFijo = toFiniteNumber(pricing.sale_fee_details?.fixed_fee);
   const cargoFinanciacion = toFiniteNumber(pricing.sale_fee_details?.financing_add_on_fee);
   const porcentajeComision = toFiniteNumber(pricing.sale_fee_details?.percentage_fee);
-  const costoMlTotal = comisionTotal === null ? null : comisionTotal + (envioEstimado || 0);
+  const impuestosEstimados = Math.round(precio * context.retencionFiscalPorcentaje) / 100;
+  const costoMlTotal = comisionTotal === null ? null : comisionTotal + (envioEstimado || 0) + impuestosEstimados;
   const netoEstimado = costoMlTotal === null ? null : Math.round((precio - costoMlTotal) * 100) / 100;
   const consultadoAt = new Date().toISOString();
   return {
     itemId: context.itemId, precio, moneda: context.moneda, tipoPublicacion: context.tipoPublicacion, categoriaId: context.categoriaId, comisionTotal, porcentajeComision, cargoFijo,
     cargoFinanciacion, envioEstimado, dimensionesEnvio: context.item.shipping?.dimensions || null, pesoFacturable, costoMlTotal,
-    impuestosEstimados: null,
+    impuestosEstimados,
     netoEstimado,
     advertencias, consultadoAt,
   };
@@ -3118,10 +3190,23 @@ async function resolverPrecioPublicadoMercadoLibre(
     cotizaciones.set(candidato, costoEstimado);
     return costoEstimado;
   };
-  const neto = (precio: number, costo: MercadoLibreCostoEstimado) => precio - Number(costo.comisionTotal) - Number(costo.envioEstimado);
+  const neto = (precio: number, costo: MercadoLibreCostoEstimado) => obtenerNetoCotizado(precio, costo);
   const alcanzaObjetivo = (precio: number, costo: MercadoLibreCostoEstimado) => neto(precio, costo) + 0.005 >= importeObjetivo;
 
-  let candidato = Math.ceil(importeObjetivo * 100) / 100;
+  const cotizacionPrevia = context.ultimaCotizacion;
+  const porcentajeComision = Number(cotizacionPrevia?.porcentajeComision);
+  const comisionFija = Number.isFinite(porcentajeComision)
+    ? Math.max(0, Number(cotizacionPrevia?.comisionTotal) - Number(cotizacionPrevia?.precio) * porcentajeComision / 100)
+    : 0;
+  const tasaComision = Number.isFinite(porcentajeComision) && porcentajeComision >= 0
+    ? porcentajeComision / 100
+    : 0;
+  const tasaRetencion = context.retencionFiscalPorcentaje / 100;
+  const denominador = 1 - tasaComision - tasaRetencion;
+  const candidatoInicial = cotizacionPrevia && denominador > 0
+    ? (importeObjetivo + Number(cotizacionPrevia.envioEstimado) + comisionFija) / denominador
+    : importeObjetivo;
+  let candidato = Math.ceil(Math.max(importeObjetivo, candidatoInicial) * 100) / 100;
   let costoCandidato = await cotizar(candidato);
 
   // El ajuste directo suele converger rapido; se deja una cantidad suficiente de

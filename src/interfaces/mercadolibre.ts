@@ -3,6 +3,7 @@ export type MercadoLibreCuentaEstado = {
   sellerId: number;
   nickname: string | null;
   siteId: string;
+  retencionFiscalPorcentaje: number;
   conectadaAt: string;
   ultimaSincronizacionAt: string | null;
   ultimoEstadoSincronizacion: "OK" | "ERROR" | "EN_PROCESO" | null;
@@ -42,8 +43,8 @@ export type MercadoLibreCostoEstimado = {
   dimensionesEnvio: string | null;
   pesoFacturable: number | null;
   costoMlTotal: number | null;
-  // Mercado Libre no anticipa retenciones/impuestos por una publicacion. Solo
-  // estan disponibles luego de la venta en los reportes de facturacion.
+  // Mercado Libre no anticipa las retenciones. Se estima con la configuracion
+  // fiscal de la cuenta, calibrada con el resumen de cargos del vendedor.
   impuestosEstimados: number | null;
   netoEstimado: number | null;
   advertencias: string[];
