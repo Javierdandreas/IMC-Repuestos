@@ -33,6 +33,7 @@ const TOOLTIP_WIDTH = 420;
 const TOOLTIP_MARGIN = 16;
 type TooltipContent = "locations" | "details" | "activity" | "mercadolibre" | "providers";
 type MercadoLibreUpdateScope = "SELECCION" | "BUSQUEDA";
+type MercadoLibreUpdateMode = "PRECIOS" | "STOCK" | "STOCK_Y_PRECIOS";
 type MercadoLibreUpdateError = { publicacion: string; mensaje: string };
 type ProductActivity = {
   id: number;
@@ -249,6 +250,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [confirmingMercadoLibre, setConfirmingMercadoLibre] = useState(false);
   const [includePausedMercadoLibre, setIncludePausedMercadoLibre] = useState(false);
   const [mercadoLibreUpdateScope, setMercadoLibreUpdateScope] = useState<MercadoLibreUpdateScope>("SELECCION");
+  const [mercadoLibreUpdateMode, setMercadoLibreUpdateMode] = useState<MercadoLibreUpdateMode>("PRECIOS");
+  const [mercadoLibreExtraPercentage, setMercadoLibreExtraPercentage] = useState("0");
   const [mercadoLibreUpdateErrors, setMercadoLibreUpdateErrors] = useState<MercadoLibreUpdateError[]>([]);
   const [selectedSearchItems, setSelectedSearchItems] = useState<{ count: number; filters: Record<string, string> } | null>(null);
   const selectableProducts = products;
@@ -260,11 +263,19 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     () => Array.from(selectedProductsByKey.values()),
     [selectedProductsByKey],
   );
+  const selectedMercadoLibreItems = useMemo(
+    () => selectedProducts.filter((product) => product.tipo === "ITEM").map((product) => Number(product.id)).filter(Number.isInteger),
+    [selectedProducts],
+  );
+  const selectedMercadoLibreKits = useMemo(
+    () => selectedProducts.filter((product) => product.tipo === "KIT").map((product) => Number(product.id)).filter(Number.isInteger),
+    [selectedProducts],
+  );
   const currentSearchFilters = useMemo(
     () => Object.fromEntries([...searchParams.entries()].filter(([key]) => ["search", "searchSpecific", "categoria", "subcategoria", "marca", "proveedor", "estado", "margenes"].includes(key))),
     [searchParams],
   );
-  const selectedMercadoLibreCount = selectedSearchItems?.count ?? selectedLabelProducts.length;
+  const selectedMercadoLibreCount = selectedSearchItems?.count ?? selectedProducts.length;
   const canUpdateMercadoLibre = Boolean(selectedMercadoLibreCount || totalCount > 0);
 
   const isSelected = (product: ItemListadoUnificado) => selectedProductsByKey.has(`${product.tipo}-${product.id}`);
@@ -332,9 +343,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
   const updateSelectedMercadoLibre = async () => {
     if (updatingMercadoLibre) return;
-    const productoIds = selectedLabelProducts.map((product) => Number(product.id)).filter(Number.isInteger);
     const useSearchScope = mercadoLibreUpdateScope === "BUSQUEDA" || Boolean(selectedSearchItems);
-    if (!useSearchScope && !productoIds.length) return;
+    if (!useSearchScope && !selectedMercadoLibreItems.length && !selectedMercadoLibreKits.length) return;
+    const recargoPorcentaje = Number(mercadoLibreExtraPercentage.replace(",", "."));
+    if (!Number.isFinite(recargoPorcentaje) || recargoPorcentaje < 0 || recargoPorcentaje > 1000) {
+      toast.error("El porcentaje adicional debe estar entre 0 y 1.000.");
+      return;
+    }
 
     try {
       setUpdatingMercadoLibre(true);
@@ -343,8 +358,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(useSearchScope
-          ? { filtrosBusqueda: mercadoLibreUpdateScope === "BUSQUEDA" ? currentSearchFilters : selectedSearchItems?.filters, incluirPausadas: includePausedMercadoLibre }
-          : { productoIds, incluirPausadas: includePausedMercadoLibre }),
+          ? { filtrosBusqueda: mercadoLibreUpdateScope === "BUSQUEDA" ? currentSearchFilters : selectedSearchItems?.filters, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje }
+          : { productoIds: selectedMercadoLibreItems, kitIds: selectedMercadoLibreKits, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje }),
       });
       const result = await response.json().catch(() => ({})) as {
         itemsSeleccionados?: number;
@@ -353,15 +368,19 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
         actualizadas?: number;
         errores?: number;
         detallesErrores?: MercadoLibreUpdateError[];
+        advertencias?: MercadoLibreUpdateError[];
         pendientesEnCola?: number;
         message?: string;
       };
-      if (!response.ok) throw new Error(result.message || "No se pudieron actualizar los precios seleccionados en Mercado Libre.");
+      if (!response.ok) throw new Error(result.message || "No se pudieron actualizar las publicaciones seleccionadas en Mercado Libre.");
 
       if (!result.publicacionesEncoladas) {
-        toast.message("Los items seleccionados no tienen publicaciones activas o pausadas vinculadas con precio de Mercado Libre.");
+        toast.message("Los items o kits seleccionados no tienen publicaciones activas o pausadas vinculadas para esta actualizacion.");
         setConfirmingMercadoLibre(false);
         return;
+      }
+      if (result.advertencias?.length) {
+        toast.warning(`${result.advertencias.length} publicacion(es) se actualizaron sin stock porque tienen variaciones. Revisa el detalle por variante en Mercado Libre.`);
       }
       if (result.errores) {
         setMercadoLibreUpdateErrors(result.detallesErrores || []);
@@ -631,7 +650,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               {canManage && totalCount > products.length && <button type="button" disabled={selectingSearch} onClick={selectAllSearchResults} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-300 px-3 text-xs font-black text-blue-700 transition hover:bg-blue-50 disabled:cursor-wait disabled:opacity-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/10"><HiCollection className="h-4 w-4" /> {selectingSearch ? "Seleccionando..." : `Seleccionar items de la busqueda (${totalCount})`}</button>}
               {canManage && <button type="button" disabled={selectedProducts.length === 0 && !selectedSearchItems} onClick={() => setOpenMassEdit(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiAdjustments className="h-4 w-4" /> Cambio masivo{selectedSearchItems ? ` (${selectedSearchItems.count.toLocaleString("es-AR")} items)` : selectedProducts.length > 0 ? ` (${selectedProducts.length})` : ""}</button>}
               {canManage && <button type="button" disabled={selectedLabelProducts.length === 0} onClick={() => setOpenLabelPrinter(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiPrinter className="h-4 w-4" /> Etiquetas{selectedLabelProducts.length > 0 ? ` (${selectedLabelProducts.length})` : ""}</button>}
-              {canManage && <button type="button" disabled={updatingMercadoLibre || !canUpdateMercadoLibre} onClick={() => { setMercadoLibreUpdateErrors([]); setMercadoLibreUpdateScope(selectedMercadoLibreCount ? "SELECCION" : "BUSQUEDA"); setConfirmingMercadoLibre(true); }} title="Actualiza el precio de las publicaciones vinculadas a los items seleccionados o a la busqueda actual" className="inline-flex h-9 items-center rounded-lg border border-blue-300 px-3 text-xs font-black text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/10">{updatingMercadoLibre ? "Actualizando Mercado Libre..." : `Actualizar Mercado Libre${selectedSearchItems ? ` (${selectedSearchItems.count.toLocaleString("es-AR")})` : selectedLabelProducts.length ? ` (${selectedLabelProducts.length})` : ""}`}</button>}
+              {canManage && <button type="button" disabled={updatingMercadoLibre || !canUpdateMercadoLibre} onClick={() => { setMercadoLibreUpdateErrors([]); setMercadoLibreUpdateScope(selectedMercadoLibreCount ? "SELECCION" : "BUSQUEDA"); setConfirmingMercadoLibre(true); }} title="Actualiza precio y/o stock de las publicaciones vinculadas a los items o kits seleccionados, o a la busqueda actual" className="inline-flex h-9 items-center rounded-lg border border-blue-300 px-3 text-xs font-black text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/10">{updatingMercadoLibre ? "Actualizando Mercado Libre..." : `Actualizar Mercado Libre${selectedMercadoLibreCount ? ` (${selectedMercadoLibreCount.toLocaleString("es-AR")})` : ""}`}</button>}
                {canManage && <button type="button" onClick={() => router.push("/productos/importar")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiCloudUpload className="h-4 w-4" /> Importar items</button>}
                {canManage && <button type="button" onClick={() => router.push("/kits/importar")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiCollection className="h-4 w-4" /> Importar kits</button>}
               {(selectedProducts.length > 0 || selectedSearchItems) && <button type="button" onClick={() => { setSelectedProductsByKey(new Map()); setSelectedSearchItems(null); }} title="Deseleccionar" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"><HiX className="h-4 w-4" /></button>}
@@ -1126,49 +1145,38 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               title="Actualizar Mercado Libre"
               open={confirmingMercadoLibre}
               onClose={() => { if (!updatingMercadoLibre) setConfirmingMercadoLibre(false); }}
-              width="w-[min(96vw,760px)]"
+              width="w-[min(96vw,620px)]"
+              titleClassName="text-sm"
               hideClose={updatingMercadoLibre}
             >
-              <div className="p-6">
-                <div className="grid gap-x-5 gap-y-3 sm:grid-cols-[13rem_minmax(0,1fr)] sm:items-center">
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Actualizar items</p>
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200"><input type="radio" name="ml-update-scope" checked={mercadoLibreUpdateScope === "BUSQUEDA"} onChange={() => setMercadoLibreUpdateScope("BUSQUEDA")} disabled={updatingMercadoLibre} className="h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" />Todos los items de la busqueda</label>
-                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200"><input type="radio" name="ml-update-scope" checked={mercadoLibreUpdateScope === "SELECCION"} onChange={() => setMercadoLibreUpdateScope("SELECCION")} disabled={updatingMercadoLibre || !selectedMercadoLibreCount} className="h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed" />Solo los items seleccionados{selectedMercadoLibreCount ? ` (${selectedMercadoLibreCount.toLocaleString("es-AR")})` : ""}</label>
+              <div className="p-3 text-[11px]">
+                <div className="grid gap-x-3 gap-y-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
+                  <p className="font-bold text-slate-700 dark:text-slate-200">Alcance</p>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-slate-700 dark:text-slate-200"><input type="radio" name="ml-update-scope" checked={mercadoLibreUpdateScope === "BUSQUEDA"} onChange={() => setMercadoLibreUpdateScope("BUSQUEDA")} disabled={updatingMercadoLibre} className="h-3 w-3 border-slate-300 text-blue-600 focus:ring-blue-500" />Toda la busqueda</label>
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-slate-700 dark:text-slate-200"><input type="radio" name="ml-update-scope" checked={mercadoLibreUpdateScope === "SELECCION"} onChange={() => setMercadoLibreUpdateScope("SELECCION")} disabled={updatingMercadoLibre || !selectedMercadoLibreCount} className="h-3 w-3 border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed" />Seleccionados{selectedMercadoLibreCount ? ` (${selectedMercadoLibreCount.toLocaleString("es-AR")})` : ""}</label>
                   </div>
 
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Actualizar</p>
-                  <select value="PRECIOS" disabled className="h-9 w-full max-w-sm rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"><option value="PRECIOS">Precios</option></select>
+                  <label htmlFor="ml-update-mode" className="font-bold text-slate-700 dark:text-slate-200">Actualizar</label>
+                  <select id="ml-update-mode" value={mercadoLibreUpdateMode} onChange={(event) => setMercadoLibreUpdateMode(event.target.value as MercadoLibreUpdateMode)} disabled={updatingMercadoLibre} className="h-7 w-full rounded border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="PRECIOS">Precios</option><option value="STOCK">Stock</option><option value="STOCK_Y_PRECIOS">Stock y precios</option></select>
 
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Actualiza con precios de</p>
-                  <select value="MERCADO_LIBRE" disabled className="h-9 w-full max-w-sm rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"><option value="MERCADO_LIBRE">MERCADO LIBRE</option></select>
+                  <label htmlFor="ml-extra-percentage" className="font-bold text-slate-700 dark:text-slate-200">Recargo adicional</label>
+                  <div className="flex items-center gap-2"><input id="ml-extra-percentage" value={mercadoLibreExtraPercentage} onChange={(event) => setMercadoLibreExtraPercentage(event.target.value)} disabled={updatingMercadoLibre || mercadoLibreUpdateMode === "STOCK"} inputMode="decimal" className="h-7 w-24 rounded border border-slate-300 bg-white px-2 text-right font-bold text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:disabled:bg-slate-900" /><span className="text-slate-500">% sobre el precio final</span></div>
 
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Envio a cargo de IMC</p>
-                  <select value="INCLUIR" disabled className="h-9 w-full max-w-sm rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"><option value="INCLUIR">Incluir en el precio final de la publicacion</option></select>
-
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Comision y cargo fijo</p>
-                  <select value="AUTOMATICO" disabled className="h-9 w-full max-w-sm rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"><option value="AUTOMATICO">Automaticos segun cada publicacion</option></select>
-
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Redondeo de precios</p>
-                  <select value="DOS_DECIMALES" disabled className="h-9 w-full max-w-sm rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"><option value="DOS_DECIMALES">2 decimales</option></select>
-
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Publicaciones pausadas</p>
-                  <select value={includePausedMercadoLibre ? "INCLUIR" : "OMITIR"} onChange={(event) => setIncludePausedMercadoLibre(event.target.value === "INCLUIR")} disabled={updatingMercadoLibre} className="h-9 w-full max-w-sm rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="OMITIR">Omitir pausadas (recomendado)</option><option value="INCLUIR">Incluir pausadas e intentar actualizarlas</option></select>
-
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Stock y dimensiones</p>
-                  <select value="NO_MODIFICAR" disabled className="h-9 w-full max-w-sm rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"><option value="NO_MODIFICAR">No modificar en esta actualizacion</option></select>
+                  <p className="font-bold text-slate-700 dark:text-slate-200">Pausadas</p>
+                  <select value={includePausedMercadoLibre ? "INCLUIR" : "OMITIR"} onChange={(event) => setIncludePausedMercadoLibre(event.target.value === "INCLUIR")} disabled={updatingMercadoLibre} className="h-7 w-full rounded border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="OMITIR">Omitir publicaciones pausadas</option><option value="INCLUIR">Incluir pausadas e intentar actualizarlas</option></select>
                 </div>
 
-                <div className="mt-5 border-t border-slate-200 pt-4 text-xs text-slate-500 dark:border-slate-800">El importe de la lista Mercado Libre es el neto objetivo para IMC. Nexo calcula el precio visible por cada publicacion antes de enviarlo.</div>
+                <div className="mt-3 border-t border-slate-200 pt-2 leading-4 text-slate-500 dark:border-slate-800">Precio: la lista Mercado Libre es el neto objetivo y Nexo calcula comision, cargo y envio por publicacion. Stock: se envia el stock actual, incluido 0; en kits se calcula por componentes.</div>
 
                 {mercadoLibreUpdateErrors.length > 0 && <section role="alert" className="mt-5 border border-red-300 bg-red-50 p-4 text-sm dark:border-red-900/70 dark:bg-red-950/25">
                   <p className="font-black text-red-800 dark:text-red-200">Publicaciones que no se pudieron actualizar</p>
                   <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">{mercadoLibreUpdateErrors.map((error) => <div key={`${error.publicacion}-${error.mensaje}`} className="border-t border-red-200 pt-2 text-xs dark:border-red-900/60"><p className="font-mono font-black text-red-800 dark:text-red-200">{error.publicacion}</p><p className="mt-1 text-red-700 dark:text-red-300">{error.mensaje}</p></div>)}</div>
                 </section>}
 
-                <div className="mt-5 flex justify-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
-                  <button type="button" onClick={() => setConfirmingMercadoLibre(false)} disabled={updatingMercadoLibre} className="h-10 rounded-lg border border-slate-300 px-4 text-xs font-black text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200">Cancelar</button>
-                  <button type="button" onClick={() => void updateSelectedMercadoLibre()} disabled={updatingMercadoLibre} className="h-10 rounded-lg bg-blue-600 px-4 text-xs font-black text-white transition hover:bg-blue-500 disabled:opacity-50">{updatingMercadoLibre ? "Actualizando..." : "Confirmar actualizacion"}</button>
+                <div className="mt-3 flex justify-end gap-2 border-t border-slate-200 pt-2 dark:border-slate-800">
+                  <button type="button" onClick={() => setConfirmingMercadoLibre(false)} disabled={updatingMercadoLibre} className="h-8 rounded border border-slate-300 px-3 text-[11px] font-black text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200">Cancelar</button>
+                  <button type="button" onClick={() => void updateSelectedMercadoLibre()} disabled={updatingMercadoLibre} className="h-8 rounded bg-blue-600 px-3 text-[11px] font-black text-white transition hover:bg-blue-500 disabled:opacity-50">{updatingMercadoLibre ? "Actualizando..." : "Actualizar"}</button>
                 </div>
               </div>
             </Modal>

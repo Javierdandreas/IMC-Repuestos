@@ -10,11 +10,12 @@ type Props = {
   headerExtra?: ReactNode;
   headerActions?: ReactNode;
   width?: string;
+  titleClassName?: string;
   hideHeaderBorder?: boolean;
   hideClose?: boolean;
 };
 
-export function Modal({ title, open, onClose, children, headerExtra, headerActions, width = "w-[min(96vw,1280px)]", hideHeaderBorder = false, hideClose = false }: Props) {
+export function Modal({ title, open, onClose, children, headerExtra, headerActions, width = "w-[min(96vw,1280px)]", titleClassName = "text-xl", hideHeaderBorder = false, hideClose = false }: Props) {
   useEffect(() => {
     if (!open) return;
 
@@ -39,7 +40,7 @@ export function Modal({ title, open, onClose, children, headerExtra, headerActio
       <div className={`relative z-10 flex max-h-[92vh] ${width} flex-col overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950`}>
         <div className={`flex items-center justify-between px-6 py-4 ${hideHeaderBorder ? "" : "border-b border-slate-100 dark:border-slate-800/60"}`}>
           <div className="flex flex-1 items-center gap-6">
-            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{title}</h2>
+            <h2 className={`${titleClassName} font-bold text-slate-800 dark:text-slate-100`}>{title}</h2>
             {headerExtra}
           </div>
 

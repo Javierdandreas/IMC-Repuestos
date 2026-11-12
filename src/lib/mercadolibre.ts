@@ -2749,6 +2749,9 @@ export type MercadoLibreActualizacionesEncoladas = {
 
 type OpcionesActualizacionPrecioMercadoLibre = {
   incluirPausadas?: boolean;
+  actualizarPrecio?: boolean;
+  actualizarStock?: boolean;
+  recargoPorcentaje?: number;
 };
 
 export async function encolarActualizacionesPrecioMercadoLibreDetallado(
@@ -2759,6 +2762,9 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(
   const products = [...new Set(productIds.filter((id) => Number.isInteger(id) && id > 0))];
   const kits = [...new Set(kitIds.filter((id) => Number.isInteger(id) && id > 0))];
   const incluirPausadas = options.incluirPausadas ?? true;
+  const actualizarPrecio = options.actualizarPrecio ?? true;
+  const actualizarStock = options.actualizarStock ?? false;
+  const recargoPorcentaje = Math.max(0, Math.min(1_000, Number(options.recargoPorcentaje) || 0));
   if (!products.length && !kits.length) return { cantidad: 0, publicacionesIds: [] };
   const result = await query<{ id_publicacion: number }>(
     `WITH tipo_ml AS (
@@ -2770,32 +2776,42 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(
      ), objetivos AS (
        -- La lista MERCADO LIBRE representa el neto que IMC debe recibir,
        -- no el precio final visible al comprador.
-       SELECT publication.id AS id_publicacion, precio.precio AS importe_objetivo
+       SELECT
+         publication.id AS id_publicacion,
+         CASE WHEN $4::boolean THEN precio.precio ELSE NULL END AS importe_objetivo,
+         CASE WHEN $5::boolean THEN GREATEST(COALESCE(producto.stock, 0), 0)::int ELSE NULL END AS stock_objetivo
        FROM public.mercadolibre_publicacion publication
-       INNER JOIN public.producto_precio precio ON precio.id_producto = publication.id_producto
+       INNER JOIN public.productos producto ON producto.id = publication.id_producto
+       LEFT JOIN public.producto_precio precio ON precio.id_producto = publication.id_producto
        CROSS JOIN tipo_ml
        WHERE (LOWER(publication.estado) = 'active' OR ($3::boolean AND LOWER(publication.estado) = 'paused'))
-         AND precio.id_tipo_precio = tipo_ml.id
-         AND publication.id_producto = ANY($1::int[]) AND precio.precio > 0
+         AND publication.id_producto = ANY($1::int[])
+         AND (NOT $4::boolean OR (precio.id_tipo_precio = tipo_ml.id AND precio.precio > 0))
        UNION ALL
-       SELECT publication.id AS id_publicacion,
-         CASE WHEN kit.criterio_costo = 'MANUAL' THEN manual.precio ELSE COALESCE(SUM(componente.precio * detalle.cantidad), 0) END AS precio
+       SELECT
+         publication.id AS id_publicacion,
+         CASE WHEN $4::boolean THEN CASE WHEN kit.criterio_costo = 'MANUAL' THEN manual.precio ELSE COALESCE(SUM(componente.precio * detalle.cantidad), 0) END ELSE NULL END AS importe_objetivo,
+         CASE WHEN $5::boolean THEN COALESCE(MIN(FLOOR(GREATEST(COALESCE(producto.stock, 0), 0) / NULLIF(detalle.cantidad, 0))), 0)::int ELSE NULL END AS stock_objetivo
        FROM public.mercadolibre_publicacion publication
        INNER JOIN public.kits kit ON kit.id = publication.id_kit
        LEFT JOIN public.kit_precio manual ON manual.id_kit = kit.id AND manual.id_tipo_precio = (SELECT id FROM tipo_ml)
        LEFT JOIN public.kit_detalle detalle ON detalle.id_kit = kit.id
+       LEFT JOIN public.productos producto ON producto.id = detalle.id_producto
        LEFT JOIN public.producto_precio componente ON componente.id_producto = detalle.id_producto AND componente.id_tipo_precio = (SELECT id FROM tipo_ml)
        WHERE (LOWER(publication.estado) = 'active' OR ($3::boolean AND LOWER(publication.estado) = 'paused'))
          AND publication.id_kit IN (SELECT id_kit FROM kits_afectados)
        GROUP BY publication.id, kit.id, kit.criterio_costo, manual.precio
      )
-     INSERT INTO public.mercadolibre_actualizacion_precio (id_publicacion, precio, estado, intentos, ultimo_error, created_at, updated_at)
-     SELECT id_publicacion, ROUND(importe_objetivo, 2), 'PENDIENTE', 0, NULL, NOW(), NOW()
-     FROM objetivos WHERE importe_objetivo > 0
-     ON CONFLICT (id_publicacion) DO UPDATE SET precio = EXCLUDED.precio, estado = 'PENDIENTE', intentos = 0,
+     INSERT INTO public.mercadolibre_actualizacion_precio (id_publicacion, precio, stock, actualizar_precio, actualizar_stock, recargo_porcentaje, estado, intentos, ultimo_error, created_at, updated_at)
+     SELECT id_publicacion, CASE WHEN $4::boolean THEN ROUND(importe_objetivo, 2) ELSE NULL END, stock_objetivo, $4::boolean, $5::boolean, $6::numeric, 'PENDIENTE', 0, NULL, NOW(), NOW()
+     FROM objetivos
+     WHERE NOT $4::boolean OR importe_objetivo > 0
+     ON CONFLICT (id_publicacion) DO UPDATE SET precio = EXCLUDED.precio, stock = EXCLUDED.stock,
+       actualizar_precio = EXCLUDED.actualizar_precio, actualizar_stock = EXCLUDED.actualizar_stock,
+       recargo_porcentaje = EXCLUDED.recargo_porcentaje, estado = 'PENDIENTE', intentos = 0,
        ultimo_error = NULL, procesado_at = NULL, updated_at = NOW()
      RETURNING id_publicacion`,
-    [products, kits, incluirPausadas]
+    [products, kits, incluirPausadas, actualizarPrecio, actualizarStock, recargoPorcentaje]
   );
   return { cantidad: result.rowCount ?? 0, publicacionesIds: result.rows.map((row) => Number(row.id_publicacion)) };
 }
@@ -2804,7 +2820,18 @@ export async function encolarActualizacionesPrecioMercadoLibre(productIds: numbe
   return (await encolarActualizacionesPrecioMercadoLibreDetallado(productIds, kitIds)).cantidad;
 }
 
-type PrecioPendiente = { id: number; id_publicacion: number; importe_objetivo: number; id_cuenta: number; item_id: string };
+type PrecioPendiente = {
+  id: number;
+  id_publicacion: number;
+  importe_objetivo: number | null;
+  stock_objetivo: number | null;
+  actualizar_precio: boolean;
+  actualizar_stock: boolean;
+  recargo_porcentaje: number | null;
+  id_cuenta: number;
+  item_id: string;
+  variaciones: unknown;
+};
 
 export type MercadoLibreActualizacionPrecioEstado = {
   pendientes: number;
@@ -2854,7 +2881,9 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
        SET estado = 'PROCESANDO', intentos = queue.intentos + 1, updated_at = NOW()
        FROM pendientes, public.mercadolibre_publicacion publication
        WHERE queue.id = pendientes.id AND publication.id = queue.id_publicacion
-       RETURNING queue.id, queue.id_publicacion, queue.precio AS importe_objetivo, publication.id_cuenta, publication.item_id`,
+       RETURNING queue.id, queue.id_publicacion, queue.precio AS importe_objetivo, queue.stock AS stock_objetivo,
+         queue.actualizar_precio, queue.actualizar_stock, queue.recargo_porcentaje,
+         publication.id_cuenta, publication.item_id, publication.variaciones`,
       [Math.max(1, Math.min(50, Math.floor(limit) || 20)), idCuenta ?? null, publicaciones.length ? publicaciones : null]
     );
     return claimed.rows;
@@ -2863,15 +2892,36 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
   let actualizadas = 0;
   let errores = 0;
   const detallesErrores: Array<{ publicacion: string; mensaje: string }> = [];
+  const advertencias: Array<{ publicacion: string; mensaje: string }> = [];
   for (const job of jobs) {
     try {
-      const precioResuelto = await resolverPrecioPublicadoMercadoLibre(
-        Number(job.id_cuenta),
-        String(job.item_id),
-        Number(job.importe_objetivo),
-      );
-      const { accessToken } = await accessTokenForCuenta(Number(job.id_cuenta));
-      await meliPut(`/items/${encodeURIComponent(String(job.item_id))}`, Number(job.id_cuenta), accessToken, { price: precioResuelto.precioFinal });
+      let precioFinal: number | null = null;
+      let costoEstimado: unknown = null;
+      if (job.actualizar_precio) {
+        if (!job.importe_objetivo || job.importe_objetivo <= 0) throw new AppError("La publicacion no tiene un importe valido en la lista Mercado Libre.", 422);
+        const precioResuelto = await resolverPrecioPublicadoMercadoLibre(
+          Number(job.id_cuenta),
+          String(job.item_id),
+          Number(job.importe_objetivo),
+        );
+        const recargo = Math.max(0, Number(job.recargo_porcentaje) || 0);
+        precioFinal = Math.round(precioResuelto.precioFinal * (1 + recargo / 100) * 100) / 100;
+        costoEstimado = precioResuelto.costoEstimado;
+      }
+
+      const tieneVariaciones = Array.isArray(job.variaciones) && job.variaciones.length > 0;
+      const actualizarStock = Boolean(job.actualizar_stock) && !tieneVariaciones && Number.isFinite(Number(job.stock_objetivo));
+      if (job.actualizar_stock && tieneVariaciones) {
+        advertencias.push({ publicacion: String(job.item_id), mensaje: "No se actualizo el stock porque la publicacion tiene variaciones; Mercado Libre lo exige por variante." });
+      }
+
+      const body: Record<string, unknown> = {};
+      if (precioFinal !== null) body.price = precioFinal;
+      if (actualizarStock) body.available_quantity = Math.max(0, Math.floor(Number(job.stock_objetivo)));
+      if (Object.keys(body).length) {
+        const { accessToken } = await accessTokenForCuenta(Number(job.id_cuenta));
+        await meliPut(`/items/${encodeURIComponent(String(job.item_id))}`, Number(job.id_cuenta), accessToken, body);
+      }
       await query(
         `UPDATE public.mercadolibre_actualizacion_precio
          SET estado = 'COMPLETADA', ultimo_error = NULL, procesado_at = NOW(), updated_at = NOW() WHERE id = $1`,
@@ -2879,11 +2929,15 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
       );
       await query(
         `UPDATE public.mercadolibre_publicacion
-         SET precio = $2, costo_estimado = $3::jsonb, costo_estimado_at = NOW(), updated_at = NOW()
+         SET precio = COALESCE($2, precio),
+           costo_estimado = CASE WHEN $3::jsonb IS NULL THEN costo_estimado ELSE $3::jsonb END,
+           costo_estimado_at = CASE WHEN $3::jsonb IS NULL THEN costo_estimado_at ELSE NOW() END,
+           cantidad_disponible = CASE WHEN $4::int IS NULL THEN cantidad_disponible ELSE $4::int END,
+           updated_at = NOW()
          WHERE id = $1`,
-        [job.id_publicacion, precioResuelto.precioFinal, JSON.stringify(precioResuelto.costoEstimado)]
+        [job.id_publicacion, precioFinal, costoEstimado === null ? null : JSON.stringify(costoEstimado), actualizarStock ? Math.max(0, Math.floor(Number(job.stock_objetivo))) : null]
       );
-      actualizadas += 1;
+      if (Object.keys(body).length) actualizadas += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 900) : "No se pudo actualizar el precio.";
       await query(
@@ -2895,7 +2949,7 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
       detallesErrores.push({ publicacion: String(job.item_id), mensaje: message });
     }
   }
-  return { procesadas: jobs.length, actualizadas, errores, detallesErrores };
+  return { procesadas: jobs.length, actualizadas, errores, detallesErrores, advertencias };
 }
 
 function toFiniteNumber(value: unknown) {
@@ -3052,20 +3106,57 @@ async function resolverPrecioPublicadoMercadoLibre(
     throw new AppError("El importe objetivo de Mercado Libre debe ser mayor a cero.", 422);
   }
   const context = await obtenerContextoCostoMercadoLibre(idCuenta, itemId);
-  let candidato = Math.ceil(importeObjetivo * 100) / 100;
-
-  for (let intento = 0; intento < 8; intento += 1) {
+  const cotizaciones = new Map<number, MercadoLibreCostoEstimado>();
+  const cotizar = async (precio: number) => {
+    const candidato = Math.ceil(precio * 100) / 100;
+    const existente = cotizaciones.get(candidato);
+    if (existente) return existente;
     const costoEstimado = await cotizarCostoMercadoLibre(context, candidato);
     if (costoEstimado.comisionTotal === null || costoEstimado.envioEstimado === null) {
       throw new AppError("No se pudo cotizar la comision o el envio de Mercado Libre para actualizar esta publicacion.", 422);
     }
-    const neto = candidato - costoEstimado.comisionTotal - costoEstimado.envioEstimado;
-    if (neto + 0.005 >= importeObjetivo) return { precioFinal: candidato, costoEstimado };
+    cotizaciones.set(candidato, costoEstimado);
+    return costoEstimado;
+  };
+  const neto = (precio: number, costo: MercadoLibreCostoEstimado) => precio - Number(costo.comisionTotal) - Number(costo.envioEstimado);
+  const alcanzaObjetivo = (precio: number, costo: MercadoLibreCostoEstimado) => neto(precio, costo) + 0.005 >= importeObjetivo;
 
-    // Los cargos dependen del precio final. Se vuelve a cotizar hasta que el neto cubra el objetivo.
-    candidato = Math.ceil((candidato + importeObjetivo - neto) * 100) / 100;
+  let candidato = Math.ceil(importeObjetivo * 100) / 100;
+  let costoCandidato = await cotizar(candidato);
+
+  // El ajuste directo suele converger rapido; se deja una cantidad suficiente de
+  // pasos para porcentajes altos y cargos fijos que cambian con el precio.
+  for (let intento = 0; intento < 16; intento += 1) {
+    if (alcanzaObjetivo(candidato, costoCandidato)) return { precioFinal: candidato, costoEstimado: costoCandidato };
+
+    const faltante = importeObjetivo - neto(candidato, costoCandidato);
+    candidato = Math.ceil((candidato + Math.max(faltante, 0.01)) * 100) / 100;
+    costoCandidato = await cotizar(candidato);
   }
-  throw new AppError("Mercado Libre cambio los cargos durante el calculo y no se pudo estabilizar el precio final.", 422);
+
+  // Si hubo un escalon de cargo o un cambio de condicion de envio, se busca un
+  // limite superior y luego el menor precio valido con precision de centavos.
+  let inferiorCentavos = Math.ceil(candidato * 100);
+  let superiorCentavos = inferiorCentavos;
+  let costoSuperior = costoCandidato;
+  for (let intento = 0; intento < 8 && !alcanzaObjetivo(superiorCentavos / 100, costoSuperior); intento += 1) {
+    const faltante = Math.max(importeObjetivo - neto(superiorCentavos / 100, costoSuperior), 0.01);
+    superiorCentavos = Math.ceil((superiorCentavos / 100 + Math.max(faltante * 1.25, superiorCentavos / 100 * 0.05, 1)) * 100);
+    costoSuperior = await cotizar(superiorCentavos / 100);
+  }
+  if (!alcanzaObjetivo(superiorCentavos / 100, costoSuperior)) {
+    throw new AppError("Mercado Libre no devolvio un precio estable que alcance el neto objetivo.", 422);
+  }
+
+  while (inferiorCentavos < superiorCentavos) {
+    const medioCentavos = Math.floor((inferiorCentavos + superiorCentavos) / 2);
+    const costoMedio = await cotizar(medioCentavos / 100);
+    if (alcanzaObjetivo(medioCentavos / 100, costoMedio)) superiorCentavos = medioCentavos;
+    else inferiorCentavos = medioCentavos + 1;
+  }
+
+  const precioFinal = superiorCentavos / 100;
+  return { precioFinal, costoEstimado: await cotizar(precioFinal) };
 }
 
 export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, itemId: string): Promise<MercadoLibreCostoEstimado> {

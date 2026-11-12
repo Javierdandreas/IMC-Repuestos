@@ -26,14 +26,18 @@ const filtersSchema = z.object({
 
 const selectionSchema = z.object({
   productoIds: z.array(z.coerce.number().int().positive()).max(500).optional(),
+  kitIds: z.array(z.coerce.number().int().positive()).max(500).optional(),
   filtrosBusqueda: filtersSchema.optional(),
   incluirPausadas: z.boolean().optional(),
+  modo: z.enum(["PRECIOS", "STOCK", "STOCK_Y_PRECIOS"]).optional(),
+  recargoPorcentaje: z.coerce.number().min(0).max(1_000).optional(),
   limiteInmediato: z.coerce.number().int().min(1).max(50).optional(),
 }).superRefine((value, context) => {
-  if (!value.productoIds?.length && !value.filtrosBusqueda) {
+  const hasExplicitSelection = Boolean(value.productoIds?.length || value.kitIds?.length);
+  if (!hasExplicitSelection && !value.filtrosBusqueda) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Selecciona al menos un item para actualizar." });
   }
-  if (value.productoIds?.length && value.filtrosBusqueda) {
+  if (hasExplicitSelection && value.filtrosBusqueda) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "La seleccion debe ser por items o por busqueda, no ambas." });
   }
 });
@@ -44,6 +48,7 @@ export async function POST(request: NextRequest) {
     const payload = selectionSchema.parse(await request.json());
 
     let itemIds = [...new Set(payload.productoIds || [])];
+    const kitIds = [...new Set(payload.kitIds || [])];
     if (payload.filtrosBusqueda) {
       const filters: FiltrosBusquedaMasiva = {
         ...payload.filtrosBusqueda,
@@ -62,10 +67,17 @@ export async function POST(request: NextRequest) {
       itemIds = selected.itemIds;
     }
 
-    if (!itemIds.length) return NextResponse.json({ message: "La seleccion no contiene items." }, { status: 422 });
+    if (!itemIds.length && !kitIds.length) return NextResponse.json({ message: "La seleccion no contiene items o kits." }, { status: 422 });
 
-    const queued = await encolarActualizacionesPrecioMercadoLibreDetallado(itemIds, [], {
+    const modo = payload.modo ?? "PRECIOS";
+    const actualizarPrecio = modo !== "STOCK";
+    const actualizarStock = modo !== "PRECIOS";
+
+    const queued = await encolarActualizacionesPrecioMercadoLibreDetallado(itemIds, kitIds, {
       incluirPausadas: payload.incluirPausadas ?? false,
+      actualizarPrecio,
+      actualizarStock,
+      recargoPorcentaje: payload.recargoPorcentaje ?? 0,
     });
     const limiteInmediato = payload.limiteInmediato ?? 50;
     const inmediato = await procesarActualizacionesPrecioMercadoLibre(
@@ -76,6 +88,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       itemsSeleccionados: itemIds.length,
+      kitsSeleccionados: kitIds.length,
       publicacionesEncoladas: queued.cantidad,
       ...inmediato,
       pendientesEnCola: Math.max(0, queued.cantidad - inmediato.procesadas),
