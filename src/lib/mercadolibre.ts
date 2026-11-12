@@ -2742,11 +2742,16 @@ async function meliPut(path: string, idCuenta: number, token: string, body: Reco
   return response.json() as Promise<unknown>;
 }
 
-export async function encolarActualizacionesPrecioMercadoLibre(productIds: number[], kitIds: number[]) {
+export type MercadoLibreActualizacionesEncoladas = {
+  cantidad: number;
+  publicacionesIds: number[];
+};
+
+export async function encolarActualizacionesPrecioMercadoLibreDetallado(productIds: number[], kitIds: number[]): Promise<MercadoLibreActualizacionesEncoladas> {
   const products = [...new Set(productIds.filter((id) => Number.isInteger(id) && id > 0))];
   const kits = [...new Set(kitIds.filter((id) => Number.isInteger(id) && id > 0))];
-  if (!products.length && !kits.length) return 0;
-  const result = await query(
+  if (!products.length && !kits.length) return { cantidad: 0, publicacionesIds: [] };
+  const result = await query<{ id_publicacion: number }>(
     `WITH tipo_ml AS (
        SELECT id FROM public.tipo_precio WHERE upper(trim(descripcion)) = 'MERCADO LIBRE' ORDER BY id LIMIT 1
      ), kits_afectados AS (
@@ -2777,22 +2782,59 @@ export async function encolarActualizacionesPrecioMercadoLibre(productIds: numbe
      SELECT id_publicacion, ROUND(importe_objetivo, 2), 'PENDIENTE', 0, NULL, NOW(), NOW()
      FROM objetivos WHERE importe_objetivo > 0
      ON CONFLICT (id_publicacion) DO UPDATE SET precio = EXCLUDED.precio, estado = 'PENDIENTE', intentos = 0,
-       ultimo_error = NULL, procesado_at = NULL, updated_at = NOW()`,
+       ultimo_error = NULL, procesado_at = NULL, updated_at = NOW()
+     RETURNING id_publicacion`,
     [products, kits]
   );
-  return result.rowCount ?? 0;
+  return { cantidad: result.rowCount ?? 0, publicacionesIds: result.rows.map((row) => Number(row.id_publicacion)) };
+}
+
+export async function encolarActualizacionesPrecioMercadoLibre(productIds: number[], kitIds: number[]) {
+  return (await encolarActualizacionesPrecioMercadoLibreDetallado(productIds, kitIds)).cantidad;
 }
 
 type PrecioPendiente = { id: number; id_publicacion: number; importe_objetivo: number; id_cuenta: number; item_id: string };
 
+export type MercadoLibreActualizacionPrecioEstado = {
+  pendientes: number;
+  procesando: number;
+  completadas: number;
+  errores: number;
+};
+
+export async function getEstadoActualizacionesPrecioMercadoLibre(idCuenta?: number): Promise<MercadoLibreActualizacionPrecioEstado> {
+  const result = await query<{ pendientes: string; procesando: string; completadas: string; errores: string }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE cola.estado = 'PENDIENTE')::text AS pendientes,
+       COUNT(*) FILTER (WHERE cola.estado = 'PROCESANDO')::text AS procesando,
+       COUNT(*) FILTER (WHERE cola.estado = 'COMPLETADA')::text AS completadas,
+       COUNT(*) FILTER (WHERE cola.estado = 'ERROR')::text AS errores
+     FROM public.mercadolibre_actualizacion_precio cola
+     INNER JOIN public.mercadolibre_publicacion publicacion ON publicacion.id = cola.id_publicacion
+     WHERE ($1::int IS NULL OR publicacion.id_cuenta = $1)`,
+    [idCuenta ?? null],
+  );
+  const row = result.rows[0];
+  return {
+    pendientes: Number(row?.pendientes ?? 0),
+    procesando: Number(row?.procesando ?? 0),
+    completadas: Number(row?.completadas ?? 0),
+    errores: Number(row?.errores ?? 0),
+  };
+}
+
 /** Procesa una tanda acotada; el cron externo la vuelve a ejecutar en el siguiente ciclo. */
-export async function procesarActualizacionesPrecioMercadoLibre(limit = 20) {
+export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCuenta?: number, publicacionesIds?: number[]) {
+  const publicaciones = [...new Set((publicacionesIds || []).filter((id) => Number.isInteger(id) && id > 0))];
   const jobs = await withTransaction(async (db) => {
     const claimed = await db.query<PrecioPendiente>(
       `WITH pendientes AS (
          SELECT queue.id
          FROM public.mercadolibre_actualizacion_precio queue
+         INNER JOIN public.mercadolibre_publicacion publication ON publication.id = queue.id_publicacion
          WHERE queue.estado IN ('PENDIENTE', 'ERROR') AND queue.intentos < 3
+           AND ($2::int IS NULL OR publication.id_cuenta = $2)
+           AND ($3::int[] IS NULL OR publication.id = ANY($3::int[]))
          ORDER BY queue.updated_at ASC, queue.id ASC
          LIMIT $1
          FOR UPDATE SKIP LOCKED
@@ -2802,7 +2844,7 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20) {
        FROM pendientes, public.mercadolibre_publicacion publication
        WHERE queue.id = pendientes.id AND publication.id = queue.id_publicacion
        RETURNING queue.id, queue.id_publicacion, queue.precio AS importe_objetivo, publication.id_cuenta, publication.item_id`,
-      [Math.max(1, Math.min(50, Math.floor(limit) || 20))]
+      [Math.max(1, Math.min(50, Math.floor(limit) || 20)), idCuenta ?? null, publicaciones.length ? publicaciones : null]
     );
     return claimed.rows;
   });

@@ -243,6 +243,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   // --- NUEVO: Estado de Selección ---
   const [selectedProductsByKey, setSelectedProductsByKey] = useState<Map<string, ItemListadoUnificado>>(new Map());
   const [selectingSearch, setSelectingSearch] = useState(false);
+  const [updatingMercadoLibre, setUpdatingMercadoLibre] = useState(false);
   const [selectedSearchItems, setSelectedSearchItems] = useState<{ count: number; filters: Record<string, string> } | null>(null);
   const selectableProducts = products;
   const selectedLabelProducts = useMemo(
@@ -314,6 +315,47 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       showError(error, "No se pudo seleccionar toda la busqueda");
     } finally {
       setSelectingSearch(false);
+    }
+  };
+
+  const updateSelectedMercadoLibre = async () => {
+    if (updatingMercadoLibre) return;
+    const productoIds = selectedLabelProducts.map((product) => Number(product.id)).filter(Number.isInteger);
+    if (!selectedSearchItems && !productoIds.length) return;
+
+    try {
+      setUpdatingMercadoLibre(true);
+      const response = await fetch("/api/integraciones/mercadolibre/precios/seleccion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(selectedSearchItems
+          ? { filtrosBusqueda: selectedSearchItems.filters }
+          : { productoIds }),
+      });
+      const result = await response.json().catch(() => ({})) as {
+        itemsSeleccionados?: number;
+        publicacionesEncoladas?: number;
+        procesadas?: number;
+        actualizadas?: number;
+        errores?: number;
+        pendientesEnCola?: number;
+        message?: string;
+      };
+      if (!response.ok) throw new Error(result.message || "No se pudieron actualizar los precios seleccionados en Mercado Libre.");
+
+      if (!result.publicacionesEncoladas) {
+        toast.message("Los items seleccionados no tienen publicaciones activas o pausadas vinculadas con precio de Mercado Libre.");
+        return;
+      }
+      if (result.errores) {
+        toast.warning(`${result.actualizadas || 0} publicaciones actualizadas y ${result.errores} con error.${result.pendientesEnCola ? ` ${result.pendientesEnCola} quedaron en cola.` : ""}`);
+      } else {
+        toast.success(`${result.actualizadas || 0} publicaciones actualizadas ahora.${result.pendientesEnCola ? ` ${result.pendientesEnCola} quedaron en cola para el proximo ciclo.` : ""}`);
+      }
+    } catch (error) {
+      showError(error, "No se pudieron actualizar los precios seleccionados en Mercado Libre");
+    } finally {
+      setUpdatingMercadoLibre(false);
     }
   };
   // ---------------------------------
@@ -571,7 +613,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               {canManage && totalCount > products.length && <button type="button" disabled={selectingSearch} onClick={selectAllSearchResults} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-300 px-3 text-xs font-black text-blue-700 transition hover:bg-blue-50 disabled:cursor-wait disabled:opacity-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/10"><HiCollection className="h-4 w-4" /> {selectingSearch ? "Seleccionando..." : `Seleccionar items de la busqueda (${totalCount})`}</button>}
               {canManage && <button type="button" disabled={selectedProducts.length === 0 && !selectedSearchItems} onClick={() => setOpenMassEdit(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiAdjustments className="h-4 w-4" /> Cambio masivo{selectedSearchItems ? ` (${selectedSearchItems.count.toLocaleString("es-AR")} items)` : selectedProducts.length > 0 ? ` (${selectedProducts.length})` : ""}</button>}
               {canManage && <button type="button" disabled={selectedLabelProducts.length === 0} onClick={() => setOpenLabelPrinter(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiPrinter className="h-4 w-4" /> Etiquetas{selectedLabelProducts.length > 0 ? ` (${selectedLabelProducts.length})` : ""}</button>}
-              <button type="button" disabled title="Proximamente" className="inline-flex h-9 items-center rounded-lg border border-slate-200 px-3 text-xs font-black text-slate-400 disabled:cursor-not-allowed dark:border-slate-800 dark:text-slate-600">Actualizar Mercado Libre</button>
+              {canManage && <button type="button" disabled={updatingMercadoLibre || (selectedLabelProducts.length === 0 && !selectedSearchItems)} onClick={() => void updateSelectedMercadoLibre()} title="Actualiza el precio de las publicaciones vinculadas a los items seleccionados" className="inline-flex h-9 items-center rounded-lg border border-blue-300 px-3 text-xs font-black text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/10">{updatingMercadoLibre ? "Actualizando Mercado Libre..." : `Actualizar Mercado Libre${selectedSearchItems ? ` (${selectedSearchItems.count.toLocaleString("es-AR")})` : selectedLabelProducts.length ? ` (${selectedLabelProducts.length})` : ""}`}</button>}
                {canManage && <button type="button" onClick={() => router.push("/productos/importar")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiCloudUpload className="h-4 w-4" /> Importar items</button>}
                {canManage && <button type="button" onClick={() => router.push("/kits/importar")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><HiCollection className="h-4 w-4" /> Importar kits</button>}
               {(selectedProducts.length > 0 || selectedSearchItems) && <button type="button" onClick={() => { setSelectedProductsByKey(new Map()); setSelectedSearchItems(null); }} title="Deseleccionar" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"><HiX className="h-4 w-4" /></button>}
