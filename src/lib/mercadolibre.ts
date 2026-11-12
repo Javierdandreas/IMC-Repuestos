@@ -2862,6 +2862,7 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
 
   let actualizadas = 0;
   let errores = 0;
+  const detallesErrores: Array<{ publicacion: string; mensaje: string }> = [];
   for (const job of jobs) {
     try {
       const precioResuelto = await resolverPrecioPublicadoMercadoLibre(
@@ -2891,9 +2892,10 @@ export async function procesarActualizacionesPrecioMercadoLibre(limit = 20, idCu
         [job.id, message]
       );
       errores += 1;
+      detallesErrores.push({ publicacion: String(job.item_id), mensaje: message });
     }
   }
-  return { procesadas: jobs.length, actualizadas, errores };
+  return { procesadas: jobs.length, actualizadas, errores, detallesErrores };
 }
 
 function toFiniteNumber(value: unknown) {
