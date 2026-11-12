@@ -108,6 +108,7 @@ export function permisoParaApi(pathname: string, method: string, searchParams: U
 
   if (pathname === "/api/asistente") return ["productos:leer", "piezas:leer", "proveedores:leer", "ventas:leer"];
   if (pathname.startsWith("/api/operaciones")) return operaciones();
+  if (pathname === "/api/productos/mercadolibre/actualizar") return ["productos:escribir", "productos:masivo"];
   if (pathname.startsWith("/api/productos")) {
     if (pathname.includes("/series") || pathname.includes("barcode")) return conAccion("codigos_series", pathname.includes("bulk") || pathname.includes("autogenerate") ? "masivo" : undefined);
     if (pathname.includes("/ubicaciones")) return conAccion("productos_stock");

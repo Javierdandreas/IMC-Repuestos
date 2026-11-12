@@ -325,7 +325,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
 
     try {
       setUpdatingMercadoLibre(true);
-      const response = await fetch("/api/integraciones/mercadolibre/precios/seleccion", {
+      const response = await fetch("/api/productos/mercadolibre/actualizar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(selectedSearchItems
