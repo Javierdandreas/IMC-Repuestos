@@ -614,7 +614,7 @@ export async function getProductosParaExportar(filters: {
       ) AS "Proveedores y Precios Lista",
     `;
   const providerGroupBy = options.detalleProveedor
-    ? ", pp_prov.id_proveedor, prv.id, pp_prov.codigo_proveedor, pp_prov.precio_lista_actual"
+    ? ", pp_prov.id_proveedor, prv.id, pp_prov.codigo_proveedor, pp_prov.precio_lista_actual, pp_prov.costo_actual"
     : "";
 
   const sql = `
