@@ -623,6 +623,11 @@ export async function getProductosParaExportar(filters: {
       p.descripcion AS "Descripcion",
       p.cod_barra AS "Codigo de Barras",
       p.stock AS "Stock",
+      COALESCE(
+        STRING_AGG(DISTINCT ml_publicacion.item_id, ' | ' ORDER BY ml_publicacion.item_id)
+          FILTER (WHERE ml_publicacion.item_id ~ '^MLA[0-9]+$'),
+        ''
+      ) AS "Mercado Libre",
       m.descripcion AS "Marca",
       c.descripcion AS "Categoria",
       s.descripcion AS "Subcategoria",
@@ -672,6 +677,7 @@ export async function getProductosParaExportar(filters: {
     LEFT JOIN proveedores prv ON prv.id = pp_prov.id_proveedor
     LEFT JOIN producto_precio pp_p ON pp_p.id_producto = p.id
     LEFT JOIN tipo_precio tp ON tp.id = pp_p.id_tipo_precio
+    LEFT JOIN mercadolibre_publicacion ml_publicacion ON ml_publicacion.id_producto = p.id
     LEFT JOIN pieza_codigo_referencia pcr ON pcr.id_pieza = pi.id
     LEFT JOIN codigo_referencia cr ON cr.id = pcr.id_codigo_referencia
     LEFT JOIN producto_serie ps ON ps.id_producto = p.id AND ps.estado = 'DISPONIBLE'

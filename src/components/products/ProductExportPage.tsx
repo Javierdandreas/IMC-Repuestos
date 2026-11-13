@@ -36,6 +36,7 @@ const getExportGroups = (tiposPrecio: TipoPrecioExport[]) => [
       "Descripcion",
       "Codigo de Barras",
       "Stock",
+      "Mercado Libre",
       "Marca",
       "Categoria",
       "Subcategoria",

@@ -159,6 +159,12 @@ export type CatalogImportResponse = CatalogImportResult & { preview: ExternalCat
 export type CatalogGroupImportResult = { created: number; skippedExisting: number; invalidSelection: number; componentsLinked: number; preview: ExternalCatalogPreview };
 export type CatalogKeywordsUpdateResponse = { updated: number; preview: ExternalCatalogPreview };
 export type CatalogExistingUpdateResult = { updated: number; locationsCreated: number; locationsUpdated: number; locationsSkipped: number };
+type CatalogExistingKitUpdateResult = {
+  updated: number;
+  descriptionsUpdated: number;
+  componentsUpdated: number;
+  skipped: number;
+};
 type ExternalCodeSyncResult = {
   productIds: number[];
   groupIds: number[];
@@ -1493,6 +1499,125 @@ async function updateExternalCatalogExistingItems(snapshotId: number): Promise<C
   return result;
 }
 
+/**
+ * GESU es la fuente de la descripcion y la composicion de los kits que ya
+ * estan vinculados por su id externo. Solo se reemplaza el detalle cuando la
+ * revision pudo resolver todos los componentes contra items locales.
+ */
+async function updateExternalCatalogExistingKits(snapshotId: number): Promise<CatalogExistingKitUpdateResult> {
+  const result = await withTransaction(async (db) => {
+    const snapshot = await db.query<{ id: number }>(
+      "SELECT id FROM public.catalogo_externo_sincronizacion WHERE id = $1 AND origen = $2 FOR SHARE",
+      [snapshotId, ORIGIN],
+    );
+    if (!snapshot.rowCount) throw new AppError("La consulta externa ya no esta disponible.", 404);
+
+    const sources = await db.query<{ id_kit: number; descripcion: string | null; componentes: unknown }>(
+      `SELECT DISTINCT ON (link.id_kit)
+         link.id_kit,
+         NULLIF(BTRIM(item.descripcion), '') AS descripcion,
+         item.componentes
+       FROM public.catalogo_externo_item AS item
+       JOIN public.kit_origen_externo AS link
+         ON link.origen = $2 AND link.external_id = item.external_id
+       JOIN public.kits AS kit ON kit.id = link.id_kit
+       WHERE item.id_sincronizacion = $1
+         AND item.tipo = 'GRUPO'
+         AND item.existe_local = TRUE
+       ORDER BY link.id_kit, item.id`,
+      [snapshotId, ORIGIN],
+    );
+
+    const descriptions = sources.rows
+      .filter((source): source is typeof source & { descripcion: string } => Boolean(source.descripcion))
+      .map((source) => ({ id: Number(source.id_kit), descripcion: source.descripcion }));
+    const descriptionsUpdated = descriptions.length
+      ? await db.query<{ id: number }>(
+        `WITH source AS (
+           SELECT * FROM UNNEST($1::integer[], $2::text[]) AS data(id_kit, descripcion)
+         )
+         UPDATE public.kits AS kit
+         SET descripcion = source.descripcion
+         FROM source
+         WHERE kit.id = source.id_kit
+           AND kit.descripcion IS DISTINCT FROM source.descripcion
+         RETURNING kit.id`,
+        [descriptions.map((source) => source.id), descriptions.map((source) => source.descripcion)],
+      )
+      : { rows: [] as { id: number }[] };
+
+    const componentSources = sources.rows.flatMap((source) => {
+      const summary = source.componentes && typeof source.componentes === "object" && !Array.isArray(source.componentes)
+        ? source.componentes as { items?: unknown }
+        : null;
+      const components = cleanComponents(summary?.items);
+      return components.length ? [{ idKit: Number(source.id_kit), components }] : [];
+    });
+    const componentCodes = Array.from(new Set(componentSources.flatMap((source) => source.components.map((component) => component.code))));
+    const products = componentCodes.length
+      ? await db.query<{ id: number; cod_unico: string }>(
+        "SELECT id, cod_unico FROM public.productos WHERE UPPER(BTRIM(cod_unico)) = ANY($1::text[])",
+        [componentCodes],
+      )
+      : { rows: [] as { id: number; cod_unico: string }[] };
+    const productsByCode = new Map(products.rows.map((product) => [normalize(product.cod_unico), Number(product.id)]));
+    const resolvedSources = componentSources.filter((source) => source.components.every((component) => productsByCode.has(component.code)));
+
+    const existingDetails = resolvedSources.length
+      ? await db.query<{ id_kit: number; id_producto: number; cantidad: string }>(
+        "SELECT id_kit, id_producto, cantidad::text FROM public.kit_detalle WHERE id_kit = ANY($1::integer[])",
+        [resolvedSources.map((source) => source.idKit)],
+      )
+      : { rows: [] as { id_kit: number; id_producto: number; cantidad: string }[] };
+    const detailSignature = (details: Array<{ productId: number; quantity: number }>) => details
+      .sort((left, right) => left.productId - right.productId || left.quantity - right.quantity)
+      .map((detail) => `${detail.productId}:${detail.quantity}`)
+      .join("|");
+    const currentByKit = new Map<number, Array<{ productId: number; quantity: number }>>();
+    existingDetails.rows.forEach((detail) => {
+      const details = currentByKit.get(Number(detail.id_kit)) ?? [];
+      details.push({ productId: Number(detail.id_producto), quantity: Number(detail.cantidad) });
+      currentByKit.set(Number(detail.id_kit), details);
+    });
+    const changedSources = resolvedSources.filter((source) => {
+      const expected = source.components.map((component) => ({
+        productId: productsByCode.get(component.code) as number,
+        quantity: component.quantity,
+      }));
+      return detailSignature(currentByKit.get(source.idKit) ?? []) !== detailSignature(expected);
+    });
+
+    if (changedSources.length) {
+      const kitIds = changedSources.map((source) => source.idKit);
+      const details = changedSources.flatMap((source) => source.components.map((component) => ({
+        idKit: source.idKit,
+        idProduct: productsByCode.get(component.code) as number,
+        quantity: component.quantity,
+      })));
+      await db.query("DELETE FROM public.kit_detalle WHERE id_kit = ANY($1::integer[])", [kitIds]);
+      await db.query(
+        `INSERT INTO public.kit_detalle (id_kit, id_producto, cantidad)
+         SELECT * FROM UNNEST($1::integer[], $2::integer[], $3::numeric[])
+           AS data(id_kit, id_producto, cantidad)`,
+        [details.map((detail) => detail.idKit), details.map((detail) => detail.idProduct), details.map((detail) => detail.quantity)],
+      );
+    }
+
+    const updatedIds = new Set([
+      ...descriptionsUpdated.rows.map((row) => Number(row.id)),
+      ...changedSources.map((source) => source.idKit),
+    ]);
+    return {
+      updated: updatedIds.size,
+      descriptionsUpdated: descriptionsUpdated.rows.length,
+      componentsUpdated: changedSources.length,
+      skipped: sources.rows.length - resolvedSources.length,
+    };
+  });
+  revalidateTag("meta");
+  return result;
+}
+
 /** Mantiene en los items ya vinculados el proveedor y codigo que informa GESU. */
 async function syncExternalCatalogExistingProviders(snapshotId: number) {
   return withTransaction(async (db) => {
@@ -1600,6 +1725,7 @@ export async function syncExternalCatalogAutomatically() {
   const staged = await refreshExternalCatalogPreview();
   const codeChanges = await syncExternalCatalogCodes(staged.snapshotId);
   const existing = await updateExternalCatalogExistingItems(staged.snapshotId);
+  const existingKits = await updateExternalCatalogExistingKits(staged.snapshotId);
   const providerSync = await syncExternalCatalogExistingProviders(staged.snapshotId);
   const pricingInitialization = await initializeExistingGesuPricing(staged.snapshotId);
   let skuSync = { updated: 0, skippedVariations: 0, errors: [] as string[] };
@@ -1623,6 +1749,11 @@ export async function syncExternalCatalogAutomatically() {
     imported: { products, groups },
     existing: {
       ...existing,
+      updated: existing.updated + existingKits.updated,
+      kitsUpdated: existingKits.updated,
+      kitDescriptionsUpdated: existingKits.descriptionsUpdated,
+      kitComponentsUpdated: existingKits.componentsUpdated,
+      kitsSkipped: existingKits.skipped,
       productCodesUpdated: codeChanges.productIds.length,
       ...providerSync,
       ...pricingInitialization,

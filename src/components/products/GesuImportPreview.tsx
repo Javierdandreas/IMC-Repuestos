@@ -340,6 +340,7 @@ export function GesuImportPreview() {
       validKits.map((kit) => kit.components.map((component) => ({
         "Codigo Kit": kit.code,
         "Nombre Kit": kit.title,
+        "Descripcion Kit": kit.title,
         "Codigo Item": component.code,
         "Cantidad": component.quantity,
       }))),

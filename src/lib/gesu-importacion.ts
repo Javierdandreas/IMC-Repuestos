@@ -17,6 +17,7 @@ export const GESU_PRODUCT_MAPPINGS = {
 export const GESU_KIT_MAPPINGS = {
   codigo_kit: { csvHeader: "Codigo Kit" },
   nombre_kit: { csvHeader: "Nombre Kit" },
+  descripcion_kit: { csvHeader: "Descripcion Kit" },
   cod_producto: { csvHeader: "Codigo Item" },
   cantidad: { csvHeader: "Cantidad" },
 };
