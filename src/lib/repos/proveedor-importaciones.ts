@@ -628,6 +628,39 @@ async function resumenAplicacionImportacion(client: DbClient, idImportacion: num
   };
 }
 
+async function obtenerCoberturaImportacion(client: DbClient, idImportacion: number) {
+  const result = await client.query<{
+    items_con_proveedor: number;
+    coincidencias_codigos: number;
+  }>(
+    `
+      SELECT
+        COUNT(DISTINCT pp.id_producto)::int AS items_con_proveedor,
+        COUNT(DISTINCT pp.id_producto) FILTER (
+          WHERE NULLIF(BTRIM(pp.codigo_proveedor), '') IS NOT NULL
+            AND EXISTS (
+              SELECT 1
+              FROM public.proveedor_importacion_item pii
+              WHERE pii.id_importacion = pi.id
+                AND UPPER(BTRIM(pii.codigo_proveedor)) = UPPER(BTRIM(pp.codigo_proveedor))
+            )
+        )::int AS coincidencias_codigos
+      FROM public.proveedor_importacion pi
+      LEFT JOIN public.producto_proveedor pp ON pp.id_proveedor = pi.id_proveedor
+      WHERE pi.id = $1
+      GROUP BY pi.id
+    `,
+    [idImportacion],
+  );
+  const itemsConProveedor = Number(result.rows[0]?.items_con_proveedor || 0);
+  const coincidenciasCodigos = Number(result.rows[0]?.coincidencias_codigos || 0);
+  return {
+    itemsConProveedor,
+    coincidenciasCodigos,
+    sinCoincidenciaCodigos: Math.max(0, itemsConProveedor - coincidenciasCodigos),
+  };
+}
+
 async function finalizarAplicacionImportacion(client: DbClient, idImportacion: number) {
   await client.query(
     `
@@ -982,8 +1015,9 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
     const preparada = await prepararImportacionParaAplicar(client, id_importacion);
     if (preparada.estado === "APLICADA") {
       const summary = await resumenAplicacionImportacion(client, id_importacion);
+      const cobertura = await obtenerCoberturaImportacion(client, id_importacion);
       await limpiarDetalleImportacionesResueltas(client, [id_importacion]);
-      return { ...summary, ...preparada, complete: true, phase: "COMPLETA" as const };
+      return { ...summary, ...cobertura, ...preparada, complete: true, phase: "COMPLETA" as const };
     }
     if (preparada.estado === "LOTE_PREPARADO") {
       const summary = await resumenAplicacionImportacion(client, id_importacion);
@@ -1007,8 +1041,9 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
     if (lote.rowCount === 0) {
       await finalizarAplicacionImportacion(client, id_importacion);
       const summary = await resumenAplicacionImportacion(client, id_importacion);
+      const cobertura = await obtenerCoberturaImportacion(client, id_importacion);
       await limpiarDetalleImportacionesResueltas(client, [id_importacion]);
-      return { ...summary, ...preparada, complete: true, phase: "COMPLETA" as const };
+      return { ...summary, ...cobertura, ...preparada, complete: true, phase: "COMPLETA" as const };
     }
 
     const itemIds = lote.rows.map((row) => Number(row.id));
@@ -1130,7 +1165,8 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
       await finalizarAplicacionImportacion(client, id_importacion);
       await limpiarDetalleImportacionesResueltas(client, [id_importacion]);
     }
-    return { ...summary, ...preparada, complete, phase: complete ? "COMPLETA" as const : "APLICANDO" as const };
+    const cobertura = complete ? await obtenerCoberturaImportacion(client, id_importacion) : {};
+    return { ...summary, ...cobertura, ...preparada, complete, phase: complete ? "COMPLETA" as const : "APLICANDO" as const };
   });
 }
 
@@ -1178,7 +1214,24 @@ export async function getImportacionesByProveedor(id_proveedor: number) {
         COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'INVALIDO'), 0)::int AS invalidos,
         COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'DUPLICADO'), 0)::int AS duplicados,
         COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'PROVEEDOR_DISTINTO'), 0)::int AS proveedor_distinto,
-        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'MONEDA_DISTINTA'), 0)::int AS moneda_distinta
+        COALESCE(COUNT(DISTINCT pii.id) FILTER (WHERE pii.estado = 'MONEDA_DISTINTA'), 0)::int AS moneda_distinta,
+        COALESCE((
+          SELECT COUNT(DISTINCT pp_cobertura.id_producto)::int
+          FROM public.producto_proveedor pp_cobertura
+          WHERE pp_cobertura.id_proveedor = pi.id_proveedor
+        ), 0)::int AS items_con_proveedor,
+        COALESCE((
+          SELECT COUNT(DISTINCT pp_cobertura.id_producto)::int
+          FROM public.producto_proveedor pp_cobertura
+          WHERE pp_cobertura.id_proveedor = pi.id_proveedor
+            AND NULLIF(BTRIM(pp_cobertura.codigo_proveedor), '') IS NOT NULL
+            AND EXISTS (
+              SELECT 1
+              FROM public.proveedor_importacion_item pii_cobertura
+              WHERE pii_cobertura.id_importacion = pi.id
+                AND UPPER(BTRIM(pii_cobertura.codigo_proveedor)) = UPPER(BTRIM(pp_cobertura.codigo_proveedor))
+            )
+        ), 0)::int AS coincidencias_codigos
       FROM public.proveedor_importacion pi
       LEFT JOIN public.proveedor_importacion_item pii ON pii.id_importacion = pi.id
       WHERE pi.id_proveedor = $1
@@ -1187,7 +1240,16 @@ export async function getImportacionesByProveedor(id_proveedor: number) {
     `,
     [id_proveedor]
   );
-  return rows as ProveedorImportacion[];
+  return rows.map((row) => {
+    const itemsConProveedor = Number(row.items_con_proveedor || 0);
+    const coincidenciasCodigos = Number(row.coincidencias_codigos || 0);
+    return {
+      ...row,
+      items_con_proveedor: itemsConProveedor,
+      coincidencias_codigos: coincidenciasCodigos,
+      sin_coincidencia_codigos: Math.max(0, itemsConProveedor - coincidenciasCodigos),
+    };
+  }) as ProveedorImportacion[];
 }
 
 export type PaginaImportacionItems = {

@@ -31,6 +31,9 @@ interface ImportResults {
   duplicateCount: number;
   providerMismatchCount: number;
   foreignCurrencyCount: number;
+  itemsWithSupplier: number;
+  codeMatches: number;
+  unmatchedSupplierItems: number;
 }
 
 interface MappingConfig {
@@ -728,6 +731,9 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
       const duplicateCount = Number(data.duplicateCount || 0);
       const providerMismatchCount = Number(data.providerMismatchCount || 0);
       const foreignCurrencyCount = Number(data.foreignCurrencyCount || 0);
+      const itemsWithSupplier = Number(data.itemsConProveedor || 0);
+      const codeMatches = Number(data.coincidenciasCodigos || 0);
+      const unmatchedSupplierItems = Number(data.sinCoincidenciaCodigos || Math.max(0, itemsWithSupplier - codeMatches));
 
       setResults({
         idImportacion,
@@ -740,6 +746,9 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
         duplicateCount,
         providerMismatchCount,
         foreignCurrencyCount,
+        itemsWithSupplier,
+        codeMatches,
+        unmatchedSupplierItems,
       });
       toast.success(
         pendingApprovalCount > 0
@@ -1027,6 +1036,10 @@ export function ProveedorImportSection({ id_proveedor, nombre_proveedor, onSucce
               <HiCheck className="h-4 w-4" />
               Lista aplicada: {results.updatedCount} precios actualizados.
             </div>
+          </div>
+          <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-3 text-xs font-black text-blue-300">
+            {results.itemsWithSupplier} item(s) tienen vinculado este proveedor. Se encontraron {results.codeMatches} codigo(s) en la lista importada.
+            {results.unmatchedSupplierItems > 0 ? ` ${results.unmatchedSupplierItems} quedan sin coincidencia para revisar codigo o vinculacion.` : " Todos tienen coincidencia."}
           </div>
           {results.recalculatedCostCount > 0 && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-3 text-xs font-black text-blue-300">

@@ -216,6 +216,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [proveedor, setProveedor] = useState(searchParams.get("proveedor") || "");
   const [estado, setEstado] = useState(canViewInactive ? searchParams.get("estado") || "ACTIVOS" : "ACTIVOS");
   const [margenes, setMargenes] = useState(searchParams.get("margenes") || "");
+  const [criterioCosto, setCriterioCosto] = useState(searchParams.get("criterioCosto") || "");
+  const [mercadoLibre, setMercadoLibre] = useState(searchParams.get("mercadoLibre") || "");
 
   const handleGeneralSearchChange = (value: string) => {
     setSearchGeneral(value);
@@ -284,7 +286,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     [selectedProducts],
   );
   const currentSearchFilters = useMemo(
-    () => Object.fromEntries([...searchParams.entries()].filter(([key]) => ["search", "searchSpecific", "categoria", "subcategoria", "marca", "proveedor", "estado", "margenes"].includes(key))),
+    () => Object.fromEntries([...searchParams.entries()].filter(([key]) => ["search", "searchSpecific", "categoria", "subcategoria", "marca", "proveedor", "estado", "margenes", "criterioCosto", "mercadoLibre"].includes(key))),
     [searchParams],
   );
   const selectedMercadoLibreCount = selectedSearchItems?.count ?? selectedProducts.length;
@@ -446,6 +448,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       if (proveedor) newParams.set("proveedor", proveedor);
       if (canViewInactive && estado !== "ACTIVOS") newParams.set("estado", estado);
       if (margenes) newParams.set("margenes", margenes);
+      if (criterioCosto) newParams.set("criterioCosto", criterioCosto);
+      if (mercadoLibre) newParams.set("mercadoLibre", mercadoLibre);
 
       // Si los parámetros cambiaron, volvemos a la página 1
       const paramsChanged = newParams.toString() !== Array.from(currentParams.entries())
@@ -460,7 +464,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchGeneral, searchSpecific, categoria, subcategoria, marca, proveedor, estado, margenes, canViewInactive, router]);
+  }, [searchGeneral, searchSpecific, categoria, subcategoria, marca, proveedor, estado, margenes, criterioCosto, mercadoLibre, canViewInactive, router]);
 
   const subcategoriasDisponibles = useMemo(() => {
     if (!categoria) return [] as Subcategoria[];
@@ -579,6 +583,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     setProveedor("");
     setEstado("ACTIVOS");
     setMargenes("");
+    setCriterioCosto("");
+    setMercadoLibre("");
     router.push("/");
   };
 
@@ -816,6 +822,27 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   <option value="FALTA_MOSTRADOR">FALTA MOSTRADOR</option>
                   <option value="FALTA_MECANICO">FALTA MECÁNICO</option>
                   <option value="FALTA_MERCADO_LIBRE">FALTA MERCADO LIBRE</option>
+                </select>
+              </div>
+
+              <div className="w-40">
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Criterio de costo</label>
+                <select value={criterioCosto} onChange={(event) => setCriterioCosto(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+                  <option value="">TODOS</option>
+                  <option value="PROVEEDOR_UNICO">PROVEEDOR UNICO</option>
+                  <option value="MANUAL">MANUAL</option>
+                  <option value="MENOR_PRECIO">MENOR COSTO NETO</option>
+                  <option value="PROMEDIO_PRECIO">PROMEDIO DE COSTOS</option>
+                  <option value="MAYOR_PRECIO">MAYOR COSTO NETO</option>
+                </select>
+              </div>
+
+              <div className="w-36">
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Mercado Libre</label>
+                <select value={mercadoLibre} onChange={(event) => setMercadoLibre(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-900 outline-none transition focus:border-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+                  <option value="">TODOS</option>
+                  <option value="PUBLICADOS">PUBLICADOS</option>
+                  <option value="SIN_PUBLICAR">SIN PUBLICAR</option>
                 </select>
               </div>
             </div>

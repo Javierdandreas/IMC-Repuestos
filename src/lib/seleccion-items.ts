@@ -8,7 +8,7 @@ export const MAX_ITEMS_BUSQUEDA_MASIVA = 30_000;
 
 export type FiltrosBusquedaMasiva = Pick<
   FiltrosItemsUnificados,
-  "search" | "searchSpecific" | "categoria" | "subcategoria" | "marca" | "proveedor" | "estado" | "margenes"
+  "search" | "searchSpecific" | "categoria" | "subcategoria" | "marca" | "proveedor" | "estado" | "margenes" | "criterioCosto" | "mercadoLibre"
 >;
 
 export async function obtenerItemsDeBusquedaMasiva(filters: FiltrosBusquedaMasiva) {

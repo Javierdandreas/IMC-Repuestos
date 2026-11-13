@@ -22,6 +22,8 @@ const filtersSchema = z.object({
   proveedor: z.string().optional(),
   estado: z.enum(["ACTIVOS", "INACTIVOS", "TODOS"]).optional(),
   margenes: z.enum(["COMPLETOS", "FALTA_ALGUNO", "FALTA_MOSTRADOR", "FALTA_MECANICO", "FALTA_MERCADO_LIBRE"]).optional(),
+  criterioCosto: z.enum(["PROVEEDOR_UNICO", "MANUAL", "MENOR_PRECIO", "PROMEDIO_PRECIO", "MAYOR_PRECIO"]).optional(),
+  mercadoLibre: z.enum(["PUBLICADOS", "SIN_PUBLICAR"]).optional(),
 });
 
 const selectionSchema = z.object({

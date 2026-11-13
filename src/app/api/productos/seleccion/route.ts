@@ -23,6 +23,8 @@ export async function GET(request: NextRequest) {
       proveedor: params.get("proveedor") || undefined,
       estado,
       margenes: (params.get("margenes") || undefined) as "COMPLETOS" | "FALTA_ALGUNO" | "FALTA_MOSTRADOR" | "FALTA_MECANICO" | "FALTA_MERCADO_LIBRE" | undefined,
+      criterioCosto: (params.get("criterioCosto") || undefined) as "PROVEEDOR_UNICO" | "MANUAL" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO" | undefined,
+      mercadoLibre: (params.get("mercadoLibre") || undefined) as "PUBLICADOS" | "SIN_PUBLICAR" | undefined,
     };
 
     if (params.get("modo") === "ITEMS_MASIVO") {

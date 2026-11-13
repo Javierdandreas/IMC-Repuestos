@@ -20,6 +20,8 @@ const schema = z.object({
     proveedor: z.string().optional(),
     estado: z.enum(["ACTIVOS", "INACTIVOS", "TODOS"]).optional(),
     margenes: z.enum(["COMPLETOS", "FALTA_ALGUNO", "FALTA_MOSTRADOR", "FALTA_MECANICO", "FALTA_MERCADO_LIBRE"]).optional(),
+    criterioCosto: z.enum(["PROVEEDOR_UNICO", "MANUAL", "MENOR_PRECIO", "PROMEDIO_PRECIO", "MAYOR_PRECIO"]).optional(),
+    mercadoLibre: z.enum(["PUBLICADOS", "SIN_PUBLICAR"]).optional(),
   }).optional(),
   campo: z.enum(["CLASIFICACION", "MARCA", "PROVEEDOR", "UBICACION", "STOCK_MINIMO", "OBSERVACION", "PALABRAS_CLAVE", "PIEZA", "CRITERIO_COSTO"]),
   idCategoria: z.number().int().positive().optional(),

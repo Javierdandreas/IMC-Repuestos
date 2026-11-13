@@ -31,6 +31,8 @@ export default async function Home({ searchParams }: Props) {
     proveedor: resolvedParams?.proveedor as string,
     estado,
     margenes: resolvedParams?.margenes as "COMPLETOS" | "FALTA_ALGUNO" | "FALTA_MOSTRADOR" | "FALTA_MECANICO" | "FALTA_MERCADO_LIBRE" | undefined,
+    criterioCosto: resolvedParams?.criterioCosto as "PROVEEDOR_UNICO" | "MANUAL" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO" | undefined,
+    mercadoLibre: resolvedParams?.mercadoLibre as "PUBLICADOS" | "SIN_PUBLICAR" | undefined,
   });
 
   return (

@@ -13,6 +13,8 @@ export type FiltrosItemsUnificados = {
   proveedor?: string;
   estado?: "ACTIVOS" | "INACTIVOS" | "TODOS";
   margenes?: "COMPLETOS" | "FALTA_ALGUNO" | "FALTA_MOSTRADOR" | "FALTA_MECANICO" | "FALTA_MERCADO_LIBRE";
+  criterioCosto?: "PROVEEDOR_UNICO" | "MANUAL" | "MENOR_PRECIO" | "PROMEDIO_PRECIO" | "MAYOR_PRECIO";
+  mercadoLibre?: "PUBLICADOS" | "SIN_PUBLICAR";
 };
 
 export type ComponenteKitPreview = {
@@ -178,6 +180,8 @@ export async function getItemsUnificadosListado(
   const kitConditions: string[] = [];
   const estado = filters.estado === "INACTIVOS" || filters.estado === "TODOS" ? filters.estado : "ACTIVOS";
   const margen = filters.margenes;
+  const criterioCosto = filters.criterioCosto;
+  const mercadoLibre = filters.mercadoLibre;
   const condicionMargen = (tipo: "MOSTRADOR" | "MECANICO" | "MERCADO LIBRE") => `EXISTS (
     SELECT 1
     FROM public.producto_precio margen
@@ -215,7 +219,9 @@ export async function getItemsUnificadosListado(
     && !filters.marca
     && !filters.proveedor
     && estado === "ACTIVOS"
-    && !margen;
+    && !margen
+    && !criterioCosto
+    && !mercadoLibre;
   const includeKitComponents = Boolean(filters.searchSpecific?.trim())
     && !filters.search?.trim()
     && componentCodePrefixes.length === 0;
@@ -273,6 +279,42 @@ export async function getItemsUnificadosListado(
       WHERE pp.id_producto = p.id AND pp.id_proveedor = ${supplierId}
     )`);
     kitConditions.push("FALSE");
+  }
+
+  if (criterioCosto) {
+    const criterioCostoParam = addParam(params, criterioCosto);
+    productConditions.push(`p.criterio_costo = ${criterioCostoParam}`);
+    kitConditions.push("FALSE");
+  }
+
+  if (mercadoLibre === "PUBLICADOS") {
+    productConditions.push(`EXISTS (
+      SELECT 1
+      FROM public.mercadolibre_publicacion publicacion
+      WHERE publicacion.id_producto = p.id
+        AND publicacion.estado IN ('active', 'paused')
+    )`);
+    kitConditions.push(`EXISTS (
+      SELECT 1
+      FROM public.mercadolibre_publicacion publicacion
+      WHERE publicacion.id_kit = k.id
+        AND publicacion.estado IN ('active', 'paused')
+    )`);
+  }
+
+  if (mercadoLibre === "SIN_PUBLICAR") {
+    productConditions.push(`NOT EXISTS (
+      SELECT 1
+      FROM public.mercadolibre_publicacion publicacion
+      WHERE publicacion.id_producto = p.id
+        AND publicacion.estado IN ('active', 'paused')
+    )`);
+    kitConditions.push(`NOT EXISTS (
+      SELECT 1
+      FROM public.mercadolibre_publicacion publicacion
+      WHERE publicacion.id_kit = k.id
+        AND publicacion.estado IN ('active', 'paused')
+    )`);
   }
 
   const kitWhere = kitConditions.length ? kitConditions.join(" AND ") : "TRUE";

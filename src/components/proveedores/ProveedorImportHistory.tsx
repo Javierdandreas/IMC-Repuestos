@@ -301,8 +301,11 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
       >
         {detailImport && (
           <div className="space-y-6 px-4 pb-4 md:px-6 md:pb-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(130px,0.75fr)_minmax(170px,0.9fr)_minmax(190px,1fr)_minmax(160px,0.85fr)_minmax(280px,1.4fr)]">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <SummaryBox label="Filas" value={detailImport.total_items} tone="neutral" />
+              <SummaryBox label="Items con proveedor" value={detailImport.items_con_proveedor || 0} tone="neutral" />
+              <SummaryBox label="Codigos encontrados" value={detailImport.detalle_disponible === false ? "Sin detalle" : detailImport.coincidencias_codigos || 0} tone="success" />
+              <SummaryBox label="Sin coincidencia" value={detailImport.detalle_disponible === false ? "Sin detalle" : detailImport.sin_coincidencia_codigos || 0} tone="warning" />
               <SummaryBox label="Actualizadas" value={detailImport.actualizados || 0} tone="success" />
               <SummaryBox
                 label="Problemas"
@@ -318,6 +321,12 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                 </div>
               </div>
             </div>
+
+            <p className="text-xs font-semibold text-slate-400">
+              {detailImport.detalle_disponible === false
+                ? "El detalle de esta importacion anterior fue depurado, por lo que ya no es posible medir sus coincidencias de codigo."
+                : "Las coincidencias comparan el codigo de proveedor asignado a cada item contra los codigos presentes en esta lista, sin depender de que el precio se haya podido aplicar."}
+            </p>
 
             <div>
               <div className="mb-3 flex items-center gap-3">

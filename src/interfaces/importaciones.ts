@@ -13,6 +13,9 @@ export interface ProveedorImportacion {
   duplicados?: number;
   proveedor_distinto?: number;
   moneda_distinta?: number;
+  items_con_proveedor?: number;
+  coincidencias_codigos?: number;
+  sin_coincidencia_codigos?: number;
   filas_detalle?: number;
   detalle_disponible?: boolean;
   created_at: string;
