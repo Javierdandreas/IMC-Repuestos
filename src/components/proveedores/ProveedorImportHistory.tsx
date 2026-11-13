@@ -351,6 +351,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                     <option value="ACTUALIZADO">Aplicadas</option>
                     <option value="COSTO_PENDIENTE">Costos a revisar</option>
                     <option value="A_REVISAR">Todas a revisar</option>
+                    <option value="SIN_COINCIDENCIA">Sin coincidencia en la lista</option>
                     <option value="NO_ENCONTRADO">No encontradas</option>
                     <option value="DUPLICADO">Duplicadas</option>
                     <option value="INVALIDO">Invalidas</option>
@@ -498,6 +499,7 @@ function getRowStatusBadge(value?: string | null): string {
     case "ACTUALIZADO":
       return "text-green-300 bg-green-500/10 border-green-500/20";
     case "NO_ENCONTRADO":
+    case "SIN_COINCIDENCIA":
     case "DUPLICADO":
     case "PROVEEDOR_DISTINTO":
     case "MONEDA_DISTINTA":

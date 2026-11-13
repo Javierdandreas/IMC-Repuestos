@@ -1271,6 +1271,87 @@ export async function getImportacionItems(
   const safeLimit = Math.min(100, Math.max(10, Math.floor(limit) || 50));
   const searchValue = search.trim();
   const searchPattern = `%${searchValue.replace(/[\\%_]/g, "\\$&")}%`;
+
+  if (estado === "SIN_COINCIDENCIA") {
+    const searchClause = searchValue
+      ? `AND (
+          COALESCE(pp.codigo_proveedor, '') ILIKE $2 ESCAPE '\\'
+          OR COALESCE(producto.cod_unico, '') ILIKE $2 ESCAPE '\\'
+          OR COALESCE(producto.descripcion, '') ILIKE $2 ESCAPE '\\'
+        )`
+      : "";
+    const params = searchValue
+      ? [id_importacion, searchPattern, safeLimit, (safePage - 1) * safeLimit]
+      : [id_importacion, safeLimit, (safePage - 1) * safeLimit];
+    const limitParam = searchValue ? 3 : 2;
+    const offsetParam = searchValue ? 4 : 3;
+    const baseSql = `
+      FROM public.proveedor_importacion importacion
+      INNER JOIN public.producto_proveedor pp ON pp.id_proveedor = importacion.id_proveedor
+      INNER JOIN public.productos producto ON producto.id = pp.id_producto
+      WHERE importacion.id = $1
+        AND (
+          NULLIF(BTRIM(pp.codigo_proveedor), '') IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM public.proveedor_importacion_item pii
+            WHERE pii.id_importacion = importacion.id
+              AND UPPER(BTRIM(pii.codigo_proveedor)) = UPPER(BTRIM(pp.codigo_proveedor))
+          )
+        )
+        ${searchClause}
+    `;
+    const [{ rows }, countResult] = await Promise.all([
+      query(
+        `
+          SELECT
+            -pp.id_producto AS id,
+            importacion.id AS id_importacion,
+            NULL::int AS fila,
+            NULL::text AS proveedor_archivo,
+            COALESCE(pp.codigo_proveedor, '') AS codigo_proveedor,
+            NULL::float AS precio_lista,
+            NULL::float AS precio_origen,
+            NULL::text AS moneda_origen,
+            NULL::float AS cotizacion_usada,
+            NULL::text AS precio_original,
+            NULL::text AS stock_original,
+            NULL::text AS stock_estado,
+            NULL::float AS stock_cantidad,
+            'SIN_COINCIDENCIA'::text AS estado,
+            CASE
+              WHEN NULLIF(BTRIM(pp.codigo_proveedor), '') IS NULL THEN 'El item no tiene codigo asignado para este proveedor'
+              ELSE 'El codigo asignado al proveedor no aparece en la lista importada'
+            END AS mensaje,
+            pp.id_producto,
+            producto.cod_unico AS producto_codigo,
+            producto.descripcion AS producto_descripcion,
+            NULL::float AS precio_anterior,
+            NULL::float AS precio_aplicado,
+            NULL::text AS estado_costo,
+            NULL::timestamptz AS applied_at,
+            importacion.created_at
+          ${baseSql}
+          ORDER BY producto.cod_unico ASC, pp.id_producto ASC
+          LIMIT $${limitParam} OFFSET $${offsetParam}
+        `,
+        params,
+      ),
+      query<{ total: string }>(
+        `SELECT COUNT(*)::int AS total ${baseSql}`,
+        searchValue ? [id_importacion, searchPattern] : [id_importacion],
+      ),
+    ]);
+    const total = Number(countResult.rows[0]?.total || 0);
+    return {
+      data: rows as ProveedorImportacionItem[],
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+    };
+  }
+
   const filter = searchValue
     ? `AND (
       pii.codigo_proveedor ILIKE $2 ESCAPE '\\'
