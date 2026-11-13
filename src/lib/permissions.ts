@@ -148,6 +148,9 @@ export function permisoParaApi(pathname: string, method: string, searchParams: U
     return conAccion(apartado, pathname.includes("/export") ? "exportar" : pathname.includes("/importar") ? "masivo" : undefined);
   }
   if (pathname.startsWith("/api/compatibilidades")) return conAccion(pathname.includes("/publicacion") ? "ml_compatibilidades" : "compatibilidades");
+  // Crear una pieza desde el informe de enriquecimiento modifica el catalogo
+  // de items asociados, no la configuracion de enriquecimiento.
+  if (pathname === "/api/enriquecimiento/pieza") return conAccion("piezas");
   if (pathname.startsWith("/api/enriquecimiento")) return conAccion("enriquecimiento");
   if (pathname.startsWith("/api/catalogo-externo")) return conAccion("catalogo_externo", pathname.includes("/import") ? "masivo" : undefined);
   if (pathname.startsWith("/api/importaciones")) return conAccion("importaciones");
