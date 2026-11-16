@@ -121,7 +121,9 @@ export async function POST(request: NextRequest) {
             const inmediato = await procesarActualizacionesPrecioMercadoLibre(
               limiteInmediato,
               undefined,
-              queued.publicacionesIds.slice(0, limiteInmediato),
+              // El procesador toma solo `limiteInmediato`, pero debe ver toda
+              // la seleccion para reclamar la siguiente tanda pendiente.
+              queued.publicacionesIds,
               (progress) => send({ tipo: "PROGRESO", ...progress }),
             );
             send({

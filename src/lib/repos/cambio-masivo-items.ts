@@ -14,7 +14,11 @@ export type CampoCambioMasivo =
   | "OBSERVACION"
   | "PALABRAS_CLAVE"
   | "PIEZA"
-  | "CRITERIO_COSTO";
+  | "CRITERIO_COSTO"
+  | "PRECIOS";
+
+type VariacionPrecioMasivo = "INCREMENTO" | "DESCUENTO";
+type TipoVariacionPrecioMasivo = "MONTO_FIJO" | "PORCENTAJE";
 
 export type CambioMasivoItemsInput = {
   items: Array<{ id: number; tipo: TipoItemMasivo }>;
@@ -26,6 +30,10 @@ export type CambioMasivoItemsInput = {
   idUbicacion?: number;
   idPieza?: number;
   criterioCosto?: CriterioCosto;
+  idTipoPrecio?: number;
+  variacionPrecio?: VariacionPrecioMasivo;
+  tipoVariacionPrecio?: TipoVariacionPrecioMasivo;
+  importePrecio?: number;
   stockMinimo?: number;
   texto?: string;
   usuarioId?: number | null;
@@ -199,6 +207,141 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
       );
     }
 
+    if (input.campo === "PRECIOS") {
+      if (!input.idTipoPrecio) throw new AppError("Selecciona la lista de precio a modificar", 400);
+      if (input.variacionPrecio !== "INCREMENTO" && input.variacionPrecio !== "DESCUENTO") {
+        throw new AppError("Selecciona si el precio aumenta o disminuye", 400);
+      }
+      if (input.tipoVariacionPrecio !== "MONTO_FIJO" && input.tipoVariacionPrecio !== "PORCENTAJE") {
+        throw new AppError("Selecciona si la variacion es por monto o porcentaje", 400);
+      }
+      const importe = Number(input.importePrecio);
+      if (!Number.isFinite(importe) || importe <= 0) {
+        throw new AppError("Ingresa un importe mayor a cero", 400);
+      }
+
+      const tipoObjetivo = await client.query<{ id: number; descripcion: string }>(
+        "SELECT id, descripcion FROM public.tipo_precio WHERE id = $1 LIMIT 1",
+        [input.idTipoPrecio],
+      );
+      const tipo = tipoObjetivo.rows[0];
+      if (!tipo) throw new AppError("La lista de precio seleccionada ya no existe", 404);
+
+      const factor = input.variacionPrecio === "INCREMENTO" ? 1 : -1;
+      const resultado = await client.query<ProductoActualizado>(
+        `WITH tipo_costo AS (
+           SELECT id FROM public.tipo_precio
+           WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+           ORDER BY id
+           LIMIT 1
+         ), base AS (
+           SELECT
+             producto.id AS id_producto,
+             producto.cod_unico,
+             costo.precio AS costo_actual,
+             objetivo.precio AS precio_actual,
+             objetivo.porcentaje_ganancia AS margen_actual,
+             objetivo.modo_calculo AS modo_actual,
+             COALESCE(objetivo.precio, CASE
+               WHEN costo.precio > 0 THEN ROUND(costo.precio * (1 + COALESCE(tipo_objetivo.margen_default, 0) / 100), 2)
+               ELSE 0
+             END) AS base_precio,
+             COALESCE(objetivo.modo_calculo, 'MARGEN_COSTO') AS modo_calculo
+           FROM public.productos producto
+           CROSS JOIN tipo_costo
+           INNER JOIN public.tipo_precio tipo_objetivo ON tipo_objetivo.id = $1
+           LEFT JOIN public.producto_precio costo
+             ON costo.id_producto = producto.id AND costo.id_tipo_precio = tipo_costo.id
+           LEFT JOIN public.producto_precio objetivo
+             ON objetivo.id_producto = producto.id AND objetivo.id_tipo_precio = $1
+           WHERE producto.id = ANY($2::int[])
+         ), calculados AS (
+           SELECT *, ROUND(GREATEST(0, CASE
+             WHEN $4::text = 'PORCENTAJE' THEN base_precio * (1 + ($3::numeric * $5::numeric) / 100)
+             ELSE base_precio + ($3::numeric * $5::numeric)
+           END), 2) AS nuevo_precio
+           FROM base
+         ), actualizados AS (
+           INSERT INTO public.producto_precio (id_producto, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo)
+           SELECT
+             id_producto,
+             $1,
+             nuevo_precio,
+             CASE
+               WHEN modo_calculo = 'MARGEN_COSTO' AND COALESCE(costo_actual, 0) > 0
+                 THEN ROUND(((nuevo_precio / costo_actual) - 1) * 100, 4)
+               ELSE COALESCE(margen_actual, 0)
+             END,
+             CASE
+               WHEN modo_calculo = 'FIJO_MONEDA' THEN 'FIJO_ARS'
+               WHEN modo_calculo = 'MARGEN_COSTO' AND COALESCE(costo_actual, 0) <= 0 THEN 'FIJO_ARS'
+               ELSE modo_calculo
+             END
+           FROM calculados
+           ON CONFLICT (id_producto, id_tipo_precio) DO UPDATE
+           SET precio = EXCLUDED.precio,
+               porcentaje_ganancia = EXCLUDED.porcentaje_ganancia,
+               modo_calculo = EXCLUDED.modo_calculo
+           RETURNING id_producto
+         )
+         SELECT producto.id, producto.cod_unico
+         FROM public.productos producto
+         INNER JOIN actualizados ON actualizados.id_producto = producto.id`,
+        [input.idTipoPrecio, itemIds, factor, input.tipoVariacionPrecio, importe],
+      );
+      productosActualizados = resultado.rows;
+
+      const esCosto = String(tipo.descripcion).trim().toUpperCase() === "PRECIO COSTO";
+      if (esCosto && itemIds.length > 0) {
+        await client.query(
+          "UPDATE public.productos SET criterio_costo = 'MANUAL' WHERE id = ANY($1::int[])",
+          [itemIds],
+        );
+        await client.query(
+          `WITH tipo_costo AS (
+             SELECT id FROM public.tipo_precio
+             WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+             ORDER BY id
+             LIMIT 1
+           )
+           UPDATE public.producto_precio costo
+           SET porcentaje_ganancia = 0,
+               modo_calculo = 'FIJO_ARS'
+           FROM tipo_costo
+           WHERE costo.id_producto = ANY($1::int[])
+             AND costo.id_tipo_precio = tipo_costo.id`,
+          [itemIds],
+        );
+        await client.query(
+          `WITH tipo_costo AS (
+             SELECT id FROM public.tipo_precio
+             WHERE upper(trim(descripcion)) = 'PRECIO COSTO'
+             ORDER BY id
+             LIMIT 1
+           )
+           UPDATE public.producto_precio venta
+           SET precio = ROUND(costo.precio * (1 + COALESCE(venta.porcentaje_ganancia, 0) / 100), 2)
+           FROM public.producto_precio costo
+           CROSS JOIN tipo_costo
+           WHERE venta.id_producto = costo.id_producto
+             AND venta.id_producto = ANY($1::int[])
+             AND venta.id_tipo_precio <> tipo_costo.id
+             AND costo.id_tipo_precio = tipo_costo.id
+             AND COALESCE(venta.modo_calculo, 'MARGEN_COSTO') = 'MARGEN_COSTO'`,
+          [itemIds],
+        );
+      }
+
+      const variacion = `${input.variacionPrecio === "INCREMENTO" ? "Incremento" : "Descuento"} de ${importe}${input.tipoVariacionPrecio === "PORCENTAJE" ? "%" : " ARS"}`;
+      await registrarActividadesMasivas(
+        client,
+        resultado.rows,
+        "Precio actualizado masivamente",
+        `${variacion} aplicado a ${tipo.descripcion} desde el listado general`,
+        input.usuarioId,
+      );
+    }
+
     let seguimientoCosto: { cambios: number; pendientes: number; preciosRecalculados: number; costosDisponibles: number } | null = null;
     if (input.campo === "CRITERIO_COSTO") {
       const criterio = input.criterioCosto;
@@ -226,7 +369,7 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
     return {
       itemsActualizados: productosActualizados.length,
       kitsActualizados,
-      kitsOmitidos: ["PROVEEDOR", "UBICACION", "PALABRAS_CLAVE", "PIEZA", "CRITERIO_COSTO"].includes(input.campo) ? kitIds.length : 0,
+      kitsOmitidos: ["PROVEEDOR", "UBICACION", "PALABRAS_CLAVE", "PIEZA", "CRITERIO_COSTO", "PRECIOS"].includes(input.campo) ? kitIds.length : 0,
       cambiosCosto: seguimientoCosto?.cambios ?? 0,
       cambiosPendientes: seguimientoCosto?.pendientes ?? 0,
       preciosRecalculados: seguimientoCosto?.preciosRecalculados ?? 0,

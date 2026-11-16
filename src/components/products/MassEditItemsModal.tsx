@@ -7,9 +7,9 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/Modal";
 import { useAppError } from "@/context/AppErrorContext";
 import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
-import type { PiezaBusqueda } from "@/interfaces/productos";
+import type { PiezaBusqueda, TipoPrecio } from "@/interfaces/productos";
 
-type Campo = "CLASIFICACION" | "MARCA" | "PROVEEDOR" | "UBICACION" | "STOCK_MINIMO" | "OBSERVACION" | "PALABRAS_CLAVE" | "PIEZA" | "CRITERIO_COSTO";
+type Campo = "CLASIFICACION" | "MARCA" | "PROVEEDOR" | "UBICACION" | "STOCK_MINIMO" | "OBSERVACION" | "PALABRAS_CLAVE" | "PIEZA" | "CRITERIO_COSTO" | "PRECIOS";
 
 type Props = {
   open: boolean;
@@ -21,6 +21,7 @@ type Props = {
   marcas: { id: number; descripcion: string }[];
   proveedores: { id: number; descripcion: string }[];
   ubicaciones: { id: number; descripcion: string }[];
+  tiposPrecio: TipoPrecio[];
   onSuccess: () => void;
 };
 
@@ -34,6 +35,7 @@ const CAMPOS: Array<{ value: Campo; label: string; aplica: string }> = [
   { value: "PALABRAS_CLAVE", label: "Palabras clave", aplica: "Solo items" },
   { value: "PIEZA", label: "Asignar numero de pieza", aplica: "Solo items" },
   { value: "CRITERIO_COSTO", label: "Criterio de costo", aplica: "Solo items" },
+  { value: "PRECIOS", label: "Precios", aplica: "Solo items" },
 ];
 
 const CRITERIOS_COSTO = [
@@ -54,6 +56,7 @@ export function MassEditItemsModal({
   marcas,
   proveedores,
   ubicaciones,
+  tiposPrecio,
   onSuccess,
 }: Props) {
   const { showError } = useAppError();
@@ -63,6 +66,10 @@ export function MassEditItemsModal({
   const [valor, setValor] = useState("");
   const [texto, setTexto] = useState("");
   const [stockMinimo, setStockMinimo] = useState("0");
+  const [idTipoPrecio, setIdTipoPrecio] = useState("");
+  const [variacionPrecio, setVariacionPrecio] = useState<"INCREMENTO" | "DESCUENTO">("INCREMENTO");
+  const [tipoVariacionPrecio, setTipoVariacionPrecio] = useState<"MONTO_FIJO" | "PORCENTAJE">("PORCENTAJE");
+  const [importePrecio, setImportePrecio] = useState("");
   const [busquedaPieza, setBusquedaPieza] = useState("");
   const [resultadosPieza, setResultadosPieza] = useState<PiezaBusqueda[]>([]);
   const [piezaSeleccionada, setPiezaSeleccionada] = useState<PiezaBusqueda | null>(null);
@@ -72,7 +79,8 @@ export function MassEditItemsModal({
 
   const totalItems = searchItemSelection?.count ?? items.filter((item) => item.tipo === "ITEM").length;
   const totalKits = searchItemSelection ? 0 : items.length - totalItems;
-  const soloItems = campo === "PROVEEDOR" || campo === "UBICACION" || campo === "PALABRAS_CLAVE" || campo === "PIEZA" || campo === "CRITERIO_COSTO";
+  const soloItems = campo === "PROVEEDOR" || campo === "UBICACION" || campo === "PALABRAS_CLAVE" || campo === "PIEZA" || campo === "CRITERIO_COSTO" || campo === "PRECIOS";
+  const listasPrecio = useMemo(() => tiposPrecio.filter((tipo) => tipo.activo !== false), [tiposPrecio]);
   const subcategoriasDisponibles = useMemo(
     () => subcategorias.filter((item) => String(item.id_categoria) === idCategoria),
     [idCategoria, subcategorias],
@@ -86,6 +94,10 @@ export function MassEditItemsModal({
     setValor("");
     setTexto("");
     setStockMinimo("0");
+    setIdTipoPrecio("");
+    setVariacionPrecio("INCREMENTO");
+    setTipoVariacionPrecio("PORCENTAJE");
+    setImportePrecio("");
     setBusquedaPieza("");
     setResultadosPieza([]);
     setPiezaSeleccionada(null);
@@ -130,6 +142,11 @@ export function MassEditItemsModal({
       toast.error("Ingresa un stock minimo valido");
       return;
     }
+    const importePrecioNumerico = Number(importePrecio.replace(",", "."));
+    if (campo === "PRECIOS" && (!idTipoPrecio || !Number.isFinite(importePrecioNumerico) || importePrecioNumerico <= 0)) {
+      toast.error("Selecciona una lista e ingresa un importe mayor a cero");
+      return;
+    }
     if (campo === "PIEZA" && !piezaSeleccionada) {
       toast.error("Busca y selecciona un numero de pieza");
       return;
@@ -159,6 +176,10 @@ export function MassEditItemsModal({
           idUbicacion: campo === "UBICACION" ? Number(valor) : undefined,
           idPieza: campo === "PIEZA" ? piezaSeleccionada?.id : undefined,
           criterioCosto: campo === "CRITERIO_COSTO" ? valor : undefined,
+          idTipoPrecio: campo === "PRECIOS" ? Number(idTipoPrecio) : undefined,
+          variacionPrecio: campo === "PRECIOS" ? variacionPrecio : undefined,
+          tipoVariacionPrecio: campo === "PRECIOS" ? tipoVariacionPrecio : undefined,
+          importePrecio: campo === "PRECIOS" ? Number(importePrecio.replace(",", ".")) : undefined,
           stockMinimo: campo === "STOCK_MINIMO" ? Number(stockMinimo) : undefined,
           texto: ["OBSERVACION", "PALABRAS_CLAVE"].includes(campo) ? texto : undefined,
         }),
@@ -215,6 +236,30 @@ export function MassEditItemsModal({
             </select>
             <span className="text-xs leading-5 text-slate-500 dark:text-slate-400">Recalcula desde los proveedores válidos. Los cambios de costo que superen el umbral quedan pendientes de aprobación.</span>
           </label>
+        )}
+        {campo === "PRECIOS" && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5 sm:col-span-2">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Precio a modificar</span>
+              <select value={idTipoPrecio} onChange={(event) => setIdTipoPrecio(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                <option value="">Seleccionar</option>
+                {listasPrecio.map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.descripcion.trim().toUpperCase() === "PRECIO COSTO" ? "Precio de compra" : `Precio venta => ${tipo.descripcion}`}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Variacion</span>
+              <select value={variacionPrecio} onChange={(event) => setVariacionPrecio(event.target.value as "INCREMENTO" | "DESCUENTO")} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"><option value="INCREMENTO">Incremento</option><option value="DESCUENTO">Descuento</option></select>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Aplicar como</span>
+              <select value={tipoVariacionPrecio} onChange={(event) => setTipoVariacionPrecio(event.target.value as "MONTO_FIJO" | "PORCENTAJE")} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"><option value="PORCENTAJE">Porcentaje</option><option value="MONTO_FIJO">Monto fijo</option></select>
+            </label>
+            <label className="flex flex-col gap-1.5 sm:col-span-2">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">{tipoVariacionPrecio === "PORCENTAJE" ? "Porcentaje" : "Monto en ARS"}</span>
+              <div className="relative"><input value={importePrecio} onChange={(event) => setImportePrecio(event.target.value)} inputMode="decimal" placeholder={tipoVariacionPrecio === "PORCENTAJE" ? "0,00" : "0,00"} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 pr-10 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />{tipoVariacionPrecio === "PORCENTAJE" && <span className="pointer-events-none absolute right-3 top-2.5 text-sm font-bold text-slate-500">%</span>}</div>
+            </label>
+            <p className="sm:col-span-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Al modificar el precio de compra, se establece costo manual y se recalculan las listas que usan margen sobre costo. En una lista de venta, el precio queda actualizado solo en esa lista.</p>
+          </div>
         )}
         {campo === "PIEZA" && (
           <div className="space-y-2">

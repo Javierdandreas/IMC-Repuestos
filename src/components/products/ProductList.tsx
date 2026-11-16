@@ -1224,6 +1224,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
               marcas={marcas}
               proveedores={proveedores}
               ubicaciones={ubicaciones}
+              tiposPrecio={tiposPrecio}
               onSuccess={() => {
                 setSelectedProductsByKey(new Map());
                 setSelectedSearchItems(null);
