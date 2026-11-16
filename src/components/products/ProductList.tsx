@@ -1263,6 +1263,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   <div className="flex items-center justify-between gap-3 text-[11px] font-black text-blue-800 dark:text-blue-200"><span>Actualizando publicaciones</span><span>{mercadoLibreUpdateProgress.procesadas} / {mercadoLibreUpdateProgress.total}</span></div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-blue-100 dark:bg-blue-950"><div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${mercadoLibreUpdateProgress.total ? Math.min(100, (mercadoLibreUpdateProgress.procesadas / mercadoLibreUpdateProgress.total) * 100) : 0}%` }} /></div>
                   <p className="mt-1 text-[10px] text-blue-700 dark:text-blue-300">{mercadoLibreUpdateProgress.publicacion ? `${mercadoLibreUpdateProgress.publicacion}: ${mercadoLibreUpdateProgress.estado?.toLowerCase()}` : "Preparando actualizacion..."}</p>
+                  <p className="mt-0.5 text-[10px] text-blue-700 dark:text-blue-300">La cola continua automaticamente hasta terminar todas las publicaciones.</p>
                 </div>}
 
                 {mercadoLibreUpdateErrors.length > 0 && <section role="alert" className="mt-5 border border-red-300 bg-red-50 p-4 text-sm dark:border-red-900/70 dark:bg-red-950/25">

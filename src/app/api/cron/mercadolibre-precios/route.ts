@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
 
   try {
-    const resultado = await procesarActualizacionesPrecioMercadoLibre(50);
+    const resultado = await procesarActualizacionesPrecioMercadoLibre(100);
     const estado = await getEstadoActualizacionesPrecioMercadoLibre();
     return NextResponse.json({ ok: true, ...resultado, estado }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

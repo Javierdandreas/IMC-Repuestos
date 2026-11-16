@@ -2314,17 +2314,34 @@ async function meliGet(path: string, idCuenta: number, token: string) {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
     cache: "no-store",
   });
-  let response = await request(token);
+  let accessToken = token;
+  let response = await request(accessToken);
   if (response.status === 401) {
     const renewed = await accessTokenForCuenta(idCuenta, true);
-    response = await request(renewed.accessToken);
+    accessToken = renewed.accessToken;
+    response = await request(accessToken);
+  }
+  const retryDelays = [1_500, 3_000, 6_000, 12_000];
+  for (const fallbackDelay of retryDelays) {
+    if (response.ok || ![429, 500, 502, 503, 504].includes(response.status)) break;
+    const retryAfterSeconds = Number(response.headers.get("retry-after"));
+    const delay = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      ? Math.max(fallbackDelay, retryAfterSeconds * 1_000)
+      : fallbackDelay;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    response = await request(accessToken);
+    if (response.status === 401) {
+      const renewed = await accessTokenForCuenta(idCuenta, true);
+      accessToken = renewed.accessToken;
+      response = await request(accessToken);
+    }
   }
   if (!response.ok) {
     const recurso = path.startsWith("/orders") ? "ventas" : path.startsWith("/questions") ? "preguntas" : path.startsWith("/items") || path.startsWith("/users/") ? "publicaciones" : "datos";
     const details = await response.json().catch(() => null) as { message?: unknown; error?: unknown; cause?: Array<{ code?: unknown; message?: unknown }> } | null;
     const cause = details?.cause?.[0];
     const detail = typeof cause?.message === "string" ? cause.message : typeof details?.message === "string" ? details.message : typeof details?.error === "string" ? details.error : "";
-    throw new AppError(`Mercado Libre rechazo el acceso a ${recurso} (${response.status})${detail ? `: ${detail}` : "."}`, response.status === 403 ? 403 : 502);
+    throw new AppError(`Mercado Libre rechazo el acceso a ${recurso} (${response.status})${detail ? `: ${detail}` : "."}`, response.status === 403 || response.status === 429 ? response.status : 502);
   }
   return response.json() as Promise<unknown>;
 }
@@ -2749,15 +2766,32 @@ async function meliPut(path: string, idCuenta: number, token: string, body: Reco
     body: JSON.stringify(body),
     cache: "no-store",
   });
-  let response = await request(token);
+  let accessToken = token;
+  let response = await request(accessToken);
   if (response.status === 401) {
     const renewed = await accessTokenForCuenta(idCuenta, true);
-    response = await request(renewed.accessToken);
+    accessToken = renewed.accessToken;
+    response = await request(accessToken);
+  }
+  const retryDelays = [1_500, 3_000, 6_000, 12_000];
+  for (const fallbackDelay of retryDelays) {
+    if (response.ok || ![429, 500, 502, 503, 504].includes(response.status)) break;
+    const retryAfterSeconds = Number(response.headers.get("retry-after"));
+    const delay = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      ? Math.max(fallbackDelay, retryAfterSeconds * 1_000)
+      : fallbackDelay;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    response = await request(accessToken);
+    if (response.status === 401) {
+      const renewed = await accessTokenForCuenta(idCuenta, true);
+      accessToken = renewed.accessToken;
+      response = await request(accessToken);
+    }
   }
   if (!response.ok) {
     const details = await response.json().catch(() => null) as { message?: unknown; error?: unknown } | null;
     const detail = typeof details?.message === "string" ? details.message : typeof details?.error === "string" ? details.error : "";
-    throw new AppError(`Mercado Libre no pudo actualizar la publicacion (${response.status})${detail ? `: ${detail}` : "."}`, response.status === 403 ? 403 : 502);
+    throw new AppError(`Mercado Libre no pudo actualizar la publicacion (${response.status})${detail ? `: ${detail}` : "."}`, response.status === 403 || response.status === 429 ? response.status : 502);
   }
   return response.json() as Promise<unknown>;
 }
@@ -2902,7 +2936,12 @@ export async function contarActualizacionesPendientesMercadoLibre(publicacionesI
     SELECT COUNT(*)::text AS total
     FROM public.mercadolibre_actualizacion_precio
     WHERE id_publicacion = ANY($1::int[])
-      AND (estado IN ('PENDIENTE', 'PROCESANDO') OR (estado = 'ERROR' AND intentos < 3))
+      AND (
+        estado = 'PENDIENTE'
+        OR (estado = 'PROCESANDO' AND updated_at >= NOW() - INTERVAL '10 minutes')
+        OR (estado = 'PROCESANDO' AND updated_at < NOW() - INTERVAL '10 minutes' AND intentos < 3)
+        OR (estado = 'ERROR' AND intentos < 3)
+      )
   `, [ids]);
   return Number(result.rows[0]?.total ?? 0);
 }
@@ -2921,7 +2960,10 @@ export async function procesarActualizacionesPrecioMercadoLibre(
          SELECT queue.id
          FROM public.mercadolibre_actualizacion_precio queue
          INNER JOIN public.mercadolibre_publicacion publication ON publication.id = queue.id_publicacion
-         WHERE queue.estado IN ('PENDIENTE', 'ERROR') AND queue.intentos < 3
+         WHERE (
+           queue.estado IN ('PENDIENTE', 'ERROR')
+           OR (queue.estado = 'PROCESANDO' AND queue.updated_at < NOW() - INTERVAL '10 minutes')
+         ) AND queue.intentos < 3
            AND ($2::int IS NULL OR publication.id_cuenta = $2)
            AND ($3::int[] IS NULL OR publication.id = ANY($3::int[]))
          ORDER BY queue.updated_at ASC, queue.id ASC
@@ -2936,7 +2978,7 @@ export async function procesarActualizacionesPrecioMercadoLibre(
          queue.actualizar_precio, queue.actualizar_stock, queue.recargo_porcentaje,
          publication.id_cuenta, publication.item_id, publication.variaciones, publication.precio AS precio_actual,
          publication.costo_estimado, publication.costo_estimado_at`,
-      [Math.max(1, Math.min(50, Math.floor(limit) || 20)), idCuenta ?? null, publicaciones.length ? publicaciones : null]
+      [Math.max(1, Math.min(100, Math.floor(limit) || 20)), idCuenta ?? null, publicaciones.length ? publicaciones : null]
     );
     return claimed.rows;
   });
@@ -3024,8 +3066,10 @@ export async function procesarActualizacionesPrecioMercadoLibre(
     }
   };
 
-  // Mercado Libre actualiza cada item por separado. Tres workers reducen el
-  // tiempo total sin disparar decenas de solicitudes simultaneas por cuenta.
+  // Las actualizaciones de precio consultan cargos y envio antes de escribir;
+  // cinco workers aceleran la cola sin saturar la misma cuenta. El stock no
+  // necesita esas cotizaciones y puede avanzar con ocho workers.
+  const workerCount = jobs.every((job) => !job.actualizar_precio) ? 8 : 5;
   let siguiente = 0;
   const worker = async () => {
     while (siguiente < jobs.length) {
@@ -3033,7 +3077,7 @@ export async function procesarActualizacionesPrecioMercadoLibre(
       await procesarTrabajo(job);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, () => worker()));
+  await Promise.all(Array.from({ length: Math.min(workerCount, jobs.length) }, () => worker()));
   return { procesadas: jobs.length, actualizadas, errores, detallesErrores, advertencias };
 }
 

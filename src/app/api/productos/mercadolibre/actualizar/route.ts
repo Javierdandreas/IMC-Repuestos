@@ -34,7 +34,7 @@ const selectionSchema = z.object({
   incluirPausadas: z.boolean().optional(),
   modo: z.enum(["PRECIOS", "STOCK", "STOCK_Y_PRECIOS"]).optional(),
   recargoPorcentaje: z.coerce.number().min(0).max(1_000).optional(),
-  limiteInmediato: z.coerce.number().int().min(1).max(50).optional(),
+  limiteInmediato: z.coerce.number().int().min(1).max(100).optional(),
   publicacionesIds: z.array(z.coerce.number().int().positive()).max(MAX_ITEMS_BUSQUEDA_MASIVA).optional(),
 }).superRefine((value, context) => {
   const hasExplicitSelection = Boolean(value.productoIds?.length || value.kitIds?.length);
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
       }, { headers: { "Cache-Control": "no-store" } });
     }
 
-    const limiteInmediato = payload.limiteInmediato ?? 50;
+    const limiteInmediato = payload.limiteInmediato ?? 100;
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
