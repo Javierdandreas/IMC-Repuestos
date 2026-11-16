@@ -302,7 +302,7 @@ export async function getMercadoLibrePublicaciones(
   const { rows } = await query(
     `SELECT publication.id, publication.item_id, publication.id_producto, publication.id_kit, publication.tipo_vinculo, publication.seller_sku,
       publication.titulo, publication.estado, publication.categoria_id, publication.tipo_publicacion, publication.precio,
-      publication.precio_original, publication.moneda, publication.cantidad_disponible, publication.cantidad_vendida,
+      publication.precio_original, publication.recargo_adicional_porcentaje, publication.moneda, publication.cantidad_disponible, publication.cantidad_vendida,
       publication.thumbnail_url, publication.permalink, publication.variaciones, publication.sincronizada_at,
       publication.costo_estimado, publication.costo_estimado_at,
       NULLIF(publication.datos->>'fechaCreacionMl', '') AS fecha_creacion_ml,
@@ -327,6 +327,7 @@ export async function getMercadoLibrePublicaciones(
       estado: String(row.estado), categoriaId: row.categoria_id ? String(row.categoria_id) : null,
       tipoPublicacion: row.tipo_publicacion ? String(row.tipo_publicacion) : null,
       precio: row.precio === null ? null : Number(row.precio), precioOriginal: row.precio_original === null ? null : Number(row.precio_original),
+      recargoAdicionalPorcentaje: Math.max(0, Number(row.recargo_adicional_porcentaje) || 0),
       moneda: row.moneda ? String(row.moneda) : null, cantidadDisponible: row.cantidad_disponible === null ? null : Number(row.cantidad_disponible),
       cantidadVendida: row.cantidad_vendida === null ? null : Number(row.cantidad_vendida), thumbnailUrl: secureThumbnailUrl(row.thumbnail_url ? String(row.thumbnail_url) : null),
       permalink: row.permalink ? String(row.permalink) : null, variaciones: Array.isArray(row.variaciones) ? row.variaciones : [],
@@ -2012,6 +2013,23 @@ async function actualizarEstadoCatalogoVehiculos(ids: Iterable<number>, estado: 
   `, [uniqueIds, estado]);
 }
 
+/**
+ * Las filas BASE son solo el punto de partida de una ruta de enriquecimiento.
+ * Cuando la cola termina sin errores, toda fila BASE fue resuelta en una
+ * alternativa detallada. Se retiran del catálogo operativo para no
+ * presentarlas como vehículos.
+ */
+async function retirarBasesEnriquecidasDelCatalogo() {
+  await query(`
+    UPDATE public.mercadolibre_catalogo_vehiculo AS base
+    SET activa = FALSE,
+        sincronizado_at = NOW()
+    WHERE base.dominio_id = $1
+      AND base.activa = TRUE
+      AND base.estado = 'BASE'
+  `, [DOMINIO_VEHICULOS_ML]);
+}
+
 async function estadoCargaVehiculos(totalMarcas: number, ultimoError: string | null = null) {
   const queue = await query<{ pendientes: string; procesando: string; errores: string }>(`
     SELECT
@@ -2284,6 +2302,7 @@ export async function enriquecerCatalogoVehiculosMercadoLibre() {
     const workerError = workersResult.find((result): result is PromiseRejectedResult => result.status === "rejected");
     if (workerError) throw workerError.reason;
     const status = await estadoEnriquecimientoVehiculos();
+    if (status.completada) await retirarBasesEnriquecidasDelCatalogo();
     return { rutasConsultadas, tareasProcesadas, vehiculosGenerados, ...status };
   } catch (error) {
     throw error;
@@ -2876,6 +2895,18 @@ export async function getEstadoActualizacionesPrecioMercadoLibre(idCuenta?: numb
   };
 }
 
+export async function contarActualizacionesPendientesMercadoLibre(publicacionesIds: number[]) {
+  const ids = [...new Set(publicacionesIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!ids.length) return 0;
+  const result = await query<{ total: string }>(`
+    SELECT COUNT(*)::text AS total
+    FROM public.mercadolibre_actualizacion_precio
+    WHERE id_publicacion = ANY($1::int[])
+      AND (estado IN ('PENDIENTE', 'PROCESANDO') OR (estado = 'ERROR' AND intentos < 3))
+  `, [ids]);
+  return Number(result.rows[0]?.total ?? 0);
+}
+
 /** Procesa una tanda acotada; el cron externo la vuelve a ejecutar en el siguiente ciclo. */
 export async function procesarActualizacionesPrecioMercadoLibre(
   limit = 20,
@@ -2932,8 +2963,9 @@ export async function procesarActualizacionesPrecioMercadoLibre(
             Number(job.id_cuenta),
             String(job.item_id),
             Number(job.importe_objetivo),
+            recargo,
           );
-          precioFinal = Math.round(precioResuelto.precioFinal * (1 + recargo / 100) * 100) / 100;
+          precioFinal = precioResuelto.precioFinal;
           costoEstimado = precioResuelto.costoEstimado;
         }
       }
@@ -2962,9 +2994,17 @@ export async function procesarActualizacionesPrecioMercadoLibre(
            costo_estimado = CASE WHEN $3::jsonb IS NULL THEN costo_estimado ELSE $3::jsonb END,
            costo_estimado_at = CASE WHEN $3::jsonb IS NULL THEN costo_estimado_at ELSE NOW() END,
            cantidad_disponible = CASE WHEN $4::int IS NULL THEN cantidad_disponible ELSE $4::int END,
+           recargo_adicional_porcentaje = CASE WHEN $5::boolean THEN $6::numeric ELSE recargo_adicional_porcentaje END,
            updated_at = NOW()
          WHERE id = $1`,
-        [job.id_publicacion, precioFinal, costoEstimado === null ? null : JSON.stringify(costoEstimado), actualizarStock ? Math.max(0, Math.floor(Number(job.stock_objetivo))) : null]
+        [
+          job.id_publicacion,
+          precioFinal,
+          costoEstimado === null ? null : JSON.stringify(costoEstimado),
+          actualizarStock ? Math.max(0, Math.floor(Number(job.stock_objetivo))) : null,
+          job.actualizar_precio,
+          Math.max(0, Number(job.recargo_porcentaje) || 0),
+        ]
       );
       const omitida = Object.keys(body).length === 0;
       if (!omitida) actualizadas += 1;
@@ -3173,6 +3213,7 @@ async function resolverPrecioPublicadoMercadoLibre(
   idCuenta: number,
   itemId: string,
   importeObjetivo: number,
+  recargoPorcentaje = 0,
 ): Promise<PrecioPublicadoMercadoLibre> {
   if (!Number.isFinite(importeObjetivo) || importeObjetivo <= 0) {
     throw new AppError("El importe objetivo de Mercado Libre debe ser mayor a cero.", 422);
@@ -3189,6 +3230,16 @@ async function resolverPrecioPublicadoMercadoLibre(
     }
     cotizaciones.set(candidato, costoEstimado);
     return costoEstimado;
+  };
+  const resolverConRecargo = async (precioBase: number, costoBase: MercadoLibreCostoEstimado) => {
+    const recargo = Math.max(0, Number(recargoPorcentaje) || 0);
+    const precioFinal = Math.round(precioBase * (1 + recargo / 100) * 100) / 100;
+    return {
+      precioFinal,
+      // La pantalla de costos debe reflejar los cargos sobre el precio final
+      // publicado, incluido el recargo adicional guardado en Nexo.
+      costoEstimado: recargo > 0 ? await cotizar(precioFinal) : costoBase,
+    };
   };
   const neto = (precio: number, costo: MercadoLibreCostoEstimado) => obtenerNetoCotizado(precio, costo);
   const alcanzaObjetivo = (precio: number, costo: MercadoLibreCostoEstimado) => neto(precio, costo) + 0.005 >= importeObjetivo;
@@ -3212,7 +3263,7 @@ async function resolverPrecioPublicadoMercadoLibre(
   // El ajuste directo suele converger rapido; se deja una cantidad suficiente de
   // pasos para porcentajes altos y cargos fijos que cambian con el precio.
   for (let intento = 0; intento < 16; intento += 1) {
-    if (alcanzaObjetivo(candidato, costoCandidato)) return { precioFinal: candidato, costoEstimado: costoCandidato };
+    if (alcanzaObjetivo(candidato, costoCandidato)) return resolverConRecargo(candidato, costoCandidato);
 
     const faltante = importeObjetivo - neto(candidato, costoCandidato);
     candidato = Math.ceil((candidato + Math.max(faltante, 0.01)) * 100) / 100;
@@ -3241,7 +3292,7 @@ async function resolverPrecioPublicadoMercadoLibre(
   }
 
   const precioFinal = superiorCentavos / 100;
-  return { precioFinal, costoEstimado: await cotizar(precioFinal) };
+  return resolverConRecargo(precioFinal, await cotizar(precioFinal));
 }
 
 export async function actualizarCostoEstimadoMercadoLibre(idCuenta: number, itemId: string): Promise<MercadoLibreCostoEstimado> {
@@ -3426,6 +3477,7 @@ function mapPublicacion(item: MeliItem): MercadoLibrePublicacion {
     categoriaId: item.category_id || null, tipoPublicacion: item.listing_type_id || null,
     precio: Number.isFinite(Number(item.price)) ? Number(item.price) : null,
     precioOriginal: item.original_price === null || item.original_price === undefined ? null : Number(item.original_price),
+    recargoAdicionalPorcentaje: 0,
     moneda: item.currency_id || null,
     cantidadDisponible: Number.isFinite(Number(item.available_quantity)) ? Number(item.available_quantity) : null,
     cantidadVendida: Number.isFinite(Number(item.sold_quantity)) ? Number(item.sold_quantity) : null,

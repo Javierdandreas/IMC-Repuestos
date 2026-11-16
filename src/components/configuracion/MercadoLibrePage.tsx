@@ -1359,8 +1359,6 @@ function VinculoReviewDialog({ publication, onClose, onChanged }: {
   </div>;
 }
 
-const GESU_RECARGO_PORCENTAJE = 0.02;
-
 function CostosTable({ publicaciones, loading, calculatingItemId, calculatingPage, costSync, massSyncing, onCalculate, onCalculatePage, onUpdateAll }: {
   publicaciones: MercadoLibrePublicacionesResult["data"];
   loading: boolean;
@@ -1375,24 +1373,25 @@ function CostosTable({ publicaciones, loading, calculatingItemId, calculatingPag
   const progress = costSync?.total ? Math.min(100, Math.round((costSync.procesadas / costSync.total) * 100)) : 0;
   return <div className="space-y-2">
     <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-      <p className="text-xs font-semibold text-slate-500">El <b className="text-slate-700 dark:text-slate-200">+2% Gesu</b> es un recargo de precio, no un cargo de Mercado Libre.</p>
+      <p className="text-xs font-semibold text-slate-500">El recargo adicional muestra el ultimo porcentaje aplicado desde Nexo a cada publicacion.</p>
       <div className="flex flex-wrap gap-2"><button type="button" onClick={onCalculatePage} disabled={!publicaciones.length || calculatingPage || massSyncing} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"><RefreshCw className={`h-4 w-4 ${calculatingPage ? "animate-spin" : ""}`} />Pagina ({publicaciones.length})</button><button type="button" onClick={onUpdateAll} disabled={massSyncing} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${massSyncing ? "animate-spin" : ""}`} />{massSyncing ? "Actualizando activas..." : costSync?.estado === "EN_PROCESO" ? "Continuar activas" : "Actualizar activas"}</button></div>
     </div>
     {costSync && <div className="border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-950"><div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1"><span className="font-bold text-slate-700 dark:text-slate-200">{costSync.estado === "COMPLETADA" ? "Ultima actualizacion completada" : "Actualizacion pendiente"}</span><span className="font-mono text-slate-500">{costSync.procesadas.toLocaleString("es-AR")} / {costSync.total.toLocaleString("es-AR")} · {costSync.calculadas.toLocaleString("es-AR")} calculadas · {costSync.fallidas.toLocaleString("es-AR")} con error</span></div><div className="mt-2 h-1.5 overflow-hidden bg-slate-100 dark:bg-slate-800"><div className="h-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} /></div></div>}
     <TableShell hasRows={publicaciones.length > 0} empty={loading ? "Cargando publicaciones..." : "No hay publicaciones sincronizadas."}>
     <table className="w-full table-fixed text-left text-[13px]">
-      <thead><tr><th>Publicacion</th><th className="text-right">Precio</th><th className="text-right">Comision ML</th><th className="text-right">Envio est.</th><th className="text-right">+2% Gesu</th><th className="text-right">Resultado</th><th /></tr></thead>
+      <thead><tr><th>Publicacion</th><th className="text-right">Precio</th><th className="text-right">Comision ML</th><th className="text-right">Envio est.</th><th className="text-right">Recargo Nexo</th><th className="text-right">Resultado</th><th /></tr></thead>
       <tbody>{publicaciones.map((item) => {
         const costo = item.costoEstimado;
         const calculating = calculatingItemId === item.itemId;
-        const recargoGesu = item.precio === null ? null : item.precio * GESU_RECARGO_PORCENTAJE;
-        const precioConRecargoGesu = item.precio === null || recargoGesu === null ? null : item.precio + recargoGesu;
+        const recargoPorcentaje = Math.max(0, Number(item.recargoAdicionalPorcentaje) || 0);
+        const precioBase = item.precio === null ? null : Math.round((item.precio / (1 + recargoPorcentaje / 100)) * 100) / 100;
+        const recargoAdicional = item.precio === null || precioBase === null ? null : Math.round((item.precio - precioBase) * 100) / 100;
         return <tr key={item.id}>
           <td><div className="max-w-[22rem] truncate font-black text-slate-900 dark:text-white" title={item.titulo}>{item.titulo}</div><div className="mt-1 flex flex-wrap gap-x-2 font-mono text-[11px] text-slate-500"><span>{item.itemId}</span><span>{item.sellerSku || item.codigoProducto || item.codigoKit || "-"}</span><span>{item.tipoPublicacion || "-"}</span></div>{costo?.advertencias?.[0] && <div className="mt-1 max-w-sm truncate text-[11px] font-semibold text-amber-600 dark:text-amber-300" title={costo.advertencias.join(" ")}>{costo.advertencias[0]}</div>}</td>
           <td className="text-right font-mono font-black">{money(item.precio, item.moneda)}</td>
           <td className="text-right font-mono"><div>{money(costo?.comisionTotal ?? null, item.moneda)}</div><div className="mt-1 text-[11px] text-slate-500">Fijo {money(costo?.cargoFijo ?? null, item.moneda)} · Cuotas {money(costo?.cargoFinanciacion ?? null, item.moneda)}</div></td>
           <td className="text-right font-mono"><div>{money(costo?.envioEstimado ?? null, item.moneda)}</div>{costo?.pesoFacturable !== null && costo?.pesoFacturable !== undefined && <div className="mt-1 text-[11px] text-slate-500">{costo.pesoFacturable} g fact.</div>}{costo?.dimensionesEnvio && <div className="mt-1 max-w-28 truncate text-[11px] text-slate-500" title={`Dimensiones ML: ${costo.dimensionesEnvio}`}>ML: {costo.dimensionesEnvio}</div>}</td>
-          <td className="text-right font-mono"><div className="font-black text-violet-600 dark:text-violet-300">{money(recargoGesu, item.moneda)}</div><div className="mt-1 whitespace-nowrap text-[11px] text-slate-500">P. Gesu {money(precioConRecargoGesu, item.moneda)}</div></td>
+          <td className="text-right font-mono"><div className="font-black text-violet-600 dark:text-violet-300">{recargoPorcentaje.toLocaleString("es-AR", { maximumFractionDigits: 3 })}% · {money(recargoAdicional, item.moneda)}</div><div className="mt-1 whitespace-nowrap text-[11px] text-slate-500">Base {money(precioBase, item.moneda)}</div></td>
           <td className="text-right font-mono"><div className="font-black text-red-600 dark:text-red-300">ML {money(costo?.costoMlTotal ?? null, item.moneda)}</div><div className="mt-1 font-black text-emerald-600 dark:text-emerald-300">Neto s/ imp. {money(costo?.netoEstimado ?? null, item.moneda)}</div>{costo && <div className="mt-1 whitespace-nowrap text-[11px] text-amber-600 dark:text-amber-300" title="Mercado Libre confirma impuestos y retenciones al facturar la venta; no los devuelve para cotizar una publicacion.">Imp./ret. al facturar</div>}<div className="mt-1 whitespace-nowrap text-[11px] font-semibold text-slate-500">{costo?.consultadoAt ? date(costo.consultadoAt, "-") : "Sin calcular"}</div></td>
           <td className="text-right"><button type="button" onClick={() => onCalculate(item.itemId)} disabled={calculating} title="Actualizar costo estimado" aria-label={`Actualizar costo estimado de ${item.titulo}`} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-600 transition hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-300"><RefreshCw className={`h-4 w-4 ${calculating ? "animate-spin" : ""}`} /></button></td>
         </tr>;

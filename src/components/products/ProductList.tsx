@@ -38,6 +38,7 @@ type MercadoLibreUpdateError = { publicacion: string; mensaje: string };
 type MercadoLibreUpdateProgress = { total: number; procesadas: number; actualizadas: number; errores: number; publicacion?: string; estado?: string };
 type MercadoLibreUpdateResult = {
   publicacionesEncoladas?: number;
+  publicacionesIds?: number[];
   procesadas?: number;
   actualizadas?: number;
   errores?: number;
@@ -369,61 +370,88 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       setUpdatingMercadoLibre(true);
       setMercadoLibreUpdateErrors([]);
       setMercadoLibreUpdateProgress(null);
-      const response = await fetch("/api/productos/mercadolibre/actualizar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(useSearchScope
-          ? { filtrosBusqueda: mercadoLibreUpdateScope === "BUSQUEDA" ? currentSearchFilters : selectedSearchItems?.filters, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje }
-          : { productoIds: selectedMercadoLibreItems, kitIds: selectedMercadoLibreKits, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje }),
-      });
-      let result: MercadoLibreUpdateResult = {};
-      const contentType = response.headers.get("content-type") || "";
-      if (contentType.includes("application/x-ndjson") && response.body) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (true) {
-          const chunk = await reader.read();
-          if (chunk.done) break;
-          buffer += decoder.decode(chunk.value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            const event = JSON.parse(line) as MercadoLibreUpdateResult & { tipo?: string; publicacion?: string; estado?: string; itemsSeleccionados?: number; kitsSeleccionados?: number };
-            if (event.tipo === "INICIO") {
-              setMercadoLibreUpdateProgress({ total: Number(event.publicacionesEncoladas || 0), procesadas: 0, actualizadas: 0, errores: 0 });
-            } else if (event.tipo === "PROGRESO") {
-              setMercadoLibreUpdateProgress((current) => ({
-                total: current?.total || 0,
-                procesadas: Number(event.procesadas || 0),
-                actualizadas: Number(event.actualizadas || 0),
-                errores: Number(event.errores || 0),
-                publicacion: event.publicacion,
-                estado: event.estado,
-              }));
-            } else if (event.tipo === "FINAL") result = event;
-            else if (event.tipo === "ERROR") throw new Error(event.message || "No se pudieron actualizar las publicaciones seleccionadas en Mercado Libre.");
-          }
-        }
-      } else {
-        result = await response.json().catch(() => ({})) as MercadoLibreUpdateResult;
-      }
-      if (!response.ok) throw new Error(result.message || "No se pudieron actualizar las publicaciones seleccionadas en Mercado Libre.");
+      const initialPayload = useSearchScope
+        ? { filtrosBusqueda: mercadoLibreUpdateScope === "BUSQUEDA" ? currentSearchFilters : selectedSearchItems?.filters, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje }
+        : { productoIds: selectedMercadoLibreItems, kitIds: selectedMercadoLibreKits, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje };
+      let publicacionesIds: number[] = [];
+      let total = 0;
+      let procesadas = 0;
+      let actualizadas = 0;
+      let errores = 0;
+      let detallesErrores: MercadoLibreUpdateError[] = [];
+      let advertencias: MercadoLibreUpdateError[] = [];
+      let pendientesEnCola = 0;
 
-      if (!result.publicacionesEncoladas) {
-        toast.message("Los items o kits seleccionados no tienen publicaciones activas o pausadas vinculadas para esta actualizacion.");
-        setConfirmingMercadoLibre(false);
-        return;
+      do {
+        const response = await fetch("/api/productos/mercadolibre/actualizar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(publicacionesIds.length ? { publicacionesIds } : initialPayload),
+        });
+        let result: MercadoLibreUpdateResult = {};
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/x-ndjson") && response.body) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              const event = JSON.parse(line) as MercadoLibreUpdateResult & { tipo?: string; publicacion?: string; estado?: string; itemsSeleccionados?: number; kitsSeleccionados?: number };
+              if (event.tipo === "INICIO") {
+                if (!publicacionesIds.length) publicacionesIds = event.publicacionesIds || [];
+                total = Math.max(total, Number(event.publicacionesEncoladas || 0));
+                setMercadoLibreUpdateProgress((current) => current || { total, procesadas, actualizadas, errores });
+              } else if (event.tipo === "PROGRESO") {
+                setMercadoLibreUpdateProgress({
+                  total,
+                  procesadas: procesadas + Number(event.procesadas || 0),
+                  actualizadas: actualizadas + Number(event.actualizadas || 0),
+                  errores: errores + Number(event.errores || 0),
+                  publicacion: event.publicacion,
+                  estado: event.estado,
+                });
+              } else if (event.tipo === "FINAL") result = event;
+              else if (event.tipo === "ERROR") throw new Error(event.message || "No se pudieron actualizar las publicaciones seleccionadas en Mercado Libre.");
+            }
+          }
+        } else {
+          result = await response.json().catch(() => ({})) as MercadoLibreUpdateResult;
+        }
+        if (!response.ok) throw new Error(result.message || "No se pudieron actualizar las publicaciones seleccionadas en Mercado Libre.");
+
+        if (!total && !result.publicacionesEncoladas) {
+          setConfirmingMercadoLibre(false);
+          toast.message("Los items o kits seleccionados no tienen publicaciones activas o pausadas vinculadas para esta actualizacion.");
+          return;
+        }
+        total = Math.max(total, Number(result.publicacionesEncoladas || 0));
+        procesadas += Number(result.procesadas || 0);
+        actualizadas += Number(result.actualizadas || 0);
+        errores += Number(result.errores || 0);
+        detallesErrores = [...detallesErrores, ...(result.detallesErrores || [])];
+        advertencias = [...advertencias, ...(result.advertencias || [])];
+        pendientesEnCola = Number(result.pendientesEnCola || 0);
+        setMercadoLibreUpdateProgress({ total, procesadas, actualizadas, errores });
+
+        if (pendientesEnCola > 0 && Number(result.procesadas || 0) === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+        }
+      } while (pendientesEnCola > 0 && publicacionesIds.length > 0);
+
+      if (advertencias.length) {
+        toast.warning(`${advertencias.length} publicacion(es) se actualizaron sin stock porque tienen variaciones. Revisa el detalle por variante en Mercado Libre.`);
       }
-      if (result.advertencias?.length) {
-        toast.warning(`${result.advertencias.length} publicacion(es) se actualizaron sin stock porque tienen variaciones. Revisa el detalle por variante en Mercado Libre.`);
-      }
-      if (result.errores) {
-        setMercadoLibreUpdateErrors(result.detallesErrores || []);
-        toast.warning(`${result.actualizadas || 0} publicaciones actualizadas y ${result.errores} con error.${result.pendientesEnCola ? ` ${result.pendientesEnCola} quedaron en cola.` : ""}`);
+      if (errores) {
+        setMercadoLibreUpdateErrors(detallesErrores);
+        toast.warning(`${actualizadas} publicaciones actualizadas y ${errores} con error.`);
       } else {
-        toast.success(`Resumen: ${result.actualizadas || 0} actualizadas, ${result.errores || 0} con error${result.pendientesEnCola ? ` y ${result.pendientesEnCola} pendientes` : ""}.`);
+        toast.success(`Resumen: ${actualizadas} actualizadas, 0 con error.`);
         setConfirmingMercadoLibre(false);
       }
     } catch (error) {

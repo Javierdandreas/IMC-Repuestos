@@ -19,6 +19,7 @@ export type MercadoLibrePublicacion = {
   tipoPublicacion: string | null;
   precio: number | null;
   precioOriginal: number | null;
+  recargoAdicionalPorcentaje: number;
   moneda: string | null;
   cantidadDisponible: number | null;
   cantidadVendida: number | null;

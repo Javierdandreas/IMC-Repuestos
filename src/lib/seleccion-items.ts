@@ -22,3 +22,18 @@ export async function obtenerItemsDeBusquedaMasiva(filters: FiltrosBusquedaMasiv
     totalCount: result.totalCount,
   };
 }
+
+export async function obtenerItemsYKitsDeBusquedaMasiva(filters: FiltrosBusquedaMasiva) {
+  const result = await getItemsUnificadosListado(1, MAX_ITEMS_BUSQUEDA_MASIVA, filters);
+  const items = result.data.filter((item) => item.tipo === "ITEM");
+  const kits = result.data.filter((item) => item.tipo === "KIT");
+
+  return {
+    itemIds: items.map((item) => item.id),
+    kitIds: kits.map((item) => item.id),
+    itemCount: items.length,
+    kitCount: kits.length,
+    truncated: result.totalCount > MAX_ITEMS_BUSQUEDA_MASIVA,
+    totalCount: result.totalCount,
+  };
+}
