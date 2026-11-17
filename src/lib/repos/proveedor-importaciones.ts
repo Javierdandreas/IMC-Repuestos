@@ -40,6 +40,176 @@ type CostoReferenciaImportacion = {
   costoReferencia: number | null;
 };
 
+type CambioCostoParaMercadoLibre = {
+  idProducto: number;
+  costoAnterior: number | null;
+};
+
+export type ActualizacionMercadoLibreImportacion = {
+  id: number;
+  id_publicacion: number;
+  item_id: string;
+  estado_publicacion: string;
+  producto_codigo: string;
+  producto_descripcion: string;
+  importe_objetivo_anterior: number;
+  importe_objetivo_nuevo: number;
+  estado: "PENDIENTE" | "EN_COLA" | "ACTUALIZADA" | "ERROR";
+  ultimo_error: string | null;
+  recargo_adicional_porcentaje: number;
+};
+
+async function registrarActualizacionesMercadoLibreImportacion(
+  client: DbClient,
+  idImportacion: number,
+  cambios: CambioCostoParaMercadoLibre[],
+) {
+  const cambiosUnicos = new Map<number, number>();
+  for (const cambio of cambios) {
+    if (!Number.isInteger(cambio.idProducto) || cambio.idProducto <= 0) continue;
+    cambiosUnicos.set(cambio.idProducto, Math.max(0, Number(cambio.costoAnterior) || 0));
+  }
+  if (!cambiosUnicos.size) return 0;
+
+  const idsProducto = [...cambiosUnicos.keys()];
+  const costosAnteriores = idsProducto.map((idProducto) => cambiosUnicos.get(idProducto) as number);
+  const result = await client.query(
+    `WITH tipo_ml AS (
+       SELECT id FROM public.tipo_precio WHERE upper(trim(descripcion)) = 'MERCADO LIBRE' ORDER BY id LIMIT 1
+     ), cambios AS (
+       SELECT * FROM UNNEST($2::int[], $3::numeric[]) AS valores(id_producto, costo_anterior)
+     ), objetivos AS (
+       SELECT
+         publicacion.id AS id_publicacion,
+         producto.id AS id_producto,
+         ROUND(CASE
+           WHEN COALESCE(precio.modo_calculo, 'MARGEN_COSTO') = 'MARGEN_COSTO'
+             THEN cambios.costo_anterior * (1 + COALESCE(precio.porcentaje_ganancia, 0) / 100)
+           ELSE precio.precio
+         END, 2) AS importe_objetivo_anterior,
+         ROUND(precio.precio, 2) AS importe_objetivo_nuevo
+       FROM cambios
+       INNER JOIN public.productos producto ON producto.id = cambios.id_producto
+       INNER JOIN public.producto_precio precio ON precio.id_producto = producto.id
+       CROSS JOIN tipo_ml
+       INNER JOIN public.mercadolibre_publicacion publicacion ON publicacion.id_producto = producto.id
+       WHERE precio.id_tipo_precio = tipo_ml.id
+         AND precio.precio > 0
+     )
+     INSERT INTO public.proveedor_importacion_actualizacion_ml (
+       id_importacion, id_producto, id_publicacion, importe_objetivo_anterior, importe_objetivo_nuevo, estado, ultimo_error, updated_at
+     )
+     SELECT $1, id_producto, id_publicacion, importe_objetivo_anterior, importe_objetivo_nuevo, 'PENDIENTE', NULL, NOW()
+     FROM objetivos
+     WHERE ABS(importe_objetivo_nuevo - importe_objetivo_anterior) > 0.005
+     ON CONFLICT (id_importacion, id_publicacion) DO UPDATE
+       SET importe_objetivo_anterior = EXCLUDED.importe_objetivo_anterior,
+           importe_objetivo_nuevo = EXCLUDED.importe_objetivo_nuevo,
+           estado = CASE
+             WHEN proveedor_importacion_actualizacion_ml.importe_objetivo_nuevo IS DISTINCT FROM EXCLUDED.importe_objetivo_nuevo
+               THEN 'PENDIENTE'
+             ELSE proveedor_importacion_actualizacion_ml.estado
+           END,
+           ultimo_error = CASE
+             WHEN proveedor_importacion_actualizacion_ml.importe_objetivo_nuevo IS DISTINCT FROM EXCLUDED.importe_objetivo_nuevo
+               THEN NULL
+             ELSE proveedor_importacion_actualizacion_ml.ultimo_error
+           END,
+           updated_at = NOW()
+     RETURNING id`,
+    [idImportacion, idsProducto, costosAnteriores],
+  );
+  return result.rowCount || 0;
+}
+
+export async function getActualizacionesMercadoLibreImportacion(idImportacion: number) {
+  if (!Number.isInteger(idImportacion) || idImportacion <= 0) throw new AppError("Importacion invalida", 400);
+  const [rows, summary] = await Promise.all([
+    query<ActualizacionMercadoLibreImportacion>(
+      `SELECT
+         actualizacion.id,
+         actualizacion.id_publicacion,
+         publicacion.item_id,
+         publicacion.estado AS estado_publicacion,
+         producto.cod_unico AS producto_codigo,
+         producto.descripcion AS producto_descripcion,
+         actualizacion.importe_objetivo_anterior::float,
+         actualizacion.importe_objetivo_nuevo::float,
+         actualizacion.estado,
+         actualizacion.ultimo_error,
+         COALESCE(publicacion.recargo_adicional_porcentaje, 0)::float AS recargo_adicional_porcentaje
+       FROM public.proveedor_importacion_actualizacion_ml actualizacion
+       INNER JOIN public.mercadolibre_publicacion publicacion ON publicacion.id = actualizacion.id_publicacion
+       INNER JOIN public.productos producto ON producto.id = actualizacion.id_producto
+       WHERE actualizacion.id_importacion = $1
+       ORDER BY CASE actualizacion.estado WHEN 'PENDIENTE' THEN 0 WHEN 'ERROR' THEN 1 WHEN 'EN_COLA' THEN 2 ELSE 3 END,
+         producto.cod_unico, publicacion.item_id`,
+      [idImportacion],
+    ),
+    query<{ pendientes: string; aprobados: string; actualizadas: string; errores: string }>(
+      `WITH cambios AS (
+         SELECT estado_aprobacion
+         FROM public.proveedor_importacion_cambio_costo
+         WHERE id_importacion = $1
+       ), actualizaciones AS (
+         SELECT estado FROM public.proveedor_importacion_actualizacion_ml WHERE id_importacion = $1
+       )
+       SELECT
+         (SELECT COUNT(*) FILTER (WHERE estado_aprobacion = 'PENDIENTE')::text FROM cambios) AS pendientes,
+         (SELECT COUNT(*) FILTER (WHERE estado_aprobacion IN ('APROBADO_AUTOMATICO', 'APROBADO_MANUAL'))::text FROM cambios) AS aprobados,
+         (SELECT COUNT(*) FILTER (WHERE estado = 'ACTUALIZADA')::text FROM actualizaciones) AS actualizadas,
+         (SELECT COUNT(*) FILTER (WHERE estado IN ('PENDIENTE', 'EN_COLA', 'ERROR'))::text FROM actualizaciones) AS errores`,
+      [idImportacion],
+    ),
+  ]);
+  return {
+    data: rows.rows,
+    resumen: {
+      costosPendientesAprobacion: Number(summary.rows[0]?.pendientes || 0),
+      costosAprobados: Number(summary.rows[0]?.aprobados || 0),
+      publicacionesPendientes: rows.rows.filter((row) => row.estado === "PENDIENTE" || row.estado === "ERROR" || row.estado === "EN_COLA").length,
+      publicacionesActualizadas: Number(summary.rows[0]?.actualizadas || 0),
+    },
+  };
+}
+
+export async function marcarActualizacionesMercadoLibreImportacionEnCola(idImportacion: number, ids: number[]) {
+  const selected = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!selected.length) throw new AppError("Selecciona al menos una publicacion", 400);
+  const result = await query<{ id_publicacion: number }>(
+    `UPDATE public.proveedor_importacion_actualizacion_ml
+     SET estado = 'EN_COLA', ultimo_error = NULL, updated_at = NOW()
+     WHERE id_importacion = $1 AND id = ANY($2::bigint[]) AND estado IN ('PENDIENTE', 'EN_COLA', 'ERROR')
+     RETURNING id_publicacion`,
+    [idImportacion, selected],
+  );
+  return result.rows.map((row) => Number(row.id_publicacion));
+}
+
+export async function sincronizarActualizacionesMercadoLibreImportacion(idImportacion: number, publicacionesIds: number[]) {
+  const ids = [...new Set(publicacionesIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!ids.length) return;
+  await query(
+    `UPDATE public.proveedor_importacion_actualizacion_ml actualizacion
+     SET estado = CASE
+           WHEN cola.estado = 'COMPLETADA' THEN 'ACTUALIZADA'
+           WHEN cola.estado = 'ERROR' AND cola.intentos >= 3 THEN 'ERROR'
+           ELSE actualizacion.estado
+         END,
+         ultimo_error = CASE
+           WHEN cola.estado = 'ERROR' AND cola.intentos >= 3 THEN cola.ultimo_error
+           WHEN cola.estado = 'COMPLETADA' THEN NULL
+           ELSE actualizacion.ultimo_error
+         END,
+         updated_at = NOW()
+     FROM public.mercadolibre_actualizacion_precio cola
+     WHERE actualizacion.id_importacion = $1
+       AND actualizacion.id_publicacion = cola.id_publicacion
+       AND actualizacion.id_publicacion = ANY($2::int[])`,
+    [idImportacion, ids],
+  );
+}
+
 async function obtenerCostosReferenciaImportacion(
   client: DbClient,
   idImportacion: number,
@@ -1101,11 +1271,16 @@ export async function aplicarImportacionAlCatalogo(id_importacion: number) {
         && (item.costoAnterior === null || Math.abs(item.costoNuevo - item.costoAnterior) > 0.000001));
     const cambiosRegistrables = cambiosDeCosto.filter((item) => item.criterioCosto !== "MANUAL");
 
+    const cambiosAprobadosAutomaticamente = cambiosDeCosto
+      .filter((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" && item.costoNuevo !== null);
     await aplicarPreciosDesdeCostosReferencia(
       client,
-      cambiosDeCosto
-        .filter((item) => item.estadoAprobacion === "APROBADO_AUTOMATICO" && item.costoNuevo !== null)
-        .map((item) => ({ idProducto: item.idProducto, costo: Number(item.costoNuevo) })),
+      cambiosAprobadosAutomaticamente.map((item) => ({ idProducto: item.idProducto, costo: Number(item.costoNuevo) })),
+    );
+    await registrarActualizacionesMercadoLibreImportacion(
+      client,
+      id_importacion,
+      cambiosAprobadosAutomaticamente.map((item) => ({ idProducto: item.idProducto, costoAnterior: item.costoAnterior })),
     );
 
     if (cambiosRegistrables.length > 0) {
@@ -2246,6 +2421,21 @@ export async function resolverCambiosCostoReferencia(
       `,
       [changes.map((item) => item.id), estado, usuarioId],
     );
+
+    if (accion === "APROBAR") {
+      const cambiosPorImportacion = new Map<number, CambioCostoParaMercadoLibre[]>();
+      for (const cambio of pending.rows) {
+        const idImportacion = Number(cambio.id_importacion);
+        const aprobado = changes.find((item) => item.id === Number(cambio.id));
+        if (!aprobado || !Number.isInteger(idImportacion) || idImportacion <= 0) continue;
+        const lista = cambiosPorImportacion.get(idImportacion) || [];
+        lista.push({ idProducto: aprobado.idProducto, costoAnterior: aprobado.costoAnterior });
+        cambiosPorImportacion.set(idImportacion, lista);
+      }
+      for (const [idImportacion, cambiosImportacion] of cambiosPorImportacion) {
+        await registrarActualizacionesMercadoLibreImportacion(client, idImportacion, cambiosImportacion);
+      }
+    }
 
     await limpiarDetalleImportacionesResueltas(
       client,

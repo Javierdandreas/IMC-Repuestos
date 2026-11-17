@@ -2803,6 +2803,7 @@ export type MercadoLibreActualizacionesEncoladas = {
 
 type OpcionesActualizacionPrecioMercadoLibre = {
   incluirPausadas?: boolean;
+  reactivarPausadasConStock?: boolean;
   actualizarPrecio?: boolean;
   actualizarStock?: boolean;
   recargoPorcentaje?: number;
@@ -2819,6 +2820,7 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(
   const incluirPausadas = options.incluirPausadas ?? true;
   const actualizarPrecio = options.actualizarPrecio ?? true;
   const actualizarStock = options.actualizarStock ?? false;
+  const reactivarPausadasConStock = Boolean(options.reactivarPausadasConStock) && incluirPausadas && actualizarStock;
   const recargoPorcentaje = Math.max(0, Math.min(1_000, Number(options.recargoPorcentaje) || 0));
   const incluirKitsAfectados = options.incluirKitsAfectados ?? true;
   if (!products.length && !kits.length) return { cantidad: 0, publicacionesIds: [] };
@@ -2828,7 +2830,7 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(
      ), kits_afectados AS (
        SELECT UNNEST($2::int[]) AS id_kit
        UNION
-       SELECT detalle.id_kit FROM public.kit_detalle detalle WHERE $7::boolean AND detalle.id_producto = ANY($1::int[])
+       SELECT detalle.id_kit FROM public.kit_detalle detalle WHERE $8::boolean AND detalle.id_producto = ANY($1::int[])
      ), objetivos AS (
        -- La lista MERCADO LIBRE representa el neto que IMC debe recibir,
        -- no el precio final visible al comprador.
@@ -2858,22 +2860,67 @@ export async function encolarActualizacionesPrecioMercadoLibreDetallado(
          AND publication.id_kit IN (SELECT id_kit FROM kits_afectados)
        GROUP BY publication.id, kit.id, kit.criterio_costo, manual.precio
      )
-     INSERT INTO public.mercadolibre_actualizacion_precio (id_publicacion, precio, stock, actualizar_precio, actualizar_stock, recargo_porcentaje, estado, intentos, ultimo_error, created_at, updated_at)
-     SELECT id_publicacion, CASE WHEN $4::boolean THEN ROUND(importe_objetivo, 2) ELSE NULL END, stock_objetivo, $4::boolean, $5::boolean, $6::numeric, 'PENDIENTE', 0, NULL, NOW(), NOW()
+     INSERT INTO public.mercadolibre_actualizacion_precio (id_publicacion, precio, stock, actualizar_precio, actualizar_stock, reactivar_pausada, recargo_porcentaje, estado, intentos, ultimo_error, created_at, updated_at)
+     SELECT id_publicacion, CASE WHEN $4::boolean THEN ROUND(importe_objetivo, 2) ELSE NULL END, stock_objetivo, $4::boolean, $5::boolean, $6::boolean, $7::numeric, 'PENDIENTE', 0, NULL, NOW(), NOW()
      FROM objetivos
      WHERE NOT $4::boolean OR importe_objetivo > 0
      ON CONFLICT (id_publicacion) DO UPDATE SET precio = EXCLUDED.precio, stock = EXCLUDED.stock,
        actualizar_precio = EXCLUDED.actualizar_precio, actualizar_stock = EXCLUDED.actualizar_stock,
+       reactivar_pausada = EXCLUDED.reactivar_pausada,
        recargo_porcentaje = EXCLUDED.recargo_porcentaje, estado = 'PENDIENTE', intentos = 0,
        ultimo_error = NULL, procesado_at = NULL, updated_at = NOW()
      RETURNING id_publicacion`,
-    [products, kits, incluirPausadas, actualizarPrecio, actualizarStock, recargoPorcentaje, incluirKitsAfectados]
+    [products, kits, incluirPausadas, actualizarPrecio, actualizarStock, reactivarPausadasConStock, recargoPorcentaje, incluirKitsAfectados]
   );
   return { cantidad: result.rowCount ?? 0, publicacionesIds: result.rows.map((row) => Number(row.id_publicacion)) };
 }
 
 export async function encolarActualizacionesPrecioMercadoLibre(productIds: number[], kitIds: number[]) {
   return (await encolarActualizacionesPrecioMercadoLibreDetallado(productIds, kitIds)).cantidad;
+}
+
+export async function encolarActualizacionesPrecioMercadoLibrePorPublicacion(
+  publicacionesIds: number[],
+  recargoPorcentaje?: number | null,
+) {
+  const ids = [...new Set(publicacionesIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!ids.length) return { cantidad: 0, publicacionesIds: [] as number[] };
+  const recargo = recargoPorcentaje === null || recargoPorcentaje === undefined
+    ? null
+    : Math.max(0, Math.min(1_000, Number(recargoPorcentaje) || 0));
+  const result = await query<{ id_publicacion: number }>(
+    `WITH tipo_ml AS (
+       SELECT id FROM public.tipo_precio WHERE upper(trim(descripcion)) = 'MERCADO LIBRE' ORDER BY id LIMIT 1
+     )
+     INSERT INTO public.mercadolibre_actualizacion_precio (
+       id_publicacion, precio, stock, actualizar_precio, actualizar_stock, reactivar_pausada, recargo_porcentaje,
+       estado, intentos, ultimo_error, created_at, updated_at
+     )
+     SELECT publicacion.id, ROUND(precio.precio, 2), NULL, TRUE, FALSE, FALSE,
+       COALESCE($2::numeric, publicacion.recargo_adicional_porcentaje, 0),
+       'PENDIENTE', 0, NULL, NOW(), NOW()
+     FROM public.mercadolibre_publicacion publicacion
+     INNER JOIN public.producto_precio precio ON precio.id_producto = publicacion.id_producto
+     CROSS JOIN tipo_ml
+     WHERE publicacion.id = ANY($1::int[])
+       AND precio.id_tipo_precio = tipo_ml.id
+       AND precio.precio > 0
+     ON CONFLICT (id_publicacion) DO UPDATE
+       SET precio = EXCLUDED.precio,
+           stock = NULL,
+           actualizar_precio = TRUE,
+           actualizar_stock = FALSE,
+           reactivar_pausada = FALSE,
+           recargo_porcentaje = EXCLUDED.recargo_porcentaje,
+           estado = 'PENDIENTE',
+           intentos = 0,
+           ultimo_error = NULL,
+           procesado_at = NULL,
+           updated_at = NOW()
+     RETURNING id_publicacion`,
+    [ids, recargo],
+  );
+  return { cantidad: result.rowCount || 0, publicacionesIds: result.rows.map((row) => Number(row.id_publicacion)) };
 }
 
 type PrecioPendiente = {
@@ -2883,9 +2930,11 @@ type PrecioPendiente = {
   stock_objetivo: number | null;
   actualizar_precio: boolean;
   actualizar_stock: boolean;
+  reactivar_pausada: boolean;
   recargo_porcentaje: number | null;
   id_cuenta: number;
   item_id: string;
+  estado_publicacion: string;
   variaciones: unknown;
   precio_actual: number | null;
   costo_estimado: unknown;
@@ -2975,8 +3024,8 @@ export async function procesarActualizacionesPrecioMercadoLibre(
        FROM pendientes, public.mercadolibre_publicacion publication
        WHERE queue.id = pendientes.id AND publication.id = queue.id_publicacion
        RETURNING queue.id, queue.id_publicacion, queue.precio AS importe_objetivo, queue.stock AS stock_objetivo,
-         queue.actualizar_precio, queue.actualizar_stock, queue.recargo_porcentaje,
-         publication.id_cuenta, publication.item_id, publication.variaciones, publication.precio AS precio_actual,
+         queue.actualizar_precio, queue.actualizar_stock, queue.reactivar_pausada, queue.recargo_porcentaje,
+         publication.id_cuenta, publication.item_id, publication.estado AS estado_publicacion, publication.variaciones, publication.precio AS precio_actual,
          publication.costo_estimado, publication.costo_estimado_at`,
       [Math.max(1, Math.min(100, Math.floor(limit) || 20)), idCuenta ?? null, publicaciones.length ? publicaciones : null]
     );
@@ -3021,6 +3070,11 @@ export async function procesarActualizacionesPrecioMercadoLibre(
       const body: Record<string, unknown> = {};
       if (precioFinal !== null) body.price = precioFinal;
       if (actualizarStock) body.available_quantity = Math.max(0, Math.floor(Number(job.stock_objetivo)));
+      const reactivarPublicacion = Boolean(job.reactivar_pausada)
+        && String(job.estado_publicacion).toLowerCase() === "paused"
+        && actualizarStock
+        && Number(job.stock_objetivo) > 0;
+      if (reactivarPublicacion) body.status = "active";
       if (Object.keys(body).length) {
         const { accessToken } = await accessTokenForCuenta(Number(job.id_cuenta));
         await meliPut(`/items/${encodeURIComponent(String(job.item_id))}`, Number(job.id_cuenta), accessToken, body);
@@ -3037,6 +3091,7 @@ export async function procesarActualizacionesPrecioMercadoLibre(
            costo_estimado_at = CASE WHEN $3::jsonb IS NULL THEN costo_estimado_at ELSE NOW() END,
            cantidad_disponible = CASE WHEN $4::int IS NULL THEN cantidad_disponible ELSE $4::int END,
            recargo_adicional_porcentaje = CASE WHEN $5::boolean THEN $6::numeric ELSE recargo_adicional_porcentaje END,
+           estado = CASE WHEN $7::boolean THEN 'active' ELSE estado END,
            updated_at = NOW()
          WHERE id = $1`,
         [
@@ -3046,6 +3101,7 @@ export async function procesarActualizacionesPrecioMercadoLibre(
           actualizarStock ? Math.max(0, Math.floor(Number(job.stock_objetivo))) : null,
           job.actualizar_precio,
           Math.max(0, Number(job.recargo_porcentaje) || 0),
+          reactivarPublicacion,
         ]
       );
       const omitida = Object.keys(body).length === 0;

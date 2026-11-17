@@ -34,6 +34,7 @@ const TOOLTIP_MARGIN = 16;
 type TooltipContent = "locations" | "details" | "activity" | "mercadolibre" | "providers";
 type MercadoLibreUpdateScope = "SELECCION" | "BUSQUEDA";
 type MercadoLibreUpdateMode = "PRECIOS" | "STOCK" | "STOCK_Y_PRECIOS";
+type MercadoLibrePausedAction = "OMITIR" | "ACTUALIZAR" | "REACTIVAR_CON_STOCK";
 type MercadoLibreUpdateError = { publicacion: string; mensaje: string };
 type MercadoLibreUpdateProgress = { total: number; procesadas: number; actualizadas: number; errores: number; publicacion?: string; estado?: string };
 type MercadoLibreUpdateResult = {
@@ -262,7 +263,7 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
   const [selectingSearch, setSelectingSearch] = useState(false);
   const [updatingMercadoLibre, setUpdatingMercadoLibre] = useState(false);
   const [confirmingMercadoLibre, setConfirmingMercadoLibre] = useState(false);
-  const [includePausedMercadoLibre, setIncludePausedMercadoLibre] = useState(false);
+  const [mercadoLibrePausedAction, setMercadoLibrePausedAction] = useState<MercadoLibrePausedAction>("OMITIR");
   const [mercadoLibreUpdateScope, setMercadoLibreUpdateScope] = useState<MercadoLibreUpdateScope>("SELECCION");
   const [mercadoLibreUpdateMode, setMercadoLibreUpdateMode] = useState<MercadoLibreUpdateMode>("PRECIOS");
   const [mercadoLibreExtraPercentage, setMercadoLibreExtraPercentage] = useState("0");
@@ -361,6 +362,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
     const useSearchScope = mercadoLibreUpdateScope === "BUSQUEDA" || Boolean(selectedSearchItems);
     if (!useSearchScope && !selectedMercadoLibreItems.length && !selectedMercadoLibreKits.length) return;
     const recargoPorcentaje = Number(mercadoLibreExtraPercentage.replace(",", "."));
+    const includePausedMercadoLibre = mercadoLibrePausedAction !== "OMITIR";
+    const reactivarPausadasConStock = mercadoLibrePausedAction === "REACTIVAR_CON_STOCK";
     if (!Number.isFinite(recargoPorcentaje) || recargoPorcentaje < 0 || recargoPorcentaje > 1000) {
       toast.error("El porcentaje adicional debe estar entre 0 y 1.000.");
       return;
@@ -371,8 +374,8 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
       setMercadoLibreUpdateErrors([]);
       setMercadoLibreUpdateProgress(null);
       const initialPayload = useSearchScope
-        ? { filtrosBusqueda: mercadoLibreUpdateScope === "BUSQUEDA" ? currentSearchFilters : selectedSearchItems?.filters, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje }
-        : { productoIds: selectedMercadoLibreItems, kitIds: selectedMercadoLibreKits, incluirPausadas: includePausedMercadoLibre, modo: mercadoLibreUpdateMode, recargoPorcentaje };
+        ? { filtrosBusqueda: mercadoLibreUpdateScope === "BUSQUEDA" ? currentSearchFilters : selectedSearchItems?.filters, incluirPausadas: includePausedMercadoLibre, reactivarPausadasConStock, modo: mercadoLibreUpdateMode, recargoPorcentaje }
+        : { productoIds: selectedMercadoLibreItems, kitIds: selectedMercadoLibreKits, incluirPausadas: includePausedMercadoLibre, reactivarPausadasConStock, modo: mercadoLibreUpdateMode, recargoPorcentaje };
       let publicacionesIds: number[] = [];
       let total = 0;
       let procesadas = 0;
@@ -1249,13 +1252,13 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                   </div>
 
                   <label htmlFor="ml-update-mode" className="font-bold text-slate-700 dark:text-slate-200">Actualizar</label>
-                  <select id="ml-update-mode" value={mercadoLibreUpdateMode} onChange={(event) => setMercadoLibreUpdateMode(event.target.value as MercadoLibreUpdateMode)} disabled={updatingMercadoLibre} className="h-7 w-full rounded border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="PRECIOS">Precios</option><option value="STOCK">Stock</option><option value="STOCK_Y_PRECIOS">Stock y precios</option></select>
+                  <select id="ml-update-mode" value={mercadoLibreUpdateMode} onChange={(event) => { const mode = event.target.value as MercadoLibreUpdateMode; setMercadoLibreUpdateMode(mode); if (mode === "PRECIOS" && mercadoLibrePausedAction === "REACTIVAR_CON_STOCK") setMercadoLibrePausedAction("ACTUALIZAR"); }} disabled={updatingMercadoLibre} className="h-7 w-full rounded border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="PRECIOS">Precios</option><option value="STOCK">Stock</option><option value="STOCK_Y_PRECIOS">Stock y precios</option></select>
 
                   <label htmlFor="ml-extra-percentage" className="font-bold text-slate-700 dark:text-slate-200">Recargo adicional</label>
                   <div className="flex items-center gap-2"><input id="ml-extra-percentage" value={mercadoLibreExtraPercentage} onChange={(event) => setMercadoLibreExtraPercentage(event.target.value)} disabled={updatingMercadoLibre || mercadoLibreUpdateMode === "STOCK"} inputMode="decimal" className="h-7 w-24 rounded border border-slate-300 bg-white px-2 text-right font-bold text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:disabled:bg-slate-900" /><span className="text-slate-500">% sobre el precio final</span></div>
 
                   <p className="font-bold text-slate-700 dark:text-slate-200">Pausadas</p>
-                  <select value={includePausedMercadoLibre ? "INCLUIR" : "OMITIR"} onChange={(event) => setIncludePausedMercadoLibre(event.target.value === "INCLUIR")} disabled={updatingMercadoLibre} className="h-7 w-full rounded border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="OMITIR">Omitir publicaciones pausadas</option><option value="INCLUIR">Incluir pausadas e intentar actualizarlas</option></select>
+                  <select value={mercadoLibrePausedAction} onChange={(event) => setMercadoLibrePausedAction(event.target.value as MercadoLibrePausedAction)} disabled={updatingMercadoLibre} className="h-7 w-full rounded border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="OMITIR">Omitir publicaciones pausadas</option><option value="ACTUALIZAR">Actualizar sin reactivar</option><option value="REACTIVAR_CON_STOCK" disabled={mercadoLibreUpdateMode === "PRECIOS"}>Reactivar con stock mayor a 0</option></select>
                 </div>
 
                 <div className="mt-3 border-t border-slate-200 pt-2 leading-4 text-slate-500 dark:border-slate-800">Precio: la lista Mercado Libre es el neto objetivo y Nexo calcula comision, cargo y envio por publicacion. Stock: se envia el stock actual, incluido 0; en kits se calcula por componentes.</div>

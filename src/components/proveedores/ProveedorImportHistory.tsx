@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -32,6 +32,30 @@ type ApplicationProgress = {
   total: number;
 };
 
+type ActualizacionMercadoLibreImportacion = {
+  id: number;
+  id_publicacion: number;
+  item_id: string;
+  estado_publicacion: string;
+  producto_codigo: string;
+  producto_descripcion: string;
+  importe_objetivo_anterior: number;
+  importe_objetivo_nuevo: number;
+  estado: "PENDIENTE" | "EN_COLA" | "ACTUALIZADA" | "ERROR";
+  ultimo_error: string | null;
+  recargo_adicional_porcentaje: number;
+};
+
+type ActualizacionesMercadoLibreData = {
+  data: ActualizacionMercadoLibreImportacion[];
+  resumen: {
+    costosPendientesAprobacion: number;
+    costosAprobados: number;
+    publicacionesPendientes: number;
+    publicacionesActualizadas: number;
+  };
+};
+
 export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
   const { mutate } = useSWRConfig();
   const [applyingId, setApplyingId] = useState<number | null>(null);
@@ -41,6 +65,11 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
   const [detailPage, setDetailPage] = useState(1);
   const [detailSearch, setDetailSearch] = useState("");
   const [detailStatus, setDetailStatus] = useState("TODOS");
+  const [selectedMercadoLibre, setSelectedMercadoLibre] = useState<number[]>([]);
+  const [confirmMercadoLibre, setConfirmMercadoLibre] = useState(false);
+  const [recargoMercadoLibre, setRecargoMercadoLibre] = useState("");
+  const [updatingMercadoLibre, setUpdatingMercadoLibre] = useState(false);
+  const [mercadoLibreProgress, setMercadoLibreProgress] = useState<{ total: number; procesadas: number; actualizadas: number; errores: number } | null>(null);
 
   const { data: history, error, isLoading } = useSWR<ProveedorImportacion[]>(
     `/api/proveedores/importaciones?id_proveedor=${id_proveedor}`,
@@ -52,13 +81,98 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
       : null,
     fetcher
   );
+  const mercadoLibreKey = detailImport ? `/api/proveedores/importaciones/${detailImport.id}/mercadolibre` : null;
+  const { data: actualizacionesMercadoLibre, mutate: mutateActualizacionesMercadoLibre } = useSWR<ActualizacionesMercadoLibreData>(mercadoLibreKey, fetcher);
   const detailItems = detailItemsPage?.data ?? [];
 
   const openDetail = (item: ProveedorImportacion) => {
     setDetailPage(1);
     setDetailSearch("");
     setDetailStatus("TODOS");
+    setSelectedMercadoLibre([]);
+    setConfirmMercadoLibre(false);
+    setRecargoMercadoLibre("");
     setDetailImport(item);
+  };
+
+  useEffect(() => {
+    if (!actualizacionesMercadoLibre) return;
+    setSelectedMercadoLibre(
+      actualizacionesMercadoLibre.data
+        .filter((row) => row.estado === "PENDIENTE" || row.estado === "EN_COLA" || row.estado === "ERROR")
+        .map((row) => row.id),
+    );
+  }, [actualizacionesMercadoLibre, detailImport?.id]);
+
+  const toggleMercadoLibre = (id: number) => {
+    setSelectedMercadoLibre((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
+
+  const actualizarMercadoLibreDesdeImportacion = async () => {
+    if (!detailImport || !selectedMercadoLibre.length || updatingMercadoLibre) return;
+    const recargo = recargoMercadoLibre.trim() === "" ? null : Number(recargoMercadoLibre.replace(",", "."));
+    if (recargo !== null && (!Number.isFinite(recargo) || recargo < 0 || recargo > 1000)) {
+      toast.error("El recargo debe estar entre 0 y 1.000.");
+      return;
+    }
+    try {
+      setUpdatingMercadoLibre(true);
+      setMercadoLibreProgress(null);
+      let publicacionesIds: number[] = [];
+      let total = selectedMercadoLibre.length;
+      let procesadas = 0;
+      let actualizadas = 0;
+      let errores = 0;
+      let pendientes = 0;
+      do {
+        const response = await fetch(`/api/proveedores/importaciones/${detailImport.id}/mercadolibre`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(publicacionesIds.length ? { publicacionesIds } : { actualizacionIds: selectedMercadoLibre, recargoPorcentaje: recargo }),
+        });
+        const reader = response.body?.getReader();
+        let finalEvent: Record<string, unknown> = {};
+        if (reader && (response.headers.get("content-type") || "").includes("application/x-ndjson")) {
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              const event = JSON.parse(line) as Record<string, unknown>;
+              if (event.tipo === "INICIO") {
+                publicacionesIds = Array.isArray(event.publicacionesIds) ? event.publicacionesIds.map(Number) : publicacionesIds;
+                total = Math.max(total, Number(event.publicacionesEncoladas || 0));
+              }
+              if (event.tipo === "PROGRESO") {
+                setMercadoLibreProgress({ total, procesadas: procesadas + Number(event.procesadas || 0), actualizadas: actualizadas + Number(event.actualizadas || 0), errores: errores + Number(event.errores || 0) });
+              }
+              if (event.tipo === "FINAL") finalEvent = event;
+              if (event.tipo === "ERROR") throw new Error(String(event.message || "No se pudieron actualizar las publicaciones."));
+            }
+          }
+        } else {
+          finalEvent = await response.json().catch(() => ({}));
+        }
+        if (!response.ok) throw new Error(String(finalEvent.message || "No se pudieron actualizar las publicaciones."));
+        procesadas += Number(finalEvent.procesadas || 0);
+        actualizadas += Number(finalEvent.actualizadas || 0);
+        errores += Number(finalEvent.errores || 0);
+        pendientes = Number(finalEvent.pendientesEnCola || 0);
+        setMercadoLibreProgress({ total, procesadas, actualizadas, errores });
+      } while (pendientes > 0 && publicacionesIds.length > 0);
+      toast[errores ? "warning" : "success"](`${actualizadas} publicacion(es) actualizada(s)${errores ? ` y ${errores} con error` : ""}.`);
+      await mutateActualizacionesMercadoLibre();
+      setConfirmMercadoLibre(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudieron actualizar las publicaciones.");
+    } finally {
+      setUpdatingMercadoLibre(false);
+    }
   };
 
   const handleApply = async (item: ProveedorImportacion) => {
@@ -312,6 +426,9 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                 value={(detailImport.no_encontrados || 0) + (detailImport.invalidos || 0) + (detailImport.duplicados || 0) + (detailImport.proveedor_distinto || 0) + (detailImport.moneda_distinta || 0)}
                 tone="warning"
               />
+              <SummaryBox label="Costos a aprobar" value={actualizacionesMercadoLibre?.resumen.costosPendientesAprobacion || 0} tone="warning" />
+              <SummaryBox label="ML por actualizar" value={actualizacionesMercadoLibre?.resumen.publicacionesPendientes || 0} tone="warning" />
+              <SummaryBox label="ML actualizadas" value={actualizacionesMercadoLibre?.resumen.publicacionesActualizadas || 0} tone="success" />
               <SummaryBox label="Estado" value={detailImport.estado} tone="neutral" />
               <div className="flex min-h-[76px] flex-col justify-center rounded-2xl border border-slate-800 bg-slate-950/60 px-5 py-4 text-xs font-bold text-slate-300">
                 <div className="mb-1 text-[9px] font-black uppercase tracking-widest text-slate-500">Archivo importado</div>
@@ -327,6 +444,28 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                 ? "El detalle de esta importacion anterior fue depurado, por lo que ya no es posible medir sus coincidencias de codigo."
                 : "Las coincidencias comparan el codigo de proveedor asignado a cada item contra los codigos presentes en esta lista, sin depender de que el precio se haya podido aplicar."}
             </p>
+
+            {actualizacionesMercadoLibre && actualizacionesMercadoLibre.data.length > 0 && (
+              <section className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-black text-white">Publicaciones afectadas en Mercado Libre</h3>
+                    <p className="mt-1 text-xs text-slate-400">Solo aparecen luego de que el costo fue aplicado o aprobado y cambió el objetivo de la lista Mercado Libre.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setSelectedMercadoLibre(actualizacionesMercadoLibre.data.filter((row) => row.estado !== "ACTUALIZADA").map((row) => row.id))} disabled={updatingMercadoLibre} className="h-8 rounded-lg border border-slate-700 px-3 text-[10px] font-black uppercase tracking-widest text-slate-200 transition hover:border-blue-400 hover:text-white disabled:opacity-50">Seleccionar pendientes</button>
+                    <button type="button" onClick={() => setConfirmMercadoLibre(true)} disabled={!selectedMercadoLibre.length || updatingMercadoLibre} className="h-8 rounded-lg bg-blue-600 px-3 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">Actualizar Mercado Libre ({selectedMercadoLibre.length})</button>
+                  </div>
+                </div>
+                {mercadoLibreProgress && <div className="mt-3 border border-blue-500/30 bg-slate-950/40 p-3"><div className="flex justify-between text-[11px] font-black text-blue-200"><span>Actualizando precios</span><span>{mercadoLibreProgress.procesadas}/{mercadoLibreProgress.total}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800"><div className="h-full bg-blue-500 transition-all" style={{ width: `${mercadoLibreProgress.total ? Math.min(100, mercadoLibreProgress.procesadas / mercadoLibreProgress.total * 100) : 0}%` }} /></div></div>}
+                <div className="mt-4 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-slate-950/40">
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="sticky top-0 bg-slate-950 text-[9px] font-black uppercase tracking-widest text-slate-500"><tr><th className="w-10 px-3 py-2"><input type="checkbox" aria-label="Seleccionar todas las publicaciones pendientes" checked={actualizacionesMercadoLibre.data.filter((row) => row.estado !== "ACTUALIZADA").length > 0 && actualizacionesMercadoLibre.data.filter((row) => row.estado !== "ACTUALIZADA").every((row) => selectedMercadoLibre.includes(row.id))} onChange={(event) => setSelectedMercadoLibre(event.target.checked ? actualizacionesMercadoLibre.data.filter((row) => row.estado !== "ACTUALIZADA").map((row) => row.id) : [])} /></th><th className="px-3 py-2">Item</th><th className="px-3 py-2">MLA</th><th className="px-3 py-2">Estado ML</th><th className="px-3 py-2 text-right">Anterior</th><th className="px-3 py-2 text-right">Nuevo objetivo</th><th className="px-3 py-2">Estado</th></tr></thead>
+                    <tbody className="divide-y divide-slate-800">{actualizacionesMercadoLibre.data.map((row) => <tr key={row.id} className="hover:bg-slate-900/50"><td className="px-3 py-2"><input type="checkbox" checked={selectedMercadoLibre.includes(row.id)} onChange={() => toggleMercadoLibre(row.id)} disabled={row.estado === "ACTUALIZADA" || updatingMercadoLibre} /></td><td className="px-3 py-2"><span className="block font-black text-white">{row.producto_codigo}</span><span className="block max-w-56 truncate text-[10px] text-slate-400">{row.producto_descripcion}</span></td><td className="px-3 py-2 font-mono font-black text-blue-300">{row.item_id}</td><td className="px-3 py-2"><span className={row.estado_publicacion.toLowerCase() === "paused" ? "text-amber-300" : "text-green-300"}>{row.estado_publicacion}</span></td><td className="px-3 py-2 text-right font-mono text-slate-400">{formatMoney(row.importe_objetivo_anterior)}</td><td className="px-3 py-2 text-right font-mono font-black text-green-300">{formatMoney(row.importe_objetivo_nuevo)}</td><td className="px-3 py-2"><span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase ${row.estado === "ACTUALIZADA" ? "border-green-500/30 bg-green-500/10 text-green-300" : row.estado === "ERROR" ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-amber-500/30 bg-amber-500/10 text-amber-300"}`}>{row.estado}</span>{row.ultimo_error && <span className="mt-1 block max-w-60 truncate text-[9px] text-red-300" title={row.ultimo_error}>{row.ultimo_error}</span>}</td></tr>)}</tbody>
+                  </table>
+                </div>
+              </section>
+            )}
 
             <div>
               <div className="mb-3 flex items-center gap-3">
@@ -464,6 +603,24 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal open={confirmMercadoLibre} onClose={() => { if (!updatingMercadoLibre) setConfirmMercadoLibre(false); }} title="Actualizar Mercado Libre" width="w-[min(94vw,560px)]" hideClose={updatingMercadoLibre}>
+        <div className="space-y-4 p-5 text-sm">
+          <div className="grid gap-3 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-center">
+            <span className="font-bold text-slate-200">Publicaciones</span>
+            <span className="font-black text-white">{selectedMercadoLibre.length} seleccionada(s)</span>
+            <span className="font-bold text-slate-200">Actualizar</span>
+            <span className="font-black text-white">Solo precios</span>
+            <label htmlFor="import-ml-recargo" className="font-bold text-slate-200">Recargo adicional</label>
+            <div className="relative"><input id="import-ml-recargo" value={recargoMercadoLibre} onChange={(event) => setRecargoMercadoLibre(event.target.value)} inputMode="decimal" placeholder="Conservar el de cada publicacion" disabled={updatingMercadoLibre} className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 pr-8 text-sm font-bold text-white outline-none focus:border-blue-500 disabled:opacity-50" /><span className="pointer-events-none absolute right-3 top-2 text-sm font-bold text-slate-500">%</span></div>
+          </div>
+          <p className="border-y border-slate-800 py-3 text-xs leading-5 text-slate-400">El objetivo surge de la lista Mercado Libre recalculada por esta importacion. Si no indicás recargo, cada publicación conserva el último porcentaje que ya tenía. Las publicaciones pausadas aparecen en la selección y Mercado Libre decidirá si permite su actualización.</p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setConfirmMercadoLibre(false)} disabled={updatingMercadoLibre} className="h-9 rounded-lg border border-slate-700 px-3 text-xs font-black uppercase tracking-widest text-slate-300 disabled:opacity-50">Cancelar</button>
+            <button type="button" onClick={() => void actualizarMercadoLibreDesdeImportacion()} disabled={updatingMercadoLibre || !selectedMercadoLibre.length} className="h-9 rounded-lg bg-blue-600 px-3 text-xs font-black uppercase tracking-widest text-white hover:bg-blue-500 disabled:opacity-50">{updatingMercadoLibre ? "Actualizando..." : "Actualizar precios"}</button>
+          </div>
+        </div>
       </Modal>
     </>
   );

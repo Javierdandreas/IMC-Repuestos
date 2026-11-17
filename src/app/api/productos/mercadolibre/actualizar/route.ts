@@ -32,6 +32,7 @@ const selectionSchema = z.object({
   kitIds: z.array(z.coerce.number().int().positive()).max(500).optional(),
   filtrosBusqueda: filtersSchema.optional(),
   incluirPausadas: z.boolean().optional(),
+  reactivarPausadasConStock: z.boolean().optional(),
   modo: z.enum(["PRECIOS", "STOCK", "STOCK_Y_PRECIOS"]).optional(),
   recargoPorcentaje: z.coerce.number().min(0).max(1_000).optional(),
   limiteInmediato: z.coerce.number().int().min(1).max(100).optional(),
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
       ? { cantidad: continuationIds.length, publicacionesIds: continuationIds }
       : await encolarActualizacionesPrecioMercadoLibreDetallado(itemIds, kitIds, {
         incluirPausadas: payload.incluirPausadas ?? false,
+        reactivarPausadasConStock: payload.reactivarPausadasConStock ?? false,
         actualizarPrecio,
         actualizarStock,
         recargoPorcentaje: payload.recargoPorcentaje ?? 0,
