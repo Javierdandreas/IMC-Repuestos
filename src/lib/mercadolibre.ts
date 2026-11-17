@@ -7,6 +7,7 @@ import { atributosObligatoriosFaltantes, interpretarValidacionPublicacion, prepa
 import { atributosParaDescripcion } from "@/lib/mercadolibre-descripcion";
 import { dominiosCompatibles, planCopiaCompatibilidades, solicitudCopiaUserProduct, totalCompatibilidades, totalResumen } from "@/lib/mercadolibre-copia-compatibilidades";
 import { opcionMensajePersonalizado, ventaAptaParaMensaje } from "@/lib/mercadolibre-mensajes-prueba";
+import { periodoEstadisticasVentas, fechasPeriodoVentas } from "@/lib/periodo-estadisticas-ventas";
 import {
   ATRIBUTOS_VEHICULO_ML,
   DOMINIO_VEHICULOS_ML,
@@ -704,14 +705,11 @@ async function visitasMercadoLibre(idCuenta: number, desde: Date, hasta: Date) {
   return total;
 }
 
-export async function getMercadoLibreEstadisticas(idCuenta: number, dias = 30): Promise<MercadoLibreEstadisticas> {
-  const safeDays = [7, 30, 90, 365].includes(Math.floor(dias)) ? Math.floor(dias) : 30;
-  const hasta = new Date();
-  const desde = sumarDias(hasta, -safeDays);
-  const desdeAnterior = sumarDias(desde, -safeDays);
-  const params = [idCuenta, desdeAnterior.toISOString(), desde.toISOString(), hasta.toISOString()];
+export async function getMercadoLibreEstadisticas(idCuenta: number, dias = 30, corte = new Date()): Promise<MercadoLibreEstadisticas> {
+  const { dias: safeDays, desde, hasta, desdeAnterior, hastaAnterior } = periodoEstadisticasVentas(dias, corte);
+  const params = [idCuenta, desdeAnterior.toISOString(), desde.toISOString(), hasta.toISOString(), hastaAnterior.toISOString()];
   const esActual = "venta.fecha >= $3::timestamptz AND venta.fecha < $4::timestamptz";
-  const esAnterior = "venta.fecha >= $2::timestamptz AND venta.fecha < $3::timestamptz";
+  const esAnterior = "venta.fecha >= $2::timestamptz AND venta.fecha < $5::timestamptz";
   const esPagada = "LOWER(COALESCE(venta.estado, '')) = 'paid'";
   const unidades = "(SELECT COALESCE(SUM(NULLIF(item->>'cantidad', '')::int), 0) FROM jsonb_array_elements(venta.items) item)";
   const [metricasResult, evolucionResult, productosResult, visitasResult] = await Promise.all([
@@ -742,11 +740,12 @@ export async function getMercadoLibreEstadisticas(idCuenta: number, dias = 30): 
     ),
     query<{ periodo: "ACTUAL" | "ANTERIOR"; dia: number; fecha: string; facturacion: number }>(
       `SELECT CASE WHEN ${esActual} THEN 'ACTUAL' ELSE 'ANTERIOR' END AS periodo,
-         FLOOR(EXTRACT(EPOCH FROM (venta.fecha - CASE WHEN ${esActual} THEN $3::timestamptz ELSE $2::timestamptz END)) / 86400)::int AS dia,
+         ((venta.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::date -
+           ((CASE WHEN ${esActual} THEN $3::timestamptz ELSE $2::timestamptz END) AT TIME ZONE 'America/Argentina/Buenos_Aires')::date)::int AS dia,
          TO_CHAR(venta.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires', 'YYYY-MM-DD') AS fecha,
          COALESCE(SUM(venta.total), 0)::float AS facturacion
        FROM public.mercadolibre_venta venta
-       WHERE venta.id_cuenta = $1 AND venta.fecha >= $2::timestamptz AND venta.fecha < $4::timestamptz AND ${esPagada}
+       WHERE venta.id_cuenta = $1 AND ((${esActual}) OR (${esAnterior})) AND ${esPagada}
        GROUP BY 1, 2, 3 ORDER BY 1, 2`,
       params,
     ),
@@ -760,12 +759,12 @@ export async function getMercadoLibreEstadisticas(idCuenta: number, dias = 30): 
        FROM public.mercadolibre_venta venta
        CROSS JOIN LATERAL jsonb_array_elements(venta.items) item
        LEFT JOIN public.mercadolibre_publicacion publicacion ON publicacion.id_cuenta = venta.id_cuenta AND publicacion.item_id = item->>'itemId'
-       WHERE venta.id_cuenta = $1 AND ${esActual} AND ${esPagada}
+       WHERE venta.id_cuenta = $1 AND venta.fecha >= $2::timestamptz AND venta.fecha < $3::timestamptz AND ${esPagada}
        GROUP BY item->>'itemId', item->>'titulo', item->>'sku', publicacion.thumbnail_url
        ORDER BY unidades DESC, ordenes DESC, titulo ASC LIMIT 10`,
-      params,
+      [idCuenta, desde.toISOString(), hasta.toISOString()],
     ),
-    Promise.all([visitasMercadoLibre(idCuenta, desde, hasta), visitasMercadoLibre(idCuenta, desdeAnterior, desde)]).catch(() => [null, null] as [number | null, number | null]),
+    Promise.all([visitasMercadoLibre(idCuenta, desde, hasta), visitasMercadoLibre(idCuenta, desdeAnterior, hastaAnterior)]).catch(() => [null, null] as [number | null, number | null]),
   ]);
 
   const row = metricasResult.rows[0];
@@ -780,7 +779,7 @@ export async function getMercadoLibreEstadisticas(idCuenta: number, dias = 30): 
   const anteriorPorDia = new Map(evolucionResult.rows.filter((item) => item.periodo === "ANTERIOR").map((item) => [Number(item.dia), item]));
 
   return {
-    periodo: { dias: safeDays, desde: desde.toISOString(), hasta: hasta.toISOString(), desdeAnterior: desdeAnterior.toISOString(), hastaAnterior: desde.toISOString() },
+    periodo: { dias: safeDays, desde: desde.toISOString(), hasta: hasta.toISOString(), desdeAnterior: desdeAnterior.toISOString(), hastaAnterior: hastaAnterior.toISOString() },
     moneda: String(row?.moneda || "ARS"),
     metricas: {
       ventasBrutas: { actual: ventasActual, anterior: ventasAnterior },
@@ -793,8 +792,8 @@ export async function getMercadoLibreEstadisticas(idCuenta: number, dias = 30): 
       ventasCanceladas: { cantidadActual: Number(row?.canceladas_actual || 0), cantidadAnterior: Number(row?.canceladas_anterior || 0), valorActual: Number(row?.valor_canceladas_actual || 0), valorAnterior: Number(row?.valor_canceladas_anterior || 0) },
       ventasDevueltas: { cantidadActual: Number(row?.devueltas_actual || 0), cantidadAnterior: Number(row?.devueltas_anterior || 0), valorActual: Number(row?.valor_devueltas_actual || 0), valorAnterior: Number(row?.valor_devueltas_anterior || 0) },
     },
-    evolucion: Array.from({ length: safeDays }, (_, dia) => ({
-      fecha: actualPorDia.get(dia)?.fecha || anteriorPorDia.get(dia)?.fecha || "",
+    evolucion: fechasPeriodoVentas(desde, safeDays).map((fecha, dia) => ({
+      fecha,
       facturacion: Number(actualPorDia.get(dia)?.facturacion || 0),
       facturacionAnterior: Number(anteriorPorDia.get(dia)?.facturacion || 0),
     })),

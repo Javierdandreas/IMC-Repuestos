@@ -57,20 +57,21 @@ function MetricCard({ label, value, actual, previous, icon: Icon, accent, second
   </article>;
 }
 
-export function MercadoLibreStats({ idCuenta }: { idCuenta: number }) {
-  const [selectedDays, setSelectedDays] = useState(30);
-  const { data, error, isLoading, mutate, isValidating } = useSWR<MercadoLibreEstadisticas>(`/api/integraciones/mercadolibre/estadisticas?idCuenta=${idCuenta}&dias=${selectedDays}`, fetcher);
+export function MercadoLibreStats({ idCuenta, dias, hasta }: { idCuenta: number; dias?: number; hasta?: string }) {
+  const [localDays, setSelectedDays] = useState(30);
+  const selectedDays=dias??localDays;
+  const { data, error, isLoading, mutate, isValidating } = useSWR<MercadoLibreEstadisticas>(`/api/integraciones/mercadolibre/estadisticas?idCuenta=${idCuenta}&dias=${selectedDays}${hasta?`&hasta=${encodeURIComponent(hasta)}`:""}`, fetcher,{errorRetryCount:1,revalidateOnFocus:false});
   const maxEvolution = useMemo(() => Math.max(...(data?.evolucion.flatMap((item) => [item.facturacion, item.facturacionAnterior]) || [1]), 1), [data]);
 
   return <section className="space-y-5" aria-label="Estadisticas de Mercado Libre">
     <header className="border-b border-slate-200 pb-4 dark:border-slate-800">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div><p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Mercado Libre</p><h2 className="mt-1 text-xl font-black text-slate-900 dark:text-white">Resumen de desempeno</h2></div>
-        <div className="flex flex-wrap items-end gap-2">
+        {dias===undefined && <div className="flex flex-wrap items-end gap-2">
           <label className="grid gap-1 text-[10px] font-black uppercase tracking-wide text-slate-500">Periodo principal<select value={selectedDays} onChange={(event) => setSelectedDays(Number(event.target.value))} className="h-9 min-w-40 border border-slate-300 bg-white px-3 text-xs font-bold normal-case text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value={7}>Ultimos 7 dias</option><option value={30}>Ultimos 30 dias</option><option value={90}>Ultimos 90 dias</option><option value={365}>Ultimo ano</option></select></label>
           <label className="grid gap-1 text-[10px] font-black uppercase tracking-wide text-slate-500">Comparar con<span className="flex h-9 min-w-40 items-center border border-slate-300 bg-slate-50 px-3 text-xs font-bold normal-case text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">Periodo anterior</span></label>
           <button type="button" onClick={() => void mutate()} title="Actualizar estadisticas" aria-label="Actualizar estadisticas" className="grid h-9 w-9 place-items-center border border-blue-700 bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-70" disabled={isValidating}><RefreshCcw className={`h-4 w-4 ${isValidating ? "animate-spin" : ""}`} /></button>
-        </div>
+        </div>}
       </div>
       {data ? <p className="mt-3 text-xs font-semibold text-slate-500">{formatPeriod(data.periodo.desde)} a {formatPeriod(data.periodo.hasta)} <span className="mx-1.5 text-slate-300 dark:text-slate-700">|</span> comparado con {formatPeriod(data.periodo.desdeAnterior)} a {formatPeriod(data.periodo.hastaAnterior)}</p> : null}
     </header>

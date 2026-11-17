@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 import { PushNotificationsControl } from "@/components/notificaciones/PushNotificationsControl";
 import { MercadoLibreMensajeAutomatico } from "@/components/configuracion/MercadoLibreMensajeAutomatico";
-import { MercadoLibreStats } from "@/components/mercadolibre/MercadoLibreStats";
+import { EstadisticasVentas } from "@/components/mercadolibre/EstadisticasVentas";
 import { Modal } from "@/components/ui/Modal";
 import { estadoMensajeVenta } from "@/lib/mercadolibre-mensajes-prueba";
 
@@ -562,7 +562,7 @@ export function MercadoLibrePage({ canManage, canReply, canViewCompatibilidades 
         </>}
         <div className="relative min-w-[240px] flex-1"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "VENTAS" ? "Nombre / Usuario ML / Item / SKU / # Venta / Nro. envio" : tab === "PREGUNTAS" ? "Pregunta, cliente, MLA o publicacion" : tab === "COSTOS" ? "MLA, SKU, titulo o codigo IMC" : "Titulo, MLA, SKU o codigo IMC"} className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div><PushNotificationsControl />{tab === "VENTAS" && canManage && <button type="button" onClick={() => setConfigMensajeAbierta(true)} title="Configurar mensajes automaticos" aria-label="Configurar mensajes automaticos" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"><Settings2 className="h-4 w-4" /></button>}<span className="text-xs font-medium text-slate-500">{activeResult.totalCount.toLocaleString("es-AR")} {tab === "PREGUNTAS" && questionStatus === "RESPONDIDAS" ? "conversaciones" : "registros"}</span>
       </div>}
-      {tab === "ESTADISTICAS" && selectedAccountId && <MercadoLibreStats idCuenta={selectedAccountId} />}
+      {tab === "ESTADISTICAS" && selectedAccountId && <EstadisticasVentas idCuenta={selectedAccountId} />}
       {tab === "VENTAS" && <VentasFilters envio={salesShippingFilter} mensajes={salesMessageFilter} canManage={canManage} onChange={changeSalesFilter} onManageQuickReplies={() => { setQuickRepliesContext("POSTVENTA"); setQuickRepliesOpen(true); }} />}
       {tab === "VENTAS" && salesSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{salesSyncError}</p>}
       {tab === "PREGUNTAS" && questionSyncError && <p className="text-xs font-bold text-red-600 dark:text-red-300">{questionSyncError}</p>}
