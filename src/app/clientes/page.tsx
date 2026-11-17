@@ -1,5 +1,5 @@
 import { ClientesPage } from "@/components/clientes/ClientesPage";
-import { getMarcas, getTiposPrecio } from "@/lib/repos/catalogos";
+import { getMarcas, getTiposPrecio, getCategorias, getSubcategorias } from "@/lib/repos/catalogos";
 import { getClientes } from "@/lib/repos/clientes";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ function value(params: Record<string, string | string[] | undefined>, key: strin
 
 export default async function ClientesRoute({ searchParams }: Props) {
   const params = await searchParams;
-  const [result, marcas, tiposPrecio] = await Promise.all([
+  const [result, marcas, tiposPrecio, categorias, subcategorias] = await Promise.all([
     getClientes({
       page: Number(value(params, "page") ?? 1),
       limit: 25,
@@ -27,7 +27,9 @@ export default async function ClientesRoute({ searchParams }: Props) {
     }),
     getMarcas(),
     getTiposPrecio(),
+    getCategorias(),
+    getSubcategorias(),
   ]);
 
-  return <ClientesPage clientes={result.data} totalPages={result.totalPages} totalCount={result.totalCount} marcas={marcas} tiposPrecio={tiposPrecio} />;
+  return <ClientesPage clientes={result.data} totalPages={result.totalPages} totalCount={result.totalCount} marcas={marcas} tiposPrecio={tiposPrecio} categorias={categorias} subcategorias={subcategorias} />;
 }

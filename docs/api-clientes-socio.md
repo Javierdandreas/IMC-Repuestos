@@ -2,6 +2,9 @@
 
 Endpoint para consultar clientes activos de IMC antes de crear una orden de venta en GESU. La orden se identifica en GESU por `tipoDocumento` y `numeroDocumento`; esta API no expone `gesu_id`, listas de precios ni bonificaciones.
 
+Para obtener precios finales por cliente sin exponer sus condiciones comerciales,
+usar [API de cotizaciones](api-cotizaciones-socio.md).
+
 ## Autenticacion
 
 Se usa la misma clave del catalogo: `PARTNER_CATALOG_API_KEY`. Debe enviarse como encabezado `X-API-Key`.

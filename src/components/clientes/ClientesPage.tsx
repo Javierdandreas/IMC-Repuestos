@@ -2,14 +2,16 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { HiEye, HiEyeOff, HiPencil, HiPlus, HiSave, HiSearch, HiTrash } from "react-icons/hi";
+import { HiEye, HiEyeOff, HiPencil, HiPlus, HiSave, HiSearch } from "react-icons/hi";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/components/auth/usePermissions";
 import { useAppError } from "@/context/AppErrorContext";
-import type { CatalogoItem, TipoPrecio } from "@/interfaces/productos";
+import type { CatalogoItem, TipoPrecio, Subcategoria } from "@/interfaces/productos";
 import type { Cliente, ClienteInput } from "@/lib/repos/clientes";
+import type { ReglaDescuentoCliente } from "@/lib/descuentos-cliente";
+import { ClienteDiscountRules } from "@/components/clientes/ClienteDiscountRules";
 
 type Props = {
   clientes: Cliente[];
@@ -17,6 +19,8 @@ type Props = {
   totalCount: number;
   marcas: CatalogoItem[];
   tiposPrecio: TipoPrecio[];
+  categorias: CatalogoItem[];
+  subcategorias: Subcategoria[];
 };
 
 const IVA_OPTIONS = [
@@ -66,6 +70,7 @@ function emptyCliente(): ClienteInput {
     bonificacion_general: 0,
     activo: true,
     descuentos_marca: [],
+    reglas_descuento: [],
   };
 }
 
@@ -92,10 +97,11 @@ function inputFromCliente(cliente: Cliente): ClienteInput {
     bonificacion_general: cliente.bonificacion_general,
     activo: cliente.activo,
     descuentos_marca: cliente.descuentos_marca.map(({ id_marca, descuento }) => ({ id_marca, descuento })),
+    reglas_descuento: cliente.reglas_descuento,
   };
 }
 
-export function ClientesPage({ clientes, totalPages, totalCount, marcas, tiposPrecio }: Props) {
+export function ClientesPage({ clientes, totalPages, totalCount, marcas, tiposPrecio, categorias, subcategorias }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { canManage } = usePermissions();
@@ -161,7 +167,7 @@ export function ClientesPage({ clientes, totalPages, totalCount, marcas, tiposPr
       <section className="overflow-x-auto border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
         <div className="min-w-[1160px]">
           <div className="grid grid-cols-[minmax(230px,1.4fr)_160px_180px_150px_120px_120px_112px] border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:bg-slate-900">
-            <span className="px-4 py-3">Cliente</span><span className="px-4 py-3">Documento</span><span className="px-4 py-3">Fiscal</span><span className="px-4 py-3">Lista</span><span className="px-4 py-3 text-right">Bonificacion</span><span className="px-4 py-3 text-center">Marca</span><span className="px-4 py-3 text-center">Acciones</span>
+            <span className="px-4 py-3">Cliente</span><span className="px-4 py-3">Documento</span><span className="px-4 py-3">Fiscal</span><span className="px-4 py-3">Lista</span><span className="px-4 py-3 text-right">Bonificacion</span><span className="px-4 py-3 text-center">Reglas</span><span className="px-4 py-3 text-center">Acciones</span>
           </div>
           {clientes.length === 0 ? <p className="px-4 py-16 text-center text-sm font-semibold text-slate-500">No hay clientes que coincidan con los filtros.</p> : clientes.map((cliente) => (
             <div key={cliente.id} className="grid grid-cols-[minmax(230px,1.4fr)_160px_180px_150px_120px_120px_112px] items-center border-b border-slate-100 text-xs last:border-0 dark:border-slate-800">
@@ -170,7 +176,7 @@ export function ClientesPage({ clientes, totalPages, totalCount, marcas, tiposPr
               <div className="px-4 py-3 text-[11px] font-bold text-slate-600 dark:text-slate-300">{fiscalLabel(cliente.condicion_iva)}</div>
               <div className="px-4 py-3 font-bold text-slate-700 dark:text-slate-200">{cliente.tipo_precio ?? "Sin lista"}</div>
               <div className="px-4 py-3 text-right font-mono font-black text-slate-700 dark:text-slate-200">{cliente.bonificacion_general.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%</div>
-              <div className="px-4 py-3 text-center"><span className={cliente.descuentos_marca.length ? "rounded bg-emerald-500/10 px-2 py-1 text-[10px] font-black text-emerald-700 dark:text-emerald-300" : "text-[10px] font-bold text-slate-400"}>{cliente.descuentos_marca.length ? `${cliente.descuentos_marca.length} regla${cliente.descuentos_marca.length === 1 ? "" : "s"}` : "-"}</span></div>
+              <div className="px-4 py-3 text-center"><span className={cliente.reglas_descuento.length ? "rounded bg-emerald-500/10 px-2 py-1 text-[10px] font-black text-emerald-700 dark:text-emerald-300" : "text-[10px] font-bold text-slate-400"}>{cliente.reglas_descuento.length ? `${cliente.reglas_descuento.length} regla${cliente.reglas_descuento.length === 1 ? "" : "s"}` : "-"}</span></div>
               <div className="flex items-center justify-center gap-1 px-4 py-3">
                 {canManage ? <button type="button" title="Editar cliente" onClick={() => setEditing(cliente)} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/40"><HiPencil className="h-4 w-4" /></button> : null}
                 {canManage ? <button type="button" title={cliente.activo ? "Desactivar cliente" : "Activar cliente"} disabled={updatingId === cliente.id} onClick={() => void toggleActive(cliente)} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-white">{cliente.activo ? <HiEye className="h-4 w-4" /> : <HiEyeOff className="h-4 w-4" />}</button> : null}
@@ -180,7 +186,7 @@ export function ClientesPage({ clientes, totalPages, totalCount, marcas, tiposPr
         </div>
       </section>
       <Pagination totalPages={totalPages} />
-      <ClienteModal open={creating || Boolean(editing)} cliente={editing} marcas={marcas} tiposPrecio={tiposPrecio} onClose={() => { setCreating(false); setEditing(null); }} />
+      <ClienteModal key={editing?.id ?? (creating ? "nuevo" : "cerrado")} open={creating || Boolean(editing)} cliente={editing} marcas={marcas} tiposPrecio={tiposPrecio} categorias={categorias} subcategorias={subcategorias} onClose={() => { setCreating(false); setEditing(null); }} />
     </div>
   );
 }
@@ -189,31 +195,20 @@ function FilterSelect({ value, onChange, label, options }: { value: string; onCh
   return <label className="space-y-1"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-500">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
 }
 
-function ClienteModal({ open, cliente, marcas, tiposPrecio, onClose }: { open: boolean; cliente: Cliente | null; marcas: CatalogoItem[]; tiposPrecio: TipoPrecio[]; onClose: () => void }) {
+function ClienteModal({ open, cliente, marcas, tiposPrecio, categorias, subcategorias, onClose }: { open: boolean; cliente: Cliente | null; marcas: CatalogoItem[]; tiposPrecio: TipoPrecio[]; categorias: CatalogoItem[]; subcategorias: Subcategoria[]; onClose: () => void }) {
   const router = useRouter();
   const { showMessage } = useAppError();
   const [saving, setSaving] = useState(false);
   const [data, setData] = useState<ClienteInput>(cliente ? inputFromCliente(cliente) : emptyCliente());
-  const [marcaId, setMarcaId] = useState("");
-  const [marcaDescuento, setMarcaDescuento] = useState("");
   const editing = Boolean(cliente);
-  const selectedBrands = Array.isArray(data.descuentos_marca) ? data.descuentos_marca as Array<{ id_marca: number; descuento: number }> : [];
-  const availableBrands = marcas.filter((marca) => !selectedBrands.some((rule) => rule.id_marca === marca.id));
+  const rules = (data.reglas_descuento ?? []) as ReglaDescuentoCliente[];
 
   useEffect(() => {
     if (!open) return;
     setData(cliente ? inputFromCliente(cliente) : emptyCliente());
-    setMarcaId("");
-    setMarcaDescuento("");
   }, [cliente, open]);
 
   const setField = (field: keyof ClienteInput, value: unknown) => setData((previous) => ({ ...previous, [field]: value }));
-  const addBrand = () => {
-    const id = Number(marcaId); const descuento = Number(marcaDescuento);
-    if (!Number.isInteger(id) || id <= 0 || !Number.isFinite(descuento) || descuento < 0 || descuento > 100) return;
-    setField("descuentos_marca", [...selectedBrands, { id_marca: id, descuento }]); setMarcaId(""); setMarcaDescuento("");
-  };
-  const removeBrand = (id: number) => setField("descuentos_marca", selectedBrands.filter((rule) => rule.id_marca !== id));
   const submit = async () => {
     try {
       setSaving(true);
@@ -228,7 +223,13 @@ function ClienteModal({ open, cliente, marcas, tiposPrecio, onClose }: { open: b
   return <Modal open={open} onClose={onClose} title={editing ? "Editar cliente" : "Nuevo cliente"} width="w-[min(96vw,1100px)]" headerActions={<button type="button" onClick={() => void submit()} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"><HiSave className="h-4 w-4" />{saving ? "Guardando" : "Guardar"}</button>}><div className="space-y-6 p-5">
     <FormSection title="Datos fiscales"><div className="grid gap-3 md:grid-cols-4"><Field label="Nombre o razon social" className="md:col-span-2"><input value={String(data.razon_social ?? "")} onChange={(event) => setField("razon_social", event.target.value)} className="form-input" /></Field><Field label="Persona"><select value={String(data.tipo_persona ?? "FISICA")} onChange={(event) => setField("tipo_persona", event.target.value)} className="form-input"><option value="FISICA">Fisica</option><option value="JURIDICA">Juridica</option></select></Field><Field label="Estado"><select value={data.activo === false ? "false" : "true"} onChange={(event) => setField("activo", event.target.value === "true")} className="form-input"><option value="true">Activo</option><option value="false">Inactivo</option></select></Field><Field label="Tipo documento"><select value={String(data.tipo_documento ?? "")} onChange={(event) => setField("tipo_documento", event.target.value)} className="form-input"><option value="">Sin definir</option><option>DNI</option><option>CUIT</option><option>CUIL</option><option>OTRO</option></select></Field><Field label="Numero documento"><input value={String(data.documento ?? "")} onChange={(event) => setField("documento", event.target.value)} className="form-input" /></Field><Field label="Condicion IVA"><select value={String(data.condicion_iva ?? "")} onChange={(event) => setField("condicion_iva", event.target.value)} className="form-input">{IVA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Comprobante"><select value={String(data.comprobante_default ?? "")} onChange={(event) => setField("comprobante_default", event.target.value)} className="form-input">{COMPROBANTE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></div></FormSection>
     <FormSection title="Contacto y domicilio"><div className="grid gap-3 md:grid-cols-4"><Field label="Telefono"><input value={String(data.telefono ?? "")} onChange={(event) => setField("telefono", event.target.value)} className="form-input" /></Field><Field label="Celular"><input value={String(data.celular ?? "")} onChange={(event) => setField("celular", event.target.value)} className="form-input" /></Field><Field label="Email" className="md:col-span-2"><input type="email" value={String(data.email ?? "")} onChange={(event) => setField("email", event.target.value)} className="form-input" /></Field></div><div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]"><Field label="Domicilio"><input value={String(data.domicilio ?? "")} onChange={(event) => setField("domicilio", event.target.value)} className="form-input" /></Field><Field label="Localidad"><input value={String(data.localidad ?? "")} onChange={(event) => setField("localidad", event.target.value)} className="form-input" /></Field><Field label="Provincia"><input value={String(data.provincia ?? "")} onChange={(event) => setField("provincia", event.target.value)} className="form-input" /></Field><Field label="Codigo postal"><input value={String(data.codigo_postal ?? "")} onChange={(event) => setField("codigo_postal", event.target.value)} className="form-input" /></Field></div><div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800"><p className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Contacto adicional</p><div className="grid gap-3 md:grid-cols-4"><Field label="Nombre"><input value={String(data.contacto_nombre ?? "")} onChange={(event) => setField("contacto_nombre", event.target.value)} className="form-input" /></Field><Field label="Telefono"><input value={String(data.contacto_telefono ?? "")} onChange={(event) => setField("contacto_telefono", event.target.value)} className="form-input" /></Field><Field label="Celular"><input value={String(data.contacto_celular ?? "")} onChange={(event) => setField("contacto_celular", event.target.value)} className="form-input" /></Field><Field label="Email"><input type="email" value={String(data.contacto_email ?? "")} onChange={(event) => setField("contacto_email", event.target.value)} className="form-input" /></Field></div></div></FormSection>
-    <FormSection title="Condiciones comerciales"><div className="grid gap-3 md:grid-cols-3"><Field label="Lista de precios"><select value={String(data.id_tipo_precio ?? "")} onChange={(event) => setField("id_tipo_precio", event.target.value)} className="form-input"><option value="">Sin lista asignada</option>{tiposPrecio.map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.descripcion}</option>)}</select></Field><Field label="Bonificacion general (%)"><input type="number" min="0" max="100" step="0.01" value={String(data.bonificacion_general ?? 0)} onChange={(event) => setField("bonificacion_general", event.target.value)} className="form-input" /></Field></div><div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800"><div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_130px_auto]"><Field label="Descuento por marca"><select value={marcaId} onChange={(event) => setMarcaId(event.target.value)} className="form-input"><option value="">Seleccionar marca</option>{availableBrands.map((marca) => <option key={marca.id} value={marca.id}>{marca.descripcion}</option>)}</select></Field><Field label="Descuento %"><input type="number" min="0" max="100" step="0.01" value={marcaDescuento} onChange={(event) => setMarcaDescuento(event.target.value)} className="form-input" /></Field><button type="button" onClick={addBrand} className="mt-[21px] inline-flex h-10 items-center justify-center gap-1 rounded-lg border border-blue-600 px-3 text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40"><HiPlus className="h-4 w-4" />Agregar</button></div><div className="mt-3 space-y-2">{selectedBrands.length === 0 ? <p className="text-xs text-slate-500">Sin descuentos por marca.</p> : selectedBrands.map((rule) => { const marca = marcas.find((item) => item.id === rule.id_marca); return <div key={rule.id_marca} className="flex items-center justify-between border border-slate-200 px-3 py-2 text-xs dark:border-slate-800"><span className="font-bold text-slate-700 dark:text-slate-200">{marca?.descripcion ?? "Marca eliminada"}</span><span className="flex items-center gap-3"><b>{Number(rule.descuento).toLocaleString("es-AR", { maximumFractionDigits: 2 })}%</b><button type="button" onClick={() => removeBrand(rule.id_marca)} title="Quitar descuento por marca" className="text-red-500 hover:text-red-600"><HiTrash className="h-4 w-4" /></button></span></div>; })}</div></div></FormSection>
+    <FormSection title="Condiciones comerciales">
+      <div className="grid gap-3 md:grid-cols-3">
+        <Field label="Lista de precios"><select value={String(data.id_tipo_precio ?? "")} onChange={(event) => setField("id_tipo_precio", event.target.value)} className="form-input"><option value="">MOSTRADOR (predeterminada)</option>{tiposPrecio.filter((tipo) => !["PRECIO COSTO", "MERCADO LIBRE", "MERCADOLIBRE"].includes(tipo.descripcion.trim().toUpperCase())).map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.descripcion}</option>)}</select></Field>
+        <Field label="Bonificacion general (%)"><input inputMode="decimal" value={String(data.bonificacion_general ?? 0)} onChange={(event) => setField("bonificacion_general", event.target.value.replace(",", "."))} className="form-input" /></Field>
+      </div>
+      <ClienteDiscountRules value={rules} onChange={(next) => setField("reglas_descuento", next)} marcas={marcas} categorias={categorias} subcategorias={subcategorias} general={Number(data.bonificacion_general ?? 0)} />
+    </FormSection>
   </div></Modal>;
 }
 

@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { query, withTransaction, type DbClient } from "@/lib/db-utils";
 import { AppError } from "@/lib/api-errors";
+import { claveReglaCliente, reglaDescuentoClienteSchema, type ReglaDescuentoCliente } from "@/lib/descuentos-cliente";
 
 export type ClienteDescuentoMarca = {
   id_marca: number;
@@ -35,6 +36,7 @@ export type Cliente = {
   importado_desde_gesu: boolean;
   ultima_sincronizacion_gesu: string | null;
   descuentos_marca: ClienteDescuentoMarca[];
+  reglas_descuento: ReglaDescuentoCliente[];
 };
 
 export type ClienteInput = {
@@ -59,6 +61,7 @@ export type ClienteInput = {
   bonificacion_general?: unknown;
   activo?: unknown;
   descuentos_marca?: unknown;
+  reglas_descuento?: unknown;
 };
 
 export type ClienteFilters = {
@@ -156,6 +159,8 @@ function normalizeInput(input: ClienteInput) {
     bonificacion_general: parsePercentage(input.bonificacion_general),
     activo,
     descuentos_marca: parseDescuentosMarca(input.descuentos_marca),
+    reglas_descuento: input.reglas_descuento === undefined ? undefined
+      : reglaDescuentoClienteSchema.array().max(500).parse(input.reglas_descuento),
   };
 }
 
@@ -180,6 +185,51 @@ async function replaceDescuentosMarca(client: DbClient, idCliente: number, descu
   }
 }
 
+async function replaceReglasCliente(client: DbClient, idCliente: number, value: ReturnType<typeof normalizeInput>) {
+  let rules = value.reglas_descuento;
+  if (rules === undefined) {
+    // Compatibilidad con clientes de la API anterior: conservar reglas de categoria.
+    const scoped = await client.query<ReglaDescuentoCliente>(
+      "SELECT id_marca, id_categoria, id_subcategoria, descuento::float FROM public.cliente_regla_descuento WHERE id_cliente = $1 AND (id_categoria IS NOT NULL OR id_subcategoria IS NOT NULL)", [idCliente]);
+    rules = [...scoped.rows, ...value.descuentos_marca.map((r) => ({ ...r, id_categoria: null, id_subcategoria: null }))];
+  }
+  const ids = (field: "id_marca" | "id_categoria" | "id_subcategoria") => [...new Set(rules.map((r) => r[field]).filter((id): id is number => id !== null))];
+  const brands = await client.query<{ id: number }>("SELECT id FROM public.marcas WHERE id = ANY($1::int[])", [ids("id_marca")]);
+  const categories = await client.query<{ id: number }>("SELECT id FROM public.categoria WHERE id = ANY($1::int[])", [ids("id_categoria")]);
+  const subs = await client.query<{ id: number; id_categoria: number }>("SELECT id, id_categoria FROM public.subcategoria WHERE id = ANY($1::int[])", [ids("id_subcategoria")]);
+  if (brands.rowCount !== ids("id_marca").length || categories.rowCount !== ids("id_categoria").length || subs.rowCount !== ids("id_subcategoria").length) {
+    throw new AppError("Una marca, categoria o subcategoria de las reglas ya no existe.", 400);
+  }
+  const seen = new Set<string>();
+  const normalized = rules.map((rule) => {
+    const parent = rule.id_subcategoria ? subs.rows.find((s) => s.id === rule.id_subcategoria)!.id_categoria : null;
+    if (parent && rule.id_categoria && rule.id_categoria !== parent) throw new AppError("La subcategoria no pertenece a la categoria seleccionada.", 400);
+    const next = { ...rule, id_categoria: parent ?? rule.id_categoria };
+    const key = claveReglaCliente(next);
+    if (seen.has(key)) throw new AppError("El cliente tiene dos descuentos para el mismo alcance.", 400);
+    seen.add(key);
+    return next;
+  });
+  await replaceDescuentosMarca(client, idCliente, normalized.filter((r) => r.id_marca !== null && r.id_categoria === null && r.id_subcategoria === null).map((r) => ({ id_marca: r.id_marca!, descuento: r.descuento })));
+  await client.query("DELETE FROM public.cliente_regla_descuento WHERE id_cliente = $1", [idCliente]);
+  await client.query(`INSERT INTO public.cliente_regla_descuento (id_cliente, id_marca, id_categoria, id_subcategoria, descuento)
+    SELECT $1, id_marca, id_categoria, id_subcategoria, descuento FROM jsonb_to_recordset($2::jsonb)
+      AS r(id_marca int, id_categoria int, id_subcategoria int, descuento numeric)`, [idCliente, JSON.stringify(normalized)]);
+}
+
+async function registrarCondicionesCliente(client: DbClient, idCliente: number) {
+  await client.query(`WITH actual AS (
+    SELECT jsonb_build_object('id_tipo_precio', c.id_tipo_precio, 'bonificacion_general', c.bonificacion_general,
+      'reglas', COALESCE((SELECT jsonb_agg(jsonb_build_object('id_marca', r.id_marca, 'id_categoria', r.id_categoria,
+        'id_subcategoria', r.id_subcategoria, 'descuento', r.descuento)
+        ORDER BY r.id_marca NULLS FIRST, r.id_categoria NULLS FIRST, r.id_subcategoria NULLS FIRST)
+        FROM public.cliente_regla_descuento r WHERE r.id_cliente=c.id), '[]'::jsonb)) AS condiciones
+    FROM public.clientes c WHERE c.id=$1
+  ) INSERT INTO public.cliente_condiciones_historial (id_cliente, condiciones)
+    SELECT $1, condiciones FROM actual WHERE condiciones IS DISTINCT FROM
+      (SELECT h.condiciones FROM public.cliente_condiciones_historial h WHERE h.id_cliente=$1 ORDER BY h.id DESC LIMIT 1)`, [idCliente]);
+}
+
 const CLIENTE_SELECT = `
   cliente.id, cliente.gesu_id, cliente.razon_social, cliente.tipo_persona,
   cliente.tipo_documento, cliente.documento, cliente.condicion_iva, cliente.comprobante_default,
@@ -189,7 +239,10 @@ const CLIENTE_SELECT = `
   cliente.id_tipo_precio, tipo_precio.descripcion AS tipo_precio,
   cliente.bonificacion_general::float AS bonificacion_general, cliente.activo,
   cliente.importado_desde_gesu, cliente.ultima_sincronizacion_gesu,
-  COALESCE(descuentos.items, '[]'::json) AS descuentos_marca
+  COALESCE(descuentos.items, '[]'::json) AS descuentos_marca,
+  COALESCE((SELECT json_agg(json_build_object('id_marca', r.id_marca, 'id_categoria', r.id_categoria,
+    'id_subcategoria', r.id_subcategoria, 'descuento', r.descuento::float) ORDER BY r.id)
+    FROM public.cliente_regla_descuento r WHERE r.id_cliente=cliente.id), '[]'::json) AS reglas_descuento
 `;
 
 function clientRow(row: Cliente): Cliente {
@@ -214,8 +267,8 @@ export async function getClientes(filters: ClienteFilters = {}) {
   if (filters.idTipoPrecio && /^\d+$/.test(filters.idTipoPrecio)) add("cliente.id_tipo_precio = ?", Number(filters.idTipoPrecio));
   if (filters.bonificacion === "CON") where.push("cliente.bonificacion_general > 0");
   if (filters.bonificacion === "SIN") where.push("cliente.bonificacion_general = 0");
-  if (filters.descuentoMarca === "CON") where.push("EXISTS (SELECT 1 FROM public.cliente_descuento_marca descuento_filtro WHERE descuento_filtro.id_cliente = cliente.id)");
-  if (filters.descuentoMarca === "SIN") where.push("NOT EXISTS (SELECT 1 FROM public.cliente_descuento_marca descuento_filtro WHERE descuento_filtro.id_cliente = cliente.id)");
+  if (filters.descuentoMarca === "CON") where.push("EXISTS (SELECT 1 FROM public.cliente_regla_descuento descuento_filtro WHERE descuento_filtro.id_cliente = cliente.id AND descuento_filtro.id_marca IS NOT NULL)");
+  if (filters.descuentoMarca === "SIN") where.push("NOT EXISTS (SELECT 1 FROM public.cliente_regla_descuento descuento_filtro WHERE descuento_filtro.id_cliente = cliente.id AND descuento_filtro.id_marca IS NOT NULL)");
   if (filters.estado === "ACTIVO") where.push("cliente.activo = true");
   if (filters.estado === "INACTIVO") where.push("cliente.activo = false");
 
@@ -277,7 +330,8 @@ export async function createCliente(input: ClienteInput) {
       value.id_tipo_precio, value.bonificacion_general, value.activo,
     ]);
     const id = rows[0].id;
-    await replaceDescuentosMarca(client, id, value.descuentos_marca);
+    await replaceReglasCliente(client, id, value);
+    await registrarCondicionesCliente(client, id);
     return id;
   });
   revalidatePath("/clientes");
@@ -288,6 +342,9 @@ export async function updateCliente(id: number, input: ClienteInput) {
   const value = normalizeInput(input);
   await withTransaction(async (client) => {
     await assertTipoPrecio(client, value.id_tipo_precio);
+    const locked = await client.query("SELECT id FROM public.clientes WHERE id = $1 FOR UPDATE", [id]);
+    if (!locked.rowCount) throw new AppError("Cliente no encontrado.", 404);
+    await registrarCondicionesCliente(client, id);
     const updated = await client.query("UPDATE public.clientes SET razon_social = $1, tipo_persona = $2, tipo_documento = $3, documento = $4, condicion_iva = $5, comprobante_default = $6, domicilio = $7, localidad = $8, provincia = $9, codigo_postal = $10, telefono = $11, celular = $12, email = $13, contacto_nombre = $14, contacto_telefono = $15, contacto_celular = $16, contacto_email = $17, id_tipo_precio = $18, bonificacion_general = $19, activo = $20, updated_at = now() WHERE id = $21 RETURNING id", [
       value.razon_social, value.tipo_persona, value.tipo_documento, value.documento, value.condicion_iva, value.comprobante_default,
       value.domicilio, value.localidad, value.provincia, value.codigo_postal, value.telefono, value.celular, value.email,
@@ -295,7 +352,8 @@ export async function updateCliente(id: number, input: ClienteInput) {
       value.id_tipo_precio, value.bonificacion_general, value.activo, id,
     ]);
     if (updated.rows.length === 0) throw new AppError("Cliente no encontrado.", 404);
-    await replaceDescuentosMarca(client, id, value.descuentos_marca);
+    await replaceReglasCliente(client, id, value);
+    await registrarCondicionesCliente(client, id);
   });
   revalidatePath("/clientes");
   return getClienteById(id);
