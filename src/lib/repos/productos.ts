@@ -701,9 +701,13 @@ export async function getProductosParaExportar(filters: {
     tiposPrecio.forEach((tipo) => {
       const precio = precios[String(tipo.id)];
       if (tipo.id === 1) {
-        item["Costo Base"] = precio?.precio ?? "";
-        item["Costo Base - Moneda Origen"] = precio?.moneda_origen ?? "ARS";
-        item["Costo Base - Importe Origen"] = precio?.importe_origen ?? precio?.precio ?? "";
+        const monedaCostoBase = precio?.moneda_origen ?? "ARS";
+        const importeCostoBase = precio?.importe_origen
+          ?? (monedaCostoBase === "ARS" ? precio?.precio : null)
+          ?? "";
+        item["Costo Base"] = importeCostoBase;
+        item["Costo Base - Moneda Origen"] = monedaCostoBase;
+        item["Costo Base - Importe Origen"] = importeCostoBase;
         item["Costo Base - Cotizacion Aplicada"] = precio?.cotizacion_usada ?? "";
         item["Costo Base - Recargo Cotizacion"] = precio?.recargo_cotizacion ?? "";
         return;

@@ -336,6 +336,7 @@ export function ProductExportPage() {
 
             <div className="mt-4 space-y-2 text-xs font-bold text-slate-500 dark:text-slate-400">
               <p>La descarga respeta los filtros seleccionados.</p>
+              <p>Costo Base conserva su importe original e incluye una columna con la moneda.</p>
               <p>Proveedor, código proveedor y precio proveedor salen en columnas separadas.</p>
             </div>
 

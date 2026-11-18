@@ -38,6 +38,9 @@ export async function GET(req: NextRequest) {
           // Buscamos coincidencia exacta o por el nombre formateado que viene del repo
           if (row[col] !== undefined) {
             filtered[col] = row[col];
+            if (col === "Costo Base") {
+              filtered["Costo Base - Moneda Origen"] = row["Costo Base - Moneda Origen"];
+            }
           }
         });
         Object.entries(row).forEach(([column, value]) => {
