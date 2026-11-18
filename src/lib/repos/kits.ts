@@ -361,6 +361,7 @@ export async function getKitsParaExportar() {
       FROM public.kits k
       LEFT JOIN public.categoria c ON c.id = k.id_categoria
       LEFT JOIN public.subcategoria s ON s.id = k.id_subcategoria
+      WHERE k.activo IS TRUE
       ORDER BY k.codigo_kit ASC
     `),
     query<Record<string, unknown>>(`
@@ -372,6 +373,9 @@ export async function getKitsParaExportar() {
       FROM public.kit_detalle kd
       JOIN public.kits k ON k.id = kd.id_kit
       JOIN public.productos p ON p.id = kd.id_producto
+      WHERE k.activo IS TRUE
+        AND COALESCE(p.activo, TRUE) = TRUE
+        AND COALESCE(p.oculto_por_kit, FALSE) = FALSE
       ORDER BY k.codigo_kit ASC, p.cod_unico ASC
     `),
   ]);

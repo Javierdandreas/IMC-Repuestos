@@ -36,7 +36,7 @@ export function FullCatalogBackupPage() {
         <header className="border-b border-slate-200 pb-4 dark:border-slate-800">
           <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Listados</p>
           <h1 className="mt-2 text-2xl font-black text-slate-900 dark:text-white">Respaldo completo</h1>
-          <p className="mt-1 text-sm font-medium text-slate-500">Exporta el catalogo completo en un solo archivo Excel.</p>
+          <p className="mt-1 text-sm font-medium text-slate-500">Exporta el catalogo activo en un solo archivo Excel, sin items ni kits ocultos.</p>
         </header>
         <section className="border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-950">
           <h2 className="text-sm font-black text-slate-900 dark:text-white">Contenido del respaldo</h2>

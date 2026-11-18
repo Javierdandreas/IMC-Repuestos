@@ -552,7 +552,7 @@ export async function getProductosParaExportar(filters: {
   proveedor?: string;
 } = {}, options: { detalleProveedor?: boolean } = {}): Promise<any[]> {
   const params: any[] = [];
-  let whereClauses = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE"];
+  let whereClauses = ["COALESCE(p.oculto_por_kit, FALSE) = FALSE", "COALESCE(p.activo, TRUE) = TRUE"];
 
   if (filters.search?.trim()) {
     params.push(parametroBusquedaItems(filters.search));
@@ -742,6 +742,7 @@ export async function getPreciosProveedoresParaExportar(): Promise<Record<string
     JOIN public.productos p ON p.id = pp.id_producto
     JOIN public.proveedores prv ON prv.id = pp.id_proveedor
     WHERE COALESCE(p.oculto_por_kit, FALSE) = FALSE
+      AND COALESCE(p.activo, TRUE) = TRUE
     ORDER BY p.cod_unico ASC, prv.descripcion ASC
   `);
 

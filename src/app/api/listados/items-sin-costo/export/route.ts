@@ -70,6 +70,8 @@ export async function GET(request: NextRequest) {
       LEFT JOIN public.subcategoria subcategoria ON subcategoria.id = p.id_subcategoria
       LEFT JOIN public.categoria categoria ON categoria.id = subcategoria.id_categoria
       WHERE COALESCE(costo_base.costo, 0) <= 0
+        AND COALESCE(p.activo, TRUE) = TRUE
+        AND COALESCE(p.oculto_por_kit, FALSE) = FALSE
       ORDER BY categoria.descripcion NULLS LAST, subcategoria.descripcion NULLS LAST, marca.descripcion NULLS LAST, p.cod_unico
     `);
 
