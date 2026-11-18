@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useId, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HiEye, HiEyeOff, HiPencil, HiPlus, HiSave, HiSearch } from "react-icons/hi";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePermissions } from "@/components/auth/usePermissions";
-import { useAppError } from "@/context/AppErrorContext";
 import type { CatalogoItem, TipoPrecio, Subcategoria } from "@/interfaces/productos";
 import type { Cliente, ClienteInput } from "@/lib/repos/clientes";
 import type { ReglaDescuentoCliente } from "@/lib/descuentos-cliente";
@@ -197,41 +196,152 @@ function FilterSelect({ value, onChange, label, options }: { value: string; onCh
 
 function ClienteModal({ open, cliente, marcas, tiposPrecio, categorias, subcategorias, onClose }: { open: boolean; cliente: Cliente | null; marcas: CatalogoItem[]; tiposPrecio: TipoPrecio[]; categorias: CatalogoItem[]; subcategorias: Subcategoria[]; onClose: () => void }) {
   const router = useRouter();
-  const { showMessage } = useAppError();
+  const formId = useId();
   const [saving, setSaving] = useState(false);
   const [data, setData] = useState<ClienteInput>(cliente ? inputFromCliente(cliente) : emptyCliente());
+  const [tab, setTab] = useState<"general" | "comercial">("general");
+  const [errors, setErrors] = useState<Partial<Record<keyof ClienteInput, string>>>({});
+  const [saveError, setSaveError] = useState("");
+  const [hasRuleDraft, setHasRuleDraft] = useState(false);
   const editing = Boolean(cliente);
   const rules = (data.reglas_descuento ?? []) as ReglaDescuentoCliente[];
+  const updateRuleDraft = useCallback((pending: boolean) => {
+    setHasRuleDraft(pending);
+    setSaveError("");
+  }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    setData(cliente ? inputFromCliente(cliente) : emptyCliente());
-  }, [cliente, open]);
+  const setField = (field: keyof ClienteInput, value: unknown) => {
+    setData((previous) => ({ ...previous, [field]: value }));
+    setErrors((previous) => ({ ...previous, [field]: undefined }));
+    setSaveError("");
+  };
+  const fieldErrorId = (field: keyof ClienteInput) => `${formId}-${field}-error`;
+  const validationProps = (field: keyof ClienteInput) => ({
+    "aria-invalid": Boolean(errors[field]),
+    "aria-describedby": errors[field] ? fieldErrorId(field) : undefined,
+  });
+  const textField = (field: keyof ClienteInput, label: string, className = "", type = "text") => (
+    <Field label={label} className={className} error={errors[field]} errorId={fieldErrorId(field)}>
+      <input type={type} value={String(data[field] ?? "")} onChange={(event) => setField(field, event.target.value)} className="form-input" {...validationProps(field)} />
+    </Field>
+  );
+  const changeTab = (next: typeof tab, focus = false) => {
+    setTab(next);
+    if (focus) document.getElementById(`${formId}-tab-${next}`)?.focus();
+  };
 
-  const setField = (field: keyof ClienteInput, value: unknown) => setData((previous) => ({ ...previous, [field]: value }));
   const submit = async () => {
+    if (saving) return;
+    const nextErrors: typeof errors = {};
+    if (!String(data.razon_social ?? "").trim()) nextErrors.razon_social = "Ingresá el nombre o la razón social del cliente.";
+    for (const field of ["email", "contacto_email"] as const) {
+      const email = String(data[field] ?? "").trim();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) nextErrors[field] = "Ingresá un email válido, por ejemplo nombre@empresa.test.";
+    }
+    const general = Number(data.bonificacion_general ?? 0);
+    if (!Number.isFinite(general) || general < 0 || general > 100) nextErrors.bonificacion_general = "La bonificación general debe estar entre 0 y 100%.";
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      changeTab(nextErrors.razon_social || nextErrors.email || nextErrors.contacto_email ? "general" : "comercial", true);
+      setSaveError("Revisá los campos indicados antes de guardar el cliente.");
+      return;
+    }
+    if (hasRuleDraft) {
+      changeTab("comercial", true);
+      setSaveError("Hay una regla sin confirmar. Usá Agregar o Aceptar cambios, o descartá el borrador antes de guardar el cliente.");
+      return;
+    }
     try {
+      setSaveError("");
       setSaving(true);
       const response = await fetch(editing ? `/api/clientes/${cliente?.id}` : "/api/clientes", { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "No se pudo guardar el cliente.");
       toast.success(editing ? "Cliente actualizado." : "Cliente creado."); onClose(); router.refresh();
-    } catch (error) { showMessage(error instanceof Error ? error.message : "No se pudo guardar el cliente.", "Clientes"); }
+    } catch (error) {
+      setSaveError(error instanceof TypeError ? "No se pudo conectar con el servidor. Revisá tu conexión e intentá guardar nuevamente." : error instanceof Error ? error.message : "No se pudo guardar el cliente. Intentá nuevamente.");
+    }
     finally { setSaving(false); }
   };
 
-  return <Modal open={open} onClose={onClose} title={editing ? "Editar cliente" : "Nuevo cliente"} width="w-[min(96vw,1100px)]" headerActions={<button type="button" onClick={() => void submit()} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"><HiSave className="h-4 w-4" />{saving ? "Guardando" : "Guardar"}</button>}><div className="space-y-6 p-5">
-    <FormSection title="Datos fiscales"><div className="grid gap-3 md:grid-cols-4"><Field label="Nombre o razon social" className="md:col-span-2"><input value={String(data.razon_social ?? "")} onChange={(event) => setField("razon_social", event.target.value)} className="form-input" /></Field><Field label="Persona"><select value={String(data.tipo_persona ?? "FISICA")} onChange={(event) => setField("tipo_persona", event.target.value)} className="form-input"><option value="FISICA">Fisica</option><option value="JURIDICA">Juridica</option></select></Field><Field label="Estado"><select value={data.activo === false ? "false" : "true"} onChange={(event) => setField("activo", event.target.value === "true")} className="form-input"><option value="true">Activo</option><option value="false">Inactivo</option></select></Field><Field label="Tipo documento"><select value={String(data.tipo_documento ?? "")} onChange={(event) => setField("tipo_documento", event.target.value)} className="form-input"><option value="">Sin definir</option><option>DNI</option><option>CUIT</option><option>CUIL</option><option>OTRO</option></select></Field><Field label="Numero documento"><input value={String(data.documento ?? "")} onChange={(event) => setField("documento", event.target.value)} className="form-input" /></Field><Field label="Condicion IVA"><select value={String(data.condicion_iva ?? "")} onChange={(event) => setField("condicion_iva", event.target.value)} className="form-input">{IVA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Comprobante"><select value={String(data.comprobante_default ?? "")} onChange={(event) => setField("comprobante_default", event.target.value)} className="form-input">{COMPROBANTE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></div></FormSection>
-    <FormSection title="Contacto y domicilio"><div className="grid gap-3 md:grid-cols-4"><Field label="Telefono"><input value={String(data.telefono ?? "")} onChange={(event) => setField("telefono", event.target.value)} className="form-input" /></Field><Field label="Celular"><input value={String(data.celular ?? "")} onChange={(event) => setField("celular", event.target.value)} className="form-input" /></Field><Field label="Email" className="md:col-span-2"><input type="email" value={String(data.email ?? "")} onChange={(event) => setField("email", event.target.value)} className="form-input" /></Field></div><div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]"><Field label="Domicilio"><input value={String(data.domicilio ?? "")} onChange={(event) => setField("domicilio", event.target.value)} className="form-input" /></Field><Field label="Localidad"><input value={String(data.localidad ?? "")} onChange={(event) => setField("localidad", event.target.value)} className="form-input" /></Field><Field label="Provincia"><input value={String(data.provincia ?? "")} onChange={(event) => setField("provincia", event.target.value)} className="form-input" /></Field><Field label="Codigo postal"><input value={String(data.codigo_postal ?? "")} onChange={(event) => setField("codigo_postal", event.target.value)} className="form-input" /></Field></div><div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800"><p className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Contacto adicional</p><div className="grid gap-3 md:grid-cols-4"><Field label="Nombre"><input value={String(data.contacto_nombre ?? "")} onChange={(event) => setField("contacto_nombre", event.target.value)} className="form-input" /></Field><Field label="Telefono"><input value={String(data.contacto_telefono ?? "")} onChange={(event) => setField("contacto_telefono", event.target.value)} className="form-input" /></Field><Field label="Celular"><input value={String(data.contacto_celular ?? "")} onChange={(event) => setField("contacto_celular", event.target.value)} className="form-input" /></Field><Field label="Email"><input type="email" value={String(data.contacto_email ?? "")} onChange={(event) => setField("contacto_email", event.target.value)} className="form-input" /></Field></div></div></FormSection>
-    <FormSection title="Condiciones comerciales">
-      <div className="grid gap-3 md:grid-cols-3">
-        <Field label="Lista de precios"><select value={String(data.id_tipo_precio ?? "")} onChange={(event) => setField("id_tipo_precio", event.target.value)} className="form-input"><option value="">MOSTRADOR (predeterminada)</option>{tiposPrecio.filter((tipo) => !["PRECIO COSTO", "MERCADO LIBRE", "MERCADOLIBRE"].includes(tipo.descripcion.trim().toUpperCase())).map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.descripcion}</option>)}</select></Field>
-        <Field label="Bonificacion general (%)"><input inputMode="decimal" value={String(data.bonificacion_general ?? 0)} onChange={(event) => setField("bonificacion_general", event.target.value.replace(",", "."))} className="form-input" /></Field>
-      </div>
-      <ClienteDiscountRules value={rules} onChange={(next) => setField("reglas_descuento", next)} marcas={marcas} categorias={categorias} subcategorias={subcategorias} general={Number(data.bonificacion_general ?? 0)} />
-    </FormSection>
-  </div></Modal>;
+  return (
+    <Modal open={open} onClose={() => { if (!saving) onClose(); }} title={editing ? "Editar cliente" : "Nuevo cliente"} width="w-[min(96vw,1100px)]">
+      <form noValidate onSubmit={(event) => { event.preventDefault(); void submit(); }} aria-busy={saving}>
+        <div role="tablist" aria-label="Secciones del cliente" className="sticky top-0 z-10 grid grid-cols-[1fr_1.4fr] gap-1 border-b border-slate-200 bg-white px-3 pt-2 dark:border-slate-800 dark:bg-slate-950 sm:flex sm:px-5">
+          {([{ id: "general", label: "Datos generales" }, { id: "comercial", label: "Descuentos y bonificaciones" }] as const).map((item) => (
+            <button key={item.id} id={`${formId}-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`${formId}-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} onClick={() => changeTab(item.id)} onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              changeTab(event.key === "Home" ? "general" : event.key === "End" ? "comercial" : tab === "general" ? "comercial" : "general", true);
+            }} className={`min-w-0 border-b-2 px-2 py-3 text-xs font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 sm:px-4 ${tab === item.id ? "border-blue-600 text-blue-700 dark:text-blue-300" : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800 dark:hover:text-white"}`}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <fieldset disabled={saving} className="min-w-0">
+          <div id={`${formId}-panel-general`} role="tabpanel" aria-labelledby={`${formId}-tab-general`} hidden={tab !== "general"} tabIndex={0} className="space-y-5 p-4 sm:p-5">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Identificación, datos fiscales y medios de contacto del cliente.</p>
+            <FormSection title="Identificación y datos fiscales">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {textField("razon_social", "Nombre o razón social *", "col-span-2")}
+                <Field label="Persona"><select value={String(data.tipo_persona ?? "FISICA")} onChange={(event) => setField("tipo_persona", event.target.value)} className="form-input"><option value="FISICA">Física</option><option value="JURIDICA">Jurídica</option></select></Field>
+                <Field label="Estado"><select value={data.activo === false ? "false" : "true"} onChange={(event) => setField("activo", event.target.value === "true")} className="form-input"><option value="true">Activo</option><option value="false">Inactivo</option></select></Field>
+                <Field label="Tipo de documento"><select value={String(data.tipo_documento ?? "")} onChange={(event) => setField("tipo_documento", event.target.value)} className="form-input"><option value="">Sin definir</option><option>DNI</option><option>CUIT</option><option>CUIL</option><option>OTRO</option></select></Field>
+                {textField("documento", "Número de documento")}
+                <Field label="Condición IVA"><select value={String(data.condicion_iva ?? "")} onChange={(event) => setField("condicion_iva", event.target.value)} className="form-input">{IVA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+                <Field label="Comprobante"><select value={String(data.comprobante_default ?? "")} onChange={(event) => setField("comprobante_default", event.target.value)} className="form-input">{COMPROBANTE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+              </div>
+            </FormSection>
+            <FormSection title="Contacto">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {textField("telefono", "Teléfono", "", "tel")}
+                {textField("celular", "Celular", "", "tel")}
+                {textField("email", "Email", "col-span-2", "email")}
+              </div>
+            </FormSection>
+            <FormSection title="Domicilio">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {textField("domicilio", "Dirección", "col-span-2 lg:col-span-1")}
+                {textField("localidad", "Localidad")}
+                {textField("provincia", "Provincia")}
+                {textField("codigo_postal", "Código postal")}
+              </div>
+            </FormSection>
+            <FormSection title="Contacto adicional">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {textField("contacto_nombre", "Nombre del contacto")}
+                {textField("contacto_telefono", "Teléfono del contacto", "", "tel")}
+                {textField("contacto_celular", "Celular del contacto", "", "tel")}
+                {textField("contacto_email", "Email del contacto", "col-span-2 lg:col-span-1", "email")}
+              </div>
+            </FormSection>
+          </div>
+          <div id={`${formId}-panel-comercial`} role="tabpanel" aria-labelledby={`${formId}-tab-comercial`} hidden={tab !== "comercial"} tabIndex={0} className="space-y-5 p-4 sm:p-5">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Administrá la lista de precios, la bonificación general y las reglas especiales de este cliente.</p>
+            <FormSection title="Condiciones comerciales">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Lista de precios"><select value={String(data.id_tipo_precio ?? "")} onChange={(event) => setField("id_tipo_precio", event.target.value)} className="form-input"><option value="">MOSTRADOR (predeterminada)</option>{tiposPrecio.filter((tipo) => !["PRECIO COSTO", "MERCADO LIBRE", "MERCADOLIBRE"].includes(tipo.descripcion.trim().toUpperCase())).map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.descripcion}</option>)}</select></Field>
+                <Field label="Bonificación general (%)" error={errors.bonificacion_general} errorId={fieldErrorId("bonificacion_general")}><input inputMode="decimal" value={String(data.bonificacion_general ?? 0)} onChange={(event) => setField("bonificacion_general", event.target.value.replace(",", "."))} className="form-input" {...validationProps("bonificacion_general")} /></Field>
+              </div>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">La bonificación general se aplica cuando no hay una regla especial que coincida.</p>
+            </FormSection>
+            <ClienteDiscountRules value={rules} onChange={(next) => setField("reglas_descuento", next)} onDraftChange={updateRuleDraft} marcas={marcas} categorias={categorias} subcategorias={subcategorias} general={Number(data.bonificacion_general ?? 0)} />
+          </div>
+        </fieldset>
+        <div className="sticky bottom-0 z-10 space-y-3 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-5">
+          {saveError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{saveError}</p>}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Guardar aplica los cambios de ambas pestañas.</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={onClose} disabled={saving} className="h-9 rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900">Cancelar</button>
+              <button type="submit" disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50"><HiSave className="h-4 w-4" />{saving ? "Guardando…" : "Guardar cliente"}</button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </Modal>
+  );
 }
 
 function FormSection({ title, children }: { title: string; children: ReactNode }) { return <section><h3 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">{title}</h3>{children}</section>; }
-function Field({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) { return <label className={`block space-y-1 ${className}`}><span className="block text-[9px] font-black uppercase tracking-widest text-slate-500">{label}</span>{children}</label>; }
+function Field({ label, children, className = "", error, errorId }: { label: string; children: ReactNode; className?: string; error?: string; errorId?: string }) { return <label className={`block min-w-0 space-y-1 ${className}`}><span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400">{label}</span>{children}{error && <span id={errorId} className="block text-xs text-red-600 dark:text-red-400">{error}</span>}</label>; }
