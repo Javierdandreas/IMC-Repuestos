@@ -43,6 +43,8 @@ export interface ProveedorImportacionItem {
   producto_descripcion?: string | null;
   precio_anterior?: number | null;
   precio_aplicado?: number | null;
+  costo_anterior?: number | null;
+  costo_nuevo?: number | null;
   estado_costo?: "PENDIENTE" | "APROBADO_AUTOMATICO" | "APROBADO_MANUAL" | "RECHAZADO" | "REEMPLAZADO" | null;
   applied_at?: string | null;
   created_at: string;

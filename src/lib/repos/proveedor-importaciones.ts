@@ -1503,6 +1503,8 @@ export async function getImportacionItems(
             producto.descripcion AS producto_descripcion,
             NULL::float AS precio_anterior,
             NULL::float AS precio_aplicado,
+            NULL::float AS costo_anterior,
+            NULL::float AS costo_nuevo,
             NULL::text AS estado_costo,
             NULL::timestamptz AS applied_at,
             importacion.created_at
@@ -1571,13 +1573,15 @@ export async function getImportacionItems(
         p.descripcion AS producto_descripcion,
         pii.precio_anterior::float AS precio_anterior,
         pii.precio_aplicado::float AS precio_aplicado,
+        cambio.costo_anterior::float AS costo_anterior,
+        cambio.costo_nuevo::float AS costo_nuevo,
         cambio.estado_aprobacion AS estado_costo,
         pii.applied_at,
         pii.created_at
       FROM public.proveedor_importacion_item pii
       LEFT JOIN public.productos p ON p.id = pii.id_producto
       LEFT JOIN LATERAL (
-        SELECT estado_aprobacion
+        SELECT estado_aprobacion, costo_anterior, costo_nuevo
         FROM public.proveedor_importacion_cambio_costo
         WHERE id_importacion = pii.id_importacion AND id_producto = pii.id_producto
         ORDER BY created_at DESC, id DESC

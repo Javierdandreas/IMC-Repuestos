@@ -500,20 +500,23 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                 </label>
                 <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-slate-500">50 por pagina</span>
               </div>
+              <p className="mb-2 text-[11px] font-semibold text-slate-400">La lista es el precio del proveedor; el costo de referencia del item puede cambiar por las reglas y el stock aunque la lista no cambie.</p>
               <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/30">
-                <div className="grid min-w-[1160px] grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_110px_minmax(170px,1.6fr)_96px_96px] gap-2 bg-slate-950 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <div className="grid min-w-[1380px] grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_110px_minmax(170px,1.6fr)_105px_105px_105px_105px] gap-2 bg-slate-950 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
                   <span>Fila</span>
                   <span>Proveedor</span>
                   <span>Codigo prov.</span>
-                  <span>Precio ARS</span>
+                  <span>Precio archivo</span>
                   <span>Stock</span>
                   <span>Estado</span>
                   <span>Costo</span>
                   <span>Item</span>
-                  <span>Anterior</span>
-                  <span>Aplicado</span>
+                  <span>Lista anterior</span>
+                  <span>Lista aplicada</span>
+                  <span>Costo anterior</span>
+                  <span>Costo calculado</span>
                 </div>
-                <div className="max-h-[430px] min-w-[1160px] divide-y divide-slate-800 overflow-y-auto">
+                <div className="max-h-[430px] min-w-[1380px] divide-y divide-slate-800 overflow-y-auto">
                   {isLoadingDetail ? (
                     <div className="px-5 py-8 text-center text-xs font-bold text-slate-500">Cargando detalle...</div>
                   ) : detailItems.length === 0 ? (
@@ -528,7 +531,7 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                     detailItems.map((row) => (
                       <div
                         key={row.id}
-                        className="grid grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_110px_minmax(170px,1.6fr)_96px_96px] items-center gap-2 px-3 py-4 text-xs transition hover:bg-slate-900/40"
+                        className="grid grid-cols-[48px_minmax(90px,0.9fr)_minmax(90px,0.9fr)_90px_100px_110px_110px_minmax(170px,1.6fr)_105px_105px_105px_105px] items-center gap-2 px-3 py-4 text-xs transition hover:bg-slate-900/40"
                       >
                         <span className="font-mono font-bold text-slate-500">{row.fila || "-"}</span>
                         <span className="truncate font-bold text-slate-300">{row.proveedor_archivo || "-"}</span>
@@ -563,6 +566,8 @@ export function ProveedorImportHistory({ id_proveedor, compact }: Props) {
                         </span>
                         <span className="font-mono font-black text-slate-400">{formatMoney(row.precio_anterior)}</span>
                         <span className="font-mono font-black text-green-300">{formatMoney(row.precio_aplicado)}</span>
+                        <span className="font-mono font-black text-slate-400">{formatMoney(row.costo_anterior)}</span>
+                        <span className="font-mono font-black text-amber-300">{formatMoney(row.costo_nuevo)}</span>
                       </div>
                     ))
                   )}
