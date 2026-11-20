@@ -266,32 +266,43 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
              ELSE base_precio + ($3::numeric * $5::numeric)
            END), 2) AS nuevo_precio
            FROM base
-         ), actualizados AS (
-           INSERT INTO public.producto_precio (id_producto, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo)
-           SELECT
-             id_producto,
-             $1,
-             nuevo_precio,
+         ), preparados AS (
+           SELECT id_producto, nuevo_precio,
              CASE
                WHEN modo_calculo = 'MARGEN_COSTO' AND COALESCE(costo_actual, 0) > 0
                  THEN ROUND(((nuevo_precio / costo_actual) - 1) * 100, 4)
                ELSE COALESCE(margen_actual, 0)
-             END,
+             END AS nuevo_margen,
              CASE
                WHEN modo_calculo = 'FIJO_MONEDA' THEN 'FIJO_ARS'
                WHEN modo_calculo = 'MARGEN_COSTO' AND COALESCE(costo_actual, 0) <= 0 THEN 'FIJO_ARS'
                ELSE modo_calculo
-             END
+             END AS nuevo_modo
            FROM calculados
-           ON CONFLICT (id_producto, id_tipo_precio) DO UPDATE
-           SET precio = EXCLUDED.precio,
-               porcentaje_ganancia = EXCLUDED.porcentaje_ganancia,
-               modo_calculo = EXCLUDED.modo_calculo
+         ), actualizados AS (
+           UPDATE public.producto_precio precio
+           SET precio = preparado.nuevo_precio,
+               porcentaje_ganancia = preparado.nuevo_margen,
+               modo_calculo = preparado.nuevo_modo
+           FROM preparados preparado
+           WHERE precio.id_producto = preparado.id_producto AND precio.id_tipo_precio = $1
+           RETURNING precio.id_producto
+         ), insertados AS (
+           INSERT INTO public.producto_precio (id_producto, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo)
+           SELECT preparado.id_producto, $1, preparado.nuevo_precio, preparado.nuevo_margen, preparado.nuevo_modo
+           FROM preparados preparado
+           WHERE NOT EXISTS (
+             SELECT 1 FROM actualizados WHERE id_producto = preparado.id_producto
+           )
            RETURNING id_producto
          )
          SELECT producto.id, producto.cod_unico
          FROM public.productos producto
-         INNER JOIN actualizados ON actualizados.id_producto = producto.id`,
+         INNER JOIN (
+           SELECT id_producto FROM actualizados
+           UNION
+           SELECT id_producto FROM insertados
+         ) cambios ON cambios.id_producto = producto.id`,
         [input.idTipoPrecio, itemIds, factor, input.tipoVariacionPrecio, importe],
       );
       productosActualizados = resultado.rows;
@@ -311,7 +322,15 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
            )
            UPDATE public.producto_precio costo
            SET porcentaje_ganancia = 0,
-               modo_calculo = 'FIJO_ARS'
+               modo_calculo = 'FIJO_ARS',
+               importe_origen = costo.precio,
+               moneda_origen = 'ARS',
+               referencia_cotizacion = NULL,
+               lado_cotizacion = NULL,
+               tipo_recargo_cotizacion = NULL,
+               recargo_cotizacion = NULL,
+               cotizacion_usada = 1,
+               actualizado_origen_at = NOW()
            FROM tipo_costo
            WHERE costo.id_producto = ANY($1::int[])
              AND costo.id_tipo_precio = tipo_costo.id`,
@@ -335,6 +354,7 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
              AND COALESCE(venta.modo_calculo, 'MARGEN_COSTO') = 'MARGEN_COSTO'`,
           [itemIds],
         );
+        await reemplazarCambiosPendientes(client, itemIds);
       }
 
       const variacion = `${input.variacionPrecio === "INCREMENTO" ? "Incremento" : "Descuento"} de ${importe}${input.tipoVariacionPrecio === "PORCENTAJE" ? "%" : " ARS"}`;
@@ -422,36 +442,37 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
       );
       if (!tipoCosto.rows[0]) throw new AppError("No existe la lista PRECIO COSTO", 503);
       await client.query(
-        `WITH base AS (
-           SELECT producto.id, COALESCE(costo.precio, 0) AS precio_ars
-           FROM public.productos producto
-           LEFT JOIN public.producto_precio costo
-             ON costo.id_producto = producto.id AND costo.id_tipo_precio = $2
-           WHERE producto.id = ANY($1::int[])
-         )
-         INSERT INTO public.producto_precio (
+        `UPDATE public.producto_precio costo
+         SET porcentaje_ganancia = 0,
+           modo_calculo = CASE WHEN $3::text = 'ARS' THEN 'FIJO_ARS' ELSE 'FIJO_MONEDA' END,
+           importe_origen = CASE WHEN $3::text = 'ARS' THEN costo.precio ELSE ROUND(costo.precio / $5::numeric, 8) END,
+           moneda_origen = $3,
+           referencia_cotizacion = $4,
+           lado_cotizacion = CASE WHEN $3::text = 'ARS' THEN NULL ELSE 'VENTA' END,
+           tipo_recargo_cotizacion = $6,
+           recargo_cotizacion = $7,
+           cotizacion_usada = $5,
+           actualizado_origen_at = NOW()
+         WHERE costo.id_producto = ANY($1::int[]) AND costo.id_tipo_precio = $2`,
+        [itemIds, tipoCosto.rows[0].id, moneda, referencia, cotizacion, tipoRecargo, recargo],
+      );
+      await client.query(
+        `INSERT INTO public.producto_precio (
            id_producto, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo,
            importe_origen, moneda_origen, referencia_cotizacion, lado_cotizacion,
            tipo_recargo_cotizacion, recargo_cotizacion, cotizacion_usada, actualizado_origen_at
          )
-         SELECT id, $2, precio_ars, 0,
+         SELECT producto.id, $2, 0, 0,
            CASE WHEN $3::text = 'ARS' THEN 'FIJO_ARS' ELSE 'FIJO_MONEDA' END,
-           CASE WHEN $3::text = 'ARS' THEN precio_ars ELSE ROUND(precio_ars / $5::numeric, 8) END,
+           0,
            $3, $4, CASE WHEN $3::text = 'ARS' THEN NULL ELSE 'VENTA' END,
            $6, $7, $5, NOW()
-         FROM base
-         ON CONFLICT (id_producto, id_tipo_precio) DO UPDATE SET
-           precio = EXCLUDED.precio,
-           porcentaje_ganancia = 0,
-           modo_calculo = EXCLUDED.modo_calculo,
-           importe_origen = EXCLUDED.importe_origen,
-           moneda_origen = EXCLUDED.moneda_origen,
-           referencia_cotizacion = EXCLUDED.referencia_cotizacion,
-           lado_cotizacion = EXCLUDED.lado_cotizacion,
-           tipo_recargo_cotizacion = EXCLUDED.tipo_recargo_cotizacion,
-           recargo_cotizacion = EXCLUDED.recargo_cotizacion,
-           cotizacion_usada = EXCLUDED.cotizacion_usada,
-           actualizado_origen_at = NOW()`,
+         FROM public.productos producto
+         WHERE producto.id = ANY($1::int[])
+           AND NOT EXISTS (
+             SELECT 1 FROM public.producto_precio costo
+             WHERE costo.id_producto = producto.id AND costo.id_tipo_precio = $2
+           )`,
         [itemIds, tipoCosto.rows[0].id, moneda, referencia, cotizacion, tipoRecargo, recargo],
       );
       await reemplazarCambiosPendientes(client, itemIds);
@@ -491,7 +512,10 @@ async function fijarCostoBaseManual(client: DbClient, itemIds: number[], idsAnte
      SELECT producto.id, $2, 0, 0, 'FIJO_ARS', 0, 'ARS', 1, NOW()
      FROM public.productos producto
      WHERE producto.id = ANY($1::int[])
-     ON CONFLICT (id_producto, id_tipo_precio) DO NOTHING`,
+       AND NOT EXISTS (
+         SELECT 1 FROM public.producto_precio costo
+         WHERE costo.id_producto = producto.id AND costo.id_tipo_precio = $2
+       )`,
     [itemIds, tipoCosto.rows[0].id],
   );
   await client.query(
