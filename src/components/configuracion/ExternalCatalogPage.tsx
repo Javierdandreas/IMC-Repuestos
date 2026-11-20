@@ -62,6 +62,7 @@ function Metric({ label, value, tone = "slate" }: { label: string; value: number
 export function ExternalCatalogPage() {
   const router = useRouter();
   const [runs, setRuns] = useState<SyncRun[]>([]);
+  const [ultimaLecturaGesu, setUltimaLecturaGesu] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -75,6 +76,7 @@ export function ExternalCatalogPage() {
         if (!response.ok) throw new Error(data.message || "No se pudo consultar el historial de GESU.");
         if (active) {
           setRuns(Array.isArray(data.ejecuciones) ? data.ejecuciones : []);
+          setUltimaLecturaGesu(typeof data.ultimaLecturaGesu === "string" ? data.ultimaLecturaGesu : null);
           setError("");
         }
       } catch (requestError) {
@@ -102,7 +104,11 @@ export function ExternalCatalogPage() {
               <h1 className="text-2xl font-black text-slate-900 dark:text-white">GESU</h1>
               <p className="mt-1 text-sm font-medium text-slate-500">Historial de sincronizaciones automaticas.</p>
             </div>
-            <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-500"><HiClock className="h-4 w-4" /> Cada 30 minutos</span>
+            <div className="text-xs font-semibold text-slate-500">
+              <p className="inline-flex items-center gap-2 font-bold"><HiClock className="h-4 w-4" /> Ejecución programada cada 15 minutos</p>
+              <p className="mt-1">Última lectura nueva de GESU: {ultimaLecturaGesu ? formatDate(ultimaLecturaGesu) : "sin datos"}</p>
+              <p className="mt-1 max-w-md">Si aun no pasaron 15 minutos desde la lectura anterior, se reutilizan esos datos. Por eso puede haber 30 minutos entre consultas nuevas.</p>
+            </div>
           </div>
         </header>
 
@@ -154,7 +160,17 @@ export function ExternalCatalogPage() {
                       <td className="px-4 py-4 text-right font-bold text-emerald-600 dark:text-emerald-300">{run.kitsNuevos.toLocaleString("es-AR")}</td>
                       <td className="px-4 py-4 text-right font-bold text-amber-600 dark:text-amber-300">{run.productosModificados.toLocaleString("es-AR")}</td>
                       <td className="px-4 py-4">
-                        {run.errorCount ? <div className="max-w-64 text-xs font-semibold text-red-600 dark:text-red-300"><span className="font-black">{run.errorCount} error{run.errorCount === 1 ? "" : "es"}</span>{run.errores[0] ? <p className="mt-1 break-words text-slate-500 dark:text-slate-400">{run.errores[0]}</p> : null}</div> : <span className="text-xs font-semibold text-slate-400">Sin errores</span>}
+                        {run.errorCount ? (
+                          <details className="max-w-96 text-xs font-semibold text-red-600 dark:text-red-300" open={run.id === latest?.id}>
+                            <summary className="cursor-pointer font-black">{run.errorCount} error{run.errorCount === 1 ? "" : "es"} · Ver detalle</summary>
+                            {run.errores.length > 0 ? (
+                              <ol className="mt-2 list-decimal space-y-2 pl-5 text-slate-600 dark:text-slate-400">
+                                {run.errores.map((message, index) => <li key={`${run.id}-${index}`} className="break-words">{message}</li>)}
+                              </ol>
+                            ) : <p className="mt-2 text-slate-500">No se guardó el detalle de esta ejecución.</p>}
+                            {run.errorCount > run.errores.length ? <p className="mt-2 text-slate-500">Se guardó el detalle de los primeros {run.errores.length} de {run.errorCount} errores.</p> : null}
+                          </details>
+                        ) : <span className="text-xs font-semibold text-slate-400">Sin errores</span>}
                       </td>
                     </tr>
                   ))}

@@ -372,6 +372,16 @@ export async function getGesuSyncRuns(limit = 100): Promise<GesuSyncRun[]> {
   return result.rows.map(toGesuSyncRun);
 }
 
+export async function getGesuLatestSourceRead(): Promise<string | null> {
+  const result = await query<{ consultado_at: string }>(
+    `SELECT consultado_at FROM public.catalogo_externo_sincronizacion
+     WHERE origen = $1 AND sync_run_id LIKE 'GESU-%'
+     ORDER BY consultado_at DESC LIMIT 1`,
+    [ORIGIN],
+  );
+  return result.rows[0]?.consultado_at ?? null;
+}
+
 function payload(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
   if (typeof value !== "string" || !value.trim()) return {};
@@ -662,7 +672,7 @@ function stageRows(
   const errors: string[] = [];
   let errorCount = 0;
   const accepted: Item[] = [];
-  const codes = new Set<string>();
+  const codes = new Map<string, Item>();
 
   for (const row of rows) {
     const item = parseRow(row);
@@ -674,10 +684,16 @@ function stageRows(
     }
     if (!item.code || codes.has(item.code)) {
       errorCount += 1;
-      if (errors.length < SAMPLE_LIMIT) errors.push(item.code ? `${item.code}: codigo repetido en el catalogo externo.` : `Registro ${item.sourceId}: sin codigo interno.`);
+      if (errors.length < SAMPLE_LIMIT) {
+        const first = codes.get(item.code);
+        const describe = (record: Item) => `${record.type === "GRUPO" ? "kit" : "item"} ID ${record.sourceRowId}${record.title ? ` (${record.title.slice(0, 100)})` : ""}`;
+        errors.push(first
+          ? `${item.code}: código repetido en GESU entre ${describe(first)} y ${describe(item)}. Se omitió el segundo registro.`
+          : `Registro ${item.sourceRowId} (${item.type === "GRUPO" ? "kit" : "item"}): sin código interno.`);
+      }
       continue;
     }
-    codes.add(item.code);
+    codes.set(item.code, item);
     accepted.push(item);
   }
 
