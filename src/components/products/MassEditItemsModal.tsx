@@ -270,7 +270,7 @@ export function MassEditItemsModal({
               <option value="">Seleccionar</option>
               {CRITERIOS_COSTO.map((criterio) => <option key={criterio.value} value={criterio.value}>{criterio.label}</option>)}
             </select>
-            <span className="text-xs leading-5 text-slate-500 dark:text-slate-400">Manual conserva el costo actual y permite editarlo en la lista. Menor, Promedio y Mayor recalculan desde proveedores; los cambios que superen el umbral quedan pendientes de aprobación.</span>
+            <span className="text-xs leading-5 text-slate-500 dark:text-slate-400">Manual conserva el importe y la moneda de origen del costo actual, y permite editarlo en la lista. Menor, Promedio y Mayor recalculan desde proveedores; los cambios que superen el umbral quedan pendientes de aprobación.</span>
           </label>
         )}
         {campo === "MONEDA_COSTO" && (

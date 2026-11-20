@@ -519,18 +519,28 @@ async function fijarCostoBaseManual(client: DbClient, itemIds: number[], idsAnte
     [itemIds, tipoCosto.rows[0].id],
   );
   await client.query(
-    `UPDATE public.producto_precio costo
-     SET modo_calculo = 'FIJO_ARS',
-       importe_origen = costo.precio,
-       moneda_origen = 'ARS',
-       referencia_cotizacion = NULL,
-       lado_cotizacion = NULL,
-       tipo_recargo_cotizacion = NULL,
-       recargo_cotizacion = NULL,
-       cotizacion_usada = 1,
+    `WITH origen AS (
+       SELECT id,
+         moneda_origen IN ('USD', 'EUR', 'BRL')
+           AND importe_origen IS NOT NULL
+           AND referencia_cotizacion IS NOT NULL
+           AND lado_cotizacion IS NOT NULL AS conserva_moneda
+       FROM public.producto_precio
+       WHERE id_producto = ANY($1::int[]) AND id_tipo_precio = $2
+     )
+     UPDATE public.producto_precio costo
+     SET modo_calculo = CASE WHEN origen.conserva_moneda THEN 'FIJO_MONEDA' ELSE 'FIJO_ARS' END,
+       importe_origen = CASE WHEN origen.conserva_moneda THEN costo.importe_origen ELSE costo.precio END,
+       moneda_origen = CASE WHEN origen.conserva_moneda THEN costo.moneda_origen ELSE 'ARS' END,
+       referencia_cotizacion = CASE WHEN origen.conserva_moneda THEN costo.referencia_cotizacion ELSE NULL END,
+       lado_cotizacion = CASE WHEN origen.conserva_moneda THEN costo.lado_cotizacion ELSE NULL END,
+       tipo_recargo_cotizacion = CASE WHEN origen.conserva_moneda THEN costo.tipo_recargo_cotizacion ELSE NULL END,
+       recargo_cotizacion = CASE WHEN origen.conserva_moneda THEN costo.recargo_cotizacion ELSE NULL END,
+       cotizacion_usada = CASE WHEN origen.conserva_moneda THEN costo.cotizacion_usada ELSE 1 END,
        porcentaje_ganancia = 0,
        actualizado_origen_at = NOW()
-     WHERE costo.id_producto = ANY($1::int[]) AND costo.id_tipo_precio = $2`,
+     FROM origen
+     WHERE costo.id = origen.id`,
     [idsAntesAutomaticos, tipoCosto.rows[0].id],
   );
 }
