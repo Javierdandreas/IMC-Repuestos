@@ -1,6 +1,7 @@
 import "server-only";
 import { AppError } from "@/lib/api-errors";
 import { query, withTransaction, type DbClient } from "@/lib/db-utils";
+import { analizarRespuestaClientesGesu, GesuClientesRespuestaError } from "@/lib/gesu-clientes-respuesta";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const RUN_STALE_AFTER_MS = 10 * 60 * 1000;
@@ -38,7 +39,6 @@ type GesuPersona = {
   contacto3_email?: unknown;
 };
 
-type GesuResponse = { header?: GesuHeader; data?: Record<string, GesuPersona> };
 type SyncState = { pagina_actual: number; ciclo: number };
 type PriceType = { id: number; descripcion: string };
 
@@ -113,13 +113,9 @@ async function fetchPage(page: number): Promise<{ header: GesuHeader; records: G
   try {
     const response = await fetch(endpointFor(page), { signal: controller.signal, cache: "no-store" });
     if (!response.ok) throw new AppError(`GESU devolvio HTTP ${response.status} al consultar clientes.`, 502);
-    const payload = await response.json() as GesuResponse;
-    if (!payload || typeof payload !== "object" || !payload.header || !payload.data || typeof payload.data !== "object") {
-      throw new AppError("GESU devolvio una respuesta de clientes invalida.", 502);
-    }
-    return { header: payload.header, records: Object.values(payload.data) };
+    return analizarRespuestaClientesGesu(await response.json());
   } catch (error) {
-    if (error instanceof AppError) throw error;
+    if (error instanceof AppError || error instanceof GesuClientesRespuestaError) throw error;
     const message = error instanceof Error && error.name === "AbortError" ? "La consulta de clientes a GESU excedio el tiempo limite." : "No se pudo consultar clientes en GESU.";
     throw new AppError(message, 502);
   } finally {
@@ -186,11 +182,11 @@ export async function sincronizarClientesGesu() {
   if (!state) return { skipped: true, reason: "Ya hay una sincronizacion de clientes en curso." };
   try {
     const response = await fetchPage(state.pagina_actual);
-    const total = toPositiveInteger(response.header.data_tot);
+    const total = Number(response.header.data_tot);
     const perPage = toPositiveInteger(response.header.data_pag);
-    if (!total || !perPage) throw new AppError("GESU no informo encabezados validos para clientes.", 502);
+    if (!Number.isSafeInteger(total) || total<0 || !perPage) throw new AppError("GESU no informo encabezados validos para clientes.", 502);
     const totalPages = Math.max(1, Math.ceil(total / perPage));
-    if (state.pagina_actual > totalPages) throw new AppError("La pagina de clientes configurada excede el total informado por GESU.", 502);
+    if (state.pagina_actual > totalPages) throw new GesuClientesRespuestaError("PAGINA_FUERA_RANGO", "El catalogo de clientes ahora tiene menos paginas.");
     const imported = await withTransaction((client) => importInitialClients(client, response.records));
     const completed = state.pagina_actual >= totalPages;
     await query(`
@@ -207,7 +203,14 @@ export async function sincronizarClientesGesu() {
     `, [completed ? 1 : state.pagina_actual + 1, totalPages, completed]);
     return { skipped: false, page: state.pagina_actual, totalPages, total, completed, ...imported };
   } catch (error) {
+    if (error instanceof GesuClientesRespuestaError && error.codigo === "PAGINA_FUERA_RANGO" && state.pagina_actual>1) {
+      await query(`UPDATE public.gesu_clientes_sincronizacion
+        SET pagina_actual=1, ejecutando_at=NULL, ultimo_error=$1, updated_at=now()
+        WHERE id=true AND pagina_actual=$2`, ["GESU rechazo una pagina fuera de rango. La proxima ejecucion vuelve a consultar la pagina 1.", state.pagina_actual]);
+      return { skipped:true, reason:"Pagina fuera de rango; se retoma desde pagina 1 en la proxima ejecucion.", page:state.pagina_actual, nextPage:1 };
+    }
     await markFailure(error);
+    if (error instanceof GesuClientesRespuestaError) throw new AppError(error.message, error.codigo === "LIMITE_CONSULTAS" ? 429 : 502);
     throw error;
   }
 }
