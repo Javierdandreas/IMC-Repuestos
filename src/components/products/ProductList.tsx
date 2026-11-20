@@ -113,6 +113,103 @@ function formatCriterioCosto(value: ItemListadoUnificado["criterio_costo"]) {
   return labels[String(value ?? "")] || "Sin criterio";
 }
 
+function parseCostoEditable(value: string): number | null {
+  const limpio = value.trim().replace(/\s/g, "");
+  if (!limpio) return null;
+  const milesConComa = /^\d{1,3}(?:\.\d{3})+,\d+$/.test(limpio);
+  const decimal = /^\d+(?:[.,]\d+)?$/.test(limpio);
+  if (!milesConComa && !decimal) return null;
+  const numero = Number(milesConComa ? limpio.replace(/\./g, "").replace(",", ".") : limpio.replace(",", "."));
+  return Number.isFinite(numero) && numero >= 0 ? numero : null;
+}
+
+function ManualCostCell({ product, tipoCosto, onSaved }: {
+  product: ItemListadoUnificado;
+  tipoCosto: TipoPrecio;
+  onSaved: () => void;
+}) {
+  const precio = product.precios?.find((item) => item.id_tipo_precio === tipoCosto.id);
+  const extranjera = precio?.modo_calculo === "FIJO_MONEDA"
+    && precio.moneda_origen && precio.moneda_origen !== "ARS" && precio.referencia_cotizacion;
+  const codigoCotizacion = extranjera ? `${precio.moneda_origen}_${precio.referencia_cotizacion}` : "ARS";
+  const importeActual = extranjera ? Number(precio.importe_origen ?? precio.valor) : Number(precio?.valor ?? 0);
+  const [valor, setValor] = useState(String(importeActual));
+  const [guardando, setGuardando] = useState(false);
+  const importeGuardadoRef = useRef(importeActual);
+  const editingRef = useRef(false);
+  const savingRef = useRef(false);
+  const cancelRef = useRef(false);
+
+  useEffect(() => {
+    if (!editingRef.current && !savingRef.current) {
+      importeGuardadoRef.current = importeActual;
+      setValor(String(importeActual));
+    }
+  }, [importeActual, codigoCotizacion]);
+
+  const guardar = async () => {
+    if (cancelRef.current) {
+      cancelRef.current = false;
+      setValor(String(importeGuardadoRef.current));
+      return;
+    }
+    if (savingRef.current) return;
+    const nuevoImporte = parseCostoEditable(valor);
+    if (nuevoImporte === null) {
+      setValor(String(importeGuardadoRef.current));
+      toast.error("Ingresa un costo valido mayor o igual a cero");
+      return;
+    }
+    if (Math.abs(nuevoImporte - importeGuardadoRef.current) < 0.00000001) {
+      setValor(String(importeGuardadoRef.current));
+      return;
+    }
+    savingRef.current = true;
+    setGuardando(true);
+    try {
+      const response = await fetch(`/api/productos/${product.id}/costo-manual`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ importeOrigen: nuevoImporte, codigoCotizacionEsperado: codigoCotizacion }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "No se pudo guardar el costo manual");
+      importeGuardadoRef.current = Number(result.importeOrigen);
+      setValor(String(result.importeOrigen));
+      if (result.modificado) {
+        toast.success("Costo manual guardado");
+        onSaved();
+      }
+    } catch (error) {
+      setValor(String(importeGuardadoRef.current));
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar el costo manual");
+    } finally {
+      savingRef.current = false;
+      setGuardando(false);
+    }
+  };
+
+  return <div className="flex h-8 items-center gap-1 rounded-md border border-blue-200 bg-white px-1.5 text-slate-900 shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 dark:border-blue-600/60 dark:bg-white dark:text-slate-900" title="Costo manual editable; se guarda al salir o presionar Enter">
+    <span className="shrink-0 text-[10px] font-black">{extranjera ? precio.moneda_origen === "USD" && precio.referencia_cotizacion === "BLUE" ? "u$B" : precio.moneda_origen : "$"}</span>
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={`Costo manual de ${product.cod_unico} en ${extranjera ? precio.moneda_origen : "ARS"}`}
+      value={valor}
+      disabled={guardando}
+      onFocus={() => { editingRef.current = true; }}
+      onChange={(event) => setValor(event.target.value)}
+      onBlur={() => { editingRef.current = false; void guardar(); }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") { cancelRef.current = true; event.currentTarget.blur(); }
+      }}
+      className="min-w-0 w-full bg-transparent text-right text-[11px] font-bold tabular-nums outline-none disabled:opacity-50"
+    />
+    {guardando && <span className="text-[9px] text-blue-600">...</span>}
+  </div>;
+}
+
 function formatMargenLista(precio: NonNullable<ItemListadoUnificado["precios"]>[number]) {
   if (normalizarTipoPrecio(precio.tipo_descripcion) === "COSTO BASE") return "Costo base";
   if (precio.modo_calculo && precio.modo_calculo !== "MARGEN_COSTO") return "Precio fijo";
@@ -1104,8 +1201,10 @@ export function ProductList({ products, totalPages = 1, currentPage = 1, totalCo
                         </button>
                       )}
                     </td>
-                    <td className="px-2 py-3 text-right text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200" title="Costo de compra">
-                      {formatPrecioCompra(product, tipoCompra)}
+                    <td className="px-2 py-3 text-right text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200" title={product.tipo === "ITEM" && product.criterio_costo === "MANUAL" ? "Costo manual editable" : "Costo de compra"}>
+                      {canManage && product.tipo === "ITEM" && product.criterio_costo === "MANUAL" && tipoCompra
+                        ? <ManualCostCell product={product} tipoCosto={tipoCompra} onSaved={() => router.refresh()} />
+                        : formatPrecioCompra(product, tipoCompra)}
                     </td>
                     <td className="px-2 py-3 text-right text-[11px] font-black tabular-nums text-blue-600 dark:text-blue-300" title={tipoVentaSeleccionado?.descripcion ?? "Precio de venta"}>
                       {formatMoney(obtenerPrecioListado(product, tipoVentaSeleccionado))}

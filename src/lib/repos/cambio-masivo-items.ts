@@ -2,7 +2,10 @@ import { type DbClient, withTransaction } from "@/lib/db-utils";
 import { AppError } from "@/lib/api-errors";
 import { recalcularCostosProveedorProductos } from "@/lib/costos-proveedor";
 import { capturarCostosReferencia, registrarCambiosCostoReferencia } from "@/lib/cambios-costo-referencia";
-import { CRITERIOS_COSTO, type CriterioCosto } from "@/lib/costos";
+import { type CriterioCosto } from "@/lib/costos";
+import { obtenerCotizacionVigenteAjustada } from "@/lib/precios-multimoneda";
+
+const CRITERIOS_MASIVOS = ["MANUAL", "MENOR_PRECIO", "PROMEDIO_PRECIO", "MAYOR_PRECIO"] as const;
 
 export type TipoItemMasivo = "ITEM" | "KIT";
 export type CampoCambioMasivo =
@@ -15,6 +18,7 @@ export type CampoCambioMasivo =
   | "PALABRAS_CLAVE"
   | "PIEZA"
   | "CRITERIO_COSTO"
+  | "MONEDA_COSTO"
   | "PRECIOS";
 
 type VariacionPrecioMasivo = "INCREMENTO" | "DESCUENTO";
@@ -30,6 +34,7 @@ export type CambioMasivoItemsInput = {
   idUbicacion?: number;
   idPieza?: number;
   criterioCosto?: CriterioCosto;
+  codigoCotizacionCosto?: string;
   idTipoPrecio?: number;
   variacionPrecio?: VariacionPrecioMasivo;
   tipoVariacionPrecio?: TipoVariacionPrecioMasivo;
@@ -345,11 +350,17 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
     let seguimientoCosto: { cambios: number; pendientes: number; preciosRecalculados: number; costosDisponibles: number } | null = null;
     if (input.campo === "CRITERIO_COSTO") {
       const criterio = input.criterioCosto;
-      if (!criterio || !CRITERIOS_COSTO.includes(criterio)) {
+      if (!criterio || !CRITERIOS_MASIVOS.includes(criterio as typeof CRITERIOS_MASIVOS[number])) {
         throw new AppError("Selecciona un criterio de costo valido", 400);
       }
 
-      const costosAntes = await capturarCostosReferencia(client, itemIds);
+      const costosAntes = criterio === "MANUAL" ? [] : await capturarCostosReferencia(client, itemIds);
+      const criteriosAnteriores = criterio === "MANUAL"
+        ? await client.query<{ id: number; criterio_costo: string }>(
+          "SELECT id, criterio_costo FROM public.productos WHERE id = ANY($1::int[])",
+          [itemIds],
+        )
+        : null;
       await actualizarProductos(
         `UPDATE public.productos
          SET criterio_costo = $1
@@ -359,22 +370,145 @@ export async function aplicarCambioMasivoItems(input: CambioMasivoItemsInput) {
         "Criterio de costo actualizado masivamente",
         `Criterio de costo establecido en ${criterio} desde el listado general`,
       );
-      await recalcularCostosProveedorProductos(client, { productIds: itemIds });
-      seguimientoCosto = await registrarCambiosCostoReferencia(client, costosAntes, {
-        origen: "CRITERIO_MASIVO",
-        detalle: `Criterio de costo asignado desde el listado general: ${criterio}.`,
-      });
+      if (criterio === "MANUAL") {
+        await fijarCostoBaseManual(client, itemIds,
+          criteriosAnteriores!.rows.filter((item) => item.criterio_costo !== "MANUAL").map((item) => Number(item.id)));
+        await reemplazarCambiosPendientes(client, itemIds);
+      } else {
+        await recalcularCostosProveedorProductos(client, { productIds: itemIds });
+        seguimientoCosto = await registrarCambiosCostoReferencia(client, costosAntes, {
+          origen: "CRITERIO_MASIVO",
+          detalle: `Criterio de costo asignado desde el listado general: ${criterio}.`,
+        });
+      }
+    }
+
+    if (input.campo === "MONEDA_COSTO") {
+      const codigo = input.codigoCotizacionCosto;
+      if (!codigo) throw new AppError("Selecciona una moneda y cotizacion", 400);
+      let moneda = "ARS";
+      let referencia: string | null = null;
+      let tipoRecargo: string | null = null;
+      let recargo: number | null = null;
+      let cotizacion = 1;
+      if (codigo !== "ARS") {
+        const configuracion = await client.query<{
+          moneda: string;
+          referencia: string;
+        }>(
+          "SELECT moneda, referencia FROM public.moneda_cotizacion_configuracion WHERE codigo = $1 AND moneda <> 'ARS' LIMIT 1",
+          [codigo],
+        );
+        const elegida = configuracion.rows[0];
+        if (!elegida || !["USD", "EUR", "BRL"].includes(elegida.moneda)) {
+          throw new AppError("La cotizacion seleccionada no esta configurada", 400);
+        }
+        const vigente = await obtenerCotizacionVigenteAjustada(client, elegida.moneda, elegida.referencia, "VENTA");
+        moneda = elegida.moneda;
+        referencia = elegida.referencia;
+        tipoRecargo = vigente.tipoRecargo;
+        recargo = vigente.recargo;
+        cotizacion = vigente.valor;
+      }
+
+      await actualizarProductos(
+        "UPDATE public.productos SET criterio_costo = 'MANUAL' WHERE id = ANY($1::int[]) RETURNING id, cod_unico",
+        [itemIds],
+        "Moneda del costo base actualizada masivamente",
+        `Costo base expresado en ${codigo} sin cambiar su equivalente en ARS`,
+      );
+      const tipoCosto = await client.query<{ id: number }>(
+        "SELECT id FROM public.tipo_precio WHERE upper(trim(descripcion)) = 'PRECIO COSTO' ORDER BY id LIMIT 1",
+      );
+      if (!tipoCosto.rows[0]) throw new AppError("No existe la lista PRECIO COSTO", 503);
+      await client.query(
+        `WITH base AS (
+           SELECT producto.id, COALESCE(costo.precio, 0) AS precio_ars
+           FROM public.productos producto
+           LEFT JOIN public.producto_precio costo
+             ON costo.id_producto = producto.id AND costo.id_tipo_precio = $2
+           WHERE producto.id = ANY($1::int[])
+         )
+         INSERT INTO public.producto_precio (
+           id_producto, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo,
+           importe_origen, moneda_origen, referencia_cotizacion, lado_cotizacion,
+           tipo_recargo_cotizacion, recargo_cotizacion, cotizacion_usada, actualizado_origen_at
+         )
+         SELECT id, $2, precio_ars, 0,
+           CASE WHEN $3::text = 'ARS' THEN 'FIJO_ARS' ELSE 'FIJO_MONEDA' END,
+           CASE WHEN $3::text = 'ARS' THEN precio_ars ELSE ROUND(precio_ars / $5::numeric, 8) END,
+           $3, $4, CASE WHEN $3::text = 'ARS' THEN NULL ELSE 'VENTA' END,
+           $6, $7, $5, NOW()
+         FROM base
+         ON CONFLICT (id_producto, id_tipo_precio) DO UPDATE SET
+           precio = EXCLUDED.precio,
+           porcentaje_ganancia = 0,
+           modo_calculo = EXCLUDED.modo_calculo,
+           importe_origen = EXCLUDED.importe_origen,
+           moneda_origen = EXCLUDED.moneda_origen,
+           referencia_cotizacion = EXCLUDED.referencia_cotizacion,
+           lado_cotizacion = EXCLUDED.lado_cotizacion,
+           tipo_recargo_cotizacion = EXCLUDED.tipo_recargo_cotizacion,
+           recargo_cotizacion = EXCLUDED.recargo_cotizacion,
+           cotizacion_usada = EXCLUDED.cotizacion_usada,
+           actualizado_origen_at = NOW()`,
+        [itemIds, tipoCosto.rows[0].id, moneda, referencia, cotizacion, tipoRecargo, recargo],
+      );
+      await reemplazarCambiosPendientes(client, itemIds);
     }
 
     return {
       itemsActualizados: productosActualizados.length,
       kitsActualizados,
-      kitsOmitidos: ["PROVEEDOR", "UBICACION", "PALABRAS_CLAVE", "PIEZA", "CRITERIO_COSTO", "PRECIOS"].includes(input.campo) ? kitIds.length : 0,
+      kitsOmitidos: ["PROVEEDOR", "UBICACION", "PALABRAS_CLAVE", "PIEZA", "CRITERIO_COSTO", "MONEDA_COSTO", "PRECIOS"].includes(input.campo) ? kitIds.length : 0,
       cambiosCosto: seguimientoCosto?.cambios ?? 0,
       cambiosPendientes: seguimientoCosto?.pendientes ?? 0,
       preciosRecalculados: seguimientoCosto?.preciosRecalculados ?? 0,
     };
   });
+}
+
+async function reemplazarCambiosPendientes(client: DbClient, itemIds: number[]) {
+  if (!itemIds.length) return;
+  await client.query(
+    `UPDATE public.proveedor_importacion_cambio_costo
+     SET estado_aprobacion = 'REEMPLAZADO', resuelto_at = NOW(), resuelto_por = NULL
+     WHERE estado_aprobacion = 'PENDIENTE' AND id_producto = ANY($1::int[])`,
+    [itemIds],
+  );
+}
+
+async function fijarCostoBaseManual(client: DbClient, itemIds: number[], idsAntesAutomaticos: number[]) {
+  if (!itemIds.length) return;
+  const tipoCosto = await client.query<{ id: number }>(
+    "SELECT id FROM public.tipo_precio WHERE upper(trim(descripcion)) = 'PRECIO COSTO' ORDER BY id LIMIT 1",
+  );
+  if (!tipoCosto.rows[0]) throw new AppError("No existe la lista PRECIO COSTO", 503);
+  await client.query(
+    `INSERT INTO public.producto_precio
+       (id_producto, id_tipo_precio, precio, porcentaje_ganancia, modo_calculo,
+        importe_origen, moneda_origen, cotizacion_usada, actualizado_origen_at)
+     SELECT producto.id, $2, 0, 0, 'FIJO_ARS', 0, 'ARS', 1, NOW()
+     FROM public.productos producto
+     WHERE producto.id = ANY($1::int[])
+     ON CONFLICT (id_producto, id_tipo_precio) DO NOTHING`,
+    [itemIds, tipoCosto.rows[0].id],
+  );
+  await client.query(
+    `UPDATE public.producto_precio costo
+     SET modo_calculo = 'FIJO_ARS',
+       importe_origen = costo.precio,
+       moneda_origen = 'ARS',
+       referencia_cotizacion = NULL,
+       lado_cotizacion = NULL,
+       tipo_recargo_cotizacion = NULL,
+       recargo_cotizacion = NULL,
+       cotizacion_usada = 1,
+       porcentaje_ganancia = 0,
+       actualizado_origen_at = NOW()
+     WHERE costo.id_producto = ANY($1::int[]) AND costo.id_tipo_precio = $2`,
+    [idsAntesAutomaticos, tipoCosto.rows[0].id],
+  );
 }
 
 async function registrarActividadesMasivas(

@@ -9,7 +9,14 @@ import { useAppError } from "@/context/AppErrorContext";
 import type { ItemListadoUnificado } from "@/lib/repos/items-unificados";
 import type { PiezaBusqueda, TipoPrecio } from "@/interfaces/productos";
 
-type Campo = "CLASIFICACION" | "MARCA" | "PROVEEDOR" | "UBICACION" | "STOCK_MINIMO" | "OBSERVACION" | "PALABRAS_CLAVE" | "PIEZA" | "CRITERIO_COSTO" | "PRECIOS";
+type Campo = "CLASIFICACION" | "MARCA" | "PROVEEDOR" | "UBICACION" | "STOCK_MINIMO" | "OBSERVACION" | "PALABRAS_CLAVE" | "PIEZA" | "CRITERIO_COSTO" | "MONEDA_COSTO" | "PRECIOS";
+
+type CotizacionCosto = {
+  codigo: string;
+  etiqueta: string;
+  moneda: "ARS" | "USD" | "EUR" | "BRL";
+  valorVenta: number | null;
+};
 
 type Props = {
   open: boolean;
@@ -35,11 +42,11 @@ const CAMPOS: Array<{ value: Campo; label: string; aplica: string }> = [
   { value: "PALABRAS_CLAVE", label: "Palabras clave", aplica: "Solo items" },
   { value: "PIEZA", label: "Asignar numero de pieza", aplica: "Solo items" },
   { value: "CRITERIO_COSTO", label: "Criterio de costo", aplica: "Solo items" },
+  { value: "MONEDA_COSTO", label: "Moneda del costo base", aplica: "Solo items" },
   { value: "PRECIOS", label: "Precios", aplica: "Solo items" },
 ];
 
 const CRITERIOS_COSTO = [
-  { value: "PROVEEDOR_UNICO", label: "Proveedor único" },
   { value: "MANUAL", label: "Manual" },
   { value: "MENOR_PRECIO", label: "Menor costo neto" },
   { value: "PROMEDIO_PRECIO", label: "Promedio de costos netos" },
@@ -67,6 +74,9 @@ export function MassEditItemsModal({
   const [texto, setTexto] = useState("");
   const [stockMinimo, setStockMinimo] = useState("0");
   const [idTipoPrecio, setIdTipoPrecio] = useState("");
+  const [codigoCotizacionCosto, setCodigoCotizacionCosto] = useState("ARS");
+  const [cotizacionesCosto, setCotizacionesCosto] = useState<CotizacionCosto[]>([]);
+  const [errorCotizaciones, setErrorCotizaciones] = useState("");
   const [variacionPrecio, setVariacionPrecio] = useState<"INCREMENTO" | "DESCUENTO">("INCREMENTO");
   const [tipoVariacionPrecio, setTipoVariacionPrecio] = useState<"MONTO_FIJO" | "PORCENTAJE">("PORCENTAJE");
   const [importePrecio, setImportePrecio] = useState("");
@@ -79,7 +89,7 @@ export function MassEditItemsModal({
 
   const totalItems = searchItemSelection?.count ?? items.filter((item) => item.tipo === "ITEM").length;
   const totalKits = searchItemSelection ? 0 : items.length - totalItems;
-  const soloItems = campo === "PROVEEDOR" || campo === "UBICACION" || campo === "PALABRAS_CLAVE" || campo === "PIEZA" || campo === "CRITERIO_COSTO" || campo === "PRECIOS";
+  const soloItems = campo === "PROVEEDOR" || campo === "UBICACION" || campo === "PALABRAS_CLAVE" || campo === "PIEZA" || campo === "CRITERIO_COSTO" || campo === "MONEDA_COSTO" || campo === "PRECIOS";
   const listasPrecio = useMemo(() => tiposPrecio.filter((tipo) => tipo.activo !== false), [tiposPrecio]);
   const subcategoriasDisponibles = useMemo(
     () => subcategorias.filter((item) => String(item.id_categoria) === idCategoria),
@@ -95,6 +105,9 @@ export function MassEditItemsModal({
     setTexto("");
     setStockMinimo("0");
     setIdTipoPrecio("");
+    setCodigoCotizacionCosto("ARS");
+    setCotizacionesCosto([]);
+    setErrorCotizaciones("");
     setVariacionPrecio("INCREMENTO");
     setTipoVariacionPrecio("PORCENTAJE");
     setImportePrecio("");
@@ -103,6 +116,23 @@ export function MassEditItemsModal({
     setPiezaSeleccionada(null);
     setConfirmingPieza(false);
   }, [open]);
+
+  useEffect(() => {
+    if (!open || campo !== "MONEDA_COSTO") return;
+    let cancelled = false;
+    fetch("/api/multimoneda", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("No se pudieron cargar las cotizaciones de Multimoneda");
+        return response.json() as Promise<{ cotizaciones: CotizacionCosto[] }>;
+      })
+      .then((panel) => {
+        if (!cancelled) setCotizacionesCosto(panel.cotizaciones.filter((quote) => quote.moneda !== "ARS"));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setErrorCotizaciones(error instanceof Error ? error.message : "No se pudieron cargar las cotizaciones");
+      });
+    return () => { cancelled = true; };
+  }, [open, campo]);
 
   useEffect(() => {
     if (campo !== "PIEZA" || piezaSeleccionada || busquedaPieza.trim().length < 2) {
@@ -136,6 +166,11 @@ export function MassEditItemsModal({
     }
     if (campo === "CRITERIO_COSTO" && !CRITERIOS_COSTO.some((criterio) => criterio.value === valor)) {
       toast.error("Selecciona un criterio de costo");
+      return;
+    }
+    if (campo === "MONEDA_COSTO" && codigoCotizacionCosto !== "ARS"
+      && !cotizacionesCosto.some((quote) => quote.codigo === codigoCotizacionCosto && Number(quote.valorVenta) > 0)) {
+      toast.error("Selecciona una cotizacion de venta vigente");
       return;
     }
     if (campo === "STOCK_MINIMO" && (!/^\d+$/.test(stockMinimo) || Number(stockMinimo) < 0)) {
@@ -176,6 +211,7 @@ export function MassEditItemsModal({
           idUbicacion: campo === "UBICACION" ? Number(valor) : undefined,
           idPieza: campo === "PIEZA" ? piezaSeleccionada?.id : undefined,
           criterioCosto: campo === "CRITERIO_COSTO" ? valor : undefined,
+          codigoCotizacionCosto: campo === "MONEDA_COSTO" ? codigoCotizacionCosto : undefined,
           idTipoPrecio: campo === "PRECIOS" ? Number(idTipoPrecio) : undefined,
           variacionPrecio: campo === "PRECIOS" ? variacionPrecio : undefined,
           tipoVariacionPrecio: campo === "PRECIOS" ? tipoVariacionPrecio : undefined,
@@ -234,7 +270,22 @@ export function MassEditItemsModal({
               <option value="">Seleccionar</option>
               {CRITERIOS_COSTO.map((criterio) => <option key={criterio.value} value={criterio.value}>{criterio.label}</option>)}
             </select>
-            <span className="text-xs leading-5 text-slate-500 dark:text-slate-400">Recalcula desde los proveedores válidos. Los cambios de costo que superen el umbral quedan pendientes de aprobación.</span>
+            <span className="text-xs leading-5 text-slate-500 dark:text-slate-400">Manual conserva el costo actual y permite editarlo en la lista. Menor, Promedio y Mayor recalculan desde proveedores; los cambios que superen el umbral quedan pendientes de aprobación.</span>
+          </label>
+        )}
+        {campo === "MONEDA_COSTO" && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Moneda y cotizacion de venta</span>
+            <select value={codigoCotizacionCosto} onChange={(event) => setCodigoCotizacionCosto(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+              <option value="ARS">Pesos argentinos (ARS)</option>
+              {cotizacionesCosto.map((quote) => (
+                <option key={quote.codigo} value={quote.codigo} disabled={!Number.isFinite(Number(quote.valorVenta)) || Number(quote.valorVenta) <= 0}>
+                  {quote.etiqueta} ({quote.codigo}){Number(quote.valorVenta) > 0 ? "" : " - sin cotizacion"}
+                </option>
+              ))}
+            </select>
+            {errorCotizaciones && <span className="text-xs font-semibold text-red-600 dark:text-red-300">{errorCotizaciones}</span>}
+            <span className="text-xs leading-5 text-slate-500 dark:text-slate-400">Conserva el costo equivalente en ARS, expresa su importe en la moneda elegida y pasa los items seleccionados a Manual.</span>
           </label>
         )}
         {campo === "PRECIOS" && (

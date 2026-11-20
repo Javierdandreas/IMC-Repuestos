@@ -16,6 +16,49 @@ function asPositiveNumber(value: unknown) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+export async function obtenerCotizacionVigenteAjustada(
+  client: DbClient,
+  moneda: string,
+  referencia: string,
+  lado: "COMPRA" | "VENTA",
+  tipoRecargoFallback: "PORCENTAJE" | "MONTO_FIJO" = "PORCENTAJE",
+  recargoFallback = 0,
+) {
+  const quote = await client.query<{
+    valor_compra: number | null;
+    valor_venta: number | null;
+    tipo_recargo: "PORCENTAJE" | "MONTO_FIJO" | null;
+    recargo: number | null;
+  }>(
+    `SELECT cotizacion.valor_compra, cotizacion.valor_venta,
+       configuracion.tipo_recargo, configuracion.recargo
+     FROM public.moneda_cotizacion cotizacion
+     LEFT JOIN public.moneda_cotizacion_configuracion configuracion
+       ON configuracion.moneda = cotizacion.moneda
+      AND configuracion.referencia = cotizacion.referencia
+     WHERE cotizacion.moneda = $1 AND cotizacion.referencia = $2 AND cotizacion.estado = 'VIGENTE'
+     ORDER BY cotizacion.actualizado_at DESC, cotizacion.id DESC
+     LIMIT 1`,
+    [moneda, referencia],
+  );
+  const value = lado === "COMPRA" ? quote.rows[0]?.valor_compra : quote.rows[0]?.valor_venta;
+  const cotizacion = asPositiveNumber(value);
+  if (!cotizacion) throw new AppError(`No hay una cotizacion vigente de ${moneda} ${referencia} (${lado}).`, 409);
+
+  const tipoRecargo = quote.rows[0]?.tipo_recargo ?? tipoRecargoFallback;
+  const recargoConfigurado = quote.rows[0]?.recargo;
+  const recargo = Number.isFinite(Number(recargoConfigurado))
+    ? Number(recargoConfigurado)
+    : recargoFallback;
+  const valor = tipoRecargo === "MONTO_FIJO"
+    ? cotizacion + recargo
+    : cotizacion * (1 + recargo / 100);
+  if (!Number.isFinite(valor) || valor <= 0) {
+    throw new AppError("El recargo deja la cotizacion en un valor no valido.", 422);
+  }
+  return { valor, tipoRecargo, recargo };
+}
+
 /**
  * Calcula el ARS vigente sin alterar el importe que el usuario ingreso en su moneda de origen.
  * La cotizacion se toma siempre del ultimo valor VIGENTE, por lo que un registro previo no puede
@@ -41,39 +84,12 @@ export async function calcularPrecioArsDesdeOrigen(client: DbClient, precio: Pre
     throw new AppError("Indica importe, moneda y cotizacion para el precio fijo en moneda.", 400);
   }
 
-  const quote = await client.query<{
-    valor_compra: number | null;
-    valor_venta: number | null;
-    tipo_recargo: "PORCENTAJE" | "MONTO_FIJO" | null;
-    recargo: number | null;
-  }>(
-    `SELECT cotizacion.valor_compra, cotizacion.valor_venta,
-       configuracion.tipo_recargo, configuracion.recargo
-     FROM public.moneda_cotizacion cotizacion
-     LEFT JOIN public.moneda_cotizacion_configuracion configuracion
-       ON configuracion.moneda = cotizacion.moneda
-      AND configuracion.referencia = cotizacion.referencia
-     WHERE cotizacion.moneda = $1 AND cotizacion.referencia = $2 AND cotizacion.estado = 'VIGENTE'
-     ORDER BY cotizacion.actualizado_at DESC, cotizacion.id DESC
-     LIMIT 1`,
-    [moneda, referencia]
+  const quote = await obtenerCotizacionVigenteAjustada(
+    client, moneda, referencia, lado,
+    precio.tipo_recargo_cotizacion ?? "PORCENTAJE",
+    Number(precio.recargo_cotizacion) || 0,
   );
-  const value = lado === "COMPRA" ? quote.rows[0]?.valor_compra : quote.rows[0]?.valor_venta;
-  const cotizacion = asPositiveNumber(value);
-  if (!cotizacion) throw new AppError(`No hay una cotizacion vigente de ${moneda} ${referencia} (${lado}).`, 409);
-
-  const tipoRecargo = quote.rows[0]?.tipo_recargo ?? precio.tipo_recargo_cotizacion ?? "PORCENTAJE";
-  const recargoConfigurado = quote.rows[0]?.recargo;
-  const recargo = Number.isFinite(Number(recargoConfigurado))
-    ? Number(recargoConfigurado)
-    : Number(precio.recargo_cotizacion) || 0;
-  const adjustedQuote = tipoRecargo === "MONTO_FIJO"
-    ? cotizacion + recargo
-    : cotizacion * (1 + recargo / 100);
-  if (!Number.isFinite(adjustedQuote) || adjustedQuote <= 0) {
-    throw new AppError("El recargo deja la cotizacion en un valor no valido.", 422);
-  }
-  return { valor: round(importe * adjustedQuote), importeOrigen: importe, cotizacionUsada: round(adjustedQuote), tipoRecargo, recargo };
+  return { valor: round(importe * quote.valor), importeOrigen: importe, cotizacionUsada: round(quote.valor), tipoRecargo: quote.tipoRecargo, recargo: quote.recargo };
 }
 
 export async function recalcularPreciosMargenDesdeCosto(client: DbClient, productIds: number[]) {
